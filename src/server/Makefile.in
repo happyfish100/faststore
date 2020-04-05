@@ -1,0 +1,30 @@
+.SUFFIXES: .c .o
+
+COMPILE = $(CC) $(CFLAGS)
+INC_PATH = -I/usr/local/include -I..
+LIB_PATH = $(LIBS) -lfastcommon -lserverframe
+TARGET_PATH = $(TARGET_PREFIX)/bin
+CONFIG_PATH = $(TARGET_CONF_PATH)
+
+ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o
+
+#            server_func.o service_handler.o cluster_handler.o server_global.o
+
+ALL_PRGS = fs_serverd
+
+all: $(ALL_PRGS)
+
+$(ALL_PRGS): $(ALL_OBJS)
+
+.o:
+	$(COMPILE) -o $@ $<  $(LIB_PATH) $(INC_PATH)
+.c:
+	$(COMPILE) -o $@ $<  $(ALL_OBJS) $(LIB_PATH) $(INC_PATH)
+.c.o:
+	$(COMPILE) -c -o $@ $<  $(INC_PATH)
+
+install:
+	mkdir -p $(TARGET_PATH)
+	cp -f $(ALL_PRGS) $(TARGET_PATH)
+clean:
+	rm -f *.o $(ALL_OBJS) $(ALL_PRGS)
