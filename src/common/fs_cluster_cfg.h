@@ -1,8 +1,9 @@
 
-#ifndef _FS_FUNC_H
-#define _FS_FUNC_H
+#ifndef _FS_CLUSTER_CFG_H
+#define _FS_CLUSTER_CFG_H
 
 #include "fs_types.h"
+#include "fastcommon/server_id_func.h"
 
 typedef struct {
     int count;
@@ -10,8 +11,9 @@ typedef struct {
 } FSServerGroup;
 
 typedef struct {
+    int alloc;
     int count;
-    int *data;
+    int *data_group_ids;
 } FSDataGroup;
 
 typedef struct {

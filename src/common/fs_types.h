@@ -2,7 +2,6 @@
 #define _FS_TYPES_H
 
 #include "fastcommon/common_define.h"
-#include "fastcommon/server_id_func.h"
 
 #define FS_ERROR_INFO_SIZE   256
 #define FS_REPLICA_KEY_SIZE    8
