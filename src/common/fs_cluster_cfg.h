@@ -13,8 +13,8 @@ typedef struct {
 typedef struct {
     int alloc;
     int count;
-    int *data_group_ids;
-} FSDataGroup;
+    int *ids;
+} FSIdArray;
 
 typedef struct {
     int data_group_id;
@@ -23,7 +23,7 @@ typedef struct {
 
 typedef struct {
     int server_id;
-    FSDataGroup *data_group;
+    FSIdArray data_group;
 } FSServerDataMapping;
 
 typedef struct {
