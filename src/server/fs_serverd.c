@@ -24,6 +24,7 @@
 #include "sf/sf_util.h"
 #include "common/fs_proto.h"
 #include "common/fs_types.h"
+#include "common/fs_cluster_cfg.h"
 //#include "server_types.h"
 //#include "server_func.h"
 //#include "server_binlog.h"
@@ -227,8 +228,18 @@ static int setup_mblock_stat_task()
 static int setup_server_env(const char *config_filename)
 {
     int result;
+    FSClusterConfig cluster_cfg;
+    const char *cluster_filename = "/etc/fstore/cluster.conf";
 
     sf_set_current_time();
+
+    if ((result=fs_cluster_config_load(&cluster_cfg,
+            cluster_filename)) != 0)
+    {
+        return result;
+    }
+    fs_cluster_config_to_log(&cluster_cfg);
+    fs_cluster_config_destroy(&cluster_cfg);
 
     /*
     if ((result=server_load_config(config_filename)) != 0) {

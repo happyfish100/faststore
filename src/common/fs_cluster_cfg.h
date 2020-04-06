@@ -58,6 +58,8 @@ extern "C" {
             const char *cluster_filename);
     void fs_cluster_config_destroy(FSClusterConfig *cluster_cfg);
 
+    void fs_cluster_config_to_log(FSClusterConfig *cluster_cfg);
+
 #ifdef __cplusplus
 }
 #endif

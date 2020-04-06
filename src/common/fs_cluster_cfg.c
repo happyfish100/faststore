@@ -113,26 +113,6 @@ static int load_data_group_count(FSClusterConfig *cluster_cfg,
     return 0;
 }
 
-static int check_data_groups(FSClusterConfig *cluster_cfg,
-        const char *cluster_filename)
-{
-    FSDataServerMapping *mapping;
-    FSDataServerMapping *mend;
-
-    mend = cluster_cfg->data_groups.mappings + cluster_cfg->data_groups.count;
-    for (mapping=cluster_cfg->data_groups.mappings; mapping<mend; mapping++) {
-        if (mapping->server_group == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "config file: %s, data group id: %d NOT belong to "
-                    "any server group!", __LINE__, cluster_filename,
-                    mapping->data_group_id);
-            return ENOENT;
-        }
-    }
-
-    return 0;
-}
-
 #define SKIP_SPACE_CHARS(p, end) \
     do {  \
         while (p < end && (*p == ' ' || *p == '\t')) {  \
@@ -177,6 +157,59 @@ static int check_realloc_id_array(FSIdArray *id_array, const int inc)
     return 0;
 }
 
+static void id_array_to_string(FSIdArray *id_array, char *buff, const int size)
+{
+    char *p;
+    char *end;
+    int i;
+
+    if (id_array->count == 0) {
+        *buff = '\0';
+        return;
+    }
+
+    end = buff + size;
+    p = buff;
+    p += sprintf(p, "%d", id_array->ids[0]);
+    for (i=1; i<id_array->count; i++) {
+        p += snprintf(p, end - p, " %d", id_array->ids[i]);
+    }
+}
+
+static int check_data_groups(FSClusterConfig *cluster_cfg,
+        const char *cluster_filename)
+{
+    FSDataServerMapping *mapping;
+    FSDataServerMapping *mend;
+    FSIdArray data_group_ids;
+    int result;
+
+    INIT_ID_ARRAY(data_group_ids);
+    mend = cluster_cfg->data_groups.mappings + cluster_cfg->data_groups.count;
+    for (mapping=cluster_cfg->data_groups.mappings; mapping<mend; mapping++) {
+        if (mapping->server_group == NULL) {
+            if ((result=check_realloc_id_array(&data_group_ids, 1)) != 0) {
+                return result;
+            }
+            data_group_ids.ids[data_group_ids.count++] = mapping->data_group_id;
+        }
+    }
+
+    if (data_group_ids.ids != NULL) {
+        char id_buff[1024];
+
+        id_array_to_string(&data_group_ids, id_buff, sizeof(id_buff));
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, %d data group ids: %s NOT belong to "
+                "any server group!", __LINE__, cluster_filename,
+                data_group_ids.count, id_buff);
+        free(data_group_ids.ids);
+        return ENOENT;
+    }
+
+    return 0;
+}
+
 static int check_server_data_mappings(FSClusterConfig *cluster_cfg,
         const char *cluster_filename)
 {
@@ -199,20 +232,12 @@ static int check_server_data_mappings(FSClusterConfig *cluster_cfg,
 
     if (server_ids.ids != NULL) {
         char id_buff[1024];
-        char *p;
-        char *end;
-        int i;
 
-        end = id_buff + sizeof(id_buff);
-        p = id_buff;
-        p += sprintf(p, "%d", server_ids.ids[0]);
-        for (i=1; i<server_ids.count; i++) {
-            p += snprintf(p, end - p, " %d", server_ids.ids[i]);
-        }
-
+        id_array_to_string(&server_ids, id_buff, sizeof(id_buff));
         logWarning("file: "__FILE__", line: %d, "
-                "config file: %s, server ids: %s NOT used (NOT contain "
-                "any data group)!", __LINE__, cluster_filename, id_buff);
+                "config file: %s, %d server ids: %s NOT used (NOT contain "
+                "any data group)!", __LINE__, cluster_filename,
+                server_ids.count, id_buff);
         free(server_ids.ids);
     }
 
@@ -291,7 +316,7 @@ static int parse_range(const char *cluster_filename, IniContext *ini_context,
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
-                "config file: %s, section: %s, item: %s, value: %s, %s",
+                "config file: %s, section: %s, item: %s, value: \"%s\", %s",
                 __LINE__, cluster_filename, section_name, item_name,
                 item_value, err_msg);
     }
@@ -334,7 +359,11 @@ static int parse_value(const char *cluster_filename, IniContext *ini_context,
     for (i=0; i<count; i++) {
         v = fc_trim(parts[i]);
         if (*v == '\0') {
-            sprintf(err_msg, "empty value");
+            if (count > 1) {
+                sprintf(err_msg, "the %dth id is empty", i + 1);
+            } else {
+                sprintf(err_msg, "empty id");
+            }
             result = EINVAL;
             break;
         }
@@ -356,7 +385,7 @@ static int parse_value(const char *cluster_filename, IniContext *ini_context,
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
-                "config file: %s, section: %s, item: %s, value: %s, %s",
+                "config file: %s, section: %s, item: %s, value: \"%s\", %s",
                 __LINE__, cluster_filename, section_name, item_name,
                 item_value, err_msg);
     }
@@ -652,6 +681,10 @@ static int load_groups(FSClusterConfig *cluster_cfg,
         }
     }
 
+    if (server_ids.ids != NULL) {
+        free(server_ids.ids);
+    }
+
     if ((result=check_data_groups(cluster_cfg, cluster_filename)) != 0) {
         return result;
     }
@@ -705,4 +738,75 @@ int fs_cluster_config_load(FSClusterConfig *cluster_cfg,
 
 void fs_cluster_config_destroy(FSClusterConfig *cluster_cfg)
 {
+    FSServerGroup *sgroup;
+    FSServerGroup *send;
+
+    if (cluster_cfg->server_groups.groups == NULL) {
+        return;
+    }
+
+    send = cluster_cfg->server_groups.groups + cluster_cfg->server_groups.count;
+    for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
+        if (sgroup->servers != NULL) {
+            free(sgroup->servers);
+            sgroup->servers = NULL;
+        }
+        if (sgroup->data_group.ids != NULL) {
+            free(sgroup->data_group.ids);
+            INIT_ID_ARRAY(sgroup->data_group);
+        }
+    }
+    free(cluster_cfg->server_groups.groups);
+    cluster_cfg->server_groups.groups = NULL;
+
+    if (cluster_cfg->data_groups.mappings != NULL) {
+        free(cluster_cfg->data_groups.mappings);
+        cluster_cfg->data_groups.mappings = NULL;
+    }
+
+    if (cluster_cfg->server_data_mappings.mappings != NULL) {
+        FSServerDataMapping *mapping;
+        FSServerDataMapping *mend;
+
+        mend = cluster_cfg->server_data_mappings.mappings +
+            cluster_cfg->server_data_mappings.count;
+        for (mapping=cluster_cfg->server_data_mappings.mappings;
+                mapping<mend; mapping++)
+        {
+            free(mapping->data_group.ids);
+            INIT_ID_ARRAY(mapping->data_group);
+        }
+        free(cluster_cfg->server_data_mappings.mappings);
+        cluster_cfg->server_data_mappings.mappings = NULL;
+    }
+}
+
+void fs_cluster_config_to_log(FSClusterConfig *cluster_cfg)
+{
+    FSServerGroup *sgroup;
+    FSServerGroup *send;
+    char server_id_buff[1024];
+    char group_id_buff[1024];
+    char *p;
+    char *end;
+    int i;
+
+    end = server_id_buff + sizeof(server_id_buff);
+    send = cluster_cfg->server_groups.groups +
+        cluster_cfg->server_groups.count;
+    for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
+
+        p = server_id_buff;
+        p += sprintf(p, "%d", sgroup->servers[0]->id);
+        for (i=1; i<sgroup->count; i++) {
+            p += snprintf(p, end - p, ", %d", sgroup->servers[i]->id);
+        }
+
+        id_array_to_string(&sgroup->data_group, group_id_buff,
+                sizeof(group_id_buff));
+
+        logInfo("[server-group-%d]", sgroup->server_group_id);
+        logInfo("server_ids = %s", server_id_buff);
+        logInfo("data_group_ids = %s", group_id_buff);
+    }
 }
