@@ -6,15 +6,17 @@
 #include "fastcommon/server_id_func.h"
 
 typedef struct {
-    int count;
-    FCServerInfo **servers;
-} FSServerGroup;
-
-typedef struct {
     int alloc;
     int count;
     int *ids;
 } FSIdArray;
+
+typedef struct {
+    int server_group_id;
+    int count;
+    FCServerInfo **servers;
+    FSIdArray data_group;
+} FSServerGroup;
 
 typedef struct {
     int data_group_id;
