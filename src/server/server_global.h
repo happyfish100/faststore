@@ -4,6 +4,7 @@
 
 #include "fastcommon/common_define.h"
 #include "fastcommon/server_id_func.h"
+#include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
 #include "server_types.h"
 
@@ -11,7 +12,7 @@ typedef struct server_global_vars {
     struct {
         FSClusterServerInfo *myself;
         struct {
-            FCServerConfig ctx;
+            FSClusterConfig ctx;
             unsigned char md5_digest[16];
             int cluster_group_index;
             int service_group_index;
@@ -34,21 +35,22 @@ typedef struct server_global_vars {
 
 } FSServerGlobalVars;
 
-#define CLUSTER_CONFIG_CTX      g_server_global_vars.cluster.config.ctx
+#define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
+#define SERVER_CONFIG_CTX     g_server_global_vars.cluster.config.ctx.server_cfg
 
-#define CLUSTER_MYSELF_PTR      g_server_global_vars.cluster.myself
+#define CLUSTER_MYSELF_PTR    g_server_global_vars.cluster.myself
 
-#define CLUSTER_SERVER_ARRAY    g_server_global_vars.cluster.server_array
+#define CLUSTER_SERVER_ARRAY  g_server_global_vars.cluster.server_array
 
-#define CLUSTER_MY_SERVER_ID    CLUSTER_MYSELF_PTR->server->id
+#define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 
-#define CLUSTER_SF_CTX          g_server_global_vars.cluster.sf_context
+#define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
 
-#define BINLOG_BUFFER_SIZE      g_server_global_vars.data.binlog_buffer_size
-#define DATA_CURRENT_VERSION    g_server_global_vars.data.current_version
-#define DATA_PATH               g_server_global_vars.data.path
-#define DATA_PATH_STR           DATA_PATH.str
-#define DATA_PATH_LEN           DATA_PATH.len
+#define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
+#define DATA_CURRENT_VERSION  g_server_global_vars.data.current_version
+#define DATA_PATH             g_server_global_vars.data.path
+#define DATA_PATH_STR         DATA_PATH.str
+#define DATA_PATH_LEN         DATA_PATH.len
 
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars.replica.channels_between_two_servers

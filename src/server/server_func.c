@@ -10,8 +10,8 @@
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
 #include "common/fs_proto.h"
-#include "common/fs_cluster_cfg.h"
 #include "server_global.h"
+#include "server_group_info.h"
 #include "server_func.h"
 
 static int get_bytes_item_config(IniContext *ini_context,
@@ -41,11 +41,11 @@ static void log_cluster_server_config()
     if (fast_buffer_init_ex(&buffer, 1024) != 0) {
         return;
     }
-    fc_server_to_config_string(&CLUSTER_CONFIG_CTX, &buffer);
+    fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     log_it1(LOG_INFO, buffer.data, buffer.length);
     fast_buffer_destroy(&buffer);
 
-    fc_server_to_log(&CLUSTER_CONFIG_CTX);
+    fc_server_to_log(&SERVER_CONFIG_CTX);
 }
 
 static int calc_cluster_config_sign()
@@ -56,7 +56,7 @@ static int calc_cluster_config_sign()
     if ((result=fast_buffer_init_ex(&buffer, 1024)) != 0) {
         return result;
     }
-    fc_server_to_config_string(&CLUSTER_CONFIG_CTX, &buffer);
+    fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     my_md5_buffer(buffer.data, buffer.length, CLUSTER_CONFIG_SIGN_BUF);
 
     {
@@ -71,7 +71,7 @@ static int calc_cluster_config_sign()
 
 static int find_group_indexes_in_cluster_config(const char *filename)
 {
-    CLUSTER_GROUP_INDEX = fc_server_get_group_index(&CLUSTER_CONFIG_CTX,
+    CLUSTER_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
             "cluster");
     if (CLUSTER_GROUP_INDEX < 0) {
         logError("file: "__FILE__", line: %d, "
@@ -80,7 +80,7 @@ static int find_group_indexes_in_cluster_config(const char *filename)
         return ENOENT;
     }
 
-    SERVICE_GROUP_INDEX = fc_server_get_group_index(&CLUSTER_CONFIG_CTX,
+    SERVICE_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
             "service");
     if (SERVICE_GROUP_INDEX < 0) {
         logError("file: "__FILE__", line: %d, "
@@ -94,12 +94,9 @@ static int find_group_indexes_in_cluster_config(const char *filename)
 
 static int load_cluster_config(IniContext *ini_context, const char *filename)
 {
-    FSClusterConfig cluster_cfg;
     int result;
     char *cluster_config_filename;
     char full_cluster_filename[PATH_MAX];
-    const int min_hosts_each_group = 1;
-    const bool share_between_groups = true;
 
     cluster_config_filename = iniGetStrValue(NULL,
             "cluster_config_filename", ini_context);
@@ -112,24 +109,21 @@ static int load_cluster_config(IniContext *ini_context, const char *filename)
 
     resolve_path(filename, cluster_config_filename,
             full_cluster_filename, sizeof(full_cluster_filename));
-    if ((result=fs_cluster_config_load(&cluster_cfg,
+    if ((result=fs_cluster_config_load(&CLUSTER_CONFIG_CTX,
             full_cluster_filename)) != 0)
     {
         return result;
     }
 
-    fs_cluster_config_to_log(&cluster_cfg);
-    fs_cluster_config_destroy(&cluster_cfg);
+    fs_cluster_config_to_log(&CLUSTER_CONFIG_CTX);
 
-    //TODO
-    if ((result=fc_server_load_from_file_ex(&CLUSTER_CONFIG_CTX,
-                    full_cluster_filename, FS_SERVER_DEFAULT_CLUSTER_PORT,
-                    min_hosts_each_group, share_between_groups)) != 0)
-    {
+    if ((result=server_group_info_init(full_cluster_filename)) != 0) {
         return result;
     }
 
-    if ((result=find_group_indexes_in_cluster_config(filename)) != 0) {
+    if ((result=find_group_indexes_in_cluster_config(
+                    full_cluster_filename)) != 0)
+    {
         return result;
     }
     if ((result=calc_cluster_config_sign()) != 0) {
@@ -217,7 +211,7 @@ static void server_log_configs()
             CLUSTER_MY_SERVER_ID,
             DATA_PATH_STR, REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             BINLOG_BUFFER_SIZE / 1024,
-            FC_SID_SERVER_COUNT(CLUSTER_CONFIG_CTX));
+            FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
 
     logInfo("%s, service: {%s}, cluster: {%s}, %s",
             sz_global_config, sz_service_config,
