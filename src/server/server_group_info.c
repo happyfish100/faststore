@@ -20,16 +20,35 @@
 #define SERVER_GROUP_INFO_ITEM_LAST_DATA_VERSION  "last_data_version"
 
 static int server_group_info_write_to_file();
+static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
+        int *err_no);
 
-static int init_cluster_server_array()
+static int init_cluster_server_array(const char *filename)
 {
+#define MAX_GROUP_SERVERS 64
     int bytes;
+    int result;
+    int count;
     FSClusterServerInfo *cs;
-    FCServerInfo *server;
-    FCServerInfo *end;
+    FCServerInfo *servers[MAX_GROUP_SERVERS];
+    FCServerInfo *myself;
+    FCServerInfo **server;
+    FCServerInfo **end;
 
-    bytes = sizeof(FSClusterServerInfo) *
-        FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX);
+    if ((myself=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
+        return result;
+    }
+
+    if ((result=fs_cluster_config_get_group_servers(&CLUSTER_CONFIG_CTX,
+                    myself->id, servers, MAX_GROUP_SERVERS, &count)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "get group servers fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    bytes = sizeof(FSClusterServerInfo) * count;
     CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)malloc(bytes);
     if (CLUSTER_SERVER_ARRAY.servers == NULL) {
         logError("file: "__FILE__", line: %d, "
@@ -38,19 +57,19 @@ static int init_cluster_server_array()
     }
     memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
 
-    end = FC_SID_SERVERS(SERVER_CONFIG_CTX) +
-        FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX);
-    for (server=FC_SID_SERVERS(SERVER_CONFIG_CTX),
-            cs=CLUSTER_SERVER_ARRAY.servers; server<end; server++, cs++)
+    end = servers + count;
+    for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
+            server<end; server++, cs++)
     {
-        cs->server = server;
+        cs->server = *server;
     }
 
-    CLUSTER_SERVER_ARRAY.count = FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX);
+    CLUSTER_SERVER_ARRAY.count = count;
     return 0;
 }
 
-static int find_myself_in_cluster_config(const char *filename)
+static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
+        int *err_no)
 {
     const char *local_ip;
     struct {
@@ -58,7 +77,7 @@ static int find_myself_in_cluster_config(const char *filename)
         int port;
     } found;
     FCServerInfo *server;
-    FSClusterServerInfo *myself;
+    FCServerInfo *myself;
     int ports[2];
     int count;
     int i;
@@ -69,6 +88,7 @@ static int find_myself_in_cluster_config(const char *filename)
         ports[count++] = g_sf_context.outer_port;
     }
 
+    myself = NULL;
     found.ip_addr = NULL;
     found.port = 0;
     local_ip = get_first_local_ip();
@@ -76,50 +96,67 @@ static int find_myself_in_cluster_config(const char *filename)
         for (i=0; i<count; i++) {
             server = fc_server_get_by_ip_port(&SERVER_CONFIG_CTX,
                     local_ip, ports[i]);
-            if (server != NULL) {
-                myself = CLUSTER_SERVER_ARRAY.servers +
-                    (server - FC_SID_SERVERS(SERVER_CONFIG_CTX));
-                if (CLUSTER_MYSELF_PTR == NULL) {
-                    CLUSTER_MYSELF_PTR = myself;
-                } else if (myself != CLUSTER_MYSELF_PTR) {
-                    logError("file: "__FILE__", line: %d, "
-                            "cluster config file: %s, my ip and port "
-                            "in more than one servers, %s:%d in "
-                            "server id %d, and %s:%d in server id %d",
-                            __LINE__, filename, found.ip_addr, found.port,
-                            CLUSTER_MY_SERVER_ID, local_ip,
-                            ports[i], myself->server->id);
-                    return EEXIST;
-                }
-
-                found.ip_addr = local_ip;
-                found.port = ports[i];
+            if (myself == NULL) {
+                myself = server;
+            } else if (myself != server) {
+                logError("file: "__FILE__", line: %d, "
+                        "cluster config file: %s, my ip and port "
+                        "in more than one servers, %s:%d in "
+                        "server id %d, and %s:%d in server id %d",
+                        __LINE__, filename, found.ip_addr, found.port,
+                        myself->id, local_ip, ports[i], server->id);
+                *err_no = EEXIST;
+                return NULL;
             }
+
+            found.ip_addr = local_ip;
+            found.port = ports[i];
         }
 
         local_ip = get_next_local_ip(local_ip);
     }
 
-    if (CLUSTER_MYSELF_PTR == NULL) {
+    if (myself == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "cluster config file: %s, can't find myself "
                 "by my local ip and listen port", __LINE__, filename);
-        return ENOENT;
+        *err_no = ENOENT;
+    }
+    return myself;
+}
+
+static int find_myself_in_cluster_config(const char *filename)
+{
+    FCServerInfo *server;
+    int result;
+
+    if ((server=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
+        return result;
     }
 
+    CLUSTER_MYSELF_PTR = fs_get_server_by_id(server->id);
+    if (CLUSTER_MYSELF_PTR == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, can't find myself "
+                "by my server id: %d", __LINE__, filename, server->id);
+        return ENOENT;
+    }
     return 0;
 }
 
 FSClusterServerInfo *fs_get_server_by_id(const int server_id)
 {
-    FCServerInfo *server;
-    server = fc_server_get_by_id(&SERVER_CONFIG_CTX, server_id);
-    if (server == NULL) {
-        return NULL;
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if (cs->server->id == server_id) {
+            return cs;
+        }
     }
 
-    return CLUSTER_SERVER_ARRAY.servers + (server -
-            FC_SID_SERVERS(SERVER_CONFIG_CTX));
+    return NULL;
 }
 
 static int load_servers_from_ini_ctx(IniContext *ini_context)
@@ -178,7 +215,7 @@ int server_group_info_init(const char *cluster_config_filename)
 {
     int result;
 
-    if ((result=init_cluster_server_array()) != 0) {
+    if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
         return result;
     }
     if ((result=load_server_group_info_from_file()) != 0) {
