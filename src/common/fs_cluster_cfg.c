@@ -319,6 +319,7 @@ static int parse_range(const char *cluster_filename, IniContext *ini_context,
                 "config file: %s, section: %s, item: %s, value: \"%s\", %s",
                 __LINE__, cluster_filename, section_name, item_name,
                 item_value, err_msg);
+        return result;
     }
 
     if ((result=check_realloc_id_array(id_array,
@@ -331,7 +332,7 @@ static int parse_range(const char *cluster_filename, IniContext *ini_context,
         id_array->ids[id_array->count++] = id;
     }
 
-    return result;
+    return 0;
 }
 
 static int parse_value(const char *cluster_filename, IniContext *ini_context,

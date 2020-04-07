@@ -6,9 +6,8 @@ LIB_PATH = $(LIBS) -lfastcommon -lserverframe
 TARGET_PATH = $(TARGET_PREFIX)/bin
 CONFIG_PATH = $(TARGET_CONF_PATH)
 
-ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o
-
-#            server_func.o service_handler.o cluster_handler.o server_global.o
+ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o \
+           server_func.o service_handler.o cluster_handler.o server_global.o
 
 ALL_PRGS = fs_serverd
 

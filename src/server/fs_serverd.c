@@ -24,12 +24,11 @@
 #include "sf/sf_util.h"
 #include "common/fs_proto.h"
 #include "common/fs_types.h"
-#include "common/fs_cluster_cfg.h"
-//#include "server_types.h"
-//#include "server_func.h"
-//#include "server_binlog.h"
-//#include "service_handler.h"
-//#include "cluster_handler.h"
+#include "server_types.h"
+#include "server_global.h"
+#include "server_func.h"
+#include "service_handler.h"
+#include "cluster_handler.h"
 
 static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
@@ -41,7 +40,7 @@ int main(int argc, char *argv[])
     char *action;
     char g_pid_filename[MAX_PATH_SIZE];
     pthread_t schedule_tid;
-    //int wait_count;
+    int wait_count;
     bool stop;
     int result;
 
@@ -92,16 +91,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /*
-        if ((result=cluster_info_setup_sync_to_file_task()) != 0) {
-            break;
-        }
-
         //sched_print_all_entries();
-
-        if ((result=inode_generator_init()) != 0) {
-            break;
-        }
 
         if ((result=sf_socket_server()) != 0) {
             break;
@@ -115,18 +105,11 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=dentry_init()) != 0) {
-            break;
-        }
-
         if ((result=service_handler_init()) != 0) {
             break;
         }
 
-        if ((result=server_binlog_init()) != 0) {
-            break;
-        }
-
+        /*
         if ((result=data_thread_init()) != 0) {
             break;
         }
@@ -139,7 +122,6 @@ int main(int argc, char *argv[])
         fs_proto_init();
         //sched_print_all_entries();
 
-        /*
         result = sf_service_init_ex(&CLUSTER_SF_CTX,
                 cluster_alloc_thread_extra_data,
                 cluster_thread_loop_callback, NULL,
@@ -160,7 +142,6 @@ int main(int argc, char *argv[])
             break;
         }
         sf_set_remove_from_ready_list(false);
-        */
     } while (0);
 
     if (result != 0) {
@@ -170,10 +151,9 @@ int main(int argc, char *argv[])
     }
 
     setup_mblock_stat_task();
-    /*
     //sched_print_all_entries();
 
-    //sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
+    sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
     sf_accept_loop();
     if (g_schedule_flag) {
         pthread_kill(schedule_tid, SIGINT);
@@ -189,12 +169,8 @@ int main(int argc, char *argv[])
             break;
         }
     }
-    */
 
-    /*
-    server_binlog_terminate();
     sf_service_destroy();
-    */
 
     delete_pid_file(g_pid_filename);
     logInfo("file: "__FILE__", line: %d, "
@@ -228,24 +204,11 @@ static int setup_mblock_stat_task()
 static int setup_server_env(const char *config_filename)
 {
     int result;
-    FSClusterConfig cluster_cfg;
-    const char *cluster_filename = "/etc/fstore/cluster.conf";
 
     sf_set_current_time();
-
-    if ((result=fs_cluster_config_load(&cluster_cfg,
-            cluster_filename)) != 0)
-    {
-        return result;
-    }
-    fs_cluster_config_to_log(&cluster_cfg);
-    fs_cluster_config_destroy(&cluster_cfg);
-
-    /*
     if ((result=server_load_config(config_filename)) != 0) {
         return result;
     }
-    */
 
     if (daemon_mode) {
         daemon_init(false);
