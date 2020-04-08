@@ -39,7 +39,7 @@ static int init_cluster_server_array(const char *filename)
         return result;
     }
 
-    if ((result=fs_cluster_config_get_group_servers(&CLUSTER_CONFIG_CTX,
+    if ((result=fs_cluster_cfg_get_group_servers(&CLUSTER_CONFIG_CTX,
                     myself->id, servers, MAX_GROUP_SERVERS, &count)) != 0)
     {
         logError("file: "__FILE__", line: %d, "

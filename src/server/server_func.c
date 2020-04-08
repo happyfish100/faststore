@@ -109,13 +109,13 @@ static int load_cluster_config(IniContext *ini_context, const char *filename)
 
     resolve_path(filename, cluster_config_filename,
             full_cluster_filename, sizeof(full_cluster_filename));
-    if ((result=fs_cluster_config_load(&CLUSTER_CONFIG_CTX,
+    if ((result=fs_cluster_cfg_load(&CLUSTER_CONFIG_CTX,
             full_cluster_filename)) != 0)
     {
         return result;
     }
 
-    fs_cluster_config_to_log(&CLUSTER_CONFIG_CTX);
+    fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
         return result;

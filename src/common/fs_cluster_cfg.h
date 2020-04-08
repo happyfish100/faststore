@@ -53,11 +53,11 @@ typedef struct {
 extern "C" {
 #endif
 
-    int fs_cluster_config_load(FSClusterConfig *cluster_cfg,
+    int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
             const char *cluster_filename);
-    void fs_cluster_config_destroy(FSClusterConfig *cluster_cfg);
+    void fs_cluster_cfg_destroy(FSClusterConfig *cluster_cfg);
 
-    static inline FSServerGroup *fs_cluster_config_get_server_group(
+    static inline FSServerGroup *fs_cluster_cfg_get_server_group(
             FSClusterConfig *cluster_cfg, const int data_group_index)
     {
         if (data_group_index < 0 || data_group_index >=
@@ -69,11 +69,11 @@ extern "C" {
         return cluster_cfg->data_groups.mappings[data_group_index].server_group;
     }
 
-    int fs_cluster_config_get_group_servers(FSClusterConfig *cluster_cfg,
+    int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
             const int server_id, FCServerInfo **servers,
             const int size, int *count);
 
-    void fs_cluster_config_to_log(FSClusterConfig *cluster_cfg);
+    void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 
 #ifdef __cplusplus
 }

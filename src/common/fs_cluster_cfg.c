@@ -713,7 +713,7 @@ static int load_groups(FSClusterConfig *cluster_cfg,
     return check_server_data_mappings(cluster_cfg, cluster_filename);
 }
 
-int fs_cluster_config_load(FSClusterConfig *cluster_cfg,
+int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         const char *cluster_filename)
 {
     IniContext ini_context;
@@ -758,7 +758,7 @@ int fs_cluster_config_load(FSClusterConfig *cluster_cfg,
     return result;
 }
 
-void fs_cluster_config_destroy(FSClusterConfig *cluster_cfg)
+void fs_cluster_cfg_destroy(FSClusterConfig *cluster_cfg)
 {
     FSServerGroup *sgroup;
     FSServerGroup *send;
@@ -803,7 +803,7 @@ void fs_cluster_config_destroy(FSClusterConfig *cluster_cfg)
     }
 }
 
-void fs_cluster_config_to_log(FSClusterConfig *cluster_cfg)
+void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
 {
     FSServerGroup *sgroup;
     FSServerGroup *send;
@@ -839,7 +839,7 @@ static int compare_server_group(const void *p1, const void *p2)
         (*((FSServerGroup **)p2))->server_group_id;
 }
 
-int fs_cluster_config_add_one_server(FCServerInfo *svr,
+int fs_cluster_cfg_add_one_server(FCServerInfo *svr,
         FCServerInfo **servers, const int size, int *count)
 {
     FCServerInfo **pp;
@@ -869,7 +869,7 @@ int fs_cluster_config_add_one_server(FCServerInfo *svr,
     return 0;
 }
 
-int fs_cluster_config_add_servers(FSServerGroup *server_group,
+int fs_cluster_cfg_add_servers(FSServerGroup *server_group,
         FCServerInfo **servers, const int size, int *count)
 {
     FCServerInfo **pp;
@@ -878,7 +878,7 @@ int fs_cluster_config_add_servers(FSServerGroup *server_group,
 
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers; pp<end; pp++) {
-        if ((result=fs_cluster_config_add_one_server(*pp,
+        if ((result=fs_cluster_cfg_add_one_server(*pp,
                         servers, size, count)) != 0)
         {
             return result;
@@ -888,7 +888,7 @@ int fs_cluster_config_add_servers(FSServerGroup *server_group,
     return 0;
 }
 
-int fs_cluster_config_get_group_servers(FSClusterConfig *cluster_cfg,
+int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
         const int server_id, FCServerInfo **servers,
         const int size, int *count)
 {
@@ -925,14 +925,14 @@ int fs_cluster_config_get_group_servers(FSClusterConfig *cluster_cfg,
     qsort(server_groups, sgroup_count, sizeof(FSServerGroup *),
             compare_server_group);
 
-    if ((result=fs_cluster_config_add_servers(server_groups[0],
+    if ((result=fs_cluster_cfg_add_servers(server_groups[0],
                     servers, size, count)) != 0)
     {
         return result;
     }
     for (i=1; i<sgroup_count; i++) {
         if (server_groups[i] != server_groups[i -1]) {
-            if ((result=fs_cluster_config_add_servers(server_groups[i],
+            if ((result=fs_cluster_cfg_add_servers(server_groups[i],
                             servers, size, count)) != 0)
             {
                 return result;
