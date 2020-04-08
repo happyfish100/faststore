@@ -15,6 +15,11 @@
 #define FS_CLUSTER_TASK_TYPE_REPLICA_MASTER     2   //[Master] -> slave
 #define FS_CLUSTER_TASK_TYPE_REPLICA_SLAVE      3   //master -> [Slave]
 
+#define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  1
+#define FS_DEFAULT_TRUNK_FILE_SIZE  ( 256 * 1024 * 1024)
+#define FS_TRUNK_FILE_MIN_SIZE      ( 256 * 1024 * 1024)
+#define FS_TRUNK_FILE_MAX_SIZE      (1024 * 1024 * 1024)
+
 #define TASK_STATUS_CONTINUE   12345
 
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)

@@ -7,6 +7,7 @@
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
 #include "server_types.h"
+#include "storage_config.h"
 
 typedef struct server_global_vars {
     struct {
@@ -29,6 +30,8 @@ typedef struct server_global_vars {
         int binlog_buffer_size;
     } data;
 
+    FSStorageConfig storage_cfg;
+
     struct {
         int channels_between_two_servers;
     } replica;
@@ -45,6 +48,8 @@ typedef struct server_global_vars {
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
+
+#define STORAGE_CFG           g_server_global_vars.storage_cfg
 
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
 #define DATA_CURRENT_VERSION  g_server_global_vars.data.current_version

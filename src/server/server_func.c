@@ -245,6 +245,24 @@ static int load_binlog_buffer_size(IniContext *ini_context,
     return 0;
 }
 
+static int load_storage_cfg(IniContext *ini_context, const char *filename)
+{
+    char *storage_config_filename;
+    char full_filename[PATH_MAX];
+
+    storage_config_filename = iniGetStrValue(NULL,
+            "storage_config_filename", ini_context);
+    if (storage_config_filename == NULL || *storage_config_filename == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "item \"storage_config_filename\" not exist or empty",
+                __LINE__);
+        return ENOENT;
+    }
+
+    resolve_path(filename, storage_config_filename,
+            full_filename, sizeof(full_filename));
+    return storage_config_load(&STORAGE_CFG, full_filename);
+}
 
 int server_load_config(const char *filename)
 {
@@ -293,10 +311,15 @@ int server_load_config(const char *filename)
         return result;
     }
 
+    if ((result=load_storage_cfg(&ini_context, filename)) != 0) {
+        return result;
+    }
+
     iniFreeContext(&ini_context);
 
     load_local_host_ip_addrs();
     server_log_configs();
+    storage_config_to_log(&STORAGE_CFG);
 
     return 0;
 }
