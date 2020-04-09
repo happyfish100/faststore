@@ -2,12 +2,15 @@
 #ifndef _STORAGE_CONFIG_H
 #define _STORAGE_CONFIG_H
 
-#include "../common/fs_types.h"
+#include "../../common/fs_types.h"
 
 typedef struct {
     string_t path;
     int thread_count;
-    int64_t reserved_space;
+    struct {
+        int64_t value;
+        double ratio;
+    } reserved_space;
     int64_t avail_space;  //current available space
 } FSStoragePathInfo;
 

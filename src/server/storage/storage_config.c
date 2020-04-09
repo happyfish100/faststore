@@ -5,7 +5,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
-#include "server_types.h"
+#include "../server_types.h"
 #include "storage_config.h"
 
 static int load_reserved_space(const char *storage_filename,
@@ -104,8 +104,7 @@ static int load_one_path(FSStorageConfig *storage_cfg,
     return 0;
 }
 
-static int calc_path_spaces(FSStoragePathInfo *path_info,
-        const double reserved_space)
+static int calc_path_spaces(FSStoragePathInfo *path_info)
 {
     struct statvfs sbuf;
     int64_t total_space;
@@ -119,7 +118,8 @@ static int calc_path_spaces(FSStoragePathInfo *path_info,
 
     total_space = (int64_t)(sbuf.f_blocks) * sbuf.f_frsize;
     path_info->avail_space = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
-    path_info->reserved_space = total_space * reserved_space;
+    path_info->reserved_space.value = total_space *
+        path_info->reserved_space.ratio;
     return 0;
 }
 
@@ -132,7 +132,6 @@ static int load_paths(FSStorageConfig *storage_cfg,
     int count;
     int bytes;
     int i;
-    double reserved_space;
     char section_name[64];
 
     count = iniGetIntValue(NULL, item_name, ini_context, 0);
@@ -174,15 +173,14 @@ static int load_paths(FSStorageConfig *storage_cfg,
         }
 
         if ((result=load_reserved_space(storage_filename, ini_context,
-                        section_name, "reserved_space", &reserved_space,
+                        section_name, "reserved_space",
+                        &parray->paths[i].reserved_space.ratio,
                         storage_cfg->reserved_space_per_disk)) != 0)
         {
             return result;
         }
 
-        if ((result=calc_path_spaces(parray->paths + i,
-                        reserved_space)) != 0)
-        {
+        if ((result=calc_path_spaces(parray->paths + i)) != 0) {
             return result;
         }
     }
@@ -282,7 +280,7 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
 
     if ((result=load_paths(storage_cfg, storage_filename, ini_context,
                     "write-cache-path", "write_cache_path_count",
-                    &storage_cfg->store_path, false)) != 0)
+                    &storage_cfg->write_cache, false)) != 0)
     {
         return result;
     }
@@ -310,6 +308,22 @@ int storage_config_load(FSStorageConfig *storage_cfg,
     return result;
 }
 
+void log_paths(FSStoragePathArray *parray, const char *caption)
+{
+    FSStoragePathInfo *p;
+    FSStoragePathInfo *end;
+
+    logInfo("%s count: %d", caption, parray->count);
+    end = parray->paths + parray->count;
+    for (p=parray->paths; p<end; p++) {
+        logInfo("  path %d: %s, threads: %d, reserved_space_ratio: %.2f%%, "
+                "avail_space: %"PRId64", reserved_space: %"PRId64,
+                (int)(p - parray->paths + 1), p->path.str, p->thread_count,
+                p->reserved_space.ratio * 100.00, p->avail_space,
+                p->reserved_space.value);
+    }
+}
+
 void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, threads_per_disk: %d, reserved_space_per_disk: %.2f%%, "
@@ -319,10 +333,12 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->reserved_space_per_disk * 100.00,
             storage_cfg->trunk_file_size / (1024 * 1024),
             storage_cfg->max_trunk_files_per_subdir,
-            storage_cfg->write_cache_to_hd.on_usage,
+            storage_cfg->write_cache_to_hd.on_usage * 100.00,
             storage_cfg->write_cache_to_hd.start_time.hour,
             storage_cfg->write_cache_to_hd.start_time.minute,
             storage_cfg->write_cache_to_hd.end_time.hour,
             storage_cfg->write_cache_to_hd.end_time.minute);
-    //TODO
+
+    log_paths(&storage_cfg->store_path, "store paths");
+    log_paths(&storage_cfg->write_cache, "write cache paths");
 }

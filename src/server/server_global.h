@@ -7,7 +7,7 @@
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
 #include "server_types.h"
-#include "storage_config.h"
+#include "storage/storage_config.h"
 
 typedef struct server_global_vars {
     struct {
