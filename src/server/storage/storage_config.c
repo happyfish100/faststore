@@ -104,7 +104,7 @@ static int load_one_path(FSStorageConfig *storage_cfg,
     return 0;
 }
 
-static int calc_path_spaces(FSStoragePathInfo *path_info)
+int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
 {
     struct statvfs sbuf;
     int64_t total_space;
@@ -180,7 +180,7 @@ static int load_paths(FSStorageConfig *storage_cfg,
             return result;
         }
 
-        if ((result=calc_path_spaces(parray->paths + i)) != 0) {
+        if ((result=storage_config_calc_path_spaces(parray->paths + i)) != 0) {
             return result;
         }
     }
@@ -194,7 +194,9 @@ static int load_global_items(FSStorageConfig *storage_cfg,
 {
     int result;
     char *tf_size;
+    char *discard_size;
     int64_t trunk_file_size;
+    int64_t discard_remain_space_size;
 
     storage_cfg->threads_per_disk = iniGetIntValue(NULL,
             "threads_per_disk", ini_context, 2);
@@ -218,16 +220,47 @@ static int load_global_items(FSStorageConfig *storage_cfg,
 
     if (storage_cfg->trunk_file_size < FS_TRUNK_FILE_MIN_SIZE) {
         logWarning("file: "__FILE__", line: %d, "
-                "trunk_file_size: %d is too small, set to %d",
+                "trunk_file_size: %"PRId64" is too small, set to %"PRId64,
                 __LINE__, storage_cfg->trunk_file_size,
-                FS_TRUNK_FILE_MIN_SIZE);
+                (int64_t)FS_TRUNK_FILE_MIN_SIZE);
         storage_cfg->trunk_file_size = FS_TRUNK_FILE_MIN_SIZE;
     } else if (storage_cfg->trunk_file_size > FS_TRUNK_FILE_MAX_SIZE) {
         logWarning("file: "__FILE__", line: %d, "
-                "trunk_file_size: %d is too large, set to %d",
+                "trunk_file_size: %"PRId64" is too large, set to %"PRId64,
                 __LINE__, storage_cfg->trunk_file_size,
-                FS_TRUNK_FILE_MAX_SIZE);
+                (int64_t)FS_TRUNK_FILE_MAX_SIZE);
         storage_cfg->trunk_file_size = FS_TRUNK_FILE_MAX_SIZE;
+    }
+
+    discard_size = iniGetStrValue(NULL, "discard_remain_space_size",
+            ini_context);
+    if (discard_size == NULL || *discard_size == '\0') {
+        discard_remain_space_size = FS_DEFAULT_DISCARD_REMAIN_SPACE_SIZE;
+    } else if ((result=parse_bytes(discard_size, 1,
+                    &discard_remain_space_size)) != 0) {
+        return result;
+    } else {
+    }
+    storage_cfg->discard_remain_space_size = discard_remain_space_size;
+
+    if (storage_cfg->discard_remain_space_size <
+            FS_DISCARD_REMAIN_SPACE_MIN_SIZE)
+    {
+        logWarning("file: "__FILE__", line: %d, "
+                "discard_remain_space_size: %d is too small, set to %d",
+                __LINE__, storage_cfg->discard_remain_space_size,
+                FS_DISCARD_REMAIN_SPACE_MIN_SIZE);
+        storage_cfg->discard_remain_space_size =
+            FS_DISCARD_REMAIN_SPACE_MIN_SIZE;
+    } else if (storage_cfg->discard_remain_space_size >
+            FS_DISCARD_REMAIN_SPACE_MAX_SIZE)
+    {
+        logWarning("file: "__FILE__", line: %d, "
+                "discard_remain_space_size: %d is too large, set to %d",
+                __LINE__, storage_cfg->discard_remain_space_size,
+                FS_DISCARD_REMAIN_SPACE_MAX_SIZE);
+        storage_cfg->discard_remain_space_size =
+            FS_DISCARD_REMAIN_SPACE_MAX_SIZE;
     }
 
     if ((result=load_reserved_space(storage_filename, ini_context,
@@ -328,11 +361,13 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, threads_per_disk: %d, reserved_space_per_disk: %.2f%%, "
             "trunk_file_size: %d MB, max_trunk_files_per_subdir: %d, "
+            "discard_remain_space_size: %d, "
             "write_cache_to_hd: { on_usage: %.2f%%, start_time: %02d:%02d, "
             "end_time: %02d:%02d }", storage_cfg->threads_per_disk,
             storage_cfg->reserved_space_per_disk * 100.00,
-            storage_cfg->trunk_file_size / (1024 * 1024),
+            (int)(storage_cfg->trunk_file_size / (1024 * 1024)),
             storage_cfg->max_trunk_files_per_subdir,
+            storage_cfg->discard_remain_space_size,
             storage_cfg->write_cache_to_hd.on_usage * 100.00,
             storage_cfg->write_cache_to_hd.start_time.hour,
             storage_cfg->write_cache_to_hd.start_time.minute,

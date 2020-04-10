@@ -2,27 +2,46 @@
 #ifndef _TRUNK_ALLOCATOR_H
 #define _TRUNK_ALLOCATOR_H
 
+#include "fastcommon/uniq_skiplist.h"
+#include "fastcommon/multi_skiplist.h"
 #include "../../common/fs_types.h"
 #include "storage_config.h"
+
+#define FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT      10
+#define FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT       16
+#define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
+
+typedef struct {
+    string_t *path;
+    int64_t id;
+    int64_t offset; //offset of the trunk file
+    int subdir;  //in which subdir
+    int size;    //alloced space size
+} FSTrunkSpaceInfo;
 
 typedef struct {
     int64_t id;
     int subdir;      //in which subdir
-    int refer_count;
-    int64_t used;    //used bytes
-    int64_t size;    //file size
-    int64_t offset;  //free space offset
+    int last_alloc_time;
+    volatile int refer_count;
+    volatile int64_t used;   //used bytes
+    int64_t size;        //file size
+    int64_t free_start;  //free space offset
 } FSTrunkFileInfo;
 
-typedef struct {
-    int alloc;
-    int count;
-    FSTrunkFileInfo **files;
-} FSTrunkFileArray;
+/*
+typedef struct fs_trunk_free_node {
+    FSTrunkFileInfo *trunk_info;
+    struct fs_trunk_free_node *next;
+} FSTrunkFreeNode;
+*/
 
 typedef struct {
     FSStoragePathInfo *path_info;
-    FSTrunkFileArray trunks;
+    UniqSkiplist *sl_trunks;
+    MultiSkiplist *free_list;
+    FSTrunkFileInfo *current; //current allocator
+    pthread_mutex_t lock;
 } FSTrunkAllocator;
 
 #ifdef __cplusplus
@@ -36,6 +55,12 @@ extern "C" {
             const int64_t id, const int subdir, const int64_t size);
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
+
+    int trunk_allocator_alloc(FSTrunkAllocator *allocator,
+            const int size, FSTrunkSpaceInfo *space_info);
+
+    int trunk_allocator_free(FSTrunkAllocator *allocator,
+            const int id, const int size);
 
 #ifdef __cplusplus
 }

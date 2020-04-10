@@ -32,7 +32,8 @@ typedef struct {
     int threads_per_disk;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;
-    int trunk_file_size;
+    int64_t trunk_file_size;
+    int discard_remain_space_size;
 } FSStorageConfig;
 
 #ifdef __cplusplus
@@ -41,6 +42,8 @@ extern "C" {
 
     int storage_config_load(FSStorageConfig *storage_cfg,
             const char *storage_filename);
+
+    int storage_config_calc_path_spaces(FSStoragePathInfo *path_info);
 
     void storage_config_to_log(FSStorageConfig *storage_cfg);
 
