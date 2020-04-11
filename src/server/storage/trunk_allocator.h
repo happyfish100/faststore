@@ -23,8 +23,10 @@ typedef struct {
     int64_t id;
     int subdir;      //in which subdir
     int last_alloc_time;
-    volatile int refer_count;
-    volatile int64_t used;   //used bytes
+    struct {
+        volatile int count;
+        volatile int64_t bytes;
+    } used;
     int64_t size;        //file size
     int64_t free_start;  //free space offset
 } FSTrunkFileInfo;

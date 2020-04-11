@@ -4,6 +4,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
+#include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "trunk_allocator.h"
@@ -97,8 +98,8 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     trunk_info->id = id;
     trunk_info->subdir = subdir;
     trunk_info->size = size;
-    trunk_info->refer_count = 0;
-    trunk_info->used = 0;
+    trunk_info->used.bytes = 0;
+    trunk_info->used.count = 0;
     trunk_info->free_start = 0;
 
     pthread_mutex_lock(&allocator->lock);
@@ -163,7 +164,10 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
         space_info->offset = allocator->current->free_start;
         space_info->size = aligned_size;
 
+        allocator->current->last_alloc_time = g_current_time;
         allocator->current->free_start += aligned_size;
+        allocator->current->used.bytes += aligned_size;
+        allocator->current->used.count++;
     }
     pthread_mutex_unlock(&allocator->lock);
 
@@ -181,8 +185,8 @@ int trunk_allocator_free(FSTrunkAllocator *allocator,
     if ((found=(FSTrunkFileInfo *)uniq_skiplist_find(
                     allocator->sl_trunks, &target)) != NULL)
     {
-        found->used -= size;
-        found->refer_count--;
+        found->used.bytes -= size;
+        found->used.count--;
     }
     pthread_mutex_unlock(&allocator->lock);
 

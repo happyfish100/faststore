@@ -8,7 +8,7 @@
 #include "../server_types.h"
 #include "storage_config.h"
 
-static int load_reserved_space(const char *storage_filename,
+static int ini_get_ratio_value(const char *storage_filename,
         IniContext *ini_context, const char *section_name,
         const char *item_name, double *reserved_space,
         const double default_value)
@@ -172,7 +172,14 @@ static int load_paths(FSStorageConfig *storage_cfg,
             parray->paths[i].thread_count = 2;
         }
 
-        if ((result=load_reserved_space(storage_filename, ini_context,
+        parray->paths[i].prealloc_trunks = iniGetIntValue(section_name,
+                "prealloc_trunks", ini_context, storage_cfg->
+                prealloc_trunks_per_disk);
+        if (parray->paths[i].prealloc_trunks <= 0) {
+            parray->paths[i].prealloc_trunks = 2;
+        }
+
+        if ((result=ini_get_ratio_value(storage_filename, ini_context,
                         section_name, "reserved_space",
                         &parray->paths[i].reserved_space.ratio,
                         storage_cfg->reserved_space_per_disk)) != 0)
@@ -202,6 +209,18 @@ static int load_global_items(FSStorageConfig *storage_cfg,
             "threads_per_disk", ini_context, 2);
     if (storage_cfg->threads_per_disk <= 0) {
         storage_cfg->threads_per_disk = 2;
+    }
+
+    storage_cfg->prealloc_trunks_per_disk = iniGetIntValue(NULL,
+            "prealloc_trunks_per_disk", ini_context, 2);
+    if (storage_cfg->prealloc_trunks_per_disk <= 0) {
+        storage_cfg->prealloc_trunks_per_disk = 2;
+    }
+
+    storage_cfg->prealloc_trunk_interval = iniGetIntValue(NULL,
+            "prealloc_trunk_interval", ini_context, 10);
+    if (storage_cfg->prealloc_trunk_interval <= 0) {
+        storage_cfg->prealloc_trunk_interval = 10;
     }
 
     storage_cfg->max_trunk_files_per_subdir = iniGetIntValue(NULL,
@@ -263,14 +282,14 @@ static int load_global_items(FSStorageConfig *storage_cfg,
             FS_DISCARD_REMAIN_SPACE_MAX_SIZE;
     }
 
-    if ((result=load_reserved_space(storage_filename, ini_context,
+    if ((result=ini_get_ratio_value(storage_filename, ini_context,
                     NULL, "reserved_space_per_disk", &storage_cfg->
                     reserved_space_per_disk, 0.10)) != 0)
     {
         return result;
     }
 
-    if ((result=load_reserved_space(storage_filename, ini_context,
+    if ((result=ini_get_ratio_value(storage_filename, ini_context,
                     NULL, "write_cache_to_hd_on_usage", &storage_cfg->
                     write_cache_to_hd.on_usage, 1.00 - storage_cfg->
                     reserved_space_per_disk)) != 0)
@@ -287,6 +306,13 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     if ((result=get_time_item_from_conf(ini_context,
                     "write_cache_to_hd_end_time", &storage_cfg->
                     write_cache_to_hd.end_time, 0, 0)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=ini_get_ratio_value(storage_filename, ini_context,
+                    NULL, "reclaim_trunks_on_usage", &storage_cfg->
+                    reclaim_trunks_on_usage, 0.50)) != 0)
     {
         return result;
     }
@@ -349,9 +375,10 @@ void log_paths(FSStoragePathArray *parray, const char *caption)
     logInfo("%s count: %d", caption, parray->count);
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
-        logInfo("  path %d: %s, threads: %d, reserved_space_ratio: %.2f%%, "
-                "avail_space: %"PRId64", reserved_space: %"PRId64,
-                (int)(p - parray->paths + 1), p->path.str, p->thread_count,
+        logInfo("  path %d: %s, threads: %d, prealloc_trunks: %d, "
+                "reserved_space_ratio: %.2f%%, avail_space: %"PRId64", "
+                "reserved_space: %"PRId64, (int)(p - parray->paths + 1),
+                p->path.str, p->thread_count, p->prealloc_trunks,
                 p->reserved_space.ratio * 100.00, p->avail_space,
                 p->reserved_space.value);
     }
@@ -359,11 +386,17 @@ void log_paths(FSStoragePathArray *parray, const char *caption)
 
 void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
-    logInfo("storage config, threads_per_disk: %d, reserved_space_per_disk: %.2f%%, "
-            "trunk_file_size: %d MB, max_trunk_files_per_subdir: %d, "
+    logInfo("storage config, threads_per_disk: %d, "
+            "prealloc_trunks_per_disk: %d, prealloc_trunk_interval: %ds, "
+            "reserved_space_per_disk: %.2f%%, "
+            "trunk_file_size: %d MB, "
+            "max_trunk_files_per_subdir: %d, "
             "discard_remain_space_size: %d, "
             "write_cache_to_hd: { on_usage: %.2f%%, start_time: %02d:%02d, "
-            "end_time: %02d:%02d }", storage_cfg->threads_per_disk,
+            "end_time: %02d:%02d }, reclaim_trunks_on_usage: %.2f%%",
+            storage_cfg->threads_per_disk,
+            storage_cfg->prealloc_trunks_per_disk,
+            storage_cfg->prealloc_trunk_interval,
             storage_cfg->reserved_space_per_disk * 100.00,
             (int)(storage_cfg->trunk_file_size / (1024 * 1024)),
             storage_cfg->max_trunk_files_per_subdir,
@@ -372,7 +405,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->write_cache_to_hd.start_time.hour,
             storage_cfg->write_cache_to_hd.start_time.minute,
             storage_cfg->write_cache_to_hd.end_time.hour,
-            storage_cfg->write_cache_to_hd.end_time.minute);
+            storage_cfg->write_cache_to_hd.end_time.minute,
+            storage_cfg->reclaim_trunks_on_usage * 100.00);
 
     log_paths(&storage_cfg->store_path, "store paths");
     log_paths(&storage_cfg->write_cache, "write cache paths");

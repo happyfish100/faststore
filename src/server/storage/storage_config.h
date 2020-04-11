@@ -7,11 +7,15 @@
 typedef struct {
     string_t path;
     int thread_count;
+    int prealloc_trunks;
     struct {
         int64_t value;
         double ratio;
     } reserved_space;
     int64_t avail_space;  //current available space
+    struct {
+        volatile int64_t used_bytes;
+    } trunk_stat;
 } FSStoragePathInfo;
 
 typedef struct {
@@ -34,6 +38,9 @@ typedef struct {
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
     int discard_remain_space_size;
+    int prealloc_trunks_per_disk;
+    int prealloc_trunk_interval;
+    double reclaim_trunks_on_usage;
 } FSStorageConfig;
 
 #ifdef __cplusplus
