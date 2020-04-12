@@ -149,6 +149,10 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
 
     aligned_size = MEM_ALIGN(size);
     pthread_mutex_lock(&allocator->lock);
+
+    //TODO
+    result = 0;
+    /*
     if (allocator->current != NULL && allocator->current->size -
             allocator->current->free_start >= aligned_size)
     {
@@ -169,6 +173,7 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
         allocator->current->used.bytes += aligned_size;
         allocator->current->used.count++;
     }
+    */
     pthread_mutex_unlock(&allocator->lock);
 
     return result;

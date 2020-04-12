@@ -41,6 +41,14 @@
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
 
+typedef struct {
+    string_t *path;
+    int64_t id;     //trunk id
+    int64_t offset; //offset of the trunk file
+    int subdir;  //in which subdir
+    int size;    //alloced space size
+} FSTrunkSpaceInfo;
+
 struct fs_server_dentry;
 typedef struct fs_server_dentry_array {
     int alloc;

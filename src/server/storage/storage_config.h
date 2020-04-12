@@ -6,7 +6,8 @@
 
 typedef struct {
     string_t path;
-    int thread_count;
+    int write_thread_count;
+    int read_thread_count;
     int prealloc_trunks;
     struct {
         int64_t value;
@@ -33,7 +34,8 @@ typedef struct {
         TimeInfo end_time;
     } write_cache_to_hd;
 
-    int threads_per_disk;
+    int write_threads_per_disk;
+    int read_threads_per_disk;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;

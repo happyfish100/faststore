@@ -24,6 +24,12 @@
 #define FS_SERVER_STATUS_SYNCING   22
 #define FS_SERVER_STATUS_ACTIVE    23
 
+typedef struct fs_block_key {
+    int64_t inode;
+    int64_t offset;
+    uint32_t hash_code;
+} FSBlockKey;
+
 typedef struct {
     int body_len;      //body length
     short flags;

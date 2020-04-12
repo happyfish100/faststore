@@ -12,14 +12,6 @@
 #define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
 
 typedef struct {
-    string_t *path;
-    int64_t id;
-    int64_t offset; //offset of the trunk file
-    int subdir;  //in which subdir
-    int size;    //alloced space size
-} FSTrunkSpaceInfo;
-
-typedef struct {
     int64_t id;
     int subdir;      //in which subdir
     int last_alloc_time;
@@ -41,8 +33,8 @@ typedef struct fs_trunk_free_node {
 typedef struct {
     FSStoragePathInfo *path_info;
     UniqSkiplist *sl_trunks;
-    MultiSkiplist *free_list;
-    FSTrunkFileInfo *current; //current allocator
+    MultiSkiplist *free_list;  //for space left trunk files
+    FSTrunkFileInfo **current; //current allocator one to one map to disk thread
     pthread_mutex_t lock;
 } FSTrunkAllocator;
 

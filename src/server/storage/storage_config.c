@@ -166,10 +166,18 @@ static int load_paths(FSStorageConfig *storage_cfg,
             return result;
         }
 
-        parray->paths[i].thread_count = iniGetIntValue(section_name,
-                "threads", ini_context, storage_cfg->threads_per_disk);
-        if (parray->paths[i].thread_count <= 0) {
-            parray->paths[i].thread_count = 2;
+        parray->paths[i].write_thread_count = iniGetIntValue(section_name,
+                "write_threads", ini_context, storage_cfg->
+                write_threads_per_disk);
+        if (parray->paths[i].write_thread_count <= 0) {
+            parray->paths[i].write_thread_count = 1;
+        }
+
+        parray->paths[i].read_thread_count = iniGetIntValue(section_name,
+                "read_threads", ini_context, storage_cfg->
+                read_threads_per_disk);
+        if (parray->paths[i].read_thread_count <= 0) {
+            parray->paths[i].read_thread_count = 1;
         }
 
         parray->paths[i].prealloc_trunks = iniGetIntValue(section_name,
@@ -205,10 +213,16 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     int64_t trunk_file_size;
     int64_t discard_remain_space_size;
 
-    storage_cfg->threads_per_disk = iniGetIntValue(NULL,
-            "threads_per_disk", ini_context, 2);
-    if (storage_cfg->threads_per_disk <= 0) {
-        storage_cfg->threads_per_disk = 2;
+    storage_cfg->write_threads_per_disk = iniGetIntValue(NULL,
+            "write_threads_per_disk", ini_context, 1);
+    if (storage_cfg->write_threads_per_disk <= 0) {
+        storage_cfg->write_threads_per_disk = 1;
+    }
+
+    storage_cfg->read_threads_per_disk = iniGetIntValue(NULL,
+            "read_threads_per_disk", ini_context, 1);
+    if (storage_cfg->read_threads_per_disk <= 0) {
+        storage_cfg->read_threads_per_disk = 1;
     }
 
     storage_cfg->prealloc_trunks_per_disk = iniGetIntValue(NULL,
@@ -375,18 +389,20 @@ void log_paths(FSStoragePathArray *parray, const char *caption)
     logInfo("%s count: %d", caption, parray->count);
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
-        logInfo("  path %d: %s, threads: %d, prealloc_trunks: %d, "
-                "reserved_space_ratio: %.2f%%, avail_space: %"PRId64", "
-                "reserved_space: %"PRId64, (int)(p - parray->paths + 1),
-                p->path.str, p->thread_count, p->prealloc_trunks,
-                p->reserved_space.ratio * 100.00, p->avail_space,
-                p->reserved_space.value);
+        logInfo("  path %d: %s, write_threads: %d, read_threads: %d, "
+                "prealloc_trunks: %d, reserved_space_ratio: %.2f%%, "
+                "avail_space: %"PRId64", reserved_space: %"PRId64,
+                (int)(p - parray->paths + 1), p->path.str,
+                p->write_thread_count, p->read_thread_count,
+                p->prealloc_trunks, p->reserved_space.ratio * 100.00,
+                p->avail_space, p->reserved_space.value);
     }
 }
 
 void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
-    logInfo("storage config, threads_per_disk: %d, "
+    logInfo("storage config, write_threads_per_disk: %d, "
+            "read_threads_per_disk: %d, "
             "prealloc_trunks_per_disk: %d, prealloc_trunk_interval: %ds, "
             "reserved_space_per_disk: %.2f%%, "
             "trunk_file_size: %d MB, "
@@ -394,7 +410,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "discard_remain_space_size: %d, "
             "write_cache_to_hd: { on_usage: %.2f%%, start_time: %02d:%02d, "
             "end_time: %02d:%02d }, reclaim_trunks_on_usage: %.2f%%",
-            storage_cfg->threads_per_disk,
+            storage_cfg->write_threads_per_disk,
+            storage_cfg->read_threads_per_disk,
             storage_cfg->prealloc_trunks_per_disk,
             storage_cfg->prealloc_trunk_interval,
             storage_cfg->reserved_space_per_disk * 100.00,
