@@ -7,6 +7,7 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
+#include "trunk_prealloc.h"
 #include "trunk_allocator.h"
 
 static bool g_allocator_inited = false;
@@ -40,7 +41,7 @@ static void trunk_free_func(void *ptr, const int delay_seconds)
 }
 
 int trunk_allocator_init(FSTrunkAllocator *allocator,
-        FSStoragePathInfo *path_info)
+        FSStoragePathInfo *path_info, const int index)
 {
     int result;
     int bytes;
@@ -71,6 +72,13 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
                 __LINE__, result, STRERROR(result));
         return result;
     }
+        
+    if ((result=pthread_cond_init(&allocator->cond, NULL)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "pthread_cond_init fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
 
     if ((allocator->sl_trunks=uniq_skiplist_new(&g_skiplist_factory,
             FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT)) == NULL)
@@ -78,17 +86,17 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
-    bytes = sizeof(FSTrunkFileInfo *) * path_info->write_thread_count;
-    allocator->current = (FSTrunkFileInfo **)malloc(bytes);
-    if (allocator->current == NULL) {
+    bytes = sizeof(FSTrunkFreelist) * path_info->write_thread_count;
+    allocator->freelists = (FSTrunkFreelist *)malloc(bytes);
+    if (allocator->freelists == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
-    memset(allocator->current, 0, bytes);
+    memset(allocator->freelists, 0, bytes);
 
+    allocator->index = index;
     allocator->path_info = path_info;
-    allocator->freelist = NULL;
     return 0;
 }
 
@@ -132,16 +140,11 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
 }
 
 static int alloc_trunk(FSTrunkAllocator *allocator,
-        FSTrunkFileInfo **trunk_info)
+        FSTrunkFreelist *freelist)
 {
     int result;
 
-    if (allocator->freelist != NULL) {
-        *trunk_info = allocator->freelist->trunk_info;
-        allocator->freelist = allocator->freelist->next;
-        return 0;
-    }
-
+    //TODO
     if ((result=storage_config_calc_path_spaces(allocator->path_info)) != 0) {
         return result;
     }
@@ -175,6 +178,17 @@ static void trunk_to_space(FSTrunkFileInfo *trunk_info,
         trunk_to_space(trunk_info, space_info, size);   \
     } while (0)
 
+#define REMOVE_FROM_FREELIST(freelist)  \
+    do { \
+        freelist->count--;   \
+        freelist->head = freelist->head->next;  \
+        if (freelist->head == NULL) {  \
+            freelist->tail = NULL;  \
+        }  \
+        trunk_prealloc_push(allocator, freelist,  \
+            STORAGE_CFG.prealloc_trunks_per_writer); \
+    } while (0)
+ 
 int trunk_allocator_alloc(FSTrunkAllocator *allocator,
         const uint32_t blk_hc, const int size,
         FSTrunkSpaceInfo *spaces, int *count)
@@ -182,40 +196,48 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
     int aligned_size;
     int result;
     int remain_bytes;
+    FSTrunkFreelist *freelist;
     FSTrunkSpaceInfo *space_info;
-    FSTrunkFileInfo **trunk_info;
+    FSTrunkFileInfo *trunk_info;
 
     aligned_size = MEM_ALIGN(size);
     space_info = spaces;
     pthread_mutex_lock(&allocator->lock);
 
-    trunk_info = allocator->current + blk_hc % allocator->
+    freelist = allocator->freelists + blk_hc % allocator->
         path_info->write_thread_count;
 
-    if (*trunk_info != NULL) {
-        remain_bytes = (*trunk_info)->size - (*trunk_info)->free_start;
+    if (freelist->head != NULL) {
+        trunk_info = freelist->head->trunk_info;
+        remain_bytes = trunk_info->size - trunk_info->free_start;
         if (remain_bytes < aligned_size) {
-            TRUNK_ALLOC_SPACE(allocator, *trunk_info,
+            TRUNK_ALLOC_SPACE(allocator, trunk_info,
                     space_info, remain_bytes);
             space_info++;
 
             aligned_size -= remain_bytes;
-            *trunk_info = NULL;
-        }
+            REMOVE_FROM_FREELIST(freelist);
+       }
     }
 
-    if (*trunk_info != NULL) {
+    if (freelist->head != NULL) {
         result = 0;
     } else {
-        result = alloc_trunk(allocator, trunk_info);
+        result = alloc_trunk(allocator, freelist);
     }
 
     if (result == 0) {
-        TRUNK_ALLOC_SPACE(allocator, *trunk_info, space_info, aligned_size);
+        TRUNK_ALLOC_SPACE(allocator, freelist->head->trunk_info,
+                space_info, aligned_size);
         space_info++;
+
+        if (freelist->head->trunk_info->size - freelist->head->trunk_info->
+                free_start < STORAGE_CFG.discard_remain_space_size)
+        {
+            REMOVE_FROM_FREELIST(freelist);
+        }
     }
 
-    //STORAGE_CFG.discard_remain_space_size
     pthread_mutex_unlock(&allocator->lock);
     *count = space_info - spaces;
 

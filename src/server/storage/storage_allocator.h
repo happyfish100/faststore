@@ -33,7 +33,8 @@ extern "C" {
     int storage_allocator_init(FSStorageAllocatorManager *allocator_mgr);
 
     int storage_allocator_alloc(FSStorageAllocatorManager *allocator_mgr,
-            const uint32_t blk_hc, const int size, FSTrunkSpaceInfo *space_info);
+            const uint32_t blk_hc, const int size, FSTrunkSpaceInfo *space_info,
+            int *count);
 
     int storage_allocator_free(FSStorageAllocatorManager *allocator_mgr,
             const uint32_t blk_hc, const int id, const int size);

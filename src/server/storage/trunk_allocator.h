@@ -29,11 +29,18 @@ typedef struct fs_trunk_free_node {
 } FSTrunkFreeNode;
 
 typedef struct {
+    int count;
+    FSTrunkFreeNode *head;  //allocate from head
+    FSTrunkFreeNode *tail;  //push to tail
+} FSTrunkFreelist;
+
+typedef struct {
+    int index;
     FSStoragePathInfo *path_info;
     UniqSkiplist *sl_trunks;   //all trunks
-    FSTrunkFreeNode *freelist;
-    FSTrunkFileInfo **current; //current allocator map to disk write threads
+    FSTrunkFreelist *freelists; //current allocator map to disk write threads
     pthread_mutex_t lock;
+    pthread_cond_t cond;
 } FSTrunkAllocator;
 
 #ifdef __cplusplus
@@ -41,7 +48,7 @@ extern "C" {
 #endif
 
     int trunk_allocator_init(FSTrunkAllocator *allocator,
-            FSStoragePathInfo *path_info);
+            FSStoragePathInfo *path_info, const int index);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
             const int64_t id, const int subdir, const int64_t size);

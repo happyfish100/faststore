@@ -182,7 +182,7 @@ static int load_paths(FSStorageConfig *storage_cfg,
 
         parray->paths[i].prealloc_trunks = iniGetIntValue(section_name,
                 "prealloc_trunks", ini_context, storage_cfg->
-                prealloc_trunks_per_disk);
+                prealloc_trunks_per_writer);
         if (parray->paths[i].prealloc_trunks <= 0) {
             parray->paths[i].prealloc_trunks = 2;
         }
@@ -225,16 +225,16 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->read_threads_per_disk = 1;
     }
 
-    storage_cfg->prealloc_trunks_per_disk = iniGetIntValue(NULL,
-            "prealloc_trunks_per_disk", ini_context, 2);
-    if (storage_cfg->prealloc_trunks_per_disk <= 0) {
-        storage_cfg->prealloc_trunks_per_disk = 2;
+    storage_cfg->prealloc_trunks_per_writer = iniGetIntValue(NULL,
+            "prealloc_trunks_per_writer", ini_context, 2);
+    if (storage_cfg->prealloc_trunks_per_writer <= 0) {
+        storage_cfg->prealloc_trunks_per_writer = 2;
     }
 
-    storage_cfg->prealloc_trunk_interval = iniGetIntValue(NULL,
-            "prealloc_trunk_interval", ini_context, 10);
-    if (storage_cfg->prealloc_trunk_interval <= 0) {
-        storage_cfg->prealloc_trunk_interval = 10;
+    storage_cfg->prealloc_trunk_threads = iniGetIntValue(NULL,
+            "prealloc_trunk_threads", ini_context, 1);
+    if (storage_cfg->prealloc_trunk_threads <= 0) {
+        storage_cfg->prealloc_trunk_threads = 1;
     }
 
     storage_cfg->max_trunk_files_per_subdir = iniGetIntValue(NULL,
@@ -403,7 +403,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, write_threads_per_disk: %d, "
             "read_threads_per_disk: %d, "
-            "prealloc_trunks_per_disk: %d, prealloc_trunk_interval: %ds, "
+            "prealloc_trunks_per_writer: %d, prealloc_trunk_threads: %d, "
             "reserved_space_per_disk: %.2f%%, "
             "trunk_file_size: %d MB, "
             "max_trunk_files_per_subdir: %d, "
@@ -412,8 +412,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "end_time: %02d:%02d }, reclaim_trunks_on_usage: %.2f%%",
             storage_cfg->write_threads_per_disk,
             storage_cfg->read_threads_per_disk,
-            storage_cfg->prealloc_trunks_per_disk,
-            storage_cfg->prealloc_trunk_interval,
+            storage_cfg->prealloc_trunks_per_writer,
+            storage_cfg->prealloc_trunk_threads,
             storage_cfg->reserved_space_per_disk * 100.00,
             (int)(storage_cfg->trunk_file_size / (1024 * 1024)),
             storage_cfg->max_trunk_files_per_subdir,

@@ -40,8 +40,8 @@ typedef struct {
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
     int discard_remain_space_size;
-    int prealloc_trunks_per_disk;
-    int prealloc_trunk_interval;
+    int prealloc_trunks_per_writer;
+    int prealloc_trunk_threads;
     double reclaim_trunks_on_usage;
 } FSStorageConfig;
 
