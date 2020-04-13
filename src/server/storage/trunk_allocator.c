@@ -43,6 +43,7 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         FSStoragePathInfo *path_info)
 {
     int result;
+    int bytes;
 
     if (!g_allocator_inited) {
         g_allocator_inited = true;
@@ -77,9 +78,17 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
+    bytes = sizeof(FSTrunkFileInfo *) * path_info->write_thread_count;
+    allocator->current = (FSTrunkFileInfo **)malloc(bytes);
+    if (allocator->current == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(allocator->current, 0, bytes);
+
     allocator->path_info = path_info;
-    allocator->current = NULL;
-    allocator->free_list = NULL;
+    allocator->freelist = NULL;
     return 0;
 }
 
@@ -122,11 +131,16 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
     return result;
 }
 
-static int alloc_trunk(FSTrunkAllocator *allocator)
+static int alloc_trunk(FSTrunkAllocator *allocator,
+        FSTrunkFileInfo **trunk_info)
 {
     int result;
 
-    //free_list
+    if (allocator->freelist != NULL) {
+        *trunk_info = allocator->freelist->trunk_info;
+        allocator->freelist = allocator->freelist->next;
+        return 0;
+    }
 
     if ((result=storage_config_calc_path_spaces(allocator->path_info)) != 0) {
         return result;
@@ -141,40 +155,69 @@ static int alloc_trunk(FSTrunkAllocator *allocator)
     return 0;
 }
 
+static void trunk_to_space(FSTrunkFileInfo *trunk_info,
+        FSTrunkSpaceInfo *space_info, const int size)
+{
+    space_info->id = trunk_info->id;
+    space_info->subdir = trunk_info->subdir;
+    space_info->offset = trunk_info->free_start;
+    space_info->size = size;
+
+    trunk_info->last_alloc_time = g_current_time;
+    trunk_info->free_start += size;
+    trunk_info->used.bytes += size;
+    trunk_info->used.count++;
+}
+
+#define TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, size) \
+    do { \
+        space_info->path = &allocator->path_info->path; \
+        trunk_to_space(trunk_info, space_info, size);   \
+    } while (0)
+
 int trunk_allocator_alloc(FSTrunkAllocator *allocator,
-        const int size, FSTrunkSpaceInfo *space_info)
+        const uint32_t blk_hc, const int size,
+        FSTrunkSpaceInfo *spaces, int *count)
 {
     int aligned_size;
     int result;
+    int remain_bytes;
+    FSTrunkSpaceInfo *space_info;
+    FSTrunkFileInfo **trunk_info;
 
     aligned_size = MEM_ALIGN(size);
+    space_info = spaces;
     pthread_mutex_lock(&allocator->lock);
 
-    //TODO
-    result = 0;
-    /*
-    if (allocator->current != NULL && allocator->current->size -
-            allocator->current->free_start >= aligned_size)
-    {
+    trunk_info = allocator->current + blk_hc % allocator->
+        path_info->write_thread_count;
+
+    if (*trunk_info != NULL) {
+        remain_bytes = (*trunk_info)->size - (*trunk_info)->free_start;
+        if (remain_bytes < aligned_size) {
+            TRUNK_ALLOC_SPACE(allocator, *trunk_info,
+                    space_info, remain_bytes);
+            space_info++;
+
+            aligned_size -= remain_bytes;
+            *trunk_info = NULL;
+        }
+    }
+
+    if (*trunk_info != NULL) {
         result = 0;
     } else {
-        result = alloc_trunk(allocator);
+        result = alloc_trunk(allocator, trunk_info);
     }
 
     if (result == 0) {
-        space_info->path = &allocator->path_info->path;
-        space_info->id = allocator->current->id;
-        space_info->subdir = allocator->current->subdir;
-        space_info->offset = allocator->current->free_start;
-        space_info->size = aligned_size;
-
-        allocator->current->last_alloc_time = g_current_time;
-        allocator->current->free_start += aligned_size;
-        allocator->current->used.bytes += aligned_size;
-        allocator->current->used.count++;
+        TRUNK_ALLOC_SPACE(allocator, *trunk_info, space_info, aligned_size);
+        space_info++;
     }
-    */
+
+    //STORAGE_CFG.discard_remain_space_size
     pthread_mutex_unlock(&allocator->lock);
+    *count = space_info - spaces;
 
     return result;
 }

@@ -16,25 +16,23 @@ typedef struct {
     int subdir;      //in which subdir
     int last_alloc_time;
     struct {
-        volatile int count;
+        volatile int count;  //slice count
         volatile int64_t bytes;
     } used;
     int64_t size;        //file size
     int64_t free_start;  //free space offset
 } FSTrunkFileInfo;
 
-/*
 typedef struct fs_trunk_free_node {
     FSTrunkFileInfo *trunk_info;
     struct fs_trunk_free_node *next;
 } FSTrunkFreeNode;
-*/
 
 typedef struct {
     FSStoragePathInfo *path_info;
-    UniqSkiplist *sl_trunks;
-    MultiSkiplist *free_list;  //for space left trunk files
-    FSTrunkFileInfo **current; //current allocator one to one map to disk thread
+    UniqSkiplist *sl_trunks;   //all trunks
+    FSTrunkFreeNode *freelist;
+    FSTrunkFileInfo **current; //current allocator map to disk write threads
     pthread_mutex_t lock;
 } FSTrunkAllocator;
 
@@ -51,7 +49,8 @@ extern "C" {
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
 
     int trunk_allocator_alloc(FSTrunkAllocator *allocator,
-            const int size, FSTrunkSpaceInfo *space_info);
+            const uint32_t blk_hc, const int size,
+            FSTrunkSpaceInfo *spaces, int *count);
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);
