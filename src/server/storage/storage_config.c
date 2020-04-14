@@ -6,6 +6,7 @@
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
 #include "../server_types.h"
+#include "store_path_index.h"
 #include "storage_config.h"
 
 static int ini_get_ratio_value(const char *storage_filename,
@@ -362,6 +363,61 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
     return 0;
 }
 
+static int load_path_indexes(FSStoragePathArray *parray, const char *caption)
+{
+    int result;
+    char mark[64];
+    FSStoragePathInfo *p;
+    FSStoragePathInfo *end;
+
+    *mark = '\0';
+    end = parray->paths + parray->count;
+    for (p=parray->paths; p<end; p++) {
+        p->store.index = store_path_index_get(p->store.path.str);
+        if (p->store.index < 0) {
+            if ((result=store_path_index_add(p->store.path.str,
+                            mark, &p->store.index)) != 0)
+            {
+                return result;
+            }
+        }
+    }
+
+    return 0;
+}
+
+int load_store_path_indexes(FSStorageConfig *storage_cfg,
+        const char *storage_filename)
+{
+    int result;
+    int old_count;
+
+    if ((result=store_path_index_init()) != 0) {
+        return result;
+    }
+
+    old_count = store_path_index_count();
+
+    if ((result=load_path_indexes(&storage_cfg->write_cache,
+                    "write cache paths")) != 0)
+    {
+        return result;
+    }
+    if ((result=load_path_indexes(&storage_cfg->store_path,
+                    "store paths")) != 0)
+    {
+        return result;
+    }
+
+    logInfo("old_count: %d, new_count: %d", old_count, store_path_index_count());
+    if (store_path_index_count() != old_count) {
+        result = store_path_index_save();
+    }
+
+    store_path_index_destroy();
+    return result;
+}
+
 int storage_config_load(FSStorageConfig *storage_cfg,
         const char *storage_filename)
 {
@@ -379,10 +435,13 @@ int storage_config_load(FSStorageConfig *storage_cfg,
     result = load_from_config_file(storage_cfg,
             storage_filename, &ini_context);
     iniFreeContext(&ini_context);
+    if (result == 0) {
+        result = load_store_path_indexes(storage_cfg, storage_filename);
+    }
     return result;
 }
 
-void log_paths(FSStoragePathArray *parray, const char *caption)
+static void log_paths(FSStoragePathArray *parray, const char *caption)
 {
     FSStoragePathInfo *p;
     FSStoragePathInfo *end;
@@ -390,12 +449,14 @@ void log_paths(FSStoragePathArray *parray, const char *caption)
     logInfo("%s count: %d", caption, parray->count);
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
-        logInfo("  path %d: %s, write_threads: %d, read_threads: %d, "
-                "prealloc_trunks: %d, reserved_space_ratio: %.2f%%, "
+        logInfo("  path %d: %s, index: %d, write_threads: %d, "
+                "read_threads: %d, prealloc_trunks: %d, "
+                "reserved_space_ratio: %.2f%%, "
                 "avail_space: %"PRId64", reserved_space: %"PRId64,
                 (int)(p - parray->paths + 1), p->store.path.str,
-                p->write_thread_count, p->read_thread_count,
-                p->prealloc_trunks, p->reserved_space.ratio * 100.00,
+                p->store.index, p->write_thread_count,
+                p->read_thread_count, p->prealloc_trunks,
+                p->reserved_space.ratio * 100.00,
                 p->avail_space, p->reserved_space.value);
     }
 }
@@ -426,6 +487,6 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->write_cache_to_hd.end_time.minute,
             storage_cfg->reclaim_trunks_on_usage * 100.00);
 
-    log_paths(&storage_cfg->store_path, "store paths");
     log_paths(&storage_cfg->write_cache, "write cache paths");
+    log_paths(&storage_cfg->store_path, "store paths");
 }
