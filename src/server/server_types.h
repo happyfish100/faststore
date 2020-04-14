@@ -42,7 +42,12 @@ typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
 
 typedef struct {
-    string_t *path;
+    int index;   //the inner index is important!
+    string_t path;
+} FSStorePath;
+
+typedef struct {
+    FSStorePath *store;
     int64_t id;     //trunk id
     int64_t offset; //offset of the trunk file
     int subdir;  //in which subdir

@@ -8,8 +8,9 @@ CONFIG_PATH = $(TARGET_CONF_PATH)
 
 ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o \
            server_func.o service_handler.o cluster_handler.o server_global.o  \
-           server_group_info.o storage/storage_config.o storage/trunk_allocator.o \
-           storage/storage_allocator.o storage/trunk_prealloc.o dio/trunk_io_thread.o
+           server_group_info.o storage/storage_config.o storage/store_path_index.o \
+           storage/trunk_allocator.o storage/storage_allocator.o \
+           storage/trunk_prealloc.o dio/trunk_io_thread.o
 
 ALL_PRGS = fs_serverd
 

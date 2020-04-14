@@ -70,6 +70,8 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
         return 0;
     }
 
+    //FS_TRUNK_STATUS_ALLOCING
+    //TODO
     return 0;
 }
 

@@ -5,7 +5,7 @@
 #include "../../common/fs_types.h"
 
 typedef struct {
-    string_t path;
+    FSStorePath store;
     int write_thread_count;
     int read_thread_count;
     int prealloc_trunks;

@@ -92,6 +92,7 @@ static int load_one_path(FSStorageConfig *storage_cfg,
         SF_CHOWN_RETURN_ON_ERROR(path_str, geteuid(), getegid());
     }
 
+    chopPath(path_str);
     path->len = strlen(path_str);
     path->str = (char *)malloc(path->len + 1);
     if (path->str == NULL) {
@@ -109,10 +110,10 @@ int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
     struct statvfs sbuf;
     int64_t total_space;
 
-    if (statvfs(path_info->path.str, &sbuf) != 0) {
+    if (statvfs(path_info->store.path.str, &sbuf) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "statfs path %s fail, errno: %d, error info: %s.",
-                __LINE__, path_info->path.str, errno, STRERROR(errno));
+                __LINE__, path_info->store.path.str, errno, STRERROR(errno));
         return errno != 0 ? errno : EPERM;
     }
 
@@ -161,7 +162,7 @@ static int load_paths(FSStorageConfig *storage_cfg,
         sprintf(section_name, "%s-%d", section_name_prefix, i + 1);
         if ((result=load_one_path(storage_cfg, storage_filename,
                         ini_context, section_name,
-                        &parray->paths[i].path)) != 0)
+                        &parray->paths[i].store.path)) != 0)
         {
             return result;
         }
@@ -392,7 +393,7 @@ void log_paths(FSStoragePathArray *parray, const char *caption)
         logInfo("  path %d: %s, write_threads: %d, read_threads: %d, "
                 "prealloc_trunks: %d, reserved_space_ratio: %.2f%%, "
                 "avail_space: %"PRId64", reserved_space: %"PRId64,
-                (int)(p - parray->paths + 1), p->path.str,
+                (int)(p - parray->paths + 1), p->store.path.str,
                 p->write_thread_count, p->read_thread_count,
                 p->prealloc_trunks, p->reserved_space.ratio * 100.00,
                 p->avail_space, p->reserved_space.value);

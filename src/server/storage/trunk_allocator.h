@@ -11,10 +11,16 @@
 #define FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT       16
 #define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
 
+
+#define FS_TRUNK_STATUS_NONE        0
+#define FS_TRUNK_STATUS_ALLOCING    1
+#define FS_TRUNK_STATUS_RECLAIMING  2
+
 typedef struct {
     int64_t id;
     int subdir;      //in which subdir
     int last_alloc_time;
+    int status;
     struct {
         volatile int count;  //slice count
         volatile int64_t bytes;

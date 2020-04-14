@@ -174,13 +174,14 @@ static void trunk_to_space(FSTrunkFileInfo *trunk_info,
 
 #define TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, size) \
     do { \
-        space_info->path = &allocator->path_info->path; \
+        space_info->store = &allocator->path_info->store; \
         trunk_to_space(trunk_info, space_info, size);   \
     } while (0)
 
 #define REMOVE_FROM_FREELIST(freelist)  \
     do { \
         freelist->count--;   \
+        freelist->head->trunk_info->status = FS_TRUNK_STATUS_NONE;  \
         freelist->head = freelist->head->next;  \
         if (freelist->head == NULL) {  \
             freelist->tail = NULL;  \
