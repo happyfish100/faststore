@@ -15,8 +15,8 @@ typedef struct {
 } StoreSubdirInfo;
 
 typedef struct {
-    UniqSkiplist by_id;
-    UniqSkiplist by_count;
+    UniqSkiplist *by_id;
+    UniqSkiplist *by_count;
 } SortedSubdirs;
 
 typedef struct {
@@ -52,6 +52,82 @@ static int compare_by_count(const void *p1, const void *p2)
 
 void id_info_free_func(void *ptr, const int delay_seconds)
 {
+    if (delay_seconds > 0) {
+        fast_mblock_delay_free_object(&id_info_context.subdir_allocator,
+                ptr, delay_seconds);
+    } else {
+        fast_mblock_free_object(&id_info_context.subdir_allocator, ptr);
+    }
+}
+
+static char *get_trunk_binlog_filename(char *full_filename, const int size)
+{
+    snprintf(full_filename, size, "%s/%s",
+            DATA_PATH_STR, TRUNK_BINLOG_FILENAME);
+    return full_filename;
+}
+
+static int trunk_id_info_load()
+{
+    int result;
+    char full_filename[PATH_MAX];
+
+    get_trunk_binlog_filename(full_filename, sizeof(full_filename));
+    if (access(full_filename, F_OK) != 0) {
+        if (errno == ENOENT) {
+            return 0;
+        }
+
+        result = errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, "
+                "access file %s fail, errno: %d, error info: %s",
+                __LINE__, full_filename, result, STRERROR(result));
+        return result;
+    }
+
+    return 0;
+}
+
+static int alloc_sorted_subdirs()
+{
+    int bytes;
+
+    id_info_context.subdir_array.count = STORAGE_CFG.max_store_path_index + 1;
+    bytes = sizeof(SortedSubdirs) * id_info_context.subdir_array.count;
+    id_info_context.subdir_array.subdirs = (SortedSubdirs *)malloc(bytes);
+    if (id_info_context.subdir_array.subdirs == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(id_info_context.subdir_array.subdirs, 0, bytes);
+    return 0;
+}
+
+static int init_sorted_subdirs(FSStoragePathArray *parray)
+{
+    const int init_level_count = 8;
+    FSStoragePathInfo *p;
+    FSStoragePathInfo *end;
+    SortedSubdirs *sorted_subdirs;
+
+    end = parray->paths + parray->count;
+    for (p=parray->paths; p<end; p++) {
+        sorted_subdirs = id_info_context.subdir_array.subdirs + p->store.index;
+        sorted_subdirs->by_id = uniq_skiplist_new(&id_info_context.
+                factories.by_id, init_level_count);
+        if (sorted_subdirs->by_id == NULL) {
+            return ENOMEM;
+        }
+
+        sorted_subdirs->by_count = uniq_skiplist_new(&id_info_context.
+                factories.by_count, init_level_count);
+        if (sorted_subdirs->by_count == NULL) {
+            return ENOMEM;
+        }
+    }
+
+    return 0;
 }
 
 int trunk_id_info_init()
@@ -84,7 +160,17 @@ int trunk_id_info_init()
         return result;
     }
 
-    return 0;
+    if ((result=alloc_sorted_subdirs()) != 0) {
+        return result;
+    }
+    if ((result=init_sorted_subdirs(&STORAGE_CFG.write_cache)) != 0) {
+        return result;
+    }
+    if ((result=init_sorted_subdirs(&STORAGE_CFG.store_path)) != 0) {
+        return result;
+    }
+
+    return trunk_id_info_load();
 }
 
 int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info)
