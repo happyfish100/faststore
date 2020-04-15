@@ -17,7 +17,8 @@ static UniqSkiplistFactory g_skiplist_factory;
 static int compare_trunk_info(const void *p1, const void *p2)
 {
     int64_t sub;
-    sub = ((FSTrunkFileInfo *)p1)->id - ((FSTrunkFileInfo *)p2)->id;
+    sub = ((FSTrunkFileInfo *)p1)->id_info.id -
+        ((FSTrunkFileInfo *)p2)->id_info.id;
     if (sub < 0) {
         return -1;
     } else if (sub > 0) {
@@ -100,7 +101,7 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
 }
 
 int trunk_allocator_add(FSTrunkAllocator *allocator,
-        const int64_t id, const int subdir, const int64_t size)
+        const FSTrunkIdInfo *id_info, const int64_t size)
 {
     FSTrunkFileInfo *trunk_info;
     int result;
@@ -111,8 +112,7 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
-    trunk_info->id = id;
-    trunk_info->subdir = subdir;
+    trunk_info->id_info = *id_info;
     trunk_info->size = size;
     trunk_info->used.bytes = 0;
     trunk_info->used.count = 0;
@@ -130,7 +130,7 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
     FSTrunkFileInfo target;
     int result;
 
-    target.id = id;
+    target.id_info.id = id;
     pthread_mutex_lock(&allocator->lock);
     result = uniq_skiplist_delete(allocator->sl_trunks, &target);
     pthread_mutex_unlock(&allocator->lock);
@@ -141,17 +141,7 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
 static int alloc_trunk(FSTrunkAllocator *allocator,
         FSTrunkFreelist *freelist)
 {
-    int result;
-
-    //TODO
-    if ((result=storage_config_calc_path_spaces(allocator->path_info)) != 0) {
-        return result;
-    }
-
-    if (allocator->path_info->avail_space - STORAGE_CFG.trunk_file_size >
-            allocator->path_info->reserved_space.value)
-    {
-    }
+    //int result;
 
     //TODO reclaim
     return 0;
@@ -160,8 +150,7 @@ static int alloc_trunk(FSTrunkAllocator *allocator,
 static void trunk_to_space(FSTrunkFileInfo *trunk_info,
         FSTrunkSpaceInfo *space_info, const int size)
 {
-    space_info->id = trunk_info->id;
-    space_info->subdir = trunk_info->subdir;
+    space_info->id_info = trunk_info->id_info;
     space_info->offset = trunk_info->free_start;
     space_info->size = size;
 
@@ -250,7 +239,7 @@ int trunk_allocator_free(FSTrunkAllocator *allocator,
     FSTrunkFileInfo target;
     FSTrunkFileInfo *found;
 
-    target.id = id;
+    target.id_info.id = id;
     pthread_mutex_lock(&allocator->lock);
     if ((found=(FSTrunkFileInfo *)uniq_skiplist_find(
                     allocator->sl_trunks, &target)) != NULL)

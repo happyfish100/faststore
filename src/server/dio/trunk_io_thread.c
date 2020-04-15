@@ -164,7 +164,11 @@ int trunk_io_thread_init()
     return 0;
 }
 
-int trunk_io_thread_push(const int type, const FSBlockKey *key,
+void trunk_io_thread_terminate()
+{
+}
+
+int trunk_io_thread_push(const int type, const uint32_t hash_code,
         const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
         notify_func, void *notify_args)
 {
@@ -175,14 +179,13 @@ int trunk_io_thread_push(const int type, const FSBlockKey *key,
     bool notify;
 
     path_ctx = io_path_context_array.paths + space->store->index;
-
     if (type == FS_IO_TYPE_READ_SLICE) {
         ctx_array = &path_ctx->reads;
     } else {
         ctx_array = &path_ctx->writes;
     }
 
-    thread_ctx = ctx_array->contexts + key->hash_code % ctx_array->count;
+    thread_ctx = ctx_array->contexts + hash_code % ctx_array->count;
     pthread_mutex_lock(&thread_ctx->lock);
     iob = (TrunkIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
     if (iob == NULL) {

@@ -29,6 +29,7 @@
 #include "server_func.h"
 #include "service_handler.h"
 #include "cluster_handler.h"
+#include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
@@ -109,11 +110,11 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /*
-        if ((result=data_thread_init()) != 0) {
+        if ((result=trunk_io_thread_init()) != 0) {
             break;
         }
 
+        /*
         if ((result=server_load_data()) != 0) {
             break;
         }
@@ -158,6 +159,8 @@ int main(int argc, char *argv[])
     if (g_schedule_flag) {
         pthread_kill(schedule_tid, SIGINT);
     }
+
+    trunk_io_thread_terminate();
 
     wait_count = 0;
     while ((SF_G_ALIVE_THREAD_COUNT != 0 || SF_ALIVE_THREAD_COUNT(

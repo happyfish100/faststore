@@ -17,8 +17,7 @@
 #define FS_TRUNK_STATUS_RECLAIMING  2
 
 typedef struct {
-    int64_t id;
-    int subdir;      //in which subdir
+    FSTrunkIdInfo id_info;
     int last_alloc_time;
     int status;
     struct {
@@ -56,7 +55,7 @@ extern "C" {
             FSStoragePathInfo *path_info);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
-            const int64_t id, const int subdir, const int64_t size);
+            const FSTrunkIdInfo *id_info, const int64_t size);
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
 

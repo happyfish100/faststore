@@ -47,11 +47,15 @@ typedef struct {
 } FSStorePath;
 
 typedef struct {
+    int64_t id;
+    int subdir;     //in which subdir
+} FSTrunkIdInfo;
+
+typedef struct {
     FSStorePath *store;
-    int64_t id;     //trunk id
+    FSTrunkIdInfo id_info;
     int64_t offset; //offset of the trunk file
-    int subdir;  //in which subdir
-    int size;    //alloced space size
+    int64_t size;   //alloced space size
 } FSTrunkSpaceInfo;
 
 struct fs_server_dentry;
