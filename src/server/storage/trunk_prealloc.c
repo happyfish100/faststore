@@ -34,7 +34,7 @@ int trunk_prealloc_push(FSTrunkAllocator *allocator,
     bool notify;
     int result;
 
-    ctx = thread_contexts + allocator->index % thread_count;
+    ctx = thread_contexts + allocator->path_info->store.index % thread_count;
     pthread_mutex_lock(&ctx->lock);
     task = (TrunkPreallocTask *)fast_mblock_alloc_object(&ctx->mblock);
     if (task != NULL) {

@@ -375,6 +375,7 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption)
     for (p=parray->paths; p<end; p++) {
         p->store.index = store_path_index_get(p->store.path.str);
         if (p->store.index < 0) {
+            //TODO  generate mark
             if ((result=store_path_index_add(p->store.path.str,
                             mark, &p->store.index)) != 0)
             {
@@ -409,10 +410,14 @@ int load_store_path_indexes(FSStorageConfig *storage_cfg,
         return result;
     }
 
-    logInfo("old_count: %d, new_count: %d", old_count, store_path_index_count());
+    storage_cfg->max_store_path_index = store_path_index_max();
     if (store_path_index_count() != old_count) {
         result = store_path_index_save();
     }
+
+    logInfo("old_count: %d, new_count: %d, max_store_path_index: %d",
+            old_count, store_path_index_count(),
+            storage_cfg->max_store_path_index);
 
     store_path_index_destroy();
     return result;

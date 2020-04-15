@@ -41,7 +41,6 @@ typedef struct {
 } FSTrunkFreelist;
 
 typedef struct {
-    int index;
     FSStoragePathInfo *path_info;
     UniqSkiplist *sl_trunks;   //all trunks
     FSTrunkFreelist *freelists; //current allocator map to disk write threads
@@ -54,7 +53,7 @@ extern "C" {
 #endif
 
     int trunk_allocator_init(FSTrunkAllocator *allocator,
-            FSStoragePathInfo *path_info, const int index);
+            FSStoragePathInfo *path_info);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
             const int64_t id, const int subdir, const int64_t size);

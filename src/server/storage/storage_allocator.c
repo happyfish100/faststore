@@ -8,7 +8,7 @@
 #include "storage_allocator.h"
 
 static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
-        FSStoragePathArray *parray, int *index)
+        FSStoragePathArray *parray)
 {
     int result;
     int bytes;
@@ -42,7 +42,7 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
             ppallocator=allocator_ctx->avail.allocators; path<end;
             path++, pallocator++, ppallocator++)
     {
-        if ((result=trunk_allocator_init(pallocator, path, (*index)++)) != 0) {
+        if ((result=trunk_allocator_init(pallocator, path)) != 0) {
             return result;
         }
 
@@ -56,17 +56,15 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
 int storage_allocator_init(FSStorageAllocatorManager *allocator_mgr)
 {
     int result;
-    int index;
 
-    index = 0;
     memset(allocator_mgr, 0, sizeof(FSStorageAllocatorManager));
     if ((result=init_allocator_context(&allocator_mgr->write_cache,
-                    &STORAGE_CFG.write_cache, &index)) != 0)
+                    &STORAGE_CFG.write_cache)) != 0)
     {
         return result;
     }
     if ((result=init_allocator_context(&allocator_mgr->store_path,
-                    &STORAGE_CFG.store_path, &index)) != 0)
+                    &STORAGE_CFG.store_path)) != 0)
     {
         return result;
     }

@@ -41,7 +41,7 @@ static void trunk_free_func(void *ptr, const int delay_seconds)
 }
 
 int trunk_allocator_init(FSTrunkAllocator *allocator,
-        FSStoragePathInfo *path_info, const int index)
+        FSStoragePathInfo *path_info)
 {
     int result;
     int bytes;
@@ -95,7 +95,6 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
     }
     memset(allocator->freelists, 0, bytes);
 
-    allocator->index = index;
     allocator->path_info = path_info;
     return 0;
 }

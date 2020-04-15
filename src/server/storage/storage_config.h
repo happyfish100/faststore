@@ -15,6 +15,7 @@ typedef struct {
     } reserved_space;
     int64_t avail_space;  //current available space
     struct {
+        volatile int64_t total_bytes;
         volatile int64_t used_bytes;
     } trunk_stat;
 } FSStoragePathInfo;
@@ -27,6 +28,7 @@ typedef struct {
 typedef struct {
     FSStoragePathArray store_path;
     FSStoragePathArray write_cache;
+    int max_store_path_index;  //the max of FSStorePath->index from dat file
 
     struct {
         double on_usage;  //usage ratio

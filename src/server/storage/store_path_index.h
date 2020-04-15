@@ -15,6 +15,8 @@ extern "C" {
 
     int store_path_index_count();
 
+    int store_path_index_max();
+
     int store_path_index_get(const char *path);
 
     int store_path_index_add(const char *path, const char *mark, int *index);

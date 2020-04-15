@@ -190,6 +190,15 @@ int store_path_index_count()
     return store_paths.count;
 }
 
+int store_path_index_max()
+{
+    if (store_paths.count > 0) {
+        return store_paths.entries[store_paths.count - 1].index;
+    } else {
+        return 0;
+    }
+}
+
 int store_path_index_init()
 {
     int result;
