@@ -36,8 +36,6 @@ typedef struct {
 
 static TrunkIdInfoContext id_info_context = {0, {0, NULL}};
 
-#define TRUNK_BINLOG_FILENAME        ".trunk_binlog.dat"
-
 static int compare_by_id(const void *p1, const void *p2)
 {
     return ((StoreSubdirInfo *)p1)->subdir -
@@ -60,31 +58,8 @@ void id_info_free_func(void *ptr, const int delay_seconds)
     }
 }
 
-static char *get_trunk_binlog_filename(char *full_filename, const int size)
-{
-    snprintf(full_filename, size, "%s/%s",
-            DATA_PATH_STR, TRUNK_BINLOG_FILENAME);
-    return full_filename;
-}
-
 static int trunk_id_info_load()
 {
-    int result;
-    char full_filename[PATH_MAX];
-
-    get_trunk_binlog_filename(full_filename, sizeof(full_filename));
-    if (access(full_filename, F_OK) != 0) {
-        if (errno == ENOENT) {
-            return 0;
-        }
-
-        result = errno != 0 ? errno : EPERM;
-        logError("file: "__FILE__", line: %d, "
-                "access file %s fail, errno: %d, error info: %s",
-                __LINE__, full_filename, result, STRERROR(result));
-        return result;
-    }
-
     return 0;
 }
 
