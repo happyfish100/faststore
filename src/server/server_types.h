@@ -48,7 +48,7 @@ typedef struct {
 
 typedef struct {
     int64_t id;
-    int subdir;     //in which subdir
+    int64_t subdir;     //in which subdir
 } FSTrunkIdInfo;
 
 typedef struct {

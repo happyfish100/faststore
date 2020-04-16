@@ -7,6 +7,9 @@
 #include "../server_global.h"
 #include "storage_allocator.h"
 
+static FSStorageAllocatorManager allocator_mgr;
+FSStorageAllocatorManager *g_allocator_mgr = &allocator_mgr;
+
 static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
         FSStoragePathArray *parray)
 {
@@ -47,48 +50,62 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
         }
 
         *ppallocator = pallocator;
+        g_allocator_mgr->allocator_ptr_array.allocators
+            [path->store.index] = pallocator;
     }
     allocator_ctx->all.count = parray->count;
     allocator_ctx->avail.count = parray->count;
     return 0;
 }
 
-int storage_allocator_init(FSStorageAllocatorManager *allocator_mgr)
+int storage_allocator_init()
 {
     int result;
 
-    memset(allocator_mgr, 0, sizeof(FSStorageAllocatorManager));
-    if ((result=init_allocator_context(&allocator_mgr->write_cache,
+    memset(g_allocator_mgr, 0, sizeof(FSStorageAllocatorManager));
+    g_allocator_mgr->allocator_ptr_array.count = STORAGE_CFG.
+        max_store_path_index + 1;
+    g_allocator_mgr->allocator_ptr_array.allocators = (FSTrunkAllocator **)
+        calloc(g_allocator_mgr->allocator_ptr_array.count,
+                sizeof(FSTrunkAllocator *));
+    if (g_allocator_mgr->allocator_ptr_array.allocators == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__,
+                (int)(sizeof(FSTrunkAllocator *) * g_allocator_mgr->
+                    allocator_ptr_array.count));
+        return ENOMEM;
+    }
+
+    if ((result=init_allocator_context(&g_allocator_mgr->write_cache,
                     &STORAGE_CFG.write_cache)) != 0)
     {
         return result;
     }
-    if ((result=init_allocator_context(&allocator_mgr->store_path,
+    if ((result=init_allocator_context(&g_allocator_mgr->store_path,
                     &STORAGE_CFG.store_path)) != 0)
     {
         return result;
     }
 
-    if (allocator_mgr->write_cache.avail.count > 0) {
-        allocator_mgr->current = &allocator_mgr->write_cache;
+    if (g_allocator_mgr->write_cache.avail.count > 0) {
+        g_allocator_mgr->current = &g_allocator_mgr->write_cache;
     } else {
-        allocator_mgr->current = &allocator_mgr->store_path;
+        g_allocator_mgr->current = &g_allocator_mgr->store_path;
     }
 
     return 0;
 }
 
-int storage_allocator_alloc(FSStorageAllocatorManager *allocator_mgr,
-        const uint32_t blk_hc, const int size, FSTrunkSpaceInfo *space_info,
-        int *count)
+int storage_allocator_alloc(const uint32_t blk_hc, const int size,
+        FSTrunkSpaceInfo *space_info, int *count)
 {
     FSTrunkAllocator **allocator;
 
-    if (allocator_mgr->current->avail.count == 0) {
+    if (g_allocator_mgr->current->avail.count == 0) {
         return ENOENT;
     }
 
-    allocator = allocator_mgr->current->avail.allocators +
-        blk_hc % allocator_mgr->current->avail.count;
+    allocator = g_allocator_mgr->current->avail.allocators +
+        blk_hc % g_allocator_mgr->current->avail.count;
     return trunk_allocator_alloc(*allocator, blk_hc, size, space_info, count);
 }
