@@ -18,7 +18,6 @@
 
 typedef struct {
     FSTrunkIdInfo id_info;
-    int last_alloc_time;
     int status;
     struct {
         volatile int count;  //slice count
@@ -55,7 +54,8 @@ extern "C" {
             FSStoragePathInfo *path_info);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
-            const FSTrunkIdInfo *id_info, const int64_t size);
+            const FSTrunkIdInfo *id_info, const int64_t size,
+            FSTrunkFileInfo **pp_trunk);
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
 
@@ -65,6 +65,9 @@ extern "C" {
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);
+
+    void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
+            FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info);
 
 #ifdef __cplusplus
 }

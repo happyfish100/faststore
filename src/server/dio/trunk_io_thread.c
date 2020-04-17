@@ -198,8 +198,9 @@ void trunk_io_thread_terminate()
 {
 }
 
-int trunk_io_thread_push(const int type, const FSTrunkSpaceInfo *space,
-        string_t *data, trunk_io_notify_func notify_func, void *notify_args)
+int trunk_io_thread_push(const int type, const uint32_t hash_code,
+        const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
+        notify_func, void *notify_args)
 {
     TrunkIOPathContext *path_ctx;
     TrunkIOThreadContext *thread_ctx;
@@ -214,7 +215,7 @@ int trunk_io_thread_push(const int type, const FSTrunkSpaceInfo *space,
         ctx_array = &path_ctx->writes;
     }
 
-    thread_ctx = ctx_array->contexts + space->id_info.id % ctx_array->count;
+    thread_ctx = ctx_array->contexts + hash_code % ctx_array->count;
     pthread_mutex_lock(&thread_ctx->lock);
     iob = (TrunkIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
     if (iob == NULL) {

@@ -147,7 +147,7 @@ int trunk_id_info_init()
     return 0;
 }
 
-int trunk_id_info_add(const int path_index, FSTrunkIdInfo *id_info)
+int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
 {
     SortedSubdirs *sorted_subdirs;
     StoreSubdirInfo target;
@@ -200,7 +200,7 @@ int trunk_id_info_add(const int path_index, FSTrunkIdInfo *id_info)
     return result;
 }
 
-int trunk_id_info_delete(const int path_index, FSTrunkIdInfo *id_info)
+int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info)
 {
     SortedSubdirs *sorted_subdirs;
     StoreSubdirInfo target;

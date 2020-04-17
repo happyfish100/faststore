@@ -93,7 +93,7 @@ int storage_allocator_init()
         g_allocator_mgr->current = &g_allocator_mgr->store_path;
     }
 
-    return 0;
+    return trunk_id_info_init();
 }
 
 int storage_allocator_alloc(const uint32_t blk_hc, const int size,

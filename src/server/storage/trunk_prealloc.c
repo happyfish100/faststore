@@ -7,6 +7,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
+#include "storage_allocator.h"
 #include "trunk_prealloc.h"
 
 struct trunk_prealloc_thread_context;
@@ -75,7 +76,14 @@ static void create_trunk_done(struct trunk_io_buffer *record,
 
     task = (TrunkPreallocTask *)args;
     if (result == 0) {
-        //TODO
+        FSTrunkFileInfo *trunk_info;
+        if (storage_allocator_add_trunk_ex(record->space.
+                    store->index, &record->space.id_info,
+                    record->space.size, &trunk_info) == 0)
+        {
+            trunk_allocator_add_to_freelist(task->allocator,
+                    task->freelist, trunk_info);
+        }
     }
     fast_mblock_free_object(&task->ctx->mblock, task);
 }
@@ -99,14 +107,16 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
     if (task->allocator->path_info->avail_space - STORAGE_CFG.trunk_file_size <
             task->allocator->path_info->reserved_space.value)
     {
-        //do reclaim
+        //TODO: trunk space reclaim
         //FS_TRUNK_STATUS_ALLOCING
     }
 
     space.store = &task->allocator->path_info->store;
-    //TODO
-    //space.id =
-    //space.subdir =
+    if ((result=trunk_id_info_generate(space.store->index,
+                    &space.id_info)) != 0)
+    {
+        return result;
+    }
     space.offset = 0;
     space.size = STORAGE_CFG.trunk_file_size;
 

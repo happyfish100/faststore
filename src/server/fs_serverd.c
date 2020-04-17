@@ -29,6 +29,7 @@
 #include "server_func.h"
 #include "service_handler.h"
 #include "cluster_handler.h"
+#include "storage/storage_allocator.h"
 #include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
@@ -114,11 +115,9 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /*
-        if ((result=server_load_data()) != 0) {
+        if ((result=storage_allocator_init()) != 0) {
             break;
         }
-        */
 
         fs_proto_init();
         //sched_print_all_entries();

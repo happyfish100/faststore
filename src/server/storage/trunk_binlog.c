@@ -139,20 +139,14 @@ static int parse_line(TrunkBinlogReader *reader, char *line_end)
     }
 
     if (op_type == FS_IO_TYPE_CREATE_TRUNK) {
-       if ((result=trunk_id_info_add(path_index, &id_info)) != 0) {
-           return result;
-       }
        if ((result=storage_allocator_add_trunk(path_index,
                        &id_info, trunk_size)) != 0)
        {
            return result;
        }
     } else if (op_type == FS_IO_TYPE_DELETE_TRUNK) {
-        if ((result=trunk_id_info_delete(path_index, &id_info)) != 0) {
-            return result;
-        }
         if ((result=storage_allocator_delete_trunk(path_index,
-                        id_info.id)) != 0)
+                        &id_info)) != 0)
         {
             return result;
         }
