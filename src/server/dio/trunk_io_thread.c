@@ -1,6 +1,6 @@
 #include <limits.h>
+#include <fcntl.h>
 #include <sys/stat.h>
-#include <sys/statvfs.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
@@ -168,9 +168,8 @@ void trunk_io_thread_terminate()
 {
 }
 
-int trunk_io_thread_push(const int type, const uint32_t hash_code,
-        const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
-        notify_func, void *notify_args)
+int trunk_io_thread_push(const int type, const FSTrunkSpaceInfo *space,
+        string_t *data, trunk_io_notify_func notify_func, void *notify_args)
 {
     TrunkIOPathContext *path_ctx;
     TrunkIOThreadContext *thread_ctx;
@@ -185,7 +184,7 @@ int trunk_io_thread_push(const int type, const uint32_t hash_code,
         ctx_array = &path_ctx->writes;
     }
 
-    thread_ctx = ctx_array->contexts + hash_code % ctx_array->count;
+    thread_ctx = ctx_array->contexts + space->id_info.id % ctx_array->count;
     pthread_mutex_lock(&thread_ctx->lock);
     iob = (TrunkIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
     if (iob == NULL) {
@@ -216,10 +215,88 @@ int trunk_io_thread_push(const int type, const uint32_t hash_code,
     return 0;
 }
 
-static int trunk_io_deal_buffer(TrunkIOBuffer *iob)
+static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
+        char *trunk_filename, const int size)
 {
+    snprintf(trunk_filename, size, "%s/%04"PRId64"/%06"PRId64,
+            space->store->path.str, space->id_info.subdir,
+            space->id_info.id);
+}
+
+static int do_create_trunk(TrunkIOBuffer *iob)
+{
+    char trunk_filename[PATH_MAX];
+    int fd;
+    int result;
+
+    get_trunk_filename(&iob->space, trunk_filename, sizeof(trunk_filename));
+    fd = open(trunk_filename, O_WRONLY | O_CREAT, 0644);
+    if (fd < 0) {
+        if (errno == ENOENT) {
+            char filepath[PATH_MAX];
+            char *pend;
+            int len;
+
+            pend = strrchr(trunk_filename, '/');
+            len = pend - trunk_filename;
+            memcpy(filepath, trunk_filename, len);
+            *(filepath + len) = '\0';
+            if (mkdir(filepath, 0755) < 0) {
+                result = errno != 0 ? errno : EACCES;
+                logError("file: "__FILE__", line: %d, "
+                        "mkdir \"%s\" fail, errno: %d, error info: %s",
+                        __LINE__, filepath, result, STRERROR(result));
+                return result;
+            }
+            fd = open(trunk_filename, O_WRONLY | O_CREAT, 0644);
+        }
+    }
+
+    if (fd < 0) {
+        result = errno != 0 ? errno : EACCES;
+        logError("file: "__FILE__", line: %d, "
+                "open file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, trunk_filename, result, STRERROR(result));
+        return result;
+    }
+
+    if (ftruncate(fd, iob->space.size) < 0) {
+        result = errno != 0 ? errno : EACCES;
+        logError("file: "__FILE__", line: %d, "
+                "ftruncate file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, trunk_filename, result, STRERROR(result));
+        return result;
+    }
+
     //TODO
     return 0;
+}
+
+static int trunk_io_deal_buffer(TrunkIOBuffer *iob)
+{
+    int result;
+
+    switch (iob->type) {
+        case FS_IO_TYPE_CREATE_TRUNK:
+            result = do_create_trunk(iob);
+            break;
+        case FS_IO_TYPE_DELETE_TRUNK:
+            result = 0;
+            break;
+        case FS_IO_TYPE_READ_SLICE:
+            result = 0;
+            break;
+        case FS_IO_TYPE_WRITE_SLICE:
+            result = 0;
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "invalid IO type: %d", __LINE__, iob->type);
+            result = EINVAL;
+            break;
+    }
+
+    return result;
 }
 
 static void *trunk_io_thread_func(void *arg)

@@ -12,6 +12,7 @@
 
 struct trunk_io_buffer;
 
+//Note: the record can NOT be persisted
 typedef void (*trunk_io_notify_func)(struct trunk_io_buffer *record,
         const int result, void *args);
 
@@ -33,9 +34,9 @@ extern "C" {
     int trunk_io_thread_init();
     void trunk_io_thread_terminate();
 
-    int trunk_io_thread_push(const int type, const uint32_t hash_code,
-            const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
-            notify_func, void *notify_args);
+    int trunk_io_thread_push(const int type, const FSTrunkSpaceInfo *space,
+            string_t *data, trunk_io_notify_func notify_func,
+            void *notify_args);
 
 #ifdef __cplusplus
 }

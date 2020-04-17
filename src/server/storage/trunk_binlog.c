@@ -83,7 +83,7 @@ static int read_data(TrunkBinlogReader *reader)
 
 static int parse_line(TrunkBinlogReader *reader, char *line_end)
 {
-#define MAX_FIELD_COUNT     16
+#define MAX_FIELD_COUNT     8
 #define EXPECT_FIELD_COUNT  6
 #define FIELD_INDEX_TIMESTAMP   0
 #define FIELD_INDEX_OP_TYPE     1
