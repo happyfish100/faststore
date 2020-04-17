@@ -29,7 +29,6 @@ int trunk_fd_cache_init(TrunkFDCacheContext *cache_ctx, const int capacity)
         return ENOMEM;
     }
     memset(cache_ctx->htable.buckets, 0, bytes);
-    cache_ctx->lru.count = 0;
 
     if (capacity < 1024) {
         alloc_elements_once = 512;
@@ -50,6 +49,7 @@ int trunk_fd_cache_init(TrunkFDCacheContext *cache_ctx, const int capacity)
         return result;
     }
 
+    cache_ctx->lru.count = 0;
     cache_ctx->lru.capacity = capacity;
     FC_INIT_LIST_HEAD(&cache_ctx->lru.head);
     return 0;
@@ -65,12 +65,12 @@ int trunk_fd_cache_get(TrunkFDCacheContext *cache_ctx,
     if (*bucket == NULL) {
         return -1;
     }
-    if ((*bucket)->trunk_id == trunk_id) {
+    if ((*bucket)->pair.trunk_id == trunk_id) {
         entry = *bucket;
     } else {
         entry = (*bucket)->next;
         while (entry != NULL) {
-            if (entry->trunk_id == trunk_id) {
+            if (entry->pair.trunk_id == trunk_id) {
                 break;
             }
 
@@ -80,7 +80,7 @@ int trunk_fd_cache_get(TrunkFDCacheContext *cache_ctx,
 
     if (entry != NULL) {
         fc_list_move_tail(&entry->dlink, &cache_ctx->lru.head);
-        return entry->fd;
+        return entry->pair.fd;
     } else {
         return -1;
     }
@@ -95,7 +95,7 @@ int trunk_fd_cache_add(TrunkFDCacheContext *cache_ctx,
     if (cache_ctx->lru.count >= cache_ctx->lru.capacity) {
         entry = fc_list_entry(cache_ctx->lru.head.next,
                 TrunkFDCacheEntry, dlink);
-        trunk_fd_cache_delete(cache_ctx, entry->trunk_id);
+        trunk_fd_cache_delete(cache_ctx, entry->pair.trunk_id);
     }
 
     entry = (TrunkFDCacheEntry *)fast_mblock_alloc_object(
@@ -104,8 +104,8 @@ int trunk_fd_cache_add(TrunkFDCacheContext *cache_ctx,
         return ENOMEM;
     }
 
-    entry->trunk_id = trunk_id;
-    entry->fd  = fd;
+    entry->pair.trunk_id = trunk_id;
+    entry->pair.fd = fd;
 
     bucket = cache_ctx->htable.buckets + trunk_id % cache_ctx->htable.size;
     entry->next = *bucket;
@@ -131,7 +131,7 @@ int trunk_fd_cache_delete(TrunkFDCacheContext *cache_ctx,
     previous = NULL;
     entry = *bucket;
     while (entry != NULL) {
-        if (entry->trunk_id == trunk_id) {
+        if (entry->pair.trunk_id == trunk_id) {
             break;
         }
 
@@ -148,8 +148,8 @@ int trunk_fd_cache_delete(TrunkFDCacheContext *cache_ctx,
         previous->next = entry->next;
     }
 
-    close(entry->fd);
-    entry->fd = -1;
+    close(entry->pair.fd);
+    entry->pair.fd = -1;
 
     fc_list_del_init(&entry->dlink);
     fast_mblock_free_object(&cache_ctx->allocator, entry);

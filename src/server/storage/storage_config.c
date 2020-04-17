@@ -215,6 +215,12 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     int64_t trunk_file_size;
     int64_t discard_remain_space_size;
 
+    storage_cfg->fd_cache_capacity_per_read_thread = iniGetIntValue(NULL,
+            "fd_cache_capacity_per_read_thread", ini_context, 256);
+    if (storage_cfg->fd_cache_capacity_per_read_thread <= 0) {
+        storage_cfg->fd_cache_capacity_per_read_thread = 256;
+    }
+
     storage_cfg->write_threads_per_disk = iniGetIntValue(NULL,
             "write_threads_per_disk", ini_context, 1);
     if (storage_cfg->write_threads_per_disk <= 0) {
@@ -470,7 +476,9 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, write_threads_per_disk: %d, "
             "read_threads_per_disk: %d, "
-            "prealloc_trunks_per_writer: %d, prealloc_trunk_threads: %d, "
+            "fd_cache_capacity_per_read_thread: %d, "
+            "prealloc_trunks_per_writer: %d, "
+            "prealloc_trunk_threads: %d, "
             "reserved_space_per_disk: %.2f%%, "
             "trunk_file_size: %d MB, "
             "max_trunk_files_per_subdir: %d, "
@@ -479,6 +487,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "end_time: %02d:%02d }, reclaim_trunks_on_usage: %.2f%%",
             storage_cfg->write_threads_per_disk,
             storage_cfg->read_threads_per_disk,
+            storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->prealloc_trunks_per_writer,
             storage_cfg->prealloc_trunk_threads,
             storage_cfg->reserved_space_per_disk * 100.00,

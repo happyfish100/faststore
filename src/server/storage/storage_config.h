@@ -44,6 +44,7 @@ typedef struct {
     int discard_remain_space_size;
     int prealloc_trunks_per_writer;
     int prealloc_trunk_threads;
+    int fd_cache_capacity_per_read_thread;
     double reclaim_trunks_on_usage;
 } FSStorageConfig;
 

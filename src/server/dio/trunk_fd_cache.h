@@ -5,9 +5,13 @@
 #include "fastcommon/fc_list.h"
 #include "../../common/fs_types.h"
 
-typedef struct trunk_fd_cache_entry {
+typedef struct trunk_id_fd_pair {
     int64_t trunk_id;
     int fd;
+} TrunkIdFDPair;
+
+typedef struct trunk_fd_cache_entry {
+    TrunkIdFDPair pair;
     struct fc_list_head dlink;
     struct trunk_fd_cache_entry *next;  //for hashtable
 } TrunkFDCacheEntry;
