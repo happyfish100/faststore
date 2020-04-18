@@ -29,7 +29,7 @@
 #include "server_func.h"
 #include "service_handler.h"
 #include "cluster_handler.h"
-#include "storage/storage_allocator.h"
+#include "server_storage.h"
 #include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=storage_allocator_init()) != 0) {
+        if ((result=server_storage_init()) != 0) {
             break;
         }
 
@@ -172,6 +172,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    server_storage_destroy();
     sf_service_destroy();
 
     delete_pid_file(g_pid_filename);

@@ -28,7 +28,7 @@ typedef struct trunk_prealloc_thread_context {
 } TrunkPreallocThreadContext;
 
 static TrunkPreallocThreadContext *thread_contexts = NULL;
-static int thread_count = 0;
+static int prealloc_thread_count = 0;
 
 int trunk_prealloc_push(FSTrunkAllocator *allocator,
         FSTrunkFreelist *freelist, const int target_count)
@@ -38,7 +38,8 @@ int trunk_prealloc_push(FSTrunkAllocator *allocator,
     bool notify;
     int result;
 
-    ctx = thread_contexts + allocator->path_info->store.index % thread_count;
+    ctx = thread_contexts + allocator->path_info->
+        store.index % prealloc_thread_count;
     pthread_mutex_lock(&ctx->lock);
     task = (TrunkPreallocTask *)fast_mblock_alloc_object(&ctx->mblock);
     if (task != NULL) {
@@ -170,8 +171,8 @@ int trunk_prealloc_init()
     TrunkPreallocThreadContext *ctx;
     TrunkPreallocThreadContext *end;
 
-    thread_count = STORAGE_CFG.prealloc_trunk_threads;
-    bytes = sizeof(TrunkPreallocThreadContext) * thread_count;
+    prealloc_thread_count = STORAGE_CFG.prealloc_trunk_threads;
+    bytes = sizeof(TrunkPreallocThreadContext) * prealloc_thread_count;
     thread_contexts = (TrunkPreallocThreadContext *)malloc(bytes);
     if (thread_contexts == NULL) {
         logError("file: "__FILE__", line: %d, "
@@ -180,7 +181,7 @@ int trunk_prealloc_init()
     }
     memset(thread_contexts, 0, bytes);
 
-    end = thread_contexts + thread_count;
+    end = thread_contexts + prealloc_thread_count;
     for (ctx=thread_contexts; ctx<end; ctx++) {
         if ((result=init_pthread_lock(&ctx->lock)) != 0) {
             logError("file: "__FILE__", line: %d, "
@@ -205,7 +206,7 @@ int trunk_prealloc_init()
         }
     }
 
-    return create_work_threads_ex(&thread_count, trunk_prealloc_thread_func,
-            thread_contexts, sizeof(TrunkPreallocThreadContext), NULL,
-            SF_G_THREAD_STACK_SIZE);
+    return create_work_threads_ex(&prealloc_thread_count,
+            trunk_prealloc_thread_func, thread_contexts, sizeof(
+                TrunkPreallocThreadContext), NULL, SF_G_THREAD_STACK_SIZE);
 }

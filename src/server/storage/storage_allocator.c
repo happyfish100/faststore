@@ -96,6 +96,40 @@ int storage_allocator_init()
     return trunk_id_info_init();
 }
 
+static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
+{
+    FSTrunkAllocator *allocator;
+    FSTrunkAllocator *end;
+    const FSTrunkInfoPtrArray *trunk_ptr_array;
+
+    end = allocator_ctx->all.allocators + allocator_ctx->all.count;
+    for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
+        trunk_ptr_array = trunk_allocator_free_size_top_n(
+                allocator, allocator->path_info->write_thread_count *
+                allocator->path_info->prealloc_trunks);
+
+        logInfo("trunk_ptr_array count: %d", trunk_ptr_array->count);
+        trunk_allocator_array_to_freelists(allocator, trunk_ptr_array);
+        trunk_allocator_prealloc_trunks(allocator);
+    }
+
+    return 0;
+}
+
+int storage_allocator_prealloc_trunk_freelists()
+{
+    int result;
+
+    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->write_cache)) != 0) {
+        return result;
+    }
+
+    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->store_path)) != 0) {
+        return result;
+    }
+    return 0;
+}
+
 int storage_allocator_alloc(const uint32_t blk_hc, const int size,
         FSTrunkSpaceInfo *space_info, int *count)
 {

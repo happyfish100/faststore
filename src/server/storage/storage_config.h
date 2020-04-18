@@ -3,6 +3,7 @@
 #define _STORAGE_CONFIG_H
 
 #include "../../common/fs_types.h"
+#include "../server_types.h"
 
 typedef struct {
     FSStorePath store;

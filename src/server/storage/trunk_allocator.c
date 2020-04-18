@@ -104,6 +104,8 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
     }
     memset(allocator->freelists, 0, bytes);
 
+    allocator->priority_array.alloc = allocator->priority_array.count = 0;
+    allocator->priority_array.trunks = NULL;
     allocator->path_info = path_info;
     return 0;
 }
@@ -199,8 +201,26 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     freelist->count--;
 
     fast_mblock_free_object(&g_free_node_allocator, node);
-    trunk_prealloc_push(allocator, freelist, STORAGE_CFG.
-            prealloc_trunks_per_writer);
+    trunk_prealloc_push(allocator, freelist, allocator->path_info->
+            prealloc_trunks);
+}
+
+void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator)
+{
+    FSTrunkFreelist *freelist;
+    FSTrunkFreelist *end;
+    int count;
+    int i;
+
+    end = allocator->freelists + allocator->path_info->write_thread_count;
+    for (freelist=allocator->freelists; freelist<end; freelist++) {
+        count = allocator->path_info->prealloc_trunks - freelist->count;
+        logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
+        for (i=0; i<count; i++) {
+            trunk_prealloc_push(allocator, freelist, allocator->path_info->
+                    prealloc_trunks);
+        }
+    }
 }
 
 void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
@@ -234,6 +254,20 @@ void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
 
     if (notify) {
         pthread_cond_signal(&allocator->cond);
+    }
+}
+
+void trunk_allocator_array_to_freelists(FSTrunkAllocator *allocator,
+        const FSTrunkInfoPtrArray *trunk_ptr_array)
+{
+    FSTrunkFileInfo **pp;
+    FSTrunkFileInfo **end;
+
+    end = trunk_ptr_array->trunks + trunk_ptr_array->count;
+    for (pp=trunk_ptr_array->trunks; pp<end; pp++) {
+        trunk_allocator_add_to_freelist(allocator,
+                allocator->freelists + (pp - trunk_ptr_array->trunks) %
+                allocator->path_info->write_thread_count, *pp);
     }
 }
 
@@ -308,4 +342,90 @@ int trunk_allocator_free(FSTrunkAllocator *allocator,
     pthread_mutex_unlock(&allocator->lock);
 
     return found != NULL ? 0 : ENOENT;
+}
+
+static int check_alloc_trunk_ptr_array(FSTrunkInfoPtrArray *parray,
+        const int target_count)
+{
+    int alloc;
+    int bytes;
+    FSTrunkFileInfo **trunks;
+
+    if (parray->alloc >= target_count) {
+        return 0;
+    }
+
+    if (parray->alloc == 0) {
+        alloc = 64;
+    } else {
+        alloc = parray->alloc * 2;
+    }
+
+    while (alloc < target_count) {
+        alloc *= 2;
+    }
+
+    bytes = sizeof(FSTrunkFileInfo *) * alloc;
+    trunks = (FSTrunkFileInfo **)malloc(bytes);
+    if (trunks == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+
+    if (parray->trunks != NULL) {
+        free(parray->trunks);
+    }
+
+    parray->trunks = trunks;
+    parray->alloc = alloc;
+    return 0;
+}
+
+const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
+            FSTrunkAllocator *allocator, const int count)
+{
+    UniqSkiplistIterator it;
+    FSTrunkFileInfo *trunk_info;
+    FSTrunkFileInfo **pp;
+    FSTrunkFileInfo **end;
+    int64_t remain_size;
+
+    allocator->priority_array.count = 0;
+    if (check_alloc_trunk_ptr_array(&allocator->priority_array, count) != 0) {
+        return &allocator->priority_array;
+    }
+
+    end = allocator->priority_array.trunks + count;
+    uniq_skiplist_iterator(allocator->sl_trunks, &it);
+    while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
+        remain_size = trunk_info->size - trunk_info->free_start;
+        if (remain_size < FS_FILE_BLOCK_SIZE) {
+            continue;
+        }
+        if ((trunk_info->used.bytes > 0) && ((double)trunk_info->used.bytes /
+                    (double)trunk_info->free_start <= 0.80))
+        {
+            continue;
+        }
+
+        if (allocator->priority_array.count < count) {
+            allocator->priority_array.trunks[allocator->
+                priority_array.count++] = trunk_info;
+            continue;
+        } else if (remain_size <= allocator->priority_array.trunks[0]->size -
+                allocator->priority_array.trunks[0]->free_start)
+        {
+            continue;
+        }
+
+        pp = allocator->priority_array.trunks + 1;
+        while ((pp < end) && (remain_size > (*pp)->size - (*pp)->free_start)) {
+            *(pp - 1) = *pp;
+            pp++;
+        }
+        *(pp - 1) = trunk_info;
+    }
+
+    return &allocator->priority_array;
 }

@@ -37,6 +37,8 @@ extern "C" {
 
     int storage_allocator_init();
 
+    int storage_allocator_prealloc_trunk_freelists();
+
     static inline int storage_allocator_add_trunk_ex(const int path_index,
             const FSTrunkIdInfo *id_info, const int64_t size,
             FSTrunkFileInfo **pp_trunk)

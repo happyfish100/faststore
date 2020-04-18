@@ -37,3 +37,4 @@ logs
 data
 *.pid
 *.swp
+*.swo

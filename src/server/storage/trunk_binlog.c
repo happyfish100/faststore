@@ -25,7 +25,7 @@ typedef struct {
     pthread_mutex_t lock;
 } TrunkBinlogWriter;
 
-#define TRUNK_BINLOG_FILENAME        ".trunk_binlog.dat"
+#define TRUNK_BINLOG_FILENAME        "trunk_binlog.dat"
 
 static TrunkBinlogWriter binlog_writer = {-1, {0}};
 
@@ -259,22 +259,26 @@ int trunk_binlog_init()
     get_trunk_binlog_filename(binlog_writer.filename,
             sizeof(binlog_writer.filename));
     if (access(binlog_writer.filename, F_OK) != 0) {
-        if (errno == ENOENT) {
-            return 0;
+        if (errno != ENOENT) {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, "
+                    "access file %s fail, errno: %d, error info: %s",
+                    __LINE__, binlog_writer.filename, result, STRERROR(result));
+            return result;
         }
-
-        result = errno != 0 ? errno : EPERM;
-        logError("file: "__FILE__", line: %d, "
-                "access file %s fail, errno: %d, error info: %s",
-                __LINE__, binlog_writer.filename, result, STRERROR(result));
-        return result;
-    }
-
-    if ((result=trunk_binlog_load(binlog_writer.filename)) != 0) {
+    } else if ((result=trunk_binlog_load(binlog_writer.filename)) != 0) {
         return result;
     }
 
     return init_binlog_writer();
+}
+
+void trunk_binlog_destroy()
+{
+    if (binlog_writer.fd >= 0) {
+        close(binlog_writer.fd);
+        binlog_writer.fd = -1;
+    }
 }
 
 int trunk_binlog_write(const char op_type, const int path_index,

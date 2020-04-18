@@ -39,9 +39,16 @@ typedef struct {
 } FSTrunkFreelist;
 
 typedef struct {
+    int alloc;
+    int count;
+    FSTrunkFileInfo **trunks;
+} FSTrunkInfoPtrArray;
+
+typedef struct {
     FSStoragePathInfo *path_info;
-    UniqSkiplist *sl_trunks;   //all trunks
+    UniqSkiplist *sl_trunks;   //all trunks order by id
     FSTrunkFreelist *freelists; //current allocator map to disk write threads
+    FSTrunkInfoPtrArray priority_array;  //for trunk reclaim
     pthread_mutex_t lock;
     pthread_cond_t cond;
 } FSTrunkAllocator;
@@ -68,6 +75,19 @@ extern "C" {
 
     void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info);
+
+    void trunk_allocator_array_to_freelists(FSTrunkAllocator *allocator,
+            const FSTrunkInfoPtrArray *trunk_ptr_array);
+
+    void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator);
+
+    //to find freelist when startup 
+    const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
+            FSTrunkAllocator *allocator, const int count);
+
+    //to reclaim trunk space
+    const FSTrunkInfoPtrArray *trunk_allocator_avail_space_top_n(
+            FSTrunkAllocator *allocator, const int count);
 
 #ifdef __cplusplus
 }
