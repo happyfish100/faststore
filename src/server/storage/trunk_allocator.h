@@ -34,9 +34,15 @@ typedef struct fs_trunk_free_node {
 
 typedef struct {
     int count;
+    int prealloc_trunks;
     FSTrunkFreeNode *head;  //allocate from head
     FSTrunkFreeNode *tail;  //push to tail
 } FSTrunkFreelist;
+
+typedef struct {
+    FSTrunkFreelist normal;   //general purpose
+    FSTrunkFreelist reclaim;  //special purpose for reclaiming
+} FSTrunkFreelistPair;
 
 typedef struct {
     int alloc;
@@ -47,7 +53,7 @@ typedef struct {
 typedef struct {
     FSStoragePathInfo *path_info;
     UniqSkiplist *sl_trunks;   //all trunks order by id
-    FSTrunkFreelist *freelists; //current allocator map to disk write threads
+    FSTrunkFreelistPair *freelists; //current allocator map to disk write threads
     FSTrunkInfoPtrArray priority_array;  //for trunk reclaim
     pthread_mutex_t lock;
     pthread_cond_t cond;
@@ -66,9 +72,16 @@ extern "C" {
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
 
-    int trunk_allocator_alloc(FSTrunkAllocator *allocator,
+    int trunk_allocator_normal_alloc(FSTrunkAllocator *allocator,
+            const uint32_t blk_hc, const int size,
+            FSTrunkSpaceInfo *spaces, int *count, const bool blocked);
+
+    int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,
             const uint32_t blk_hc, const int size,
             FSTrunkSpaceInfo *spaces, int *count);
+
+#define trunk_allocator_alloc(allocator, blk_hc, size, spaces, count) \
+    trunk_allocator_normal_alloc(allocator, blk_hc, size, spaces, count, true)
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);

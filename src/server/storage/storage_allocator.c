@@ -106,7 +106,7 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
     for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
         trunk_ptr_array = trunk_allocator_free_size_top_n(
                 allocator, allocator->path_info->write_thread_count *
-                allocator->path_info->prealloc_trunks);
+                (2 + allocator->path_info->prealloc_trunks));
 
         logInfo("trunk_ptr_array count: %d", trunk_ptr_array->count);
         trunk_allocator_array_to_freelists(allocator, trunk_ptr_array);

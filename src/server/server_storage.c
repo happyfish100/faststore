@@ -16,6 +16,10 @@ int server_storage_init()
         return result;
     }
 
+    if ((result=trunk_prealloc_init()) != 0) {
+        return result;
+    }
+
     if ((result=trunk_binlog_init()) != 0) {
         return result;
     }

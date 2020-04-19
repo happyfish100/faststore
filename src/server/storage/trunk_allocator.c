@@ -42,6 +42,18 @@ static void trunk_free_func(void *ptr, const int delay_seconds)
     }
 }
 
+static void init_freelists(FSTrunkAllocator *allocator)
+{
+    FSTrunkFreelistPair *pair;
+    FSTrunkFreelistPair *end;
+
+    end = allocator->freelists + allocator->path_info->write_thread_count;
+    for (pair=allocator->freelists; pair<end; pair++) {
+        pair->normal.prealloc_trunks = allocator->path_info->prealloc_trunks;
+        pair->reclaim.prealloc_trunks = 2;
+    }
+}
+
 int trunk_allocator_init(FSTrunkAllocator *allocator,
         FSStoragePathInfo *path_info)
 {
@@ -95,8 +107,8 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
-    bytes = sizeof(FSTrunkFreelist) * path_info->write_thread_count;
-    allocator->freelists = (FSTrunkFreelist *)malloc(bytes);
+    bytes = sizeof(FSTrunkFreelistPair) * path_info->write_thread_count;
+    allocator->freelists = (FSTrunkFreelistPair *)malloc(bytes);
     if (allocator->freelists == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -107,6 +119,8 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
     allocator->priority_array.alloc = allocator->priority_array.count = 0;
     allocator->priority_array.trunks = NULL;
     allocator->path_info = path_info;
+
+    init_freelists(allocator);
     return 0;
 }
 
@@ -201,25 +215,31 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     freelist->count--;
 
     fast_mblock_free_object(&g_free_node_allocator, node);
-    trunk_prealloc_push(allocator, freelist, allocator->path_info->
-            prealloc_trunks);
+    trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+}
+
+static void prealloc_trunks(FSTrunkAllocator *allocator,
+        FSTrunkFreelist *freelist)
+{
+    int count;
+    int i;
+
+    count = freelist->prealloc_trunks - freelist->count;
+    logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
+    for (i=0; i<count; i++) {
+        trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+    }
 }
 
 void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator)
 {
-    FSTrunkFreelist *freelist;
-    FSTrunkFreelist *end;
-    int count;
-    int i;
+    FSTrunkFreelistPair *pair;
+    FSTrunkFreelistPair *end;
 
     end = allocator->freelists + allocator->path_info->write_thread_count;
-    for (freelist=allocator->freelists; freelist<end; freelist++) {
-        count = allocator->path_info->prealloc_trunks - freelist->count;
-        logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
-        for (i=0; i<count; i++) {
-            trunk_prealloc_push(allocator, freelist, allocator->path_info->
-                    prealloc_trunks);
-        }
+    for (pair=allocator->freelists; pair<end; pair++) {
+        prealloc_trunks(allocator, &pair->normal);
+        prealloc_trunks(allocator, &pair->reclaim);
     }
 }
 
@@ -261,24 +281,41 @@ void trunk_allocator_array_to_freelists(FSTrunkAllocator *allocator,
         const FSTrunkInfoPtrArray *trunk_ptr_array)
 {
     FSTrunkFileInfo **pp;
-    FSTrunkFileInfo **end;
+    int count;
+    int i;
 
-    end = trunk_ptr_array->trunks + trunk_ptr_array->count;
-    for (pp=trunk_ptr_array->trunks; pp<end; pp++) {
+    if (trunk_ptr_array->count == 0) {
+        return;
+    }
+
+    if (trunk_ptr_array->count > 2 * allocator->path_info->write_thread_count) {
+        count = 2 * allocator->path_info->write_thread_count;
+    } else {
+        count = trunk_ptr_array->count;
+    }
+
+    pp = trunk_ptr_array->trunks + trunk_ptr_array->count - 1;
+    for (i=0; i<count/2; i++) {
         trunk_allocator_add_to_freelist(allocator,
-                allocator->freelists + (pp - trunk_ptr_array->trunks) %
-                allocator->path_info->write_thread_count, *pp);
+                &allocator->freelists[i].reclaim, *pp--);
+        trunk_allocator_add_to_freelist(allocator,
+                &allocator->freelists[i].reclaim, *pp--);
+    }
+
+    for (; pp>=trunk_ptr_array->trunks; pp--) {
+        trunk_allocator_add_to_freelist(allocator,
+                &allocator->freelists[(pp - trunk_ptr_array->trunks) %
+                allocator->path_info->write_thread_count].normal, *pp);
     }
 }
 
-int trunk_allocator_alloc(FSTrunkAllocator *allocator,
-        const uint32_t blk_hc, const int size,
-        FSTrunkSpaceInfo *spaces, int *count)
+static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
+        const uint32_t blk_hc, const int size, FSTrunkSpaceInfo *spaces,
+        int *count, const bool blocked)
 {
     int aligned_size;
     int result;
     int remain_bytes;
-    FSTrunkFreelist *freelist;
     FSTrunkSpaceInfo *space_info;
     FSTrunkFileInfo *trunk_info;
 
@@ -286,13 +323,15 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
     space_info = spaces;
 
     pthread_mutex_lock(&allocator->lock);
-    freelist = allocator->freelists + blk_hc % allocator->
-        path_info->write_thread_count;
-
     if (freelist->head != NULL) {
         trunk_info = freelist->head->trunk_info;
         remain_bytes = trunk_info->size - trunk_info->free_start;
         if (remain_bytes < aligned_size) {
+            if (!blocked && freelist->count <= 1) {
+                pthread_mutex_unlock(&allocator->lock);
+                return EAGAIN;
+            }
+
             TRUNK_ALLOC_SPACE(allocator, trunk_info,
                     space_info, remain_bytes);
             space_info++;
@@ -323,6 +362,39 @@ int trunk_allocator_alloc(FSTrunkAllocator *allocator,
 
     *count = space_info - spaces;
     return result;
+}
+
+int trunk_allocator_normal_alloc(FSTrunkAllocator *allocator,
+        const uint32_t blk_hc, const int size,
+        FSTrunkSpaceInfo *spaces, int *count, const bool blocked)
+{
+    FSTrunkFreelist *freelist;
+
+    freelist = &allocator->freelists[blk_hc % allocator->
+        path_info->write_thread_count].normal;
+    return alloc_space(allocator, freelist, blk_hc, size, spaces,
+            count, blocked);
+}
+
+int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,
+        const uint32_t blk_hc, const int size,
+        FSTrunkSpaceInfo *spaces, int *count)
+{
+    int result;
+    FSTrunkFreelist *freelist;
+
+    freelist = &allocator->freelists[blk_hc % allocator->
+        path_info->write_thread_count].normal;
+    if ((result=alloc_space(allocator, freelist, blk_hc, size, spaces,
+                    count, false)) == 0)
+    {
+        return 0;
+    }
+
+    freelist = &allocator->freelists[blk_hc % allocator->
+        path_info->write_thread_count].reclaim;
+    return alloc_space(allocator, freelist, blk_hc, size, spaces,
+            count, false);
 }
 
 int trunk_allocator_free(FSTrunkAllocator *allocator,
