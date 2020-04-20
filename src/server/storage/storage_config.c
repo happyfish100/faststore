@@ -221,6 +221,28 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->fd_cache_capacity_per_read_thread = 256;
     }
 
+    storage_cfg->object_block.hashtable_capacity = iniGetInt64Value(NULL,
+            "object_block_hashtable_capacity", ini_context, 1403641);
+    if (storage_cfg->object_block.hashtable_capacity <= 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s, item \"object_block_hashtable_capacity\": "
+                "%"PRId64" is invalid, set to default: %d",
+                __LINE__, storage_filename, storage_cfg->
+                object_block.hashtable_capacity, 1403641);
+        storage_cfg->object_block.hashtable_capacity = 1403641;
+    }
+
+    storage_cfg->object_block.locks_count = iniGetIntValue(NULL,
+            "object_block_locks_count", ini_context, 163);
+    if (storage_cfg->object_block.locks_count <= 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s, item \"object_block_locks_count\": %d "
+                "is invalid, set to default: %d",
+                __LINE__, storage_filename, storage_cfg->
+                object_block.locks_count, 163);
+        storage_cfg->object_block.locks_count = 163;
+    }
+
     storage_cfg->write_threads_per_disk = iniGetIntValue(NULL,
             "write_threads_per_disk", ini_context, 1);
     if (storage_cfg->write_threads_per_disk <= 0) {
@@ -477,6 +499,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
     logInfo("storage config, write_threads_per_disk: %d, "
             "read_threads_per_disk: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
+            "object_block_hashtable_capacity: %"PRId64", "
+            "object_block_locks_count: %d, "
             "prealloc_trunks_per_writer: %d, "
             "prealloc_trunk_threads: %d, "
             "reserved_space_per_disk: %.2f%%, "
@@ -488,6 +512,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->write_threads_per_disk,
             storage_cfg->read_threads_per_disk,
             storage_cfg->fd_cache_capacity_per_read_thread,
+            storage_cfg->object_block.hashtable_capacity,
+            storage_cfg->object_block.locks_count,
             storage_cfg->prealloc_trunks_per_writer,
             storage_cfg->prealloc_trunk_threads,
             storage_cfg->reserved_space_per_disk * 100.00,

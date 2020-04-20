@@ -46,6 +46,10 @@ typedef struct {
     int prealloc_trunks_per_writer;
     int prealloc_trunk_threads;
     int fd_cache_capacity_per_read_thread;
+    struct {
+        int locks_count;
+        int64_t hashtable_capacity;
+    } object_block;
     double reclaim_trunks_on_usage;
 } FSStorageConfig;
 

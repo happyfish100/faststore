@@ -24,9 +24,12 @@
 #define FS_SERVER_STATUS_SYNCING   22
 #define FS_SERVER_STATUS_ACTIVE    23
 
+#define FS_FILE_BLOCK_ALIGN(offset) \
+    (offset & (~(FS_FILE_BLOCK_SIZE - 1)))
+
 typedef struct fs_block_key {
     int64_t inode;
-    int64_t offset;
+    int64_t offset;   //aligned by block size
     uint32_t hash_code;
 } FSBlockKey;
 
