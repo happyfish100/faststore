@@ -27,6 +27,9 @@
 #define FS_FILE_BLOCK_ALIGN(offset) \
     (offset & (~(FS_FILE_BLOCK_SIZE - 1)))
 
+#define FS_BLOCK_KEY_EQUAL(bkey1, bkey2) \
+    ((bkey1).inode == (bkey2).inode && (bkey1).offset == (bkey2).offset)
+
 typedef struct fs_block_key {
     int64_t inode;
     int64_t offset;   //aligned by block size

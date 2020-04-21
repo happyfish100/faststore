@@ -9,7 +9,8 @@
 
 typedef struct {
     UniqSkiplistFactory factory;
-    struct fast_mblock_man allocator;  //for ob_entry
+    struct fast_mblock_man ob_allocator;    //for ob_entry
+    struct fast_mblock_man slice_allocator; //for slice_entry 
     pthread_mutex_t lock;
 } OBSharedContext;
 
@@ -17,12 +18,6 @@ typedef struct {
     int count;
     OBSharedContext *contexts;
 } OBSharedContextArray;
-
-typedef struct {
-    int offset; //offset in the object block
-    int length; //slice length
-    FSTrunkSpaceInfo space;
-} OBSliceEntry;
 
 typedef struct ob_entry {
     FSBlockKey bkey;
@@ -46,7 +41,20 @@ static int slice_compare(const void *p1, const void *p2)
 
 static void slice_free_func(void *ptr, const int delay_seconds)
 {
-    //TODO
+    OBSharedContext *ctx;
+    int64_t bucket_index;
+
+    bucket_index = ((OBSliceEntry *)ptr)->bkey->hash_code %
+        ob_hashtable.capacity;
+    ctx = ob_shared_ctx_array.contexts + bucket_index %
+        ob_shared_ctx_array.count;
+    pthread_mutex_lock(&ctx->lock);
+    if (delay_seconds > 0) {
+        fast_mblock_delay_free_object(&ctx->ob_allocator, ptr, delay_seconds);
+    } else {
+        fast_mblock_free_object(&ctx->ob_allocator, ptr);
+    }
+    pthread_mutex_unlock(&ctx->lock);
 }
 
 static int init_ob_shared_ctx_array()
@@ -57,6 +65,7 @@ static int init_ob_shared_ctx_array()
     const int alloc_skiplist_once = 8 * 1024;
     const int min_alloc_elements_once = 4;
     const int delay_free_seconds = 0;
+    const bool bidirection = true;
     OBSharedContext *ctx;
     OBSharedContext *end;
 
@@ -71,15 +80,24 @@ static int init_ob_shared_ctx_array()
 
     end = ob_shared_ctx_array.contexts + ob_shared_ctx_array.count;
     for (ctx=ob_shared_ctx_array.contexts; ctx<end; ctx++) {
-        if ((result=uniq_skiplist_init_ex(&ctx->factory, max_level_count,
+        if ((result=uniq_skiplist_init_ex2(&ctx->factory, max_level_count,
                         slice_compare, slice_free_func, alloc_skiplist_once,
-                        min_alloc_elements_once, delay_free_seconds)) != 0)
+                        min_alloc_elements_once, delay_free_seconds,
+                        bidirection)) != 0)
         {
             return result;
         }
 
-        if ((result=fast_mblock_init_ex1(&ctx->allocator, "ob_entry",
-                        sizeof(OBEntry), 16 * 1024, NULL, NULL, false)) != 0)
+        if ((result=fast_mblock_init_ex1(&ctx->ob_allocator,
+                        "ob_entry", sizeof(OBEntry), 16 * 1024,
+                        NULL, NULL, false)) != 0)
+        {
+            return result;
+        }
+
+        if ((result=fast_mblock_init_ex1(&ctx->slice_allocator,
+                        "slice_entry", sizeof(OBSliceEntry),
+                        64 * 1024, NULL, NULL, false)) != 0)
         {
             return result;
         }
@@ -129,4 +147,135 @@ int object_block_index_init()
 
 void object_block_index_destroy()
 {
+}
+
+static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
+{
+    int64_t sub;
+
+    sub = bkey1->inode - bkey2->inode;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    sub = bkey1->offset - bkey2->offset;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
+        const FSBlockKey *bkey)
+{
+    const int init_level_count = 2;
+    OBEntry *previous;
+    OBEntry *ob;
+    int cmpr;
+
+    if (*bucket == NULL) {
+        previous = NULL;
+    } else {
+        cmpr = compare_block_key(bkey, &(*bucket)->bkey);
+        if (cmpr == 0) {
+            return *bucket;
+        } else if (cmpr < 0) {
+            previous = NULL;
+        } else {
+            previous = *bucket;
+            while (previous->next != NULL) {
+                cmpr = compare_block_key(bkey, &previous->next->bkey);
+                if (cmpr == 0) {
+                    return previous->next;
+                } else if (cmpr < 0) {
+                    break;
+                }
+
+                previous = previous->next;
+            }
+        }
+    }
+
+    ob = fast_mblock_alloc_object(&ctx->ob_allocator);
+    if (ob == NULL) {
+        return NULL;
+    }
+    ob->slices = uniq_skiplist_new(&ctx->factory, init_level_count);
+    if (ob->slices == NULL) {
+        fast_mblock_free_object(&ctx->ob_allocator, ob);
+        return NULL;
+    }
+
+    ob->bkey = *bkey;
+    if (previous == NULL) {
+        ob->next = *bucket;
+        *bucket = ob;
+    } else {
+        ob->next = previous->next;
+        previous->next = ob;
+    }
+    return ob;
+}
+
+static int delete_one_splice(OBSharedContext *ctx, OBEntry *ob,
+        const OBSliceEntry *src)
+{
+}
+
+static int add_one_splice(OBSharedContext *ctx, OBEntry *ob,
+        const OBSliceEntry *src)
+{
+    OBSliceEntry *slice;
+    slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+    if (slice == NULL) {
+        return ENOMEM;
+    }
+
+    *slice = *src;
+    slice->bkey = &ob->bkey;
+
+    //TODO add to trunk
+    return uniq_skiplist_insert(ob->slices, slice);
+}
+
+static int add_splice(OBSharedContext *ctx, OBEntry *ob,
+        const OBSliceEntry *slice)
+{
+    UniqSkiplistNode *node;
+
+    node = uniq_skiplist_find_ge_node(ob->slices, (void *)slice);
+    if (node == NULL) {
+        return add_one_splice(ctx, ob, slice);
+    }
+
+    return 0;
+}
+
+int object_block_index_add(const OBSliceEntry *slice)
+{
+    OBEntry **bucket;
+    OBSharedContext *ctx;
+    OBEntry *ob;
+    int64_t bucket_index;
+    int result;
+
+    bucket_index = slice->bkey->hash_code % ob_hashtable.capacity;
+    ctx = ob_shared_ctx_array.contexts + bucket_index %
+        ob_shared_ctx_array.count;
+    bucket = ob_hashtable.buckets + bucket_index;
+
+    pthread_mutex_lock(&ctx->lock);
+    ob = get_ob_entry(ctx, bucket, slice->bkey);
+    if (ob == NULL) {
+        result = ENOMEM;
+    } else {
+        result = add_splice(ctx, ob, slice);
+    }
+    pthread_mutex_unlock(&ctx->lock);
+
+    return result;
 }

@@ -71,8 +71,18 @@ extern "C" {
     int storage_allocator_alloc(const uint32_t blk_hc, const int size,
             FSTrunkSpaceInfo *space_info, int *count);
 
-    int storage_allocator_free(FSStorageAllocatorManager *allocator_mgr,
-            const uint32_t blk_hc, const int id, const int size);
+
+    static inline int storage_allocator_add_slice(OBSliceEntry *slice)
+    {
+        return trunk_allocator_add_slice(g_allocator_mgr->allocator_ptr_array.
+                allocators[slice->space.store->index], slice);
+    }
+
+    static inline int storage_allocator_delete_slice(OBSliceEntry *slice)
+    {
+        return trunk_allocator_delete_slice(g_allocator_mgr->allocator_ptr_array.
+                allocators[slice->space.store->index], slice);
+    }
 
 #ifdef __cplusplus
 }

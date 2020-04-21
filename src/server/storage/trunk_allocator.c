@@ -10,10 +10,25 @@
 #include "trunk_prealloc.h"
 #include "trunk_allocator.h"
 
-static bool g_allocator_inited = false;
-static struct fast_mblock_man g_trunk_allocator;
-static struct fast_mblock_man g_free_node_allocator;
-static UniqSkiplistFactory g_skiplist_factory;
+typedef struct {
+    int count;
+    pthread_mutex_t *locks;
+} TrunkAllocatorLockArray;
+
+typedef struct {
+    bool allocator_inited;
+    TrunkAllocatorLockArray lock_array;  //for slices double link
+    struct fast_mblock_man trunk_allocator;
+    struct fast_mblock_man free_node_allocator;
+    UniqSkiplistFactory skiplist_factory;
+} TrunkAllocatorGlobalVars;
+
+static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false, {0, NULL}};
+
+#define G_LOCK_ARRAY          g_trunk_allocator_vars.lock_array
+#define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
+#define G_FREE_NODE_ALLOCATOR g_trunk_allocator_vars.free_node_allocator
+#define G_SKIPLIST_FACTORY    g_trunk_allocator_vars.skiplist_factory
 
 static int compare_trunk_info(const void *p1, const void *p2)
 {
@@ -35,10 +50,10 @@ static void trunk_free_func(void *ptr, const int delay_seconds)
     trunk_info = (FSTrunkFileInfo *)ptr;
 
     if (delay_seconds > 0) {
-        fast_mblock_delay_free_object(&g_trunk_allocator, trunk_info,
+        fast_mblock_delay_free_object(&G_TRUNK_ALLOCATOR, trunk_info,
                 delay_seconds);
     } else {
-        fast_mblock_free_object(&g_trunk_allocator, trunk_info);
+        fast_mblock_free_object(&G_TRUNK_ALLOCATOR, trunk_info);
     }
 }
 
@@ -54,35 +69,71 @@ static void init_freelists(FSTrunkAllocator *allocator)
     }
 }
 
-int trunk_allocator_init(FSTrunkAllocator *allocator,
-        FSStoragePathInfo *path_info)
+static int init_lock_array()
 {
     int result;
     int bytes;
+    pthread_mutex_t *lock;
+    pthread_mutex_t *end;
 
-    if (!g_allocator_inited) {
-        g_allocator_inited = true;
-        if ((result=fast_mblock_init_ex2(&g_trunk_allocator,
+    G_LOCK_ARRAY.count = STORAGE_CFG.object_block.locks_count;
+    bytes = sizeof(pthread_mutex_t) * G_LOCK_ARRAY.count;
+    G_LOCK_ARRAY.locks = (pthread_mutex_t *)malloc(bytes);
+    if (G_LOCK_ARRAY.locks == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+
+    end = G_LOCK_ARRAY.locks + G_LOCK_ARRAY.count;
+    for (lock=G_LOCK_ARRAY.locks; lock<end; lock++) {
+        if ((result=init_pthread_lock(lock)) != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "init_pthread_lock fail, errno: %d, error info: %s",
+                    __LINE__, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    return 0;
+}
+
+int trunk_allocator_init(FSTrunkAllocator *allocator,
+        FSStoragePathInfo *path_info)
+{
+    const int min_alloc_elements_once = 4;
+    int alloc_skiplist_once;
+    int result;
+    int bytes;
+
+    if (!g_trunk_allocator_vars.allocator_inited) {
+        g_trunk_allocator_vars.allocator_inited = true;
+        if ((result=fast_mblock_init_ex2(&G_TRUNK_ALLOCATOR,
                         "trunk_file_info", sizeof(FSTrunkFileInfo),
                         16384, NULL, NULL, true, NULL, NULL, NULL)) != 0)
         {
             return result;
         }
 
-        if ((result=fast_mblock_init_ex2(&g_free_node_allocator,
+        if ((result=fast_mblock_init_ex2(&G_FREE_NODE_ALLOCATOR,
                         "trunk_free_node", sizeof(FSTrunkFreeNode),
                         8 * 1024, NULL, NULL, true, NULL, NULL, NULL)) != 0)
         {
             return result;
         }
 
-        if ((result=uniq_skiplist_init_ex(&g_skiplist_factory,
+        alloc_skiplist_once = STORAGE_CFG.store_path.count +
+            STORAGE_CFG.write_cache.count;
+        if ((result=uniq_skiplist_init_ex(&G_SKIPLIST_FACTORY,
                         FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT,
-                        compare_trunk_info, trunk_free_func, STORAGE_CFG.
-                        store_path.count + STORAGE_CFG.write_cache.count,
-                        SKIPLIST_DEFAULT_MIN_ALLOC_ELEMENTS_ONCE,
+                        compare_trunk_info, trunk_free_func,
+                        alloc_skiplist_once, min_alloc_elements_once,
                         FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS)) != 0)
         {
+            return result;
+        }
+
+        if ((result=init_lock_array()) != 0) {
             return result;
         }
     }
@@ -101,7 +152,7 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         return result;
     }
 
-    if ((allocator->sl_trunks=uniq_skiplist_new(&g_skiplist_factory,
+    if ((allocator->sl_trunks=uniq_skiplist_new(&G_SKIPLIST_FACTORY,
             FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT)) == NULL)
     {
         return ENOMEM;
@@ -132,7 +183,7 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     int result;
 
     trunk_info = (FSTrunkFileInfo *)fast_mblock_alloc_object(
-            &g_trunk_allocator);
+            &G_TRUNK_ALLOCATOR);
     if (trunk_info == NULL) {
         if (pp_trunk != NULL) {
             *pp_trunk = NULL;
@@ -146,13 +197,14 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     trunk_info->used.bytes = 0;
     trunk_info->used.count = 0;
     trunk_info->free_start = 0;
+    FC_INIT_LIST_HEAD(&trunk_info->used.slice_head);
 
     pthread_mutex_lock(&allocator->lock);
     result = uniq_skiplist_insert(allocator->sl_trunks, trunk_info);
     pthread_mutex_unlock(&allocator->lock);
 
     if (result != 0) {
-        fast_mblock_free_object(&g_trunk_allocator, trunk_info);
+        fast_mblock_free_object(&G_TRUNK_ALLOCATOR, trunk_info);
         trunk_info = NULL;
     }
     if (pp_trunk != NULL) {
@@ -214,7 +266,7 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     }
     freelist->count--;
 
-    fast_mblock_free_object(&g_free_node_allocator, node);
+    fast_mblock_free_object(&G_FREE_NODE_ALLOCATOR, node);
     trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
 }
 
@@ -250,7 +302,7 @@ void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
     bool notify;
 
     node = (FSTrunkFreeNode *)fast_mblock_alloc_object(
-            &g_free_node_allocator);
+            &G_FREE_NODE_ALLOCATOR);
     if (node == NULL) {
         return;
     }
@@ -500,4 +552,57 @@ const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
     }
 
     return &allocator->priority_array;
+}
+
+int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
+{
+    int result;
+    FSTrunkFileInfo target;
+    FSTrunkFileInfo *trunk_info;
+
+    target.id_info.id = slice->space.id_info.id;
+    pthread_mutex_lock(&allocator->lock);
+    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
+                    allocator->sl_trunks, &target)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "trunk id: %"PRId64" not exist",
+                __LINE__, slice->space.id_info.id);
+        result = ENOENT;
+    } else {
+        trunk_info->used.bytes += slice->space.size;
+        trunk_info->used.count++;
+        fc_list_add_tail(&slice->dlink, &trunk_info->used.slice_head);
+        result = 0;
+    }
+    pthread_mutex_unlock(&allocator->lock);
+
+    return result;
+}
+
+int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
+        OBSliceEntry *slice)
+{
+    int result;
+    FSTrunkFileInfo target;
+    FSTrunkFileInfo *trunk_info;
+
+    target.id_info.id = slice->space.id_info.id;
+    pthread_mutex_lock(&allocator->lock);
+    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
+                    allocator->sl_trunks, &target)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "trunk id: %"PRId64" not exist",
+                __LINE__, slice->space.id_info.id);
+        result = ENOENT;
+    } else {
+        trunk_info->used.bytes -= slice->space.size;
+        trunk_info->used.count--;
+        fc_list_del_init(&slice->dlink);
+        result = 0;
+    }
+    pthread_mutex_unlock(&allocator->lock);
+
+    return result;
 }

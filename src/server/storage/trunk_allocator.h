@@ -3,14 +3,14 @@
 #define _TRUNK_ALLOCATOR_H
 
 #include "fastcommon/uniq_skiplist.h"
-#include "fastcommon/multi_skiplist.h"
+#include "fastcommon/fc_list.h"
 #include "../../common/fs_types.h"
 #include "storage_config.h"
+#include "object_block_index.h"
 
 #define FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT      10
 #define FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT       16
 #define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
-
 
 #define FS_TRUNK_STATUS_NONE        0
 #define FS_TRUNK_STATUS_ALLOCING    1
@@ -20,8 +20,9 @@ typedef struct {
     FSTrunkIdInfo id_info;
     int status;
     struct {
-        volatile int count;  //slice count
-        volatile int64_t bytes;
+        int count;  //slice count
+        int64_t bytes;
+        struct fc_list_head slice_head; //OBSliceEntry double link
     } used;
     int64_t size;        //file size
     int64_t free_start;  //free space offset
@@ -85,6 +86,12 @@ extern "C" {
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);
+
+    int trunk_allocator_add_slice(FSTrunkAllocator *allocator,
+            OBSliceEntry *slice);
+
+    int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
+            OBSliceEntry *slice);
 
     void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info);
