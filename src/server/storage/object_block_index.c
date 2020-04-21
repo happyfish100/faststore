@@ -5,7 +5,12 @@
 #include "fastcommon/uniq_skiplist.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
+#include "storage_allocator.h"
 #include "object_block_index.h"
+
+//TODO fixeme!!!
+#define SLICE_ARRAY_FIXED_COUNT     4
+//#define SLICE_ARRAY_FIXED_COUNT  64
 
 typedef struct {
     UniqSkiplistFactory factory;
@@ -30,6 +35,13 @@ typedef struct {
     int64_t capacity;
     OBEntry **buckets;
 } OBHashtable;
+
+typedef struct ob_slice_ptr_array {
+    int alloc;
+    int count;
+    OBSliceEntry **entries;
+    OBSliceEntry *fixed[SLICE_ARRAY_FIXED_COUNT];
+} OBSlicePtrArray;
 
 static OBSharedContextArray ob_shared_ctx_array = {0, NULL};
 static OBHashtable ob_hashtable = {0, 0, NULL};
@@ -221,38 +233,199 @@ static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
     return ob;
 }
 
-static int delete_one_splice(OBSharedContext *ctx, OBEntry *ob,
+static inline int do_delete_slice(OBEntry *ob, OBSliceEntry *slice)
+{
+    int result;
+
+    if ((result=uniq_skiplist_delete(ob->slices, slice)) != 0) {
+        return result;
+    }
+    return storage_allocator_delete_slice(slice);
+}
+
+static inline int do_add_slice(OBEntry *ob, OBSliceEntry *slice)
+{
+    int result;
+    if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
+        return result;
+    }
+    return storage_allocator_add_slice(slice);
+}
+
+static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
         const OBSliceEntry *src)
 {
+    OBSliceEntry *slice;
+
+    slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+    if (slice == NULL) {
+        return NULL;
+    }
+    *slice = *src;
+    return slice;
 }
 
 static int add_one_splice(OBSharedContext *ctx, OBEntry *ob,
         const OBSliceEntry *src)
 {
     OBSliceEntry *slice;
-    slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+
+    slice = splice_dup(ctx, src);
     if (slice == NULL) {
         return ENOMEM;
     }
 
-    *slice = *src;
     slice->bkey = &ob->bkey;
-
-    //TODO add to trunk
-    return uniq_skiplist_insert(ob->slices, slice);
+    return do_add_slice(ob, slice);
 }
 
-static int add_splice(OBSharedContext *ctx, OBEntry *ob,
+static int add_to_slice_ptr_array(OBSlicePtrArray *array, OBSliceEntry *slice)
+{
+    if (array->alloc <= array->count) {
+        int alloc;
+        int bytes;
+        OBSliceEntry **entries;
+
+        alloc = array->alloc * 2;
+        bytes = sizeof(OBSliceEntry *) * alloc;
+        entries = (OBSliceEntry **)malloc(bytes);
+        if (entries == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "malloc %d bytes fail", __LINE__, bytes);
+            return ENOMEM;
+        }
+
+        memcpy(entries, array->entries, sizeof(OBSliceEntry *) * array->count);
+        if (array->entries != array->fixed) {
+            free(array->entries);
+        }
+
+        array->alloc = alloc;
+        array->entries = entries;
+    }
+
+    array->entries[array->count++] = slice;
+    return 0;
+}
+
+static inline int dup_slice_to_array(OBSharedContext *ctx,
+        const OBSliceEntry *src_slice, const int offset,
+        const int length, OBSlicePtrArray *array)
+{
+    OBSliceEntry *new_slice;
+
+    new_slice = splice_dup(ctx, src_slice);
+    if (new_slice == NULL) {
+        return ENOMEM;
+    }
+
+    new_slice->offset = offset;
+    new_slice->length = length;
+    return add_to_slice_ptr_array(array, new_slice);
+}
+
+#define INIT_SLICE_PTR_ARRAY(sarray) \
+    do {   \
+        sarray.count = 0;  \
+        sarray.alloc = SLICE_ARRAY_FIXED_COUNT;  \
+        sarray.entries = sarray.fixed;  \
+    } while (0)
+
+#define FREE_SLICE_PTR_ARRAY(sarray) \
+    do { \
+        if (sarray.entries != sarray.fixed) { \
+            free(sarray.entries);  \
+        } \
+    } while (0)
+
+
+static int add_slice(OBSharedContext *ctx, OBEntry *ob,
         const OBSliceEntry *slice)
 {
     UniqSkiplistNode *node;
+    UniqSkiplistNode *previous;
+    OBSliceEntry *curr_slice;
+    OBSlicePtrArray add_slice_array;
+    OBSlicePtrArray del_slice_array;
+    int result;
+    int curr_end;
+    int slice_end;
+    int i;
 
     node = uniq_skiplist_find_ge_node(ob->slices, (void *)slice);
     if (node == NULL) {
         return add_one_splice(ctx, ob, slice);
     }
 
-    return 0;
+    INIT_SLICE_PTR_ARRAY(add_slice_array);
+    INIT_SLICE_PTR_ARRAY(del_slice_array);
+
+    slice_end = slice->offset + slice->length;
+    previous = SKIPLIST_LEVEL0_PREV_NODE(node);
+    if (previous != ob->slices->top) {
+        curr_slice = (OBSliceEntry *)previous->data;
+        curr_end = curr_slice->offset + curr_slice->length;
+        if (curr_end > slice->offset) {  //overlap
+            if ((result=add_to_slice_ptr_array(&del_slice_array,
+                            curr_slice)) != 0)
+            {
+                return result;
+            }
+
+            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->
+                            offset, slice->offset - curr_slice->offset,
+                            &add_slice_array)) != 0)
+            {
+                return result;
+            }
+
+            if (curr_end > slice_end) {
+                if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
+                                curr_end - slice_end, &add_slice_array)) != 0)
+                {
+                    return result;
+                }
+            }
+        }
+    }
+
+    do {
+        curr_slice = (OBSliceEntry *)node->data;
+        if (slice_end <= curr_slice->offset) {  //not overlap
+            break;
+        }
+
+        if ((result=add_to_slice_ptr_array(&del_slice_array,
+                        curr_slice)) != 0)
+        {
+            return result;
+        }
+
+        curr_end = curr_slice->offset + curr_slice->length;
+        if (curr_end > slice_end) {
+            if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
+                            curr_end - slice_end, &add_slice_array)) != 0)
+            {
+                return result;
+            }
+
+            break;
+        }
+
+        node = SKIPLIST_LEVEL0_NEXT_NODE(node);
+    } while (node != ob->slices->factory->tail);
+
+    for (i=0; i<del_slice_array.count; i++) {
+        do_delete_slice(ob, del_slice_array.entries[i]);
+    }
+    FREE_SLICE_PTR_ARRAY(del_slice_array);
+
+    for (i=0; i<add_slice_array.count; i++) {
+        do_add_slice(ob, add_slice_array.entries[i]);
+    }
+    FREE_SLICE_PTR_ARRAY(add_slice_array);
+
+    return add_one_splice(ctx, ob, slice);
 }
 
 int object_block_index_add(const OBSliceEntry *slice)
@@ -273,7 +446,7 @@ int object_block_index_add(const OBSliceEntry *slice)
     if (ob == NULL) {
         result = ENOMEM;
     } else {
-        result = add_splice(ctx, ob, slice);
+        result = add_slice(ctx, ob, slice);
     }
     pthread_mutex_unlock(&ctx->lock);
 

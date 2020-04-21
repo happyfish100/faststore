@@ -11,21 +11,14 @@
 #include "trunk_allocator.h"
 
 typedef struct {
-    int count;
-    pthread_mutex_t *locks;
-} TrunkAllocatorLockArray;
-
-typedef struct {
     bool allocator_inited;
-    TrunkAllocatorLockArray lock_array;  //for slices double link
     struct fast_mblock_man trunk_allocator;
     struct fast_mblock_man free_node_allocator;
     UniqSkiplistFactory skiplist_factory;
 } TrunkAllocatorGlobalVars;
 
-static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false, {0, NULL}};
+static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 
-#define G_LOCK_ARRAY          g_trunk_allocator_vars.lock_array
 #define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
 #define G_FREE_NODE_ALLOCATOR g_trunk_allocator_vars.free_node_allocator
 #define G_SKIPLIST_FACTORY    g_trunk_allocator_vars.skiplist_factory
@@ -69,35 +62,6 @@ static void init_freelists(FSTrunkAllocator *allocator)
     }
 }
 
-static int init_lock_array()
-{
-    int result;
-    int bytes;
-    pthread_mutex_t *lock;
-    pthread_mutex_t *end;
-
-    G_LOCK_ARRAY.count = STORAGE_CFG.object_block.locks_count;
-    bytes = sizeof(pthread_mutex_t) * G_LOCK_ARRAY.count;
-    G_LOCK_ARRAY.locks = (pthread_mutex_t *)malloc(bytes);
-    if (G_LOCK_ARRAY.locks == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
-        return ENOMEM;
-    }
-
-    end = G_LOCK_ARRAY.locks + G_LOCK_ARRAY.count;
-    for (lock=G_LOCK_ARRAY.locks; lock<end; lock++) {
-        if ((result=init_pthread_lock(lock)) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "init_pthread_lock fail, errno: %d, error info: %s",
-                    __LINE__, result, STRERROR(result));
-            return result;
-        }
-    }
-
-    return 0;
-}
-
 int trunk_allocator_init(FSTrunkAllocator *allocator,
         FSStoragePathInfo *path_info)
 {
@@ -130,10 +94,6 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
                         alloc_skiplist_once, min_alloc_elements_once,
                         FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS)) != 0)
         {
-            return result;
-        }
-
-        if ((result=init_lock_array()) != 0) {
             return result;
         }
     }
@@ -226,31 +186,13 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
     return result;
 }
 
-static int alloc_trunk(FSTrunkAllocator *allocator,
-        FSTrunkFreelist *freelist)
-{
-    //int result;
-
-    //TODO reclaim
-    return 0;
-}
-
-static inline void trunk_to_space(FSTrunkFileInfo *trunk_info,
-        FSTrunkSpaceInfo *space_info, const int size)
-{
-    space_info->id_info = trunk_info->id_info;
-    space_info->offset = trunk_info->free_start;
-    space_info->size = size;
-
-    trunk_info->free_start += size;
-    trunk_info->used.bytes += size;
-    trunk_info->used.count++;
-}
-
-#define TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, size) \
+#define TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, alloc_size) \
     do { \
         space_info->store = &allocator->path_info->store; \
-        trunk_to_space(trunk_info, space_info, size);   \
+        space_info->id_info = trunk_info->id_info;   \
+        space_info->offset = trunk_info->free_start; \
+        space_info->size = alloc_size;         \
+        trunk_info->free_start += alloc_size;  \
     } while (0)
 
 static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
@@ -375,41 +317,48 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
     space_info = spaces;
 
     pthread_mutex_lock(&allocator->lock);
-    if (freelist->head != NULL) {
-        trunk_info = freelist->head->trunk_info;
-        remain_bytes = trunk_info->size - trunk_info->free_start;
-        if (remain_bytes < aligned_size) {
-            if (!blocked && freelist->count <= 1) {
-                pthread_mutex_unlock(&allocator->lock);
-                return EAGAIN;
+    do {
+        if (freelist->head != NULL) {
+            trunk_info = freelist->head->trunk_info;
+            remain_bytes = trunk_info->size - trunk_info->free_start;
+            if (remain_bytes < aligned_size) {
+                if (!blocked && freelist->count <= 1) {
+                    result = EAGAIN;
+                    break;
+                }
+
+                TRUNK_ALLOC_SPACE(allocator, trunk_info,
+                        space_info, remain_bytes);
+                space_info++;
+
+                aligned_size -= remain_bytes;
+                remove_trunk_from_freelist(allocator, freelist);
             }
+        }
 
-            TRUNK_ALLOC_SPACE(allocator, trunk_info,
-                    space_info, remain_bytes);
-            space_info++;
+        if (freelist->head == NULL) {
+            if (!blocked) {
+                result = EAGAIN;
+                break;
+            }
+            pthread_cond_wait(&allocator->cond, &allocator->lock);
+        }
 
-            aligned_size -= remain_bytes;
-            remove_trunk_from_freelist(allocator, freelist);
-       }
-    }
+        if (freelist->head == NULL) {
+            result = EINTR;
+            break;
+        }
 
-    if (freelist->head != NULL) {
-        result = 0;
-    } else {
-        result = alloc_trunk(allocator, freelist);
-    }
-
-    if (result == 0) {
         TRUNK_ALLOC_SPACE(allocator, freelist->head->trunk_info,
                 space_info, aligned_size);
         space_info++;
-
         if (freelist->head->trunk_info->size - freelist->head->trunk_info->
                 free_start < STORAGE_CFG.discard_remain_space_size)
         {
             remove_trunk_from_freelist(allocator, freelist);
         }
-    }
+        result = 0;
+    } while (0);
     pthread_mutex_unlock(&allocator->lock);
 
     *count = space_info - spaces;
@@ -447,25 +396,6 @@ int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,
         path_info->write_thread_count].reclaim;
     return alloc_space(allocator, freelist, blk_hc, size, spaces,
             count, false);
-}
-
-int trunk_allocator_free(FSTrunkAllocator *allocator,
-            const int id, const int size)
-{
-    FSTrunkFileInfo target;
-    FSTrunkFileInfo *found;
-
-    target.id_info.id = id;
-    pthread_mutex_lock(&allocator->lock);
-    if ((found=(FSTrunkFileInfo *)uniq_skiplist_find(
-                    allocator->sl_trunks, &target)) != NULL)
-    {
-        found->used.bytes -= size;
-        found->used.count--;
-    }
-    pthread_mutex_unlock(&allocator->lock);
-
-    return found != NULL ? 0 : ENOENT;
 }
 
 static int check_alloc_trunk_ptr_array(FSTrunkInfoPtrArray *parray,
