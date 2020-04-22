@@ -15,10 +15,16 @@
 #define FS_PROTO_ACTIVE_TEST_REQ         21
 #define FS_PROTO_ACTIVE_TEST_RESP        22
 
+#define FS_SERVICE_PROTO_SLICE_WRITE_REQ         25
+#define FS_SERVICE_PROTO_SLICE_WRITE_RESP        26
+#define FS_SERVICE_PROTO_SLICE_READ_REQ          27
+#define FS_SERVICE_PROTO_SLICE_READ_RESP         28
+
 #define FS_SERVICE_PROTO_SERVICE_STAT_REQ        41
 #define FS_SERVICE_PROTO_SERVICE_STAT_RESP       42
 #define FS_SERVICE_PROTO_CLUSTER_STAT_REQ        43
 #define FS_SERVICE_PROTO_CLUSTER_STAT_RESP       44
+
 
 #define FS_SERVICE_PROTO_GET_MASTER_REQ           45
 #define FS_SERVICE_PROTO_GET_MASTER_RESP          46
@@ -102,6 +108,23 @@ typedef struct fs_proto_service_stat_resp {
         } counters;
     } dentry;
 } FSProtoServiceStatResp;
+
+typedef struct fs_proto_block_key {
+    char inode[8];
+    char offset[8];   //aligned by block size
+    char hash_code[4];
+} FSProtoBlockKey;
+
+typedef struct fs_proto_slice {
+    char offset[4];  //offset within the block
+    char length[4];
+} FSProtoSlice;
+
+typedef struct fs_proto_slice_write_req_body {
+    FSProtoBlockKey bkey;
+    FSProtoSlice slice;
+    char data[0];
+} FSProtoSliceWriteReqBody;
 
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];

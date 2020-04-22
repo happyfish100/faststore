@@ -25,6 +25,7 @@
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "server_storage.h"
 #include "service_handler.h"
 
 int service_handler_init()
@@ -76,6 +77,44 @@ static int service_deal_service_stat(struct fast_task_info *task)
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;
     TASK_ARG->context.response_done = true;
+
+    return 0;
+}
+
+static int service_deal_slice_write(struct fast_task_info *task)
+{
+    int result;
+    FSProtoSliceWriteReqBody *req_body;
+    FSBlockKey bkey;
+
+    if ((result=server_check_min_body_length(task,
+                    sizeof(FSProtoSliceWriteReqBody))) != 0)
+    {
+        return result;
+    }
+
+    req_body = (FSProtoSliceWriteReqBody *)REQUEST.body;
+
+    /*
+       FSTrunkSpaceInfo spaces[2];
+
+        int storage_allocator_alloc(const uint32_t blk_hc, const int size,
+            FSTrunkSpaceInfo *space_info, int *count);
+
+            int trunk_io_thread_push(const int type, const uint32_t hash_code,
+            const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
+            notify_func, void *notify_args);
+
+
+typedef struct ob_slice_entry {
+    FSBlockKey *bkey;
+    int offset; //offset within the object block
+    int length; //slice length
+    FSTrunkSpaceInfo space;
+    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
+} OBSliceEntry;    
+
+     */
 
     return 0;
 }
@@ -215,6 +254,9 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
                 result = service_deal_service_stat(task);
+                break;
+            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+                result = service_deal_slice_write(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

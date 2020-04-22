@@ -24,12 +24,6 @@ typedef struct {
     OBSharedContext *contexts;
 } OBSharedContextArray;
 
-typedef struct ob_entry {
-    FSBlockKey bkey;
-    UniqSkiplist *slices;   //the element is OBSliceEntry
-    struct ob_entry *next; //for hashtable
-} OBEntry;
-
 typedef struct {
     int64_t count;
     int64_t capacity;
@@ -56,7 +50,7 @@ static void slice_free_func(void *ptr, const int delay_seconds)
     OBSharedContext *ctx;
     int64_t bucket_index;
 
-    bucket_index = ((OBSliceEntry *)ptr)->bkey->hash_code %
+    bucket_index = ((OBSliceEntry *)ptr)->ob->bkey.hash_code %
         ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
@@ -77,7 +71,7 @@ static int init_ob_shared_ctx_array()
     const int alloc_skiplist_once = 8 * 1024;
     const int min_alloc_elements_once = 4;
     const int delay_free_seconds = 0;
-    const bool bidirection = true;
+    const bool bidirection = true;  //need previous link in level 0
     OBSharedContext *ctx;
     OBSharedContext *end;
 
@@ -142,7 +136,7 @@ static int init_ob_hashtable()
     return 0;
 }
 
-int object_block_index_init()
+int ob_index_init()
 {
     int result;
 
@@ -157,7 +151,7 @@ int object_block_index_init()
     return 0;
 }
 
-void object_block_index_destroy()
+void ob_index_destroy()
 {
 }
 
@@ -265,20 +259,6 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
     return slice;
 }
 
-static int add_one_splice(OBSharedContext *ctx, OBEntry *ob,
-        const OBSliceEntry *src)
-{
-    OBSliceEntry *slice;
-
-    slice = splice_dup(ctx, src);
-    if (slice == NULL) {
-        return ENOMEM;
-    }
-
-    slice->bkey = &ob->bkey;
-    return do_add_slice(ob, slice);
-}
-
 static int add_to_slice_ptr_array(OBSlicePtrArray *array, OBSliceEntry *slice)
 {
     if (array->alloc <= array->count) {
@@ -339,8 +319,7 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
     } while (0)
 
 
-static int add_slice(OBSharedContext *ctx, OBEntry *ob,
-        const OBSliceEntry *slice)
+static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -354,7 +333,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob,
 
     node = uniq_skiplist_find_ge_node(ob->slices, (void *)slice);
     if (node == NULL) {
-        return add_one_splice(ctx, ob, slice);
+        return do_add_slice(ob, slice);
     }
 
     INIT_SLICE_PTR_ARRAY(add_slice_array);
@@ -425,30 +404,48 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob,
     }
     FREE_SLICE_PTR_ARRAY(add_slice_array);
 
-    return add_one_splice(ctx, ob, slice);
+    return do_add_slice(ob, slice);
 }
 
-int object_block_index_add(const OBSliceEntry *slice)
+int ob_index_add_slice(OBSliceEntry *slice)
 {
-    OBEntry **bucket;
     OBSharedContext *ctx;
-    OBEntry *ob;
     int64_t bucket_index;
     int result;
 
-    bucket_index = slice->bkey->hash_code % ob_hashtable.capacity;
+    bucket_index = slice->ob->bkey.hash_code % ob_hashtable.capacity;
+    ctx = ob_shared_ctx_array.contexts + bucket_index %
+        ob_shared_ctx_array.count;
+
+    pthread_mutex_lock(&ctx->lock);
+    result = add_slice(ctx, slice->ob, slice);
+    pthread_mutex_unlock(&ctx->lock);
+
+    return result;
+}
+
+OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
+{
+    OBSharedContext *ctx;
+    OBEntry **bucket;
+    OBEntry *ob;
+    OBSliceEntry *slice;
+    int64_t bucket_index;
+
+    bucket_index = bkey->hash_code % ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
     bucket = ob_hashtable.buckets + bucket_index;
 
     pthread_mutex_lock(&ctx->lock);
-    ob = get_ob_entry(ctx, bucket, slice->bkey);
+    ob = get_ob_entry(ctx, bucket, bkey);
     if (ob == NULL) {
-        result = ENOMEM;
+        slice = NULL;
     } else {
-        result = add_slice(ctx, ob, slice);
+        slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+        slice->ob = ob;
     }
     pthread_mutex_unlock(&ctx->lock);
 
-    return result;
+    return slice;
 }

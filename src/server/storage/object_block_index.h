@@ -3,12 +3,19 @@
 #define _OBJECT_BLOCK_INDEX_H
 
 #include "fastcommon/fc_list.h"
+#include "fastcommon/uniq_skiplist.h"
 #include "../../common/fs_types.h"
 #include "storage_config.h"
 
+typedef struct ob_entry {
+    FSBlockKey bkey;
+    UniqSkiplist *slices;   //the element is OBSliceEntry
+    struct ob_entry *next; //for hashtable
+} OBEntry;
+
 typedef struct ob_slice_entry {
-    FSBlockKey *bkey;
-    int offset; //offset in the object block
+    OBEntry *ob;
+    int offset; //offset within the object block
     int length; //slice length
     FSTrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
@@ -18,10 +25,12 @@ typedef struct ob_slice_entry {
 extern "C" {
 #endif
 
-    int object_block_index_init();
-    void object_block_index_destroy();
+    int ob_index_init();
+    void ob_index_destroy();
 
-    int object_block_index_add(const OBSliceEntry *slice);
+    int ob_index_add_slice(OBSliceEntry *slice);
+
+    OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
 
 #ifdef __cplusplus
 }

@@ -198,9 +198,9 @@ void trunk_io_thread_terminate()
 {
 }
 
-int trunk_io_thread_push(const int type, const uint32_t hash_code,
-        const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
-        notify_func, void *notify_args)
+int trunk_io_thread_push(const int type, const int path_index,
+        const uint32_t hash_code, void *entry, string_t *data,
+        trunk_io_notify_func notify_func, void *notify_args)
 {
     TrunkIOPathContext *path_ctx;
     TrunkIOThreadContext *thread_ctx;
@@ -208,7 +208,7 @@ int trunk_io_thread_push(const int type, const uint32_t hash_code,
     TrunkIOBuffer *iob;
     bool notify;
 
-    path_ctx = io_path_context_array.paths + space->store->index;
+    path_ctx = io_path_context_array.paths + path_index;
     if (type == FS_IO_TYPE_READ_SLICE) {
         ctx_array = &path_ctx->reads;
     } else {
@@ -224,8 +224,18 @@ int trunk_io_thread_push(const int type, const uint32_t hash_code,
     }
 
     iob->type = type;
-    iob->space = *space;
-    iob->data = *data;
+    if (type == FS_IO_TYPE_CREATE_TRUNK || type == FS_IO_TYPE_DELETE_TRUNK) {
+        iob->space = *((FSTrunkSpaceInfo *)entry);
+    } else {
+        iob->slice = (OBSliceEntry *)entry;
+    }
+
+    if (data != NULL) {
+        iob->data = *data;
+    } else {
+        iob->data.str = NULL;
+        iob->data.len = 0;
+    }
     iob->notify.func = notify_func;
     iob->notify.args = notify_args;
     iob->next = NULL;

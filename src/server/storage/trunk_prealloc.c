@@ -123,8 +123,8 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
 
     data.str = NULL;
     data.len = 0;
-    return trunk_io_thread_push(FS_IO_TYPE_CREATE_TRUNK, space.id_info.id,
-            &space, &data, create_trunk_done, task);
+    return io_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK, &space,
+            create_trunk_done, task);
 }
 
 static void *trunk_prealloc_thread_func(void *arg)
