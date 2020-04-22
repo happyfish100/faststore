@@ -75,14 +75,11 @@ extern "C" {
 
     int trunk_allocator_normal_alloc(FSTrunkAllocator *allocator,
             const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *spaces, int *count, const bool blocked);
+            FSTrunkSpaceInfo *spaces, int *count);
 
     int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,
             const uint32_t blk_hc, const int size,
             FSTrunkSpaceInfo *spaces, int *count);
-
-#define trunk_allocator_alloc(allocator, blk_hc, size, spaces, count) \
-    trunk_allocator_normal_alloc(allocator, blk_hc, size, spaces, count, true)
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);

@@ -32,6 +32,8 @@ extern "C" {
 
     OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
 
+    void ob_index_free_slice(OBSliceEntry *slice);
+
 #ifdef __cplusplus
 }
 #endif

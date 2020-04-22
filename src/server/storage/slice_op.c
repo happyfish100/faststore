@@ -8,19 +8,48 @@
 #include "storage_allocator.h"
 #include "slice_op.h"
 
-int slice_write(const FSBlockKey *bkey, const int slice_offset,
-        string_t *data)
+static void slice_write_done(struct trunk_io_buffer *record, const int result)
+{
+    FSSliceOpNotify *notify;
+
+    notify = (FSSliceOpNotify *)record->notify.args;
+    if (result == 0) {
+        notify->done_bytes += record->slice->length;
+        ob_index_add_slice(record->slice);
+    } else {
+        notify->result = result;
+        ob_index_free_slice(record->slice);
+    }
+
+    if (__sync_sub_and_fetch(&notify->counter, 1) == 0) {
+        if (notify->notify.func != NULL) {
+            notify->notify.func(notify);
+        }
+    }
+}
+
+int fs_slice_write_ex(const FSBlockKey *bkey, const int slice_offset,
+        string_t *data, FSSliceOpNotify *notify, const bool reclaim_alloc)
 {
     int result;
     int slice_count;
     FSTrunkSpaceInfo spaces[2];
 
-    if ((result=storage_allocator_alloc(bkey->hash_code, data->len,
-            spaces, &slice_count)) != 0)
-    {
+    if (reclaim_alloc) {
+        result = storage_allocator_reclaim_alloc(bkey->hash_code,
+                data->len, spaces, &slice_count);
+    } else {
+        result = storage_allocator_normal_alloc(bkey->hash_code,
+                data->len, spaces, &slice_count);
+    }
+
+    if (result != 0) {
         return result;
     }
 
+    notify->result = 0;
+    notify->done_bytes = 0;
+    notify->counter = slice_count;
     if (slice_count == 1) {
         OBSliceEntry *slice;
 
@@ -32,9 +61,8 @@ int slice_write(const FSBlockKey *bkey, const int slice_offset,
         slice->space = spaces[0];
         slice->offset = slice_offset;
         slice->length = data->len;
-        //TODO notify func
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                slice, data, NULL, NULL);
+                slice, data, slice_write_done, notify);
     } else {
         int offset;
         int remain;
@@ -69,9 +97,9 @@ int slice_write(const FSBlockKey *bkey, const int slice_offset,
             new_data.len = slices[i]->length;
             ps += slices[i]->length;
 
-            //TODO notify func
             if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            slices[i], &new_data, NULL, NULL)) != 0)
+                            slices[i], &new_data, slice_write_done,
+                            notify)) != 0)
             {
                 break;
             }

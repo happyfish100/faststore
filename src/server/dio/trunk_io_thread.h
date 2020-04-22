@@ -15,7 +15,7 @@ struct trunk_io_buffer;
 
 //Note: the record can NOT be persisted
 typedef void (*trunk_io_notify_func)(struct trunk_io_buffer *record,
-        const int result, void *args);
+        const int result);
 
 typedef struct trunk_io_buffer {
     int type;

@@ -449,3 +449,17 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
 
     return slice;
 }
+
+void ob_index_free_slice(OBSliceEntry *slice)
+{
+    OBSharedContext *ctx;
+    int64_t bucket_index;
+
+    bucket_index = slice->ob->bkey.hash_code % ob_hashtable.capacity;
+    ctx = ob_shared_ctx_array.contexts + bucket_index %
+        ob_shared_ctx_array.count;
+
+    pthread_mutex_lock(&ctx->lock);
+    fast_mblock_free_object(&ctx->slice_allocator, slice);
+    pthread_mutex_unlock(&ctx->lock);
+}

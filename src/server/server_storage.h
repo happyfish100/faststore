@@ -11,6 +11,7 @@
 #include "storage/trunk_reclaim.h"
 #include "storage/trunk_allocator.h"
 #include "storage/storage_allocator.h"
+#include "storage/slice_op.h"
 
 #ifdef __cplusplus
 extern "C" {

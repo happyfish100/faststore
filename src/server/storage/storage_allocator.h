@@ -68,9 +68,35 @@ extern "C" {
                 allocators[path_index], id_info->id);
     }
 
-    int storage_allocator_alloc(const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *space_info, int *count);
+    static inline int storage_allocator_normal_alloc(const uint32_t blk_hc,
+            const int size, FSTrunkSpaceInfo *space_info, int *count)
+    {
+        FSTrunkAllocator **allocator;
 
+        if (g_allocator_mgr->current->avail.count == 0) {
+            return ENOENT;
+        }
+
+        allocator = g_allocator_mgr->current->avail.allocators +
+            blk_hc % g_allocator_mgr->current->avail.count;
+        return trunk_allocator_normal_alloc(*allocator, blk_hc,
+                size, space_info, count);
+    }
+
+    static inline int storage_allocator_reclaim_alloc(const uint32_t blk_hc,
+            const int size, FSTrunkSpaceInfo *space_info, int *count)
+    {
+        FSTrunkAllocator **allocator;
+
+        if (g_allocator_mgr->current->avail.count == 0) {
+            return ENOENT;
+        }
+
+        allocator = g_allocator_mgr->current->avail.allocators +
+            blk_hc % g_allocator_mgr->current->avail.count;
+        return trunk_allocator_reclaim_alloc(*allocator, blk_hc,
+                size, space_info, count);
+    }
 
     static inline int storage_allocator_add_slice(OBSliceEntry *slice)
     {

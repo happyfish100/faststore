@@ -23,6 +23,7 @@
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
+#include "common/fs_func.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_storage.h"
@@ -81,11 +82,71 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
+static int parse_check_block_slice(struct fast_task_info *task,
+        const FSProtoBlockSlice *bs)
+{
+    TASK_CTX.bkey.inode = buff2long(bs->bkey.inode);
+    TASK_CTX.bkey.offset = buff2long(bs->bkey.offset);
+    if (TASK_CTX.bkey.offset % FS_FILE_BLOCK_SIZE != 0) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message, "block offset: %"PRId64" "
+                "NOT the multiple of the block size %d",
+                TASK_CTX.bkey.offset, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+    fs_calc_block_hashcode(&TASK_CTX.bkey);
+
+    TASK_CTX.slice.offset = buff2int(bs->slice.offset);
+    TASK_CTX.slice.length = buff2int(bs->slice.length);
+    if (TASK_CTX.slice.offset < 0 || TASK_CTX.slice.offset >=
+            FS_FILE_BLOCK_SIZE)
+    {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message, "slice offset: %d "
+                "is invalid which < 0 or exceeds the block size %d",
+                TASK_CTX.slice.offset, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+    if (TASK_CTX.slice.length <= 0 || TASK_CTX.slice.offset +
+            TASK_CTX.slice.length > FS_FILE_BLOCK_SIZE)
+    {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message, "slice offset: %d, length: %d "
+                "is invalid which <= 0, or offset + length exceeds "
+                "the block size %d", TASK_CTX.slice.offset,
+                TASK_CTX.slice.length, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static void slice_op_done_notify(FSSliceOpNotify *notify)
+{
+    struct fast_task_info *task;
+
+    task = (struct fast_task_info *)notify->notify.args;
+    if (notify->result != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "client ip: %s, write slice fail, "
+                "inode: %"PRId64", block offset: %"PRId64", "
+                "slice offset: %d, length: %d, "
+                "errno: %d, error info: %s",
+                __LINE__, task->client_ip,
+                TASK_CTX.bkey.inode, TASK_CTX.bkey.offset,
+                TASK_CTX.slice.offset, TASK_CTX.slice.length,
+                notify->result, STRERROR(notify->result));
+    }
+
+    RESPONSE_STATUS = notify->result;
+    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+}
+
 static int service_deal_slice_write(struct fast_task_info *task)
 {
     int result;
     FSProtoSliceWriteReqBody *req_body;
-    FSBlockKey bkey;
+    string_t data;
 
     if ((result=server_check_min_body_length(task,
                     sizeof(FSProtoSliceWriteReqBody))) != 0)
@@ -94,27 +155,31 @@ static int service_deal_slice_write(struct fast_task_info *task)
     }
 
     req_body = (FSProtoSliceWriteReqBody *)REQUEST.body;
+    if ((result=parse_check_block_slice(task, &req_body->bs)) != 0) {
+        return result;
+    }
 
-    /*
-       FSTrunkSpaceInfo spaces[2];
+    if (sizeof(FSProtoSliceWriteReqBody) + TASK_CTX.slice.length !=
+            REQUEST.header.body_len)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "body header length: %d + slice length: %d != body length: %d",
+                (int)sizeof(FSProtoSliceWriteReqBody),
+                TASK_CTX.slice.length, REQUEST.header.body_len);
+        return result;
+    }
 
-        int storage_allocator_alloc(const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *space_info, int *count);
-
-            int trunk_io_thread_push(const int type, const uint32_t hash_code,
-            const FSTrunkSpaceInfo *space, string_t *data, trunk_io_notify_func
-            notify_func, void *notify_args);
-
-
-typedef struct ob_slice_entry {
-    FSBlockKey *bkey;
-    int offset; //offset within the object block
-    int length; //slice length
-    FSTrunkSpaceInfo space;
-    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
-} OBSliceEntry;    
-
-     */
+    data.str = REQUEST.body + sizeof(FSProtoSliceWriteReqBody);
+    data.len = TASK_CTX.slice.length; 
+    TASK_CTX.slice_notify.notify.func = slice_op_done_notify;
+    TASK_CTX.slice_notify.notify.args = task;
+    if ((result=fs_slice_write(&TASK_CTX.bkey, TASK_CTX.slice.offset,
+                    &data, &TASK_CTX.slice_notify)) != 0)
+    {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message, "slice write fail");
+        return result;
+    }
 
     return 0;
 }

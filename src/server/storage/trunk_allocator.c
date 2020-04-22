@@ -367,14 +367,14 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
 
 int trunk_allocator_normal_alloc(FSTrunkAllocator *allocator,
         const uint32_t blk_hc, const int size,
-        FSTrunkSpaceInfo *spaces, int *count, const bool blocked)
+        FSTrunkSpaceInfo *spaces, int *count)
 {
     FSTrunkFreelist *freelist;
 
     freelist = &allocator->freelists[blk_hc % allocator->
         path_info->write_thread_count].normal;
     return alloc_space(allocator, freelist, blk_hc, size, spaces,
-            count, blocked);
+            count, true);
 }
 
 int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,

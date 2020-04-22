@@ -445,7 +445,7 @@ static int trunk_io_deal_buffer(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
     }
 
     if (iob->notify.func != NULL) {
-        iob->notify.func(iob, result, iob->notify.args);
+        iob->notify.func(iob, result);
     }
     return result;
 }

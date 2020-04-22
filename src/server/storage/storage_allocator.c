@@ -129,17 +129,3 @@ int storage_allocator_prealloc_trunk_freelists()
     }
     return 0;
 }
-
-int storage_allocator_alloc(const uint32_t blk_hc, const int size,
-        FSTrunkSpaceInfo *space_info, int *count)
-{
-    FSTrunkAllocator **allocator;
-
-    if (g_allocator_mgr->current->avail.count == 0) {
-        return ENOENT;
-    }
-
-    allocator = g_allocator_mgr->current->avail.allocators +
-        blk_hc % g_allocator_mgr->current->avail.count;
-    return trunk_allocator_alloc(*allocator, blk_hc, size, space_info, count);
-}
