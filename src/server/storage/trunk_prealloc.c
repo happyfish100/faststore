@@ -71,11 +71,11 @@ int trunk_prealloc_push(FSTrunkAllocator *allocator,
 }
 
 static void create_trunk_done(struct trunk_io_buffer *record,
-        const int result, void *args)
+        const int result)
 {
     TrunkPreallocTask *task;
 
-    task = (TrunkPreallocTask *)args;
+    task = (TrunkPreallocTask *)record->notify.args;
     if (result == 0) {
         FSTrunkFileInfo *trunk_info;
         if (storage_allocator_add_trunk_ex(record->space.

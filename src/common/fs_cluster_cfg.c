@@ -1,5 +1,4 @@
 #include <limits.h>
-#include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fs_cluster_cfg.h"
@@ -941,4 +940,24 @@ int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
     }
 
     return 0;
+}
+
+int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
+        IniContext *ini_context, const char *cfg_filename)
+{
+    char *cluster_cfg_filename;
+    char cluster_full_filename[PATH_MAX];
+
+    cluster_cfg_filename = iniGetStrValue(NULL,
+            "cluster_config_filename", ini_context);
+    if (cluster_cfg_filename == NULL || *cluster_cfg_filename == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, item \"cluster_config_filename\" "
+                "not exist or empty", __LINE__, cfg_filename);
+        return ENOENT;
+    }
+
+    resolve_path(cfg_filename, cluster_cfg_filename,
+            cluster_full_filename, sizeof(cluster_full_filename));
+    return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename);
 }

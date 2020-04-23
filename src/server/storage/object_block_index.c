@@ -340,7 +340,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     INIT_SLICE_PTR_ARRAY(del_slice_array);
 
     slice_end = slice->offset + slice->length;
-    previous = SKIPLIST_LEVEL0_PREV_NODE(node);
+    previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
     if (previous != ob->slices->top) {
         curr_slice = (OBSliceEntry *)previous->data;
         curr_end = curr_slice->offset + curr_slice->length;
@@ -391,7 +391,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
             break;
         }
 
-        node = SKIPLIST_LEVEL0_NEXT_NODE(node);
+        node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
     } while (node != ob->slices->factory->tail);
 
     for (i=0; i<del_slice_array.count; i++) {

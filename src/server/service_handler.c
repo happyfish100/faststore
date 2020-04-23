@@ -17,7 +17,6 @@
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/ioevent_loop.h"
-#include "fastcommon/json_parser.h"
 #include "sf/sf_util.h"
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
@@ -94,6 +93,8 @@ static int parse_check_block_slice(struct fast_task_info *task,
                 TASK_CTX.bkey.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
+
+    //TODO check if belong to my data group
     fs_calc_block_hashcode(&TASK_CTX.bkey);
 
     TASK_CTX.slice.offset = buff2int(bs->slice.offset);
@@ -181,7 +182,7 @@ static int service_deal_slice_write(struct fast_task_info *task)
         return result;
     }
 
-    return 0;
+    return TASK_STATUS_CONTINUE;
 }
 
 static inline void init_task_context(struct fast_task_info *task)

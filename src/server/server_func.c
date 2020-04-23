@@ -102,8 +102,8 @@ static int load_cluster_config(IniContext *ini_context, const char *filename)
             "cluster_config_filename", ini_context);
     if (cluster_config_filename == NULL || *cluster_config_filename == '\0') {
         logError("file: "__FILE__", line: %d, "
-                "item \"cluster_config_filename\" not exist or empty",
-                __LINE__);
+                "config file: %s, item \"cluster_config_filename\" "
+                "not exist or empty", __LINE__, filename);
         return ENOENT;
     }
 

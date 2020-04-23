@@ -3,6 +3,7 @@
 #define _FS_CLUSTER_CFG_H
 
 #include "fs_types.h"
+#include "fastcommon/ini_file_reader.h"
 #include "fastcommon/server_id_func.h"
 
 typedef struct {
@@ -49,12 +50,22 @@ typedef struct {
     FSServerDataMappingArray server_data_mappings;
 } FSClusterConfig;
 
+#define FS_SERVER_GROUP_COUNT(cluster_cfg) \
+    (cluster_cfg).server_groups.count
+
+#define FS_DATA_GROUP_COUNT(cluster_cfg) \
+    (cluster_cfg).data_groups.count
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
     int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
             const char *cluster_filename);
+
+    int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
+            IniContext *ini_context, const char *cfg_filename);
+
     void fs_cluster_cfg_destroy(FSClusterConfig *cluster_cfg);
 
     static inline FSServerGroup *fs_cluster_cfg_get_server_group(
