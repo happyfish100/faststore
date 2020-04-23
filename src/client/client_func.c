@@ -5,6 +5,7 @@
 #include "fastcommon/logger.h"
 #include "fs_cluster_cfg.h"
 #include "client_global.h"
+#include "simple_connection_manager.h"
 #include "client_func.h"
 
 static int fs_client_do_init_ex(FSClientContext *client_ctx,
@@ -108,13 +109,11 @@ int fs_client_init_ex(FSClientContext *client_ctx,
     }
 
     if (conn_manager == NULL) {
-        /*
         if ((result=fs_simple_connection_manager_init(
                         &client_ctx->conn_manager)) != 0)
         {
             return result;
         }
-        */
         client_ctx->is_simple_conn_mananger = true;
     } else if (conn_manager != &client_ctx->conn_manager) {
         client_ctx->conn_manager = *conn_manager;
@@ -133,10 +132,8 @@ void fs_client_destroy_ex(FSClientContext *client_ctx)
         return;
     }
 
-    /*
     if (client_ctx->is_simple_conn_mananger) {
         fs_simple_connection_manager_destroy(&client_ctx->conn_manager);
     }
-    */
     memset(client_ctx, 0, sizeof(FSClientContext));
 }

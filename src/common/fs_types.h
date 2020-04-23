@@ -30,10 +30,18 @@
 #define FS_BLOCK_KEY_EQUAL(bkey1, bkey2) \
     ((bkey1).inode == (bkey2).inode && (bkey1).offset == (bkey2).offset)
 
+#define FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP  0
+#define FS_BLOCK_HASH_CODE_INDEX_SERVER      1
+
 typedef struct fs_block_key {
     int64_t inode;
     int64_t offset; //aligned by block size
-    uint64_t hash_code;
+    union {
+        uint64_t hash_code;   //for server
+        struct {
+            uint32_t codes[2];
+        } hash;   //for client
+    };
 } FSBlockKey;
 
 typedef struct fs_slice_size {
