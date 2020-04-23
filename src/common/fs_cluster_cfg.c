@@ -712,6 +712,30 @@ static int load_groups(FSClusterConfig *cluster_cfg,
     return check_server_data_mappings(cluster_cfg, cluster_filename);
 }
 
+static int find_group_indexes_in_cluster_config(FSClusterConfig *cluster_cfg,
+        const char *filename)
+{
+    cluster_cfg->cluster_group_index = fc_server_get_group_index(
+            &cluster_cfg->server_cfg, "cluster");
+    if (cluster_cfg->cluster_group_index < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, cluster group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    cluster_cfg->service_group_index = fc_server_get_group_index(
+            &cluster_cfg->server_cfg, "service");
+    if (cluster_cfg->service_group_index < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, service group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    return 0;
+}
+
 int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         const char *cluster_filename)
 {
@@ -754,7 +778,12 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
 
     result = load_groups(cluster_cfg, cluster_filename, &ini_context);
     iniFreeContext(&ini_context);
-    return result;
+    if (result != 0) {
+        return result;
+    }
+
+    return find_group_indexes_in_cluster_config(
+            cluster_cfg, cluster_filename);
 }
 
 void fs_cluster_cfg_destroy(FSClusterConfig *cluster_cfg)

@@ -146,31 +146,31 @@ static void slice_op_done_notify(FSSliceOpNotify *notify)
 static int service_deal_slice_write(struct fast_task_info *task)
 {
     int result;
-    FSProtoSliceWriteReqBody *req_body;
+    FSProtoSliceWriteReqHeader *req_header;
     char *buff;
 
     if ((result=server_check_min_body_length(task,
-                    sizeof(FSProtoSliceWriteReqBody))) != 0)
+                    sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
         return result;
     }
 
-    req_body = (FSProtoSliceWriteReqBody *)REQUEST.body;
-    if ((result=parse_check_block_slice(task, &req_body->bs)) != 0) {
+    req_header = (FSProtoSliceWriteReqHeader *)REQUEST.body;
+    if ((result=parse_check_block_slice(task, &req_header->bs)) != 0) {
         return result;
     }
 
-    if (sizeof(FSProtoSliceWriteReqBody) + TASK_CTX.bs_key.slice.length !=
+    if (sizeof(FSProtoSliceWriteReqHeader) + TASK_CTX.bs_key.slice.length !=
             REQUEST.header.body_len)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "body header length: %d + slice length: %d != body length: %d",
-                (int)sizeof(FSProtoSliceWriteReqBody),
+                (int)sizeof(FSProtoSliceWriteReqHeader),
                 TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
         return result;
     }
 
-    buff = REQUEST.body + sizeof(FSProtoSliceWriteReqBody);
+    buff = REQUEST.body + sizeof(FSProtoSliceWriteReqHeader);
     TASK_CTX.slice_notify.notify.func = slice_op_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
     if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,

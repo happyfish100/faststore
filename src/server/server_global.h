@@ -15,8 +15,6 @@ typedef struct server_global_vars {
         struct {
             FSClusterConfig ctx;
             unsigned char md5_digest[16];
-            int cluster_group_index;
-            int service_group_index;
         } config;
 
         FSClusterServerArray server_array;
@@ -60,8 +58,8 @@ typedef struct server_global_vars {
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars.replica.channels_between_two_servers
 
-#define CLUSTER_GROUP_INDEX     g_server_global_vars.cluster.config.cluster_group_index
-#define SERVICE_GROUP_INDEX     g_server_global_vars.cluster.config.service_group_index
+#define CLUSTER_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.cluster_group_index
+#define SERVICE_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.service_group_index
 
 #define CLUSTER_GROUP_ADDRESS_ARRAY(server) \
     (server)->group_addrs[CLUSTER_GROUP_INDEX].address_array

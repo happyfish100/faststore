@@ -10,7 +10,7 @@ extern "C" {
 #endif
 
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key, char *buff, int *written);
+            const FSBlockSliceKeyInfo *bs_key, char *buff);
 
 #ifdef __cplusplus
 }

@@ -124,10 +124,9 @@ typedef struct fs_proto_block_slice {
     FSProtoSliceSize slice_size;
 } FSProtoBlockSlice;
 
-typedef struct fs_proto_slice_write_req_body {
+typedef struct fs_proto_slice_write_req_header {
     FSProtoBlockSlice bs;
-    char data[0];
-} FSProtoSliceWriteReqBody;
+} FSProtoSliceWriteReqHeader;
 
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];
@@ -209,6 +208,10 @@ int fs_proto_set_body_length(struct fast_task_info *task);
 
 int fs_check_response(ConnectionInfo *conn, FSResponseInfo *response,
         const int network_timeout, const unsigned char expect_cmd);
+
+int fs_recv_response(ConnectionInfo *conn, FSResponseInfo *response,
+        const int network_timeout, const unsigned char expect_cmd,
+        char *recv_data, const int expect_body_len);
 
 int fs_send_and_recv_response_header(ConnectionInfo *conn, char *data,
         const int len, FSResponseInfo *response, const int network_timeout);

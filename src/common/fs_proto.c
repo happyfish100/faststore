@@ -149,6 +149,56 @@ int fs_send_and_recv_response(ConnectionInfo *conn, char *send_data,
     return result;
 }
 
+int fs_recv_response(ConnectionInfo *conn, FSResponseInfo *response,
+        const int network_timeout, const unsigned char expect_cmd,
+        char *recv_data, const int expect_body_len)
+{
+    int result;
+    int recv_bytes;
+    FSProtoHeader header_proto;
+
+    if ((result=tcprecvdata_nb(conn->sock, &header_proto,
+                    sizeof(FSProtoHeader), network_timeout)) != 0)
+    {
+        response->error.length = snprintf(response->error.message,
+                sizeof(response->error.message),
+                "recv data fail, errno: %d, error info: %s",
+                result, STRERROR(result));
+        return result;
+    }
+    fs_proto_extract_header(&header_proto, &response->header);
+
+    if ((result=fs_check_response(conn, response, network_timeout,
+                    expect_cmd)) != 0)
+    {
+        return result;
+    }
+
+    if (response->header.body_len != expect_body_len) {
+        response->error.length = sprintf(response->error.message,
+                "response body length: %d != %d",
+                response->header.body_len,
+                expect_body_len);
+        return EINVAL;
+    }
+    if (expect_body_len == 0) {
+        return 0;
+    }
+
+    if ((result=tcprecvdata_nb_ex(conn->sock, recv_data,
+                    expect_body_len, network_timeout, &recv_bytes)) != 0)
+    {
+        response->error.length = snprintf(response->error.message,
+                sizeof(response->error.message),
+                "recv body fail, recv bytes: %d, expect body length: %d, "
+                "errno: %d, error info: %s", recv_bytes,
+                response->header.body_len,
+                result, STRERROR(result));
+    }
+
+    return result;
+}
+
 int fs_send_active_test_req(ConnectionInfo *conn, FSResponseInfo *response,
         const int network_timeout)
 {

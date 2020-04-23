@@ -14,39 +14,92 @@ static ConnectionInfo *get_spec_connection(FSClientContext *client_ctx,
             conn_manager.args, target, err_no);
 }
 
-static ConnectionInfo *get_connection(FSClientContext *client_ctx,
-        const uint32_t *hash_codes, int *err_no)
+static ConnectionInfo *make_connection(FSClientContext *client_ctx,
+        FCAddressPtrArray *addr_array, int *err_no)
 {
-    /*
-    int index;
-    int i;
-    ConnectionInfo *server;
+    FCAddressInfo **current;
+    FCAddressInfo **addr;
+    FCAddressInfo **end;
     ConnectionInfo *conn;
 
-    index = rand() % client_ctx->server_group.count;
-    server = client_ctx->server_group.servers + index;
-    if ((conn=get_spec_connection(client_ctx, server->ip_addr,
-                    server->port, err_no)) != NULL)
+    if (addr_array->count <= 0) {
+        *err_no = ENOENT;
+        return NULL;
+    }
+
+    current = addr_array->addrs + addr_array->index;
+    if ((conn=get_spec_connection(client_ctx, &(*current)->conn,
+                    err_no)) != NULL)
     {
         return conn;
     }
 
-    i = (index + 1) % client_ctx->server_group.count;
-    while (i != index) {
-        server = client_ctx->server_group.servers + i;
-        if ((conn=get_spec_connection(client_ctx, server->ip_addr,
-                        server->port, err_no)) != NULL)
-        {
-            return conn;
+    if (addr_array->count == 1) {
+        return NULL;
+    }
+
+    end = addr_array->addrs + addr_array->count;
+    for (addr=addr_array->addrs; addr<end; addr++) {
+        if (addr == current) {
+            continue;
         }
 
-        i = (i + 1) % client_ctx->server_group.count;
+        if ((conn=get_spec_connection(client_ctx, &(*addr)->conn,
+                        err_no)) != NULL)
+        {
+            addr_array->index = addr - addr_array->addrs;
+            return conn;
+        }
+    }
+
+    return NULL;
+}
+
+static ConnectionInfo *get_connection(FSClientContext *client_ctx,
+        const uint32_t *hash_codes, int *err_no)
+{
+    FCServerInfoPtrArray *server_ptr_array;
+    FCServerInfo *server;
+    ConnectionInfo *conn;
+    FCAddressPtrArray *addr_array;
+    int data_group_index;
+    int server_index;
+    int i;
+
+    data_group_index = hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP] %
+        FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
+
+    server_ptr_array = &client_ctx->cluster_cfg.data_groups.mappings
+        [data_group_index].server_group->server_array;
+    server_index = hash_codes[FS_BLOCK_HASH_CODE_INDEX_SERVER] %
+        server_ptr_array->count;
+    server = server_ptr_array->servers[server_index];
+
+    addr_array = &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server);
+    if ((conn=make_connection(client_ctx, addr_array, err_no)) != NULL) {
+        return conn;
+    }
+    
+    if (server_ptr_array->count > 1) {
+        for (i=0; i<server_ptr_array->count; i++) {
+            if (i == server_index) {
+                continue;
+            }
+
+            addr_array = &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx,
+                    server_ptr_array->servers[i]);
+            if ((conn=make_connection(client_ctx, addr_array,
+                            err_no)) != NULL)
+            {
+                return conn;
+            }
+        }
     }
 
     logError("file: "__FILE__", line: %d, "
-            "get_connection fail, configured server count: %d",
-            __LINE__, client_ctx->server_group.count);
-            */
+            "data group index: %d, get_connection fail, "
+            "configured server count: %d", __LINE__,
+            data_group_index, server_ptr_array->count);
     return NULL;
 }
 

@@ -48,6 +48,8 @@ typedef struct {
     FSServerGroupArray server_groups;
     FSDataGroupArray data_groups;
     FSServerDataMappingArray server_data_mappings;
+    int cluster_group_index;
+    int service_group_index;
 } FSClusterConfig;
 
 #define FS_SERVER_GROUP_COUNT(cluster_cfg) \
