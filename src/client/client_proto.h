@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+    int fs_client_slice_write(FSClientContext *client_ctx,
+
 #ifdef __cplusplus
 }
 #endif

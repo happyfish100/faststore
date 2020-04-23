@@ -14,7 +14,7 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
 
     notify = (FSSliceOpNotify *)record->notify.args;
     if (result == 0) {
-        notify->done_bytes += record->slice->length;
+        notify->done_bytes += record->slice->ssize.length;
         ob_index_add_slice(record->slice);
     } else {
         notify->result = result;
@@ -28,19 +28,19 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
     }
 }
 
-int fs_slice_write_ex(const FSBlockKey *bkey, const int slice_offset,
-        string_t *data, FSSliceOpNotify *notify, const bool reclaim_alloc)
+int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
+        FSSliceOpNotify *notify, const bool reclaim_alloc)
 {
     int result;
     int slice_count;
     FSTrunkSpaceInfo spaces[2];
 
     if (reclaim_alloc) {
-        result = storage_allocator_reclaim_alloc(bkey->hash_code,
-                data->len, spaces, &slice_count);
+        result = storage_allocator_reclaim_alloc(bs_key->block.hash_code,
+                bs_key->slice.length, spaces, &slice_count);
     } else {
-        result = storage_allocator_normal_alloc(bkey->hash_code,
-                data->len, spaces, &slice_count);
+        result = storage_allocator_normal_alloc(bs_key->block.hash_code,
+                bs_key->slice.length, spaces, &slice_count);
     }
 
     if (result != 0) {
@@ -53,56 +53,52 @@ int fs_slice_write_ex(const FSBlockKey *bkey, const int slice_offset,
     if (slice_count == 1) {
         OBSliceEntry *slice;
 
-        slice = ob_index_alloc_slice(bkey);
+        slice = ob_index_alloc_slice(&bs_key->block);
         if (slice == NULL) {
             return ENOMEM;
         }
 
         slice->space = spaces[0];
-        slice->offset = slice_offset;
-        slice->length = data->len;
+        slice->ssize.offset = bs_key->slice.offset;
+        slice->ssize.length = bs_key->slice.length;
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                slice, data, slice_write_done, notify);
+                slice, buff, slice_write_done, notify);
     } else {
         int offset;
         int remain;
         int i;
         OBSliceEntry *slices[2];
         char *ps;
-        string_t new_data;
 
-        offset = slice_offset;
-        remain = data->len;
+        offset = bs_key->slice.offset;
+        remain = bs_key->slice.length;
         for (i=0; i<slice_count; i++) {
-            slices[i] = ob_index_alloc_slice(bkey);
+            slices[i] = ob_index_alloc_slice(&bs_key->block);
             if (slices[i] == NULL) {
                 return ENOMEM;
             }
 
             slices[i]->space = spaces[i];
-            slices[i]->offset = offset;
+            slices[i]->ssize.offset = offset;
             if (spaces[i].size > remain) {
-                slices[i]->length = remain;
+                slices[i]->ssize.length = remain;
             } else {
-                slices[i]->length = spaces[i].size;
+                slices[i]->ssize.length = spaces[i].size;
             }
 
-            offset += slices[i]->length;
-            remain -= slices[i]->length;
+            offset += slices[i]->ssize.length;
+            remain -= slices[i]->ssize.length;
         }
 
-        ps = data->str;
+        ps = buff;
         for (i=0; i<slice_count; i++) {
-            new_data.str = ps;
-            new_data.len = slices[i]->length;
-            ps += slices[i]->length;
-
             if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            slices[i], &new_data, slice_write_done,
+                            slices[i], ps, slice_write_done,
                             notify)) != 0)
             {
                 break;
             }
+            ps += slices[i]->ssize.length;
         }
     }
 

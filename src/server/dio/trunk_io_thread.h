@@ -41,7 +41,7 @@ extern "C" {
     void trunk_io_thread_terminate();
 
     int trunk_io_thread_push(const int type, const int path_index,
-            const uint32_t hash_code, void *entry, string_t *data,
+            const uint32_t hash_code, void *entry, char *buff,
             trunk_io_notify_func notify_func, void *notify_args);
 
     static inline int io_thread_push_trunk_op(const int type,
@@ -54,11 +54,11 @@ extern "C" {
     }
 
     static inline int io_thread_push_slice_op(const int type,
-            OBSliceEntry *slice, string_t *data, trunk_io_notify_func
+            OBSliceEntry *slice, char *buff, trunk_io_notify_func
             notify_func, void *notify_args)
     {
         return trunk_io_thread_push(type, slice->space.store->index,
-                slice->ob->bkey.hash_code, slice, data,
+                slice->ob->bkey.hash_code, slice, buff,
                 notify_func, notify_args);
     }
 

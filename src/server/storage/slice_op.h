@@ -9,19 +9,18 @@
 extern "C" {
 #endif
 
-    int fs_slice_write_ex(const FSBlockKey *bkey, const int slice_offset,
-            string_t *data, FSSliceOpNotify *notify, const bool reclaim_alloc);
+    int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
+            FSSliceOpNotify *notify, const bool reclaim_alloc);
 
-    static inline int fs_slice_write(const FSBlockKey *bkey,
-            const int slice_offset, string_t *data, FSSliceOpNotify *notify)
+    static inline int fs_slice_write(const FSBlockSliceKeyInfo *bs_key,
+            char *buff, FSSliceOpNotify *notify)
     {
         const bool reclaim_alloc = false;
-        return fs_slice_write_ex(bkey, slice_offset, data,
-                notify, reclaim_alloc);
+        return fs_slice_write_ex(bs_key, buff, notify, reclaim_alloc);
     }
 
-    int fs_slice_read(const FSBlockKey *bkey, const int slice_offset,
-            const int length, string_t *data, FSSliceOpNotify *notify);
+    int fs_slice_read(const FSBlockSliceKeyInfo *bs_key,
+            string_t *data, FSSliceOpNotify *notify);
 
 #ifdef __cplusplus
 }

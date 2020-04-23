@@ -20,22 +20,6 @@ typedef void (*fs_release_connection_func)(
 typedef void (*fs_close_connection_func)(
         struct fs_client_context *client_ctx, ConnectionInfo *conn);
 
-typedef struct fs_dstatus {
-    int64_t inode;
-    mode_t mode;
-    int ctime;  /* create time */
-    int mtime;  /* modify time */
-    int atime;  /* last access time */
-    int64_t size;   /* file size in bytes */
-} FSDStatus;
-
-typedef struct fs_client_server_entry {
-    int server_id;
-    char ip_addr[IP_ADDRESS_SIZE];
-    short port;
-    char status;
-} FSClientServerEntry;
-
 typedef struct fs_connection_manager {
     /* get the specify connection by ip and port */
     fs_get_spec_connection_func get_spec_connection;

@@ -15,8 +15,7 @@ typedef struct ob_entry {
 
 typedef struct ob_slice_entry {
     OBEntry *ob;
-    int offset; //offset within the object block
-    int length; //slice length
+    FSSliceSize ssize;
     FSTrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
 } OBSliceEntry;

@@ -84,38 +84,38 @@ static int service_deal_service_stat(struct fast_task_info *task)
 static int parse_check_block_slice(struct fast_task_info *task,
         const FSProtoBlockSlice *bs)
 {
-    TASK_CTX.bkey.inode = buff2long(bs->bkey.inode);
-    TASK_CTX.bkey.offset = buff2long(bs->bkey.offset);
-    if (TASK_CTX.bkey.offset % FS_FILE_BLOCK_SIZE != 0) {
+    TASK_CTX.bs_key.block.inode = buff2long(bs->bkey.inode);
+    TASK_CTX.bs_key.block.offset = buff2long(bs->bkey.offset);
+    if (TASK_CTX.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "block offset: %"PRId64" "
                 "NOT the multiple of the block size %d",
-                TASK_CTX.bkey.offset, FS_FILE_BLOCK_SIZE);
+                TASK_CTX.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
     //TODO check if belong to my data group
-    fs_calc_block_hashcode(&TASK_CTX.bkey);
+    fs_calc_block_hashcode(&TASK_CTX.bs_key.block);
 
-    TASK_CTX.slice.offset = buff2int(bs->slice.offset);
-    TASK_CTX.slice.length = buff2int(bs->slice.length);
-    if (TASK_CTX.slice.offset < 0 || TASK_CTX.slice.offset >=
+    TASK_CTX.bs_key.slice.offset = buff2int(bs->slice_size.offset);
+    TASK_CTX.bs_key.slice.length = buff2int(bs->slice_size.length);
+    if (TASK_CTX.bs_key.slice.offset < 0 || TASK_CTX.bs_key.slice.offset >=
             FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice offset: %d "
                 "is invalid which < 0 or exceeds the block size %d",
-                TASK_CTX.slice.offset, FS_FILE_BLOCK_SIZE);
+                TASK_CTX.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
-    if (TASK_CTX.slice.length <= 0 || TASK_CTX.slice.offset +
-            TASK_CTX.slice.length > FS_FILE_BLOCK_SIZE)
+    if (TASK_CTX.bs_key.slice.length <= 0 || TASK_CTX.bs_key.slice.offset +
+            TASK_CTX.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice offset: %d, length: %d "
                 "is invalid which <= 0, or offset + length exceeds "
-                "the block size %d", TASK_CTX.slice.offset,
-                TASK_CTX.slice.length, FS_FILE_BLOCK_SIZE);
+                "the block size %d", TASK_CTX.bs_key.slice.offset,
+                TASK_CTX.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
@@ -134,8 +134,8 @@ static void slice_op_done_notify(FSSliceOpNotify *notify)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                TASK_CTX.bkey.inode, TASK_CTX.bkey.offset,
-                TASK_CTX.slice.offset, TASK_CTX.slice.length,
+                TASK_CTX.bs_key.block.inode, TASK_CTX.bs_key.block.offset,
+                TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
     }
 
@@ -147,7 +147,7 @@ static int service_deal_slice_write(struct fast_task_info *task)
 {
     int result;
     FSProtoSliceWriteReqBody *req_body;
-    string_t data;
+    char *buff;
 
     if ((result=server_check_min_body_length(task,
                     sizeof(FSProtoSliceWriteReqBody))) != 0)
@@ -160,22 +160,21 @@ static int service_deal_slice_write(struct fast_task_info *task)
         return result;
     }
 
-    if (sizeof(FSProtoSliceWriteReqBody) + TASK_CTX.slice.length !=
+    if (sizeof(FSProtoSliceWriteReqBody) + TASK_CTX.bs_key.slice.length !=
             REQUEST.header.body_len)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "body header length: %d + slice length: %d != body length: %d",
                 (int)sizeof(FSProtoSliceWriteReqBody),
-                TASK_CTX.slice.length, REQUEST.header.body_len);
+                TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
         return result;
     }
 
-    data.str = REQUEST.body + sizeof(FSProtoSliceWriteReqBody);
-    data.len = TASK_CTX.slice.length; 
+    buff = REQUEST.body + sizeof(FSProtoSliceWriteReqBody);
     TASK_CTX.slice_notify.notify.func = slice_op_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
-    if ((result=fs_slice_write(&TASK_CTX.bkey, TASK_CTX.slice.offset,
-                    &data, &TASK_CTX.slice_notify)) != 0)
+    if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
+                    &TASK_CTX.slice_notify)) != 0)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice write fail");

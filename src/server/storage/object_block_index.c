@@ -42,7 +42,8 @@ static OBHashtable ob_hashtable = {0, 0, NULL};
 
 static int slice_compare(const void *p1, const void *p2)
 {
-    return ((OBSliceEntry *)p1)->offset - ((OBSliceEntry *)p2)->offset;
+    return ((OBSliceEntry *)p1)->ssize.offset -
+        ((OBSliceEntry *)p2)->ssize.offset;
 }
 
 static void slice_free_func(void *ptr, const int delay_seconds)
@@ -299,8 +300,8 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
         return ENOMEM;
     }
 
-    new_slice->offset = offset;
-    new_slice->length = length;
+    new_slice->ssize.offset = offset;
+    new_slice->ssize.length = length;
     return add_to_slice_ptr_array(array, new_slice);
 }
 
@@ -339,21 +340,21 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     INIT_SLICE_PTR_ARRAY(add_slice_array);
     INIT_SLICE_PTR_ARRAY(del_slice_array);
 
-    slice_end = slice->offset + slice->length;
+    slice_end = slice->ssize.offset + slice->ssize.length;
     previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
     if (previous != ob->slices->top) {
         curr_slice = (OBSliceEntry *)previous->data;
-        curr_end = curr_slice->offset + curr_slice->length;
-        if (curr_end > slice->offset) {  //overlap
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > slice->ssize.offset) {  //overlap
             if ((result=add_to_slice_ptr_array(&del_slice_array,
                             curr_slice)) != 0)
             {
                 return result;
             }
 
-            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->
-                            offset, slice->offset - curr_slice->offset,
-                            &add_slice_array)) != 0)
+            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->ssize.
+                            offset, slice->ssize.offset - curr_slice->
+                            ssize.offset, &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -370,7 +371,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
 
     do {
         curr_slice = (OBSliceEntry *)node->data;
-        if (slice_end <= curr_slice->offset) {  //not overlap
+        if (slice_end <= curr_slice->ssize.offset) {  //not overlap
             break;
         }
 
@@ -380,7 +381,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
             return result;
         }
 
-        curr_end = curr_slice->offset + curr_slice->length;
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > slice_end) {
             if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
                             curr_end - slice_end, &add_slice_array)) != 0)

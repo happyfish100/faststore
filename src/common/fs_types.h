@@ -32,9 +32,19 @@
 
 typedef struct fs_block_key {
     int64_t inode;
-    int64_t offset;   //aligned by block size
+    int64_t offset; //aligned by block size
     uint64_t hash_code;
 } FSBlockKey;
+
+typedef struct fs_slice_size {
+    int offset;  //offset within the block
+    int length;  //slice length
+} FSSliceSize;
+
+typedef struct fs_block_slice_key_info {
+    FSBlockKey block;
+    FSSliceSize slice;
+} FSBlockSliceKeyInfo;
 
 typedef struct {
     int body_len;      //body length

@@ -111,17 +111,17 @@ typedef struct fs_proto_service_stat_resp {
 
 typedef struct fs_proto_block_key {
     char inode[8];
-    char offset[8];   //aligned by block size
+    char offset[8];  //aligned by block size
 } FSProtoBlockKey;
 
-typedef struct fs_proto_slice {
+typedef struct fs_proto_slice_size {
     char offset[4];  //offset within the block
     char length[4];
-} FSProtoSlice;
+} FSProtoSliceSize;
 
 typedef struct fs_proto_block_slice {
-    FSProtoBlockKey bkey;
-    FSProtoSlice slice;
+    FSProtoBlockKey  bkey;
+    FSProtoSliceSize slice_size;
 } FSProtoBlockSlice;
 
 typedef struct fs_proto_slice_write_req_body {

@@ -153,11 +153,7 @@ typedef struct {
         } cluster;
     };
 
-    FSBlockKey bkey;
-    struct {
-        int offset;
-        int length;
-    } slice;
+    FSBlockSliceKeyInfo bs_key;
     FSSliceOpNotify slice_notify;
 } FSServerTaskContext;
 

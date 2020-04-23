@@ -199,7 +199,7 @@ void trunk_io_thread_terminate()
 }
 
 int trunk_io_thread_push(const int type, const int path_index,
-        const uint32_t hash_code, void *entry, string_t *data,
+        const uint32_t hash_code, void *entry, char *buff,
         trunk_io_notify_func notify_func, void *notify_args)
 {
     TrunkIOPathContext *path_ctx;
@@ -230,12 +230,12 @@ int trunk_io_thread_push(const int type, const int path_index,
         iob->slice = (OBSliceEntry *)entry;
     }
 
-    if (data != NULL) {
-        iob->data = *data;
+    if (buff != NULL) {
+        iob->data.str = buff;
     } else {
         iob->data.str = NULL;
-        iob->data.len = 0;
     }
+    iob->data.len = 0;
     iob->notify.func = notify_func;
     iob->notify.args = notify_args;
     iob->next = NULL;
