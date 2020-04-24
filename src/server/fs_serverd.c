@@ -30,6 +30,7 @@
 #include "service_handler.h"
 #include "cluster_handler.h"
 #include "server_storage.h"
+#include "server_binlog.h"
 #include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
@@ -116,6 +117,10 @@ int main(int argc, char *argv[])
         }
 
         if ((result=server_storage_init()) != 0) {
+            break;
+        }
+
+        if ((result=server_binlog_init()) != 0) {
             break;
         }
 

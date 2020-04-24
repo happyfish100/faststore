@@ -2,6 +2,7 @@
 src/server/Makefile
 src/client/Makefile
 src/client/tools/Makefile
+src/client/tests/Makefile
 
 # Prerequisites
 *.d
@@ -31,6 +32,7 @@ src/client/tools/Makefile
 # Executables
 *.out
 src/server/fs_serverd
+src/client/tests/test_slice_rw
 
 # other
 logs
