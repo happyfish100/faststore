@@ -139,6 +139,7 @@ static void slice_op_done_notify(FSSliceOpNotify *notify)
                 notify->result, STRERROR(notify->result));
     }
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     RESPONSE_STATUS = notify->result;
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
