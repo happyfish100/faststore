@@ -255,13 +255,13 @@ const char *fs_get_cmd_caption(const int cmd)
             return "CLUSTER_STAT_REQ";
         case FS_SERVICE_PROTO_CLUSTER_STAT_RESP:
             return "CLUSTER_STAT_RESP";
-        case FS_SERVICE_PROTO_GET_MASTER_REQ:
-            return "GET_MASTER_REQ";
-        case FS_SERVICE_PROTO_GET_MASTER_RESP:
-            return "GET_MASTER_RESP";
-        case FS_SERVICE_PROTO_GET_SLAVES_REQ:
+        case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+            return "SLICE_WRITE_REQ";
+        case FS_SERVICE_PROTO_SLICE_WRITE_RESP:
+            return "SLICE_WRITE_RESP";
+        case FS_SERVICE_PROTO_SLICE_READ_REQ:
             return "GET_SLAVE_REQ";
-        case FS_SERVICE_PROTO_GET_SLAVES_RESP:
+        case FS_SERVICE_PROTO_SLICE_READ_RESP:
             return "GET_SLAVE_RESP";
         case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
             return "GET_READABLE_SERVER_REQ";

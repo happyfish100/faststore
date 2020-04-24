@@ -33,6 +33,9 @@
 #define FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP  0
 #define FS_BLOCK_HASH_CODE_INDEX_SERVER      1
 
+#define FS_BLOCK_HASH_CODE(blk)  \
+    (blk).hash.codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP]
+
 typedef struct fs_block_key {
     int64_t inode;
     int64_t offset; //aligned by block size

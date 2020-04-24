@@ -7,6 +7,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "fastcommon/logger.h"
+#include "faststore/fs_func.h"
 #include "faststore/fs_client.h"
 
 static void usage(char *argv[])
@@ -87,6 +88,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
+    fs_calc_block_hashcode(&bs_key.block);
     return fs_client_proto_slice_write(&g_client_global_vars.client_ctx,
             &bs_key, buff);
 }

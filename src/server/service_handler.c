@@ -273,7 +273,7 @@ static int deal_task_done(struct fast_task_info *task)
     }
 
     if (REQUEST.header.cmd != FS_CLUSTER_PROTO_PING_MASTER_REQ) {
-    logDebug("file: "__FILE__", line: %d, "
+    logInfo("file: "__FILE__", line: %d, "
             "client ip: %s, req cmd: %d (%s), req body_len: %d, "
             "resp cmd: %d (%s), status: %d, resp body_len: %d, "
             "time used: %s us", __LINE__,

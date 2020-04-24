@@ -58,7 +58,7 @@ extern "C" {
             notify_func, void *notify_args)
     {
         return trunk_io_thread_push(type, slice->space.store->index,
-                slice->ob->bkey.hash_code, slice, buff,
+                FS_BLOCK_HASH_CODE(slice->ob->bkey), slice, buff,
                 notify_func, notify_args);
     }
 

@@ -13,13 +13,6 @@
 //#define SLICE_ARRAY_FIXED_COUNT  64
 
 typedef struct {
-    UniqSkiplistFactory factory;
-    struct fast_mblock_man ob_allocator;    //for ob_entry
-    struct fast_mblock_man slice_allocator; //for slice_entry 
-    pthread_mutex_t lock;
-} OBSharedContext;
-
-typedef struct {
     int count;
     OBSharedContext *contexts;
 } OBSharedContextArray;
@@ -30,12 +23,12 @@ typedef struct {
     OBEntry **buckets;
 } OBHashtable;
 
-typedef struct ob_slice_ptr_array {
+typedef struct {
     int alloc;
     int count;
     OBSliceEntry **entries;
     OBSliceEntry *fixed[SLICE_ARRAY_FIXED_COUNT];
-} OBSlicePtrArray;
+} OBSlicePtrSmartArray;
 
 static OBSharedContextArray ob_shared_ctx_array = {0, NULL};
 static OBHashtable ob_hashtable = {0, 0, NULL};
@@ -51,7 +44,11 @@ static void slice_free_func(void *ptr, const int delay_seconds)
     OBSharedContext *ctx;
     int64_t bucket_index;
 
-    bucket_index = ((OBSliceEntry *)ptr)->ob->bkey.hash_code %
+    if (__sync_sub_and_fetch(&((OBSliceEntry *)ptr)->ref_count, 1) != 0) {
+        return;
+    }
+    
+    bucket_index = FS_BLOCK_HASH_CODE(((OBSliceEntry *)ptr)->ob->bkey) %
         ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
@@ -177,7 +174,7 @@ static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
 }
 
 static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
-        const FSBlockKey *bkey)
+        const FSBlockKey *bkey, const bool create_flag)
 {
     const int init_level_count = 2;
     OBEntry *previous;
@@ -185,6 +182,9 @@ static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
     int cmpr;
 
     if (*bucket == NULL) {
+        if (!create_flag) {
+            return NULL;
+        }
         previous = NULL;
     } else {
         cmpr = compare_block_key(bkey, &(*bucket)->bkey);
@@ -204,6 +204,10 @@ static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
 
                 previous = previous->next;
             }
+        }
+
+        if (!create_flag) {
+            return NULL;
         }
     }
 
@@ -241,6 +245,8 @@ static inline int do_delete_slice(OBEntry *ob, OBSliceEntry *slice)
 static inline int do_add_slice(OBEntry *ob, OBSliceEntry *slice)
 {
     int result;
+
+    __sync_add_and_fetch(&slice->ref_count, 1);
     if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
         return result;
     }
@@ -256,11 +262,14 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
     if (slice == NULL) {
         return NULL;
     }
+
     *slice = *src;
+    slice->ref_count = 0;
     return slice;
 }
 
-static int add_to_slice_ptr_array(OBSlicePtrArray *array, OBSliceEntry *slice)
+static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
+        OBSliceEntry *slice)
 {
     if (array->alloc <= array->count) {
         int alloc;
@@ -289,9 +298,9 @@ static int add_to_slice_ptr_array(OBSlicePtrArray *array, OBSliceEntry *slice)
     return 0;
 }
 
-static inline int dup_slice_to_array(OBSharedContext *ctx,
+static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
         const OBSliceEntry *src_slice, const int offset,
-        const int length, OBSlicePtrArray *array)
+        const int length, OBSlicePtrSmartArray *array)
 {
     OBSliceEntry *new_slice;
 
@@ -302,7 +311,7 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
 
     new_slice->ssize.offset = offset;
     new_slice->ssize.length = length;
-    return add_to_slice_ptr_array(array, new_slice);
+    return add_to_slice_ptr_smart_array(array, new_slice);
 }
 
 #define INIT_SLICE_PTR_ARRAY(sarray) \
@@ -325,8 +334,8 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
     OBSliceEntry *curr_slice;
-    OBSlicePtrArray add_slice_array;
-    OBSlicePtrArray del_slice_array;
+    OBSlicePtrSmartArray add_slice_array;
+    OBSlicePtrSmartArray del_slice_array;
     int result;
     int curr_end;
     int slice_end;
@@ -346,21 +355,21 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
         curr_slice = (OBSliceEntry *)previous->data;
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > slice->ssize.offset) {  //overlap
-            if ((result=add_to_slice_ptr_array(&del_slice_array,
+            if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
                             curr_slice)) != 0)
             {
                 return result;
             }
 
-            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->ssize.
-                            offset, slice->ssize.offset - curr_slice->
-                            ssize.offset, &add_slice_array)) != 0)
+            if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                            curr_slice->ssize.  offset, slice->ssize.offset -
+                            curr_slice->ssize.offset, &add_slice_array)) != 0)
             {
                 return result;
             }
 
             if (curr_end > slice_end) {
-                if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
+                if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
                                 curr_end - slice_end, &add_slice_array)) != 0)
                 {
                     return result;
@@ -375,7 +384,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
             break;
         }
 
-        if ((result=add_to_slice_ptr_array(&del_slice_array,
+        if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
                         curr_slice)) != 0)
         {
             return result;
@@ -383,7 +392,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
 
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > slice_end) {
-            if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
+            if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
                             curr_end - slice_end, &add_slice_array)) != 0)
             {
                 return result;
@@ -414,7 +423,8 @@ int ob_index_add_slice(OBSliceEntry *slice)
     int64_t bucket_index;
     int result;
 
-    bucket_index = slice->ob->bkey.hash_code % ob_hashtable.capacity;
+    bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
+        ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
 
@@ -433,13 +443,13 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
     OBSliceEntry *slice;
     int64_t bucket_index;
 
-    bucket_index = bkey->hash_code % ob_hashtable.capacity;
+    bucket_index = FS_BLOCK_HASH_CODE(*bkey) % ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
     bucket = ob_hashtable.buckets + bucket_index;
 
     pthread_mutex_lock(&ctx->lock);
-    ob = get_ob_entry(ctx, bucket, bkey);
+    ob = get_ob_entry(ctx, bucket, bkey, true);
     if (ob == NULL) {
         slice = NULL;
     } else {
@@ -456,11 +466,103 @@ void ob_index_free_slice(OBSliceEntry *slice)
     OBSharedContext *ctx;
     int64_t bucket_index;
 
-    bucket_index = slice->ob->bkey.hash_code % ob_hashtable.capacity;
+    bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
+        ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
 
     pthread_mutex_lock(&ctx->lock);
     fast_mblock_free_object(&ctx->slice_allocator, slice);
     pthread_mutex_unlock(&ctx->lock);
+}
+
+static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
+        OBSlicePtrArray *sarray)
+{
+    UniqSkiplistNode *node;
+    UniqSkiplistNode *previous;
+    OBSliceEntry target;
+    OBSliceEntry *curr_slice;
+    int slice_end;
+    int curr_end;
+    /*
+       int result;
+       int i;
+     */
+
+    target.ssize = bs_key->slice;
+    node = uniq_skiplist_find_ge_node(ob->slices, (void *)&target);
+    if (node == NULL) {
+        previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
+    } else {
+        previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
+    }
+
+    slice_end = bs_key->slice.offset + bs_key->slice.length;
+    if (previous != ob->slices->top) {
+        curr_slice = (OBSliceEntry *)previous->data;
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > bs_key->slice.offset) {  //overlap
+            //TODO
+
+            //__sync_add_and_fetch(&slice->ref_count, 1);
+        }
+    }
+
+    if (node == NULL) {
+        return sarray->count > 0 ? 0 : ENOENT;
+    }
+
+    do {
+        curr_slice = (OBSliceEntry *)node->data;
+        if (slice_end <= curr_slice->ssize.offset) {  //not overlap
+            break;
+        }
+
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > slice_end) {
+            /*
+            if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
+                            curr_end - slice_end, sarray)) != 0)
+            {
+                return result;
+            }
+            */
+
+            break;
+        } else {
+            //TODO
+            __sync_add_and_fetch(&curr_slice->ref_count, 1);
+        }
+
+        node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
+    } while (node != ob->slices->factory->tail);
+
+    return sarray->count > 0 ? 0 : ENOENT;
+}
+
+int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
+        OBSlicePtrArray *sarray)
+{
+    OBEntry **bucket;
+    OBEntry *ob;
+    int64_t bucket_index;
+    int result;
+
+    bucket_index = FS_BLOCK_HASH_CODE(bs_key->block) %
+        ob_hashtable.capacity;
+    sarray->ctx = ob_shared_ctx_array.contexts + bucket_index %
+        ob_shared_ctx_array.count;
+    bucket = ob_hashtable.buckets + bucket_index;
+
+    pthread_mutex_lock(&sarray->ctx->lock);
+    ob = get_ob_entry(sarray->ctx, bucket, &bs_key->block, false);
+    if (ob == NULL) {
+        result = ENOENT;
+    } else {
+        result = get_slices(ob, bs_key, sarray);
+    }
+    pthread_mutex_unlock(&sarray->ctx->lock);
+
+    return result;
 }

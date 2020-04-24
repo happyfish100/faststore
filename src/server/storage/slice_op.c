@@ -36,10 +36,12 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     FSTrunkSpaceInfo spaces[2];
 
     if (reclaim_alloc) {
-        result = storage_allocator_reclaim_alloc(bs_key->block.hash_code,
+        result = storage_allocator_reclaim_alloc(
+                FS_BLOCK_HASH_CODE(bs_key->block),
                 bs_key->slice.length, spaces, &slice_count);
     } else {
-        result = storage_allocator_normal_alloc(bs_key->block.hash_code,
+        result = storage_allocator_normal_alloc(
+                FS_BLOCK_HASH_CODE(bs_key->block),
                 bs_key->slice.length, spaces, &slice_count);
     }
 
@@ -103,4 +105,9 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     }
 
     return result;
+}
+
+int fs_slice_read(const FSBlockSliceKeyInfo *bs_key,
+        string_t *data, FSSliceOpNotify *notify)
+{
 }
