@@ -102,3 +102,75 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
     return result;
 }
+
+int fs_client_proto_slice_read(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes)
+{
+    ConnectionInfo *conn;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceReadReqHeader)];
+    FSProtoHeader *proto_header;
+    FSProtoSliceReadReqHeader *req_header;
+    FSResponseInfo response;
+    int result;
+    int i;
+
+    *read_bytes = 0;
+    proto_header = (FSProtoHeader *)out_buff;
+    req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
+    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
+            sizeof(FSProtoSliceReadReqHeader));
+    proto_pack_block_slice_key(bs_key, &req_header->bs);
+    for (i=0; i<3; i++) {
+        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
+                        bs_key->block.hash_codes, &result)) == NULL)
+        {
+            return result;
+        }
+
+        response.error.length = 0;
+        do {
+            if ((result=fs_send_and_recv_response_header(conn,
+                            out_buff, sizeof(out_buff), &response,
+                            g_client_global_vars.network_timeout)) != 0)
+            {
+                break;
+            }
+
+            if ((result=fs_check_response(conn, &response,
+                            g_client_global_vars.network_timeout,
+                            FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
+            {
+                break;
+            }
+
+            if (response.header.body_len > bs_key->slice.length) {
+                response.error.length = sprintf(response.error.message,
+                        "reponse body length: %d > slice length: %d",
+                        response.header.body_len, bs_key->slice.length);
+                result = EINVAL;
+                break;
+            }
+
+            if ((result=tcprecvdata_nb_ex(conn->sock, buff, response.header.
+                            body_len, g_client_global_vars.network_timeout,
+                            read_bytes)) != 0)
+            {
+                response.error.length = snprintf(response.error.message,
+                        sizeof(response.error.message),
+                        "recv data fail, errno: %d, error info: %s",
+                        result, STRERROR(result));
+            }
+        } while (0);
+
+        fs_client_release_connection(client_ctx, conn, result);
+        if (result != 0) {
+            log_network_error(&response, conn, result);
+        }
+
+        if (!(result != 0 && is_network_error(result))) {
+            break;
+        }
+    }
+
+    return result;
+}

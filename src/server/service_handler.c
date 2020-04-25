@@ -122,12 +122,16 @@ static int parse_check_block_slice(struct fast_task_info *task,
     return 0;
 }
 
-static void slice_op_done_notify(FSSliceOpNotify *notify)
+static void slice_write_done_notify(FSSliceOpNotify *notify)
 {
     struct fast_task_info *task;
 
     task = (struct fast_task_info *)notify->notify.args;
     if (notify->result != 0) {
+        RESPONSE.error.length = snprintf(RESPONSE.error.message,
+                sizeof(RESPONSE.error.message),
+                "%s", STRERROR(notify->result));
+
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
                 "inode: %"PRId64", block offset: %"PRId64", "
@@ -137,9 +141,9 @@ static void slice_op_done_notify(FSSliceOpNotify *notify)
                 TASK_CTX.bs_key.block.inode, TASK_CTX.bs_key.block.offset,
                 TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
+        TASK_ARG->context.log_error = false;
     }
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     RESPONSE_STATUS = notify->result;
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
@@ -150,6 +154,7 @@ static int service_deal_slice_write(struct fast_task_info *task)
     FSProtoSliceWriteReqHeader *req_header;
     char *buff;
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     if ((result=server_check_min_body_length(task,
                     sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
@@ -168,11 +173,11 @@ static int service_deal_slice_write(struct fast_task_info *task)
                 "body header length: %d + slice length: %d != body length: %d",
                 (int)sizeof(FSProtoSliceWriteReqHeader),
                 TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
-        return result;
+        return EINVAL;
     }
 
     buff = REQUEST.body + sizeof(FSProtoSliceWriteReqHeader);
-    TASK_CTX.slice_notify.notify.func = slice_op_done_notify;
+    TASK_CTX.slice_notify.notify.func = slice_write_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
     if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
                     &TASK_CTX.slice_notify)) != 0)
@@ -182,6 +187,76 @@ static int service_deal_slice_write(struct fast_task_info *task)
         return result;
     }
 
+    return TASK_STATUS_CONTINUE;
+}
+
+static void slice_read_done_notify(FSSliceOpNotify *notify)
+{
+    struct fast_task_info *task;
+
+    task = (struct fast_task_info *)notify->notify.args;
+    if (notify->result != 0) {
+        RESPONSE.error.length = snprintf(RESPONSE.error.message,
+                sizeof(RESPONSE.error.message),
+                "%s", STRERROR(notify->result));
+
+        logError("file: "__FILE__", line: %d, "
+                "client ip: %s, read slice fail, "
+                "inode: %"PRId64", block offset: %"PRId64", "
+                "slice offset: %d, length: %d, "
+                "errno: %d, error info: %s",
+                __LINE__, task->client_ip,
+                TASK_CTX.bs_key.block.inode, TASK_CTX.bs_key.block.offset,
+                TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
+                notify->result, STRERROR(notify->result));
+        TASK_ARG->context.log_error = false;
+    } else {
+        RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
+        RESPONSE.header.body_len = notify->done_bytes;
+        TASK_ARG->context.response_done = true;
+    }
+
+    RESPONSE_STATUS = notify->result;
+    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+}
+
+static int service_deal_slice_read(struct fast_task_info *task)
+{
+    int result;
+    FSProtoSliceReadReqHeader *req_header;
+    char *buff;
+
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoSliceReadReqHeader))) != 0)
+    {
+        return result;
+    }
+
+    req_header = (FSProtoSliceReadReqHeader *)REQUEST.body;
+    if ((result=parse_check_block_slice(task, &req_header->bs)) != 0) {
+        return result;
+    }
+
+    if (TASK_CTX.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "read slice length: %d > task buffer size: %d",
+                TASK_CTX.bs_key.slice.length, (int)(
+                    task->size - sizeof(FSProtoHeader)));
+        return EOVERFLOW;
+    }
+
+    buff = REQUEST.body;
+    TASK_CTX.slice_notify.notify.func = slice_read_done_notify;
+    TASK_CTX.slice_notify.notify.args = task;
+    if ((result=fs_slice_read(&TASK_CTX.bs_key, buff,
+                    &TASK_CTX.slice_notify)) != 0)
+    {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message, "slice read fail");
+        return result;
+    }
+    
     return TASK_STATUS_CONTINUE;
 }
 
@@ -323,6 +398,9 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
                 result = service_deal_slice_write(task);
+                break;
+            case FS_SERVICE_PROTO_SLICE_READ_REQ:
+                result = service_deal_slice_read(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

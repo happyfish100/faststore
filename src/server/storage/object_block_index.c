@@ -451,11 +451,11 @@ void ob_index_free_slice(OBSliceEntry *slice)
     OBSharedContext *ctx;
     int64_t bucket_index;
 
-    logInfo("free slice1: %p, ref_count: %d", slice, slice->ref_count);
+    logInfo("free slice1: %p, ref_count: %d", slice, __sync_add_and_fetch(&slice->ref_count, 0));
     if (__sync_sub_and_fetch(&slice->ref_count, 1) != 0) {
         return;
     }
-    logInfo("free slice2: %p, ref_count: %d", slice, slice->ref_count);
+    logInfo("free slice2: %p, ref_count: %d", slice, __sync_add_and_fetch(&slice->ref_count, 0));
 
     bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
         ob_hashtable.capacity;

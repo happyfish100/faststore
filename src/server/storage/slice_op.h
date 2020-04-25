@@ -20,17 +20,17 @@ extern "C" {
         return fs_slice_write_ex(bs_key, buff, notify, reclaim_alloc);
     }
 
-    int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, string_t *data,
+    int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
             FSSliceOpNotify *notify, OBSlicePtrArray *sarray);
 
     static inline int fs_slice_read(const FSBlockSliceKeyInfo *bs_key,
-            string_t *data, FSSliceOpNotify *notify)
+            char *buff, FSSliceOpNotify *notify)
     {
         OBSlicePtrArray sarray;
         int result;
 
         ob_index_init_slice_ptr_array(&sarray);
-        result = fs_slice_read_ex(bs_key, data, notify, &sarray);
+        result = fs_slice_read_ex(bs_key, buff, notify, &sarray);
         ob_index_free_slice_ptr_array(&sarray);
         return result;
     }

@@ -12,6 +12,9 @@ extern "C" {
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
             const FSBlockSliceKeyInfo *bs_key, char *buff);
 
+    int fs_client_proto_slice_read(FSClientContext *client_ctx,
+            const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
+
 #ifdef __cplusplus
 }
 #endif

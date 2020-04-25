@@ -123,6 +123,10 @@ typedef struct fs_proto_slice_write_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceWriteReqHeader;
 
+typedef struct fs_proto_slice_read_req_header {
+    FSProtoBlockSlice bs;
+} FSProtoSliceReadReqHeader;
+
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];
 } FSProtoClusterStatRespBodyHeader;
