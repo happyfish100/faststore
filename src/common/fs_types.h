@@ -34,17 +34,12 @@
 #define FS_BLOCK_HASH_CODE_INDEX_SERVER      1
 
 #define FS_BLOCK_HASH_CODE(blk)  \
-    (blk).hash.codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP]
+    (blk).hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP]
 
 typedef struct fs_block_key {
     int64_t inode;
     int64_t offset; //aligned by block size
-    union {
-        uint64_t hash_code;   //for server
-        struct {
-            uint32_t codes[2];
-        } hash;   //for client
-    };
+    uint32_t hash_codes[2];
 } FSBlockKey;
 
 typedef struct fs_slice_size {

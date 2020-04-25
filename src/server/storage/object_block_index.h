@@ -31,7 +31,6 @@ typedef struct ob_slice_ptr_array {
     int alloc;
     int count;
     OBSliceEntry **slices;
-    OBSharedContext *ctx;
 } OBSlicePtrArray;
 
 #ifdef __cplusplus

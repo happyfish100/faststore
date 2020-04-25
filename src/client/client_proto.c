@@ -67,7 +67,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     proto_pack_block_slice_key(bs_key, &req_header->bs);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash.codes, &result)) == NULL)
+                        bs_key->block.hash_codes, &result)) == NULL)
         {
             return result;
         }

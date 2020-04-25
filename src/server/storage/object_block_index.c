@@ -41,24 +41,7 @@ static int slice_compare(const void *p1, const void *p2)
 
 static void slice_free_func(void *ptr, const int delay_seconds)
 {
-    OBSharedContext *ctx;
-    int64_t bucket_index;
-
-    if (__sync_sub_and_fetch(&((OBSliceEntry *)ptr)->ref_count, 1) != 0) {
-        return;
-    }
-    
-    bucket_index = FS_BLOCK_HASH_CODE(((OBSliceEntry *)ptr)->ob->bkey) %
-        ob_hashtable.capacity;
-    ctx = ob_shared_ctx_array.contexts + bucket_index %
-        ob_shared_ctx_array.count;
-    pthread_mutex_lock(&ctx->lock);
-    if (delay_seconds > 0) {
-        fast_mblock_delay_free_object(&ctx->ob_allocator, ptr, delay_seconds);
-    } else {
-        fast_mblock_free_object(&ctx->ob_allocator, ptr);
-    }
-    pthread_mutex_unlock(&ctx->lock);
+    ob_index_free_slice((OBSliceEntry *)ptr);
 }
 
 static int init_ob_shared_ctx_array()
@@ -519,12 +502,13 @@ static int add_to_slice_ptr_array(OBSlicePtrArray *array,
     return 0;
 }
 
-static inline int dup_slice_to_array(const OBSliceEntry *src_slice,
-        const int offset, const int length, OBSlicePtrArray *array)
+static inline int dup_slice_to_array(OBSharedContext *ctx,
+        const OBSliceEntry *src_slice, const int offset,
+        const int length, OBSlicePtrArray *array)
 {
     OBSliceEntry *new_slice;
 
-    new_slice = splice_dup(array->ctx, src_slice);
+    new_slice = splice_dup(ctx, src_slice);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -534,8 +518,8 @@ static inline int dup_slice_to_array(const OBSliceEntry *src_slice,
     return add_to_slice_ptr_array(array, new_slice);
 }
 
-static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
-        OBSlicePtrArray *sarray)
+static int get_slices(OBSharedContext *ctx, OBEntry *ob,
+        const FSBlockSliceKeyInfo *bs_key, OBSlicePtrArray *sarray)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -560,8 +544,8 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > bs_key->slice.offset) {  //overlap
             length = FC_MIN(curr_end, slice_end) - bs_key->slice.offset;
-            if ((result=dup_slice_to_array(curr_slice, bs_key->slice.offset,
-                            length, sarray)) != 0)
+            if ((result=dup_slice_to_array(ctx, curr_slice, bs_key->
+                            slice.offset, length, sarray)) != 0)
             {
                 return result;
             }
@@ -581,17 +565,17 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
 
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > slice_end) {  //the last slice
-            if ((result=dup_slice_to_array(curr_slice, curr_slice->
+            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->
                             ssize.offset, slice_end - curr_slice->
                             ssize.offset, sarray)) != 0)
             {
                 return result;
             }
         } else {
+            __sync_add_and_fetch(&curr_slice->ref_count, 1);
             if ((result=add_to_slice_ptr_array(sarray, curr_slice)) != 0) {
                 return result;
             }
-            __sync_add_and_fetch(&curr_slice->ref_count, 1);
         }
 
         node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
@@ -600,7 +584,7 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
     return sarray->count > 0 ? 0 : ENOENT;
 }
 
-static inline void free_slices(OBSlicePtrArray *sarray)
+static void free_slices(OBSlicePtrArray *sarray)
 {
     OBSliceEntry **pp;
     OBSliceEntry **end;
@@ -611,13 +595,7 @@ static inline void free_slices(OBSlicePtrArray *sarray)
 
     end = sarray->slices + sarray->count;
     for (pp=sarray->slices; pp<end; pp++) {
-        if (__sync_sub_and_fetch(&(*pp)->ref_count, 1) != 0) {
-            continue;
-        }
-
-        pthread_mutex_lock(&sarray->ctx->lock);
-        fast_mblock_free_object(&sarray->ctx->slice_allocator, *pp);
-        pthread_mutex_unlock(&sarray->ctx->lock);
+        ob_index_free_slice(*pp);
     }
 
     sarray->count = 0;
@@ -626,6 +604,7 @@ static inline void free_slices(OBSlicePtrArray *sarray)
 int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
         OBSlicePtrArray *sarray)
 {
+    OBSharedContext *ctx;
     OBEntry **bucket;
     OBEntry *ob;
     int64_t bucket_index;
@@ -634,18 +613,18 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
     sarray->count = 0;
     bucket_index = FS_BLOCK_HASH_CODE(bs_key->block) %
         ob_hashtable.capacity;
-    sarray->ctx = ob_shared_ctx_array.contexts + bucket_index %
+    ctx = ob_shared_ctx_array.contexts + bucket_index %
         ob_shared_ctx_array.count;
     bucket = ob_hashtable.buckets + bucket_index;
 
-    pthread_mutex_lock(&sarray->ctx->lock);
-    ob = get_ob_entry(sarray->ctx, bucket, &bs_key->block, false);
+    pthread_mutex_lock(&ctx->lock);
+    ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        result = get_slices(ob, bs_key, sarray);
+        result = get_slices(ctx, ob, bs_key, sarray);
     }
-    pthread_mutex_unlock(&sarray->ctx->lock);
+    pthread_mutex_unlock(&ctx->lock);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);

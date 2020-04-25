@@ -264,18 +264,27 @@ static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
             space->id_info.id);
 }
 
+static inline void clear_write_fd(TrunkIOThreadContext *ctx)
+{
+    if (ctx->fd_cache.pair.fd >= 0) {
+        close(ctx->fd_cache.pair.fd);
+        ctx->fd_cache.pair.fd = -1;
+        ctx->fd_cache.pair.trunk_id = 0;
+    }
+}
+
 static int get_write_fd(TrunkIOThreadContext *ctx,
-        TrunkIOBuffer *iob, int *fd)
+        FSTrunkSpaceInfo *space, int *fd)
 {
     char trunk_filename[PATH_MAX];
     int result;
 
-    if (iob->space.id_info.id == ctx->fd_cache.pair.trunk_id) {
+    if (space->id_info.id == ctx->fd_cache.pair.trunk_id) {
         *fd = ctx->fd_cache.pair.fd;
         return 0;
     }
 
-    get_trunk_filename(&iob->space, trunk_filename, sizeof(trunk_filename));
+    get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
     *fd = open(trunk_filename, O_WRONLY, 0644);
     if (*fd < 0) {
         result = errno != 0 ? errno : EACCES;
@@ -289,24 +298,24 @@ static int get_write_fd(TrunkIOThreadContext *ctx,
         close(ctx->fd_cache.pair.fd);
     }
 
-    ctx->fd_cache.pair.trunk_id = iob->space.id_info.id;
+    ctx->fd_cache.pair.trunk_id = space->id_info.id;
     ctx->fd_cache.pair.fd = *fd;
     return 0;
 }
 
 static int get_read_fd(TrunkIOThreadContext *ctx,
-        TrunkIOBuffer *iob, int *fd)
+        FSTrunkSpaceInfo *space, int *fd)
 {
     char trunk_filename[PATH_MAX];
     int result;
 
     if ((*fd=trunk_fd_cache_get(&ctx->fd_cache.context,
-                    iob->space.id_info.id)) >= 0)
+                    space->id_info.id)) >= 0)
     {
         return 0;
     }
 
-    get_trunk_filename(&iob->space, trunk_filename, sizeof(trunk_filename));
+    get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
     *fd = open(trunk_filename, O_RDONLY);
     if (*fd < 0) {
         result = errno != 0 ? errno : EACCES;
@@ -316,7 +325,7 @@ static int get_read_fd(TrunkIOThreadContext *ctx,
         return result;
     }
 
-    trunk_fd_cache_add(&ctx->fd_cache.context, iob->space.id_info.id, *fd);
+    trunk_fd_cache_add(&ctx->fd_cache.context, space->id_info.id, *fd);
     return 0;
 }
 
@@ -397,26 +406,85 @@ static int do_delete_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
 static int do_write_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
 {
     int fd;
+    int remain;
+    int bytes;
     int result;
 
-    if ((result=get_write_fd(ctx, iob, &fd)) != 0) {
+    if ((result=get_write_fd(ctx, &iob->slice->space, &fd)) != 0) {
         return result;
     }
 
-    //TODO
+    remain = iob->slice->ssize.length;
+    while (remain > 0) {
+        if ((bytes=pwrite(fd, iob->data.str + iob->data.len, remain,
+                        iob->slice->space.offset + iob->data.len)) < 0)
+        {
+            char trunk_filename[PATH_MAX];
+
+            result = errno != 0 ? errno : EIO;
+            if (result == EINTR) {
+                continue;
+            }
+
+            clear_write_fd(ctx);
+
+            get_trunk_filename(&iob->slice->space, trunk_filename,
+                    sizeof(trunk_filename));
+            logError("file: "__FILE__", line: %d, "
+                    "write to trunk file: %s fail, offset: %"PRId64", "
+                    "errno: %d, error info: %s", __LINE__, trunk_filename,
+                    iob->slice->space.offset + iob->data.len,
+                    result, STRERROR(result));
+            return result;
+        }
+
+        iob->data.len += bytes;
+        remain -= bytes;
+    }
+
     return 0;
 }
 
 static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
 {
     int fd;
+    int remain;
+    int bytes;
     int result;
 
-    if ((result=get_read_fd(ctx, iob, &fd)) != 0) {
+    if ((result=get_read_fd(ctx, &iob->slice->space, &fd)) != 0) {
         return result;
     }
 
-    //TODO
+    remain = iob->slice->ssize.length;
+    while (remain > 0) {
+        if ((bytes=pread(fd, iob->data.str + iob->data.len, remain,
+                        iob->slice->space.offset + iob->data.len)) < 0)
+        {
+            char trunk_filename[PATH_MAX];
+
+            result = errno != 0 ? errno : EIO;
+            if (result == EINTR) {
+                continue;
+            }
+
+            trunk_fd_cache_delete(&ctx->fd_cache.context,
+                    iob->slice->space.id_info.id);
+
+            get_trunk_filename(&iob->slice->space, trunk_filename,
+                    sizeof(trunk_filename));
+            logError("file: "__FILE__", line: %d, "
+                    "read trunk file: %s fail, offset: %"PRId64", "
+                    "errno: %d, error info: %s", __LINE__, trunk_filename,
+                    iob->slice->space.offset + iob->data.len,
+                    result, STRERROR(result));
+            return result;
+        }
+
+        iob->data.len += bytes;
+        remain -= bytes;
+    }
+
     return 0;
 }
 
