@@ -26,7 +26,7 @@ typedef struct {
 typedef struct {
     int alloc;
     int count;
-    OBSliceEntry **entries;
+    OBSliceEntry **slices;
     OBSliceEntry *fixed[SLICE_ARRAY_FIXED_COUNT];
 } OBSlicePtrSmartArray;
 
@@ -246,7 +246,6 @@ static inline int do_add_slice(OBEntry *ob, OBSliceEntry *slice)
 {
     int result;
 
-    __sync_add_and_fetch(&slice->ref_count, 1);
     if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
         return result;
     }
@@ -264,7 +263,7 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
     }
 
     *slice = *src;
-    slice->ref_count = 0;
+    slice->ref_count = 1;
     return slice;
 }
 
@@ -274,27 +273,27 @@ static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
     if (array->alloc <= array->count) {
         int alloc;
         int bytes;
-        OBSliceEntry **entries;
+        OBSliceEntry **slices;
 
         alloc = array->alloc * 2;
         bytes = sizeof(OBSliceEntry *) * alloc;
-        entries = (OBSliceEntry **)malloc(bytes);
-        if (entries == NULL) {
+        slices = (OBSliceEntry **)malloc(bytes);
+        if (slices == NULL) {
             logError("file: "__FILE__", line: %d, "
                     "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
 
-        memcpy(entries, array->entries, sizeof(OBSliceEntry *) * array->count);
-        if (array->entries != array->fixed) {
-            free(array->entries);
+        memcpy(slices, array->slices, sizeof(OBSliceEntry *) * array->count);
+        if (array->slices != array->fixed) {
+            free(array->slices);
         }
 
         array->alloc = alloc;
-        array->entries = entries;
+        array->slices = slices;
     }
 
-    array->entries[array->count++] = slice;
+    array->slices[array->count++] = slice;
     return 0;
 }
 
@@ -318,13 +317,13 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
     do {   \
         sarray.count = 0;  \
         sarray.alloc = SLICE_ARRAY_FIXED_COUNT;  \
-        sarray.entries = sarray.fixed;  \
+        sarray.slices = sarray.fixed;  \
     } while (0)
 
 #define FREE_SLICE_PTR_ARRAY(sarray) \
     do { \
-        if (sarray.entries != sarray.fixed) { \
-            free(sarray.entries);  \
+        if (sarray.slices != sarray.fixed) { \
+            free(sarray.slices);  \
         } \
     } while (0)
 
@@ -405,12 +404,12 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     } while (node != ob->slices->factory->tail);
 
     for (i=0; i<del_slice_array.count; i++) {
-        do_delete_slice(ob, del_slice_array.entries[i]);
+        do_delete_slice(ob, del_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(del_slice_array);
 
     for (i=0; i<add_slice_array.count; i++) {
-        do_add_slice(ob, add_slice_array.entries[i]);
+        do_add_slice(ob, add_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(add_slice_array);
 
@@ -454,7 +453,10 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
         slice = NULL;
     } else {
         slice = fast_mblock_alloc_object(&ctx->slice_allocator);
-        slice->ob = ob;
+        if (slice != NULL) {
+            slice->ob = ob;
+            slice->ref_count = 1;
+        }
     }
     pthread_mutex_unlock(&ctx->lock);
 
@@ -466,6 +468,12 @@ void ob_index_free_slice(OBSliceEntry *slice)
     OBSharedContext *ctx;
     int64_t bucket_index;
 
+    logInfo("free slice1: %p, ref_count: %d", slice, slice->ref_count);
+    if (__sync_sub_and_fetch(&slice->ref_count, 1) != 0) {
+        return;
+    }
+    logInfo("free slice2: %p, ref_count: %d", slice, slice->ref_count);
+
     bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
         ob_hashtable.capacity;
     ctx = ob_shared_ctx_array.contexts + bucket_index %
@@ -474,6 +482,56 @@ void ob_index_free_slice(OBSliceEntry *slice)
     pthread_mutex_lock(&ctx->lock);
     fast_mblock_free_object(&ctx->slice_allocator, slice);
     pthread_mutex_unlock(&ctx->lock);
+}
+
+static int add_to_slice_ptr_array(OBSlicePtrArray *array,
+        OBSliceEntry *slice)
+{
+    if (array->alloc <= array->count) {
+        int alloc;
+        int bytes;
+        OBSliceEntry **slices;
+
+        if (array->alloc == 0) {
+            alloc = 256;
+        } else {
+            alloc = array->alloc * 2;
+        }
+        bytes = sizeof(OBSliceEntry *) * alloc;
+        slices = (OBSliceEntry **)malloc(bytes);
+        if (slices == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "malloc %d bytes fail", __LINE__, bytes);
+            return ENOMEM;
+        }
+
+        if (array->slices != NULL) {
+            memcpy(slices, array->slices, sizeof(OBSliceEntry *) *
+                    array->count);
+            free(array->slices);
+        }
+
+        array->alloc = alloc;
+        array->slices = slices;
+    }
+
+    array->slices[array->count++] = slice;
+    return 0;
+}
+
+static inline int dup_slice_to_array(const OBSliceEntry *src_slice,
+        const int offset, const int length, OBSlicePtrArray *array)
+{
+    OBSliceEntry *new_slice;
+
+    new_slice = splice_dup(array->ctx, src_slice);
+    if (new_slice == NULL) {
+        return ENOMEM;
+    }
+
+    new_slice->ssize.offset = offset;
+    new_slice->ssize.length = length;
+    return add_to_slice_ptr_array(array, new_slice);
 }
 
 static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
@@ -485,10 +543,8 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
     OBSliceEntry *curr_slice;
     int slice_end;
     int curr_end;
-    /*
-       int result;
-       int i;
-     */
+    int length;
+    int result;
 
     target.ssize = bs_key->slice;
     node = uniq_skiplist_find_ge_node(ob->slices, (void *)&target);
@@ -503,9 +559,12 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
         curr_slice = (OBSliceEntry *)previous->data;
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
         if (curr_end > bs_key->slice.offset) {  //overlap
-            //TODO
-
-            //__sync_add_and_fetch(&slice->ref_count, 1);
+            length = FC_MIN(curr_end, slice_end) - bs_key->slice.offset;
+            if ((result=dup_slice_to_array(curr_slice, bs_key->slice.offset,
+                            length, sarray)) != 0)
+            {
+                return result;
+            }
         }
     }
 
@@ -513,6 +572,7 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
         return sarray->count > 0 ? 0 : ENOENT;
     }
 
+    result = 0;
     do {
         curr_slice = (OBSliceEntry *)node->data;
         if (slice_end <= curr_slice->ssize.offset) {  //not overlap
@@ -520,18 +580,17 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
         }
 
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
-        if (curr_end > slice_end) {
-            /*
-            if ((result=dup_slice_to_array(ctx, curr_slice, slice_end,
-                            curr_end - slice_end, sarray)) != 0)
+        if (curr_end > slice_end) {  //the last slice
+            if ((result=dup_slice_to_array(curr_slice, curr_slice->
+                            ssize.offset, slice_end - curr_slice->
+                            ssize.offset, sarray)) != 0)
             {
                 return result;
             }
-            */
-
-            break;
         } else {
-            //TODO
+            if ((result=add_to_slice_ptr_array(sarray, curr_slice)) != 0) {
+                return result;
+            }
             __sync_add_and_fetch(&curr_slice->ref_count, 1);
         }
 
@@ -539,6 +598,29 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
     } while (node != ob->slices->factory->tail);
 
     return sarray->count > 0 ? 0 : ENOENT;
+}
+
+static inline void free_slices(OBSlicePtrArray *sarray)
+{
+    OBSliceEntry **pp;
+    OBSliceEntry **end;
+
+    if (sarray->count == 0) {
+        return;
+    }
+
+    end = sarray->slices + sarray->count;
+    for (pp=sarray->slices; pp<end; pp++) {
+        if (__sync_sub_and_fetch(&(*pp)->ref_count, 1) != 0) {
+            continue;
+        }
+
+        pthread_mutex_lock(&sarray->ctx->lock);
+        fast_mblock_free_object(&sarray->ctx->slice_allocator, *pp);
+        pthread_mutex_unlock(&sarray->ctx->lock);
+    }
+
+    sarray->count = 0;
 }
 
 int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
@@ -549,6 +631,7 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
     int64_t bucket_index;
     int result;
 
+    sarray->count = 0;
     bucket_index = FS_BLOCK_HASH_CODE(bs_key->block) %
         ob_hashtable.capacity;
     sarray->ctx = ob_shared_ctx_array.contexts + bucket_index %
@@ -564,5 +647,8 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
     }
     pthread_mutex_unlock(&sarray->ctx->lock);
 
+    if (result != 0 && sarray->count > 0) {
+        free_slices(sarray);
+    }
     return result;
 }

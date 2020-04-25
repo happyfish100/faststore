@@ -5,7 +5,6 @@
 #include "fastcommon/fc_list.h"
 #include "fastcommon/uniq_skiplist.h"
 #include "../../common/fs_types.h"
-#include "storage_config.h"
 
 typedef struct {
     UniqSkiplistFactory factory;

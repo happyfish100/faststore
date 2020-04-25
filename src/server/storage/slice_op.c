@@ -107,7 +107,59 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     return result;
 }
 
-int fs_slice_read(const FSBlockSliceKeyInfo *bs_key,
-        string_t *data, FSSliceOpNotify *notify)
+static void slice_read_done(struct trunk_io_buffer *record, const int result)
 {
+    FSSliceOpNotify *notify;
+
+    notify = (FSSliceOpNotify *)record->notify.args;
+    if (result == 0) {
+        notify->done_bytes += record->slice->ssize.length;
+    } else {
+        notify->result = result;
+    }
+
+    ob_index_free_slice(record->slice);
+    if (__sync_sub_and_fetch(&notify->counter, 1) == 0) {
+        if (notify->notify.func != NULL) {
+            notify->notify.func(notify);
+        }
+    }
+}
+
+int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, string_t *data,
+        FSSliceOpNotify *notify, OBSlicePtrArray *sarray)
+{
+    int result;
+    int offset;
+    int hole_len;
+    char *ps;
+    OBSliceEntry **pp;
+    OBSliceEntry **end;
+
+    if ((result=ob_index_get_slices(bs_key, sarray)) != 0) {
+        return result;
+    }
+
+    notify->counter = sarray->count;
+    ps = data->str;
+    offset = bs_key->slice.offset;
+    end = sarray->slices + sarray->count;
+    for (pp=sarray->slices; pp<end; pp++) {
+        hole_len = (*pp)->ssize.offset - offset;
+        if (hole_len > 0) {
+            memset(ps, 0, hole_len);
+            ps += hole_len;
+        }
+
+        if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,
+                        *pp, ps, slice_read_done, notify)) != 0)
+        {
+            break;
+        }
+
+        ps += (*pp)->ssize.length;
+        offset = (*pp)->ssize.offset + (*pp)->ssize.length;
+    }
+
+    return result;
 }
