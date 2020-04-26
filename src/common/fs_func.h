@@ -13,7 +13,7 @@ extern "C" {
     static inline void fs_calc_block_hashcode(FSBlockKey *bkey)
     {
         bkey->hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP] =
-            bkey->inode + (bkey->offset / FS_FILE_BLOCK_SIZE);
+            bkey->oid + (bkey->offset / FS_FILE_BLOCK_SIZE);
         bkey->hash_codes[FS_BLOCK_HASH_CODE_INDEX_SERVER] =
             simple_hash((void *)bkey, 16);
 

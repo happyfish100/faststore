@@ -6,6 +6,7 @@
 #include "fs_types.h"
 #include "fs_cluster_cfg.h"
 
+struct fs_connection_parameters;
 struct fs_client_context;
 
 typedef ConnectionInfo *(*fs_get_connection_func)(
@@ -21,6 +22,13 @@ typedef void (*fs_release_connection_func)(
 typedef void (*fs_close_connection_func)(
         struct fs_client_context *client_ctx, ConnectionInfo *conn);
 
+typedef const struct fs_connection_parameters * (*fs_get_connection_parameters)(
+        struct fs_client_context *client_ctx, ConnectionInfo *conn);
+
+typedef struct fs_connection_parameters {
+    int buffer_size;
+} FSConnectionParameters;
+
 typedef struct fs_connection_manager {
     /* get the specify connection by ip and port */
     fs_get_spec_connection_func get_spec_connection;
@@ -33,6 +41,8 @@ typedef struct fs_connection_manager {
 
      /* disconnect the connecton on network error */
     fs_close_connection_func close_connection;
+
+    fs_get_connection_parameters get_connection_params;
 
     void *args;   //extra data
 } FSConnectionManager;

@@ -28,7 +28,7 @@
     (offset & (~(FS_FILE_BLOCK_SIZE - 1)))
 
 #define FS_BLOCK_KEY_EQUAL(bkey1, bkey2) \
-    ((bkey1).inode == (bkey2).inode && (bkey1).offset == (bkey2).offset)
+    ((bkey1).oid == (bkey2).oid && (bkey1).offset == (bkey2).offset)
 
 #define FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP  0
 #define FS_BLOCK_HASH_CODE_INDEX_SERVER      1
@@ -37,7 +37,7 @@
     (blk).hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP]
 
 typedef struct fs_block_key {
-    int64_t inode;
+    int64_t oid;    //object id
     int64_t offset; //aligned by block size
     uint32_t hash_codes[2];
 } FSBlockKey;

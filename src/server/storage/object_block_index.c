@@ -140,7 +140,7 @@ static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
 {
     int64_t sub;
 
-    sub = bkey1->inode - bkey2->inode;
+    sub = bkey1->oid - bkey2->oid;
     if (sub < 0) {
         return -1;
     } else if (sub > 0) {

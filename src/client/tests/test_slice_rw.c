@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     FSBlockSliceKeyInfo bs_key;
     char *out_buff;
     char *in_buff;
+    int write_bytes;
     int read_bytes;
 
     if (argc < 2) {
@@ -36,7 +37,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    bs_key.block.inode = 1;
+    bs_key.block.oid = 1;
     bs_key.block.offset = 0;
     bs_key.slice.offset = 0;
     bs_key.slice.length = 0;
@@ -49,7 +50,7 @@ int main(int argc, char *argv[])
                 config_filename = optarg;
                 break;
             case 'i':
-                bs_key.block.inode = strtol(optarg, &endptr, 10);
+                bs_key.block.oid = strtol(optarg, &endptr, 10);
                 break;
             case 'O':
                 bs_key.block.offset = strtol(optarg, &endptr, 10);
@@ -97,7 +98,7 @@ int main(int argc, char *argv[])
 
     fs_calc_block_hashcode(&bs_key.block);
     if ((result=fs_client_proto_slice_write(&g_client_global_vars.
-                    client_ctx, &bs_key, out_buff)) != 0)
+                    client_ctx, &bs_key, out_buff, &write_bytes)) != 0)
     {
         return result;
     }

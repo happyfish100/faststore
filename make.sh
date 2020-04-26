@@ -106,6 +106,7 @@ if [ $have_pthread -eq 0 ] && [ "$uname" != "Darwin" ]; then
    fi
 fi
 
+
 cd src/server
 cp Makefile.in Makefile
 perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
@@ -125,7 +126,7 @@ perl -pi -e "s#\\\$\(ENABLE_STATIC_LIB\)#$ENABLE_STATIC_LIB#g" Makefile
 perl -pi -e "s#\\\$\(ENABLE_SHARED_LIB\)#$ENABLE_SHARED_LIB#g" Makefile
 make $1 $2
 
-cd tests 
+cd tests || exit
 cp Makefile.in Makefile
 perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
 perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile
@@ -133,7 +134,7 @@ perl -pi -e "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
 make $1 $2
 cd ..
 
-cd test
+cd test || exit
 cp Makefile.in Makefile
 perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
 perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile

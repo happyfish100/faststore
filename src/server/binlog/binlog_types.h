@@ -50,7 +50,7 @@ typedef void (*release_binlog_rbuffer_func)(
 
 typedef struct fs_binlog_record {
     uint64_t data_version;
-    int64_t inode;
+    int64_t oid;
     unsigned int hash_code;
     int operation;
     int timestamp;

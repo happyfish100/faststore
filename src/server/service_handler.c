@@ -49,6 +49,24 @@ static int service_deal_actvie_test(struct fast_task_info *task)
     return server_expect_body_length(task, 0);
 }
 
+static int service_deal_client_join(struct fast_task_info *task)
+{
+    int result;
+    FSProtoClientJoinResp *join_resp;
+
+    if ((result=server_expect_body_length(task, 0)) != 0) {
+        return result;
+    }
+
+    join_resp = (FSProtoClientJoinResp *)REQUEST.body;
+    int2buff(g_sf_global_vars.min_buff_size - (sizeof(FSProtoHeader) +
+            4 * sizeof(FSProtoSliceWriteReqHeader)), join_resp->buffer_size);
+    RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_CLIENT_JOIN_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static int service_deal_service_stat(struct fast_task_info *task)
 {
     int result;
@@ -68,7 +86,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
     long2buff(DATA_CURRENT_VERSION, stat_resp->dentry.current_data_version);
-    long2buff(CURRENT_INODE_SN, stat_resp->dentry.current_inode_sn);
+    long2buff(CURRENT_INODE_SN, stat_resp->dentry.current_oid_sn);
     long2buff(counters.ns, stat_resp->dentry.counters.ns);
     long2buff(counters.dir, stat_resp->dentry.counters.dir);
     long2buff(counters.file, stat_resp->dentry.counters.file);
@@ -84,7 +102,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
 static int parse_check_block_slice(struct fast_task_info *task,
         const FSProtoBlockSlice *bs)
 {
-    TASK_CTX.bs_key.block.inode = buff2long(bs->bkey.inode);
+    TASK_CTX.bs_key.block.oid = buff2long(bs->bkey.oid);
     TASK_CTX.bs_key.block.offset = buff2long(bs->bkey.offset);
     if (TASK_CTX.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
@@ -134,11 +152,11 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
 
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
-                "inode: %"PRId64", block offset: %"PRId64", "
+                "oid: %"PRId64", block offset: %"PRId64", "
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                TASK_CTX.bs_key.block.inode, TASK_CTX.bs_key.block.offset,
+                TASK_CTX.bs_key.block.oid, TASK_CTX.bs_key.block.offset,
                 TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
@@ -202,11 +220,11 @@ static void slice_read_done_notify(FSSliceOpNotify *notify)
 
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, read slice fail, "
-                "inode: %"PRId64", block offset: %"PRId64", "
+                "oid: %"PRId64", block offset: %"PRId64", "
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                TASK_CTX.bs_key.block.inode, TASK_CTX.bs_key.block.offset,
+                TASK_CTX.bs_key.block.oid, TASK_CTX.bs_key.block.offset,
                 TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
@@ -392,6 +410,9 @@ int service_deal_task(struct fast_task_info *task)
             case FS_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = FS_PROTO_ACTIVE_TEST_RESP;
                 result = service_deal_actvie_test(task);
+                break;
+            case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
+                result = service_deal_client_join(task);
                 break;
             case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
                 result = service_deal_service_stat(task);

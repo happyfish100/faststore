@@ -15,6 +15,8 @@
 #define FS_PROTO_ACTIVE_TEST_REQ         21
 #define FS_PROTO_ACTIVE_TEST_RESP        22
 
+#define FS_SERVICE_PROTO_CLIENT_JOIN_REQ         23
+#define FS_SERVICE_PROTO_CLIENT_JOIN_RESP        24
 #define FS_SERVICE_PROTO_SLICE_WRITE_REQ         25
 #define FS_SERVICE_PROTO_SLICE_WRITE_RESP        26
 #define FS_SERVICE_PROTO_SLICE_READ_REQ          27
@@ -95,7 +97,7 @@ typedef struct fs_proto_service_stat_resp {
 
     struct {
         char current_data_version[8];
-        char current_inode_sn[8];
+        char current_oid_sn[8];
         struct {
             char ns[8];
             char dir[8];
@@ -104,8 +106,12 @@ typedef struct fs_proto_service_stat_resp {
     } dentry;
 } FSProtoServiceStatResp;
 
+typedef struct fs_proto_client_join_resp {
+    char buffer_size[4];
+} FSProtoClientJoinResp;
+
 typedef struct fs_proto_block_key {
-    char inode[8];
+    char oid[8];
     char offset[8];  //aligned by block size
 } FSProtoBlockKey;
 
@@ -174,7 +180,7 @@ typedef struct fs_proto_join_slave_resp {
 } FSProtoJoinSlaveResp;
 
 typedef struct fs_proto_ping_master_resp_header {
-    char inode_sn[8];  //current inode sn of master
+    char oid_sn[8];  //current oid sn of master
     char server_count[4];
 } FSProtoPingMasterRespHeader;
 
@@ -262,7 +268,7 @@ static inline void fs_proto_extract_header(FSProtoHeader *header_proto,
     header_info->status = buff2short(header_proto->status);
 }
 
-int fs_send_active_test_req(ConnectionInfo *conn, FSResponseInfo *response,
+int fs_active_test(ConnectionInfo *conn, FSResponseInfo *response,
         const int network_timeout);
 
 const char *fs_get_server_status_caption(const int status);

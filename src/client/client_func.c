@@ -109,7 +109,7 @@ int fs_client_init_ex(FSClientContext *client_ctx,
     }
 
     if (conn_manager == NULL) {
-        if ((result=fs_simple_connection_manager_init(
+        if ((result=fs_simple_connection_manager_init(client_ctx,
                         &client_ctx->conn_manager)) != 0)
         {
             return result;

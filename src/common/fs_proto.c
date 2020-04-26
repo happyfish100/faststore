@@ -30,13 +30,6 @@ int fs_proto_set_body_length(struct fast_task_info *task)
     return 0;
 }
 
-void fs_set_admin_header (FSProtoHeader *fs_header_proto,
-        unsigned char cmd, int body_len)
-{
-    fs_header_proto->cmd = cmd;
-    int2buff(body_len, fs_header_proto->body_len);
-}
-
 int fs_check_response(ConnectionInfo *conn, FSResponseInfo *response,
         const int network_timeout, const unsigned char expect_cmd)
 {
@@ -199,22 +192,15 @@ int fs_recv_response(ConnectionInfo *conn, FSResponseInfo *response,
     return result;
 }
 
-int fs_send_active_test_req(ConnectionInfo *conn, FSResponseInfo *response,
+int fs_active_test(ConnectionInfo *conn, FSResponseInfo *response,
         const int network_timeout)
 {
-    int ret;
-    FSProtoHeader fs_header_proto;
+    FSProtoHeader proto_header;
 
-    fs_set_admin_header(&fs_header_proto, FS_PROTO_ACTIVE_TEST_REQ,
-            0);
-    ret = fs_send_and_recv_response_header(conn, (char *)&fs_header_proto,
-            sizeof(FSProtoHeader), response, network_timeout);
-    if (ret == 0) {
-        ret = fs_check_response(conn, response, network_timeout,
-                FS_PROTO_ACTIVE_TEST_RESP);
-    }
-
-    return ret;
+    FS_PROTO_SET_HEADER(&proto_header, FS_PROTO_ACTIVE_TEST_REQ, 0);
+    return fs_send_and_recv_none_body_response(conn, (char *)&proto_header,
+            sizeof(FSProtoHeader), response, network_timeout,
+            FS_PROTO_ACTIVE_TEST_RESP);
 }
 
 const char *fs_get_server_status_caption(const int status)
@@ -247,6 +233,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "ACTIVE_TEST_REQ";
         case FS_PROTO_ACTIVE_TEST_RESP:
             return "ACTIVE_TEST_RESP";
+        case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
+            return "CLIENT_JOIN_REQ";
+        case FS_SERVICE_PROTO_CLIENT_JOIN_RESP:
+            return "CLIENT_JOIN_RESP";
         case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
             return "SERVICE_STAT_REQ";
         case FS_SERVICE_PROTO_SERVICE_STAT_RESP:
