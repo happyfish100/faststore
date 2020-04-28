@@ -518,6 +518,50 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
     return add_to_slice_ptr_array(array, new_slice);
 }
 
+/*
+static void print_skiplist(OBEntry *ob)
+{
+    UniqSkiplistIterator it;
+    OBSliceEntry *slice;
+    int count = 0;
+
+    logInfo("forward iterator:");
+    uniq_skiplist_iterator(ob->slices, &it);
+    while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+
+        if (count <= 1) {
+            logInfo("%d. slice offset: %d, length: %d, end: %d",
+                    count, slice->ssize.offset, slice->ssize.length,
+                    slice->ssize.offset + slice->ssize.length);
+        }
+        ++count;
+    }
+
+
+    {
+    UniqSkiplistNode *node;
+    logInfo("reverse iterator:");
+    node = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
+    while (node != ob->slices->top) {
+        slice = (OBSliceEntry *)node->data;
+
+        --count;
+        if (count <= 1) {
+            logInfo("%d. slice offset: %d, length: %d, end: %d",
+                    count, slice->ssize.offset, slice->ssize.length,
+                    slice->ssize.offset + slice->ssize.length);
+        }
+
+        if (count < 0) {
+            break;
+        }
+
+        node = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
+    }
+    }
+}
+*/
+
 static int get_slices(OBSharedContext *ctx, OBEntry *ob,
         const FSBlockSliceKeyInfo *bs_key, OBSlicePtrArray *sarray)
 {
@@ -530,8 +574,16 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
     int length;
     int result;
 
+    //print_skiplist(ob);
+
     target.ssize = bs_key->slice;
-    node = uniq_skiplist_find_ge_node(ob->slices, (void *)&target);
+
+    /*
+    logInfo("target slice.offset: %d, length: %d",
+            target.ssize.offset, target.ssize.length);
+            */
+
+    node = uniq_skiplist_find_ge_node(ob->slices, &target);
     if (node == NULL) {
         previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
     } else {
@@ -539,9 +591,21 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
     }
 
     slice_end = bs_key->slice.offset + bs_key->slice.length;
+
+    /*
+    logInfo("bs_key->slice.offset: %d, length: %d, slice_end: %d, ge node: %p, top: %p",
+            bs_key->slice.offset, bs_key->slice.length, slice_end, node, ob->slices->top);
+            */
+
     if (previous != ob->slices->top) {
         curr_slice = (OBSliceEntry *)previous->data;
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+
+        /*
+        logInfo("previous slice.offset: %d, length: %d, curr_end: %d",
+                curr_slice->ssize.offset, curr_slice->ssize.length, curr_end);
+                */
+
         if (curr_end > bs_key->slice.offset) {  //overlap
             length = FC_MIN(curr_end, slice_end) - bs_key->slice.offset;
             if ((result=dup_slice_to_array(ctx, curr_slice, bs_key->
@@ -564,6 +628,12 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
         }
 
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+
+        /*
+        logInfo("current slice.offset: %d, length: %d, curr_end: %d",
+                curr_slice->ssize.offset, curr_slice->ssize.length, curr_end);
+                */
+
         if (curr_end > slice_end) {  //the last slice
             if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->
                             ssize.offset, slice_end - curr_slice->

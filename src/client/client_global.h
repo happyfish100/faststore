@@ -5,7 +5,7 @@
 #include "fs_global.h"
 #include "client_types.h"
 
-typedef struct client_global_vars {
+typedef struct fs_client_global_vars {
     int connect_timeout;
     int network_timeout;
     char base_path[MAX_PATH_SIZE];
@@ -17,7 +17,7 @@ typedef struct client_global_vars {
 extern "C" {
 #endif
 
-    extern FSClientGlobalVars g_client_global_vars;
+    extern FSClientGlobalVars g_fs_client_vars;
 
 #ifdef __cplusplus
 }

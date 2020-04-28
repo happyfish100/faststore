@@ -1,3 +1,3 @@
 #include "client_global.h"
 
-FSClientGlobalVars g_client_global_vars;
+FSClientGlobalVars g_fs_client_vars;

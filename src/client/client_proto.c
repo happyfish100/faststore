@@ -86,18 +86,18 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
                     *write_bytes, bs_key->slice.offset + *write_bytes, bytes);
 
             if ((result=tcpsenddata_nb(conn->sock, out_buff, sizeof(out_buff),
-                            g_client_global_vars.network_timeout)) != 0)
+                            g_fs_client_vars.network_timeout)) != 0)
             {
                 break;
             }
 
             if ((result=tcpsenddata_nb(conn->sock, data + *write_bytes, bytes,
-                            g_client_global_vars.network_timeout)) != 0)
+                            g_fs_client_vars.network_timeout)) != 0)
             {
                 break;
             }
 
-            if ((result=fs_recv_response(conn, &response, g_client_global_vars.
+            if ((result=fs_recv_response(conn, &response, g_fs_client_vars.
                             network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
                             NULL, 0)) != 0)
             {
@@ -172,13 +172,13 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
 
             if ((result=fs_send_and_recv_response_header(conn,
                             out_buff, sizeof(out_buff), &response,
-                            g_client_global_vars.network_timeout)) != 0)
+                            g_fs_client_vars.network_timeout)) != 0)
             {
                 break;
             }
 
             if ((result=fs_check_response(conn, &response,
-                            g_client_global_vars.network_timeout,
+                            g_fs_client_vars.network_timeout,
                             FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
             {
                 break;
@@ -193,7 +193,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
             }
 
             if ((result=tcprecvdata_nb_ex(conn->sock, buff + *read_bytes,
-                            response.header.body_len, g_client_global_vars.
+                            response.header.body_len, g_fs_client_vars.
                             network_timeout, &bytes)) != 0)
             {
                 response.error.length = snprintf(response.error.message,
@@ -235,7 +235,7 @@ int fs_client_proto_join_server(ConnectionInfo *conn,
     proto_header = (FSProtoHeader *)out_buff;
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ, 0);
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, g_client_global_vars.network_timeout,
+                    &response, g_fs_client_vars.network_timeout,
                     FS_SERVICE_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {

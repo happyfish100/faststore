@@ -133,7 +133,7 @@ static int validate_connection_callback(ConnectionInfo *conn, void *args)
 {
     FSResponseInfo response;
     int result;
-    if ((result=fs_active_test(conn, &response, g_client_global_vars.
+    if ((result=fs_active_test(conn, &response, g_fs_client_vars.
                     network_timeout)) != 0)
     {
         fs_log_network_error(&response, conn, result);
@@ -164,7 +164,7 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
     if (htable_init_capacity < 256) {
         htable_init_capacity = 256;
     }
-    if ((result=conn_pool_init_ex1(cp, g_client_global_vars.connect_timeout,
+    if ((result=conn_pool_init_ex1(cp, g_fs_client_vars.connect_timeout,
                     max_count_per_entry, max_idle_time, socket_domain,
                     htable_init_capacity, connect_done_callback, NULL,
                     validate_connection_callback, NULL,

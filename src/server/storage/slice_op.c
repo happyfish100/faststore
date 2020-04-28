@@ -21,12 +21,9 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
         ob_index_free_slice(record->slice);
     }
 
-    /*
     logInfo("slice_write_done result: %d, offset: %d, length: %d, "
-            "done_bytes: %d, buff: %.*s", result, record->slice->ssize.offset,
-            record->slice->ssize.length, notify->done_bytes,
-            record->slice->ssize.length, record->data.str);
-            */
+            "done_bytes: %d", result, record->slice->ssize.offset,
+            record->slice->ssize.length, notify->done_bytes);
 
     if (__sync_sub_and_fetch(&notify->counter, 1) == 0) {
         if (notify->notify.func != NULL) {
@@ -56,8 +53,10 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
         return result;
     }
 
-    logInfo("write slice_count: %d, target slice offset: %d, length: %d",
-            slice_count, bs_key->slice.offset, bs_key->slice.length);
+    logInfo("write slice_count: %d, block { oid: %"PRId64", offset: %"PRId64" }, "
+            "target slice offset: %d, length: %d", slice_count,
+            bs_key->block.oid, bs_key->block.offset,
+            bs_key->slice.offset, bs_key->slice.length);
 
     notify->result = 0;
     notify->done_bytes = 0;

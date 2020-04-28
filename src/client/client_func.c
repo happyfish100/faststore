@@ -16,37 +16,37 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
 
     pBasePath = iniGetStrValue(NULL, "base_path", iniContext);
     if (pBasePath == NULL) {
-        strcpy(g_client_global_vars.base_path, "/tmp");
+        strcpy(g_fs_client_vars.base_path, "/tmp");
     } else {
-        snprintf(g_client_global_vars.base_path,
-                sizeof(g_client_global_vars.base_path),
+        snprintf(g_fs_client_vars.base_path,
+                sizeof(g_fs_client_vars.base_path),
                 "%s", pBasePath);
-        chopPath(g_client_global_vars.base_path);
-        if (!fileExists(g_client_global_vars.base_path)) {
+        chopPath(g_fs_client_vars.base_path);
+        if (!fileExists(g_fs_client_vars.base_path)) {
             logError("file: "__FILE__", line: %d, "
                 "\"%s\" can't be accessed, error info: %s",
-                __LINE__, g_client_global_vars.base_path,
+                __LINE__, g_fs_client_vars.base_path,
                 STRERROR(errno));
             return errno != 0 ? errno : ENOENT;
         }
-        if (!isDir(g_client_global_vars.base_path)) {
+        if (!isDir(g_fs_client_vars.base_path)) {
             logError("file: "__FILE__", line: %d, "
                 "\"%s\" is not a directory!",
-                __LINE__, g_client_global_vars.base_path);
+                __LINE__, g_fs_client_vars.base_path);
             return ENOTDIR;
         }
     }
 
-    g_client_global_vars.connect_timeout = iniGetIntValue(NULL,
+    g_fs_client_vars.connect_timeout = iniGetIntValue(NULL,
             "connect_timeout", iniContext, DEFAULT_CONNECT_TIMEOUT);
-    if (g_client_global_vars.connect_timeout <= 0) {
-        g_client_global_vars.connect_timeout = DEFAULT_CONNECT_TIMEOUT;
+    if (g_fs_client_vars.connect_timeout <= 0) {
+        g_fs_client_vars.connect_timeout = DEFAULT_CONNECT_TIMEOUT;
     }
 
-    g_client_global_vars.network_timeout = iniGetIntValue(NULL,
+    g_fs_client_vars.network_timeout = iniGetIntValue(NULL,
             "network_timeout", iniContext, DEFAULT_NETWORK_TIMEOUT);
-    if (g_client_global_vars.network_timeout <= 0) {
-        g_client_global_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
+    if (g_fs_client_vars.network_timeout <= 0) {
+        g_fs_client_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
     if ((result=fs_cluster_cfg_load_from_ini(&client_ctx->cluster_cfg,
@@ -64,9 +64,9 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             "data group count: %d",
             g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor,
-            g_client_global_vars.base_path,
-            g_client_global_vars.connect_timeout,
-            g_client_global_vars.network_timeout,
+            g_fs_client_vars.base_path,
+            g_fs_client_vars.connect_timeout,
+            g_fs_client_vars.network_timeout,
             FS_SERVER_GROUP_COUNT(client_ctx->cluster_cfg),
             FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg));
 #endif
