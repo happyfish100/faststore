@@ -17,8 +17,8 @@ typedef struct fs_api_context {
 
 typedef struct fs_api_file_info {
     FSAPIContext *ctx;
-    int mode;     //type and permission
-    int64_t oid;     //object id
+    FDIRDEntryInfo dentry;
+    int flags;
     int64_t offset;  //current offset
 } FSAPIFileInfo;
 

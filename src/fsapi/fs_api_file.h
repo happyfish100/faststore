@@ -9,7 +9,7 @@ extern "C" {
 #endif
 
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const char *path, const int flags);
+            const char *path, const int flags, const mode_t mode);
 
     int fsapi_close(FSAPIFileInfo *fi);
 
