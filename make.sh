@@ -106,44 +106,52 @@ if [ $have_pthread -eq 0 ] && [ "$uname" != "Darwin" ]; then
    fi
 fi
 
+sed_replace()
+{
+    sed_cmd=$1
+    filename=$2
+    if [ "$uname" = "FreeBSD" ] || [ "$uname" = "Darwin" ]; then
+       sed -i "" "$sed_cmd" $filename
+    else
+       sed -i "$sed_cmd" $filename
+    fi
+}
+
+replace_makefile()
+{
+    cp Makefile.in Makefile
+    sed_replace "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
+    sed_replace "s#\\\$\(LIBS\)#$LIBS#g" Makefile
+    sed_replace "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
+    sed_replace "s#\\\$\(LIB_VERSION\)#$LIB_VERSION#g" Makefile
+    sed_replace "s#\\\$\(TARGET_CONF_PATH\)#$TARGET_CONF_PATH#g" Makefile
+    sed_replace "s#\\\$\(ENABLE_STATIC_LIB\)#$ENABLE_STATIC_LIB#g" Makefile
+    sed_replace "s#\\\$\(ENABLE_SHARED_LIB\)#$ENABLE_SHARED_LIB#g" Makefile
+}
 
 cd src/server
-cp Makefile.in Makefile
-perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
-perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_CONF_PATH\)#$TARGET_CONF_PATH#g" Makefile
+replace_makefile
 make $1 $2
 
 cd ../client
-cp Makefile.in Makefile
-perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
-perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
-perl -pi -e "s#\\\$\(LIB_VERSION\)#$LIB_VERSION#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_CONF_PATH\)#$TARGET_CONF_PATH#g" Makefile
-perl -pi -e "s#\\\$\(ENABLE_STATIC_LIB\)#$ENABLE_STATIC_LIB#g" Makefile
-perl -pi -e "s#\\\$\(ENABLE_SHARED_LIB\)#$ENABLE_SHARED_LIB#g" Makefile
+replace_makefile
 make $1 $2
 
 cd tests || exit
-cp Makefile.in Makefile
-perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
-perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
+replace_makefile
 make $1 $2
 cd ..
 
+
 cd ../fsapi
-cp Makefile.in Makefile
-perl -pi -e "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
-perl -pi -e "s#\\\$\(LIBS\)#$LIBS#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
-perl -pi -e "s#\\\$\(LIB_VERSION\)#$LIB_VERSION#g" Makefile
-perl -pi -e "s#\\\$\(TARGET_CONF_PATH\)#$TARGET_CONF_PATH#g" Makefile
-perl -pi -e "s#\\\$\(ENABLE_STATIC_LIB\)#$ENABLE_STATIC_LIB#g" Makefile
-perl -pi -e "s#\\\$\(ENABLE_SHARED_LIB\)#$ENABLE_SHARED_LIB#g" Makefile
+replace_makefile
 make $1 $2
+
+cd tests || exit
+replace_makefile
+make $1 $2
+cd ..
+
 
 if [ "$1" = "install" ]; then
   cd ..

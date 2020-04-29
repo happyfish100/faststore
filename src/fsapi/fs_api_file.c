@@ -98,17 +98,19 @@ int fsapi_close(FSAPIFileInfo *fi)
     return 0;
 }
 
-static inline void fsapi_set_block_key(const FSAPIFileInfo *fi, FSBlockKey *bkey)
+static inline void fsapi_set_block_key(const FSAPIFileInfo *fi,
+        FSBlockKey *bkey, const int64_t offset)
 {
     bkey->oid = fi->dentry.inode;
-    bkey->offset = FS_FILE_BLOCK_ALIGN(fi->offset);
+    bkey->offset = FS_FILE_BLOCK_ALIGN(offset);
     fs_calc_block_hashcode(bkey);
 }
 
 static inline void fsapi_set_slice_size(const FSAPIFileInfo *fi,
-        FSBlockSliceKeyInfo *bs_key, const int current_size)
+        FSBlockSliceKeyInfo *bs_key, const int64_t offset,
+        const int current_size)
 {
-    bs_key->slice.offset = fi->offset - bs_key->block.offset;
+    bs_key->slice.offset = offset - bs_key->block.offset;
     if (bs_key->slice.offset + current_size <= FS_FILE_BLOCK_SIZE) {
         bs_key->slice.length = current_size;
     } else {
@@ -130,10 +132,11 @@ static inline void fsapi_next_block_slice_key(const FSAPIFileInfo *fi,
     }
 }
 
-int fsapi_write(FSAPIFileInfo *fi, const char *buff,
-        const int size, int *written_bytes)
+int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
+        const int size, const int64_t offset, int *written_bytes)
 {
     FSBlockSliceKeyInfo bs_key;
+    int64_t new_offset;
     int result;
     int current_written;
     int remain;
@@ -151,12 +154,9 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         return EBADF;
     }
 
-    if ((fi->flags & O_APPEND)) {
-        //TODO: fetch ans set fi->offset;
-    }
-
-    fsapi_set_block_key(fi, &bs_key.block);
-    fsapi_set_slice_size(fi, &bs_key, size);
+    new_offset = offset;
+    fsapi_set_block_key(fi, &bs_key.block, offset);
+    fsapi_set_slice_size(fi, &bs_key, offset, size);
     while (1) {
         if ((result=fs_client_proto_slice_write(fi->ctx->contexts.fs,
                         &bs_key, buff + *written_bytes,
@@ -167,23 +167,98 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
             }
         }
 
-        if ((fi->flags & O_APPEND)) {
-            //TODO: fetch ans set fi->offset;
-        }
-
-        fi->offset += current_written;
+        new_offset += current_written;
         *written_bytes += current_written;
         remain = size - *written_bytes;
-        if (remain == 0) {
+        if (remain <= 0) {
             break;
         }
 
         if (current_written == bs_key.slice.length) {  //fully completed
             fsapi_next_block_slice_key(fi, &bs_key, remain);
         } else {  //partially completed, try again the remain part
-            fsapi_set_slice_size(fi, &bs_key, remain);
+            fsapi_set_slice_size(fi, &bs_key, new_offset, remain);
         }
     }
 
     return *written_bytes > 0 ? 0 : EIO;
+}
+
+int fsapi_write(FSAPIFileInfo *fi, const char *buff,
+        const int size, int *written_bytes)
+{
+    int result;
+
+    if ((fi->flags & O_APPEND)) {
+        //TODO: fetch ans set fi->offset;
+    }
+
+    if ((result=fsapi_pwrite(fi, buff, size, fi->offset, written_bytes)) != 0) {
+        return result;
+    }
+
+    fi->offset += *written_bytes;
+    if ((fi->flags & O_APPEND)) {
+        //TODO
+    }
+
+    return 0;
+}
+
+int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
+        const int64_t offset, int *read_bytes)
+{
+    FSBlockSliceKeyInfo bs_key;
+    int64_t new_offset;
+    int result;
+    int current_read;
+    int remain;
+
+    *read_bytes = 0;
+    if (size == 0) {
+        return 0;
+    } else if (size < 0) {
+        return EINVAL;
+    }
+
+    if (fi->magic != FS_API_MAGIC_NUMBER || (fi->flags & O_WRONLY)) {
+        return EBADF;
+    }
+
+    new_offset = offset;
+    fsapi_set_block_key(fi, &bs_key.block, offset);
+    fsapi_set_slice_size(fi, &bs_key, offset, size);
+    while (1) {
+        if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
+                        &bs_key, buff + *read_bytes,
+                        &current_read)) != 0)
+        {
+            if (current_read == 0) {
+                break;
+            }
+        }
+
+        new_offset += current_read;
+        *read_bytes += current_read;
+        remain = size - *read_bytes;
+        if (remain <= 0 || current_read < bs_key.slice.length) {
+            break;
+        }
+
+        fsapi_next_block_slice_key(fi, &bs_key, remain);
+    }
+
+    return *read_bytes > 0 ? 0 : EIO;
+}
+
+int fsapi_read(FSAPIFileInfo *fi, char *buff, const int size, int *read_bytes)
+{
+    int result;
+
+    if ((result=fsapi_pread(fi, buff, size, fi->offset, read_bytes)) != 0) {
+        return result;
+    }
+
+    fi->offset += *read_bytes;
+    return 0;
 }
