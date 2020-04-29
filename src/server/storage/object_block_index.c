@@ -56,7 +56,7 @@ static int init_ob_shared_ctx_array()
     OBSharedContext *ctx;
     OBSharedContext *end;
 
-    ob_shared_ctx_array.count = STORAGE_CFG.object_block.locks_count;
+    ob_shared_ctx_array.count = STORAGE_CFG.object_block.shared_locks_count;
     bytes = sizeof(OBSharedContext) * ob_shared_ctx_array.count;
     ob_shared_ctx_array.contexts = (OBSharedContext *)malloc(bytes);
     if (ob_shared_ctx_array.contexts == NULL) {
