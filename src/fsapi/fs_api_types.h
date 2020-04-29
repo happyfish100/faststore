@@ -19,6 +19,7 @@ typedef struct fs_api_file_info {
     FSAPIContext *ctx;
     FDIRDEntryInfo dentry;
     int flags;
+    int magic;
     int64_t offset;  //current offset
 } FSAPIFileInfo;
 

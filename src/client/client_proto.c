@@ -39,7 +39,8 @@ static inline void proto_pack_block_key(const FSBlockKey *
 }
 
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, char *data, int *write_bytes)
+        const FSBlockSliceKeyInfo *bs_key, const char *data,
+        int *write_bytes)
 {
     ConnectionInfo *conn;
     const FSConnectionParameters *connection_params;
@@ -91,8 +92,8 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
                 break;
             }
 
-            if ((result=tcpsenddata_nb(conn->sock, data + *write_bytes, bytes,
-                            g_fs_client_vars.network_timeout)) != 0)
+            if ((result=tcpsenddata_nb(conn->sock, (char *)data + *write_bytes,
+                            bytes, g_fs_client_vars.network_timeout)) != 0)
             {
                 break;
             }

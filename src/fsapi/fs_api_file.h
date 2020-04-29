@@ -13,6 +13,12 @@ extern "C" {
 
     int fsapi_close(FSAPIFileInfo *fi);
 
+    int fsapi_write(FSAPIFileInfo *fi, const char *buff,
+            const int size, int *written_bytes);
+
+    int fsapi_read(FSAPIFileInfo *fi, char *buff,
+            const int size, int *read_bytes);
+
 #ifdef __cplusplus
 }
 #endif
