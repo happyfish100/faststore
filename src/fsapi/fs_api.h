@@ -3,6 +3,7 @@
 #define _FS_API_H
 
 #include "fs_api_types.h"
+#include "fs_api_file.h"
 
 #ifdef __cplusplus
 extern "C" {

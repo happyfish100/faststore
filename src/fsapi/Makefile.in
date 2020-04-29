@@ -9,7 +9,7 @@ FAST_SHARED_OBJS = fs_api.lo fs_api_file.lo
 
 FAST_STATIC_OBJS = fs_api.o fs_api_file.o
 
-HEADER_FILES = fs_api.h fs_api_file.h
+HEADER_FILES = fs_api.h fs_api_types.h fs_api_file.h
 
 ALL_OBJS = $(FAST_STATIC_OBJS) $(FAST_SHARED_OBJS)
 

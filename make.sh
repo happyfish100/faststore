@@ -120,13 +120,13 @@ sed_replace()
 replace_makefile()
 {
     cp Makefile.in Makefile
-    sed_replace "s#\\\$\(CFLAGS\)#$CFLAGS#g" Makefile
-    sed_replace "s#\\\$\(LIBS\)#$LIBS#g" Makefile
-    sed_replace "s#\\\$\(TARGET_PREFIX\)#$TARGET_PREFIX#g" Makefile
-    sed_replace "s#\\\$\(LIB_VERSION\)#$LIB_VERSION#g" Makefile
-    sed_replace "s#\\\$\(TARGET_CONF_PATH\)#$TARGET_CONF_PATH#g" Makefile
-    sed_replace "s#\\\$\(ENABLE_STATIC_LIB\)#$ENABLE_STATIC_LIB#g" Makefile
-    sed_replace "s#\\\$\(ENABLE_SHARED_LIB\)#$ENABLE_SHARED_LIB#g" Makefile
+    sed_replace "s#\\\$(CFLAGS)#$CFLAGS#g" Makefile
+    sed_replace "s#\\\$(LIBS)#$LIBS#g" Makefile
+    sed_replace "s#\\\$(TARGET_PREFIX)#$TARGET_PREFIX#g" Makefile
+    sed_replace "s#\\\$(LIB_VERSION)#$LIB_VERSION#g" Makefile
+    sed_replace "s#\\\$(TARGET_CONF_PATH)#$TARGET_CONF_PATH#g" Makefile
+    sed_replace "s#\\\$(ENABLE_STATIC_LIB)#$ENABLE_STATIC_LIB#g" Makefile
+    sed_replace "s#\\\$(ENABLE_SHARED_LIB)#$ENABLE_SHARED_LIB#g" Makefile
 }
 
 cd src/server

@@ -132,6 +132,13 @@ static inline void fsapi_next_block_slice_key(const FSAPIFileInfo *fi,
     }
 }
 
+static inline void print_block_slice_key(FSBlockSliceKeyInfo *bs_key)
+{
+    logInfo("block {oid: %"PRId64", offset: %"PRId64"}, "
+            "slice {offset: %d, length: %d}", bs_key->block.oid,
+            bs_key->block.offset, bs_key->slice.offset, bs_key->slice.length);
+}
+
 int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
         const int size, const int64_t offset, int *written_bytes)
 {
@@ -158,6 +165,7 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
     fsapi_set_block_key(fi, &bs_key.block, offset);
     fsapi_set_slice_size(fi, &bs_key, offset, size);
     while (1) {
+        print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_write(fi->ctx->contexts.fs,
                         &bs_key, buff + *written_bytes,
                         &current_written)) != 0)
@@ -229,6 +237,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
     fsapi_set_block_key(fi, &bs_key.block, offset);
     fsapi_set_slice_size(fi, &bs_key, offset, size);
     while (1) {
+        print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
                         &bs_key, buff + *read_bytes,
                         &current_read)) != 0)

@@ -26,7 +26,6 @@ int main(int argc, char *argv[])
     int64_t offset = 0;
     int64_t file_size;
     int length = 0;
-    int blk_offset_remain;
     FSAPIFileInfo fi;
     char *ns = "fs";
     char *input_filename = NULL;
@@ -86,7 +85,7 @@ int main(int argc, char *argv[])
     log_init();
     //g_log_context.log_level = LOG_DEBUG;
 
-    input_filename = argv[optind];
+    filename = argv[optind];
     if ((result=getFileContent(input_filename, &out_buff, &file_size)) != 0) {
         return result;
     }
@@ -105,7 +104,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=fsapi_open(&fi, filename, O_CREAT | O_RDWR, 0755)) != 0) {
+    if ((result=fsapi_open(&fi, filename, O_CREAT | O_WRONLY, 0755)) != 0) {
         return result;
     }
 
@@ -117,11 +116,16 @@ int main(int argc, char *argv[])
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "write to file %s fail, offset: %"PRId64", length: %d, "
-                "errno: %d, error info: %s", __LINE__, filename, offset,
-                length, result, STRERROR(result));
+                "write_bytes: %d, errno: %d, error info: %s",
+                __LINE__, filename, offset, length, write_bytes,
+                result, STRERROR(result));
         return result;
     }
+    fsapi_close(&fi);
 
+    if ((result=fsapi_open(&fi, filename, O_RDONLY, 0755)) != 0) {
+        return result;
+    }
     in_buff = (char *)malloc(length);
     if (in_buff == NULL) {
         logError("file: "__FILE__", line: %d, "
@@ -131,16 +135,17 @@ int main(int argc, char *argv[])
 
     memset(in_buff, 0, length);
     if (offset == 0) {
-        result = fsapi_read(&fi, out_buff, length, &read_bytes);
+        result = fsapi_read(&fi, in_buff, length, &read_bytes);
     } else {
-        result = fsapi_pread(&fi, out_buff, length, offset, &read_bytes);
+        result = fsapi_pread(&fi, in_buff, length, offset, &read_bytes);
     }
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "read from file %s fail, offset: %"PRId64", length: %d, "
-                "errno: %d, error info: %s", __LINE__, filename, offset,
-                length, result, STRERROR(result));
+                "read_bytes: %d, errno: %d, error info: %s",
+                __LINE__, filename, offset, length, read_bytes,
+                result, STRERROR(result));
         return result;
     }
 

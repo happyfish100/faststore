@@ -166,6 +166,18 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
 
+static inline void set_slice_op_error_msg(struct fast_task_info *task,
+        const char *caption, const int result)
+{
+    RESPONSE.error.length = sprintf(RESPONSE.error.message,
+            "slice %s fail, result: %d, block {oid: %"PRId64", "
+            "offset: %"PRId64"}, slice {offset: %d, length: %d}",
+            caption, result, TASK_CTX.bs_key.block.oid,
+            TASK_CTX.bs_key.block.offset,
+            TASK_CTX.bs_key.slice.offset,
+            TASK_CTX.bs_key.slice.length);
+}
+
 static int service_deal_slice_write(struct fast_task_info *task)
 {
     int result;
@@ -200,8 +212,7 @@ static int service_deal_slice_write(struct fast_task_info *task)
     if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
                     &TASK_CTX.slice_notify)) != 0)
     {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message, "slice write fail");
+        set_slice_op_error_msg(task, "write", result);
         return result;
     }
 
@@ -270,8 +281,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     if ((result=fs_slice_read(&TASK_CTX.bs_key, buff,
                     &TASK_CTX.slice_notify)) != 0)
     {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message, "slice read fail");
+        set_slice_op_error_msg(task, "read", result);
         return result;
     }
     
