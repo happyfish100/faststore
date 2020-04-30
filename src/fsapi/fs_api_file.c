@@ -3,7 +3,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
-#include "fastcommon/connection_pool.h"
+#include "fastcommon/sched_thread.h"
 #include "fs_api_file.h"
 
 #define FS_API_MAGIC_NUMBER    1588076578
@@ -52,6 +52,7 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
         return result;
     }
 
+    fi->write_notify.last_modified_time = fi->dentry.stat.mtime;
     if ((fi->flags & O_TRUNC)) {
         //TODO
     }
@@ -93,6 +94,10 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
 
 int fsapi_close(FSAPIFileInfo *fi)
 {
+    if (fi->magic != FS_API_MAGIC_NUMBER) {
+        return EBADF;
+    }
+
     fi->ctx = NULL;
     fi->magic = 0;
     return 0;
@@ -189,7 +194,32 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
     }
 
-    return *written_bytes > 0 ? 0 : EIO;
+    if (*written_bytes > 0) {
+        bool report_modified;
+        int64_t new_size;
+
+        new_size = offset + *written_bytes;
+        if (new_size > fi->dentry.stat.size) {
+            report_modified = true;
+        } else {
+            int current_time;
+            current_time = get_current_time();
+            if (current_time > fi->write_notify.last_modified_time) {
+                fi->write_notify.last_modified_time = current_time;
+                report_modified = true;
+            } else {
+                report_modified = false;
+            }
+        }
+
+        if (report_modified) {
+            fdir_client_set_dentry_size(fi->ctx->contexts.fdir, &fi->ctx->ns,
+                    fi->dentry.inode, new_size, false, &fi->dentry);
+        }
+        return 0;
+    } else {
+        return EIO;
+    }
 }
 
 int fsapi_write(FSAPIFileInfo *fi, const char *buff,

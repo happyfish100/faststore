@@ -20,6 +20,9 @@ typedef struct fs_api_file_info {
     FDIRDEntryInfo dentry;
     int flags;
     int magic;
+    struct {
+        int last_modified_time;
+    } write_notify;
     int64_t offset;  //current offset
 } FSAPIFileInfo;
 

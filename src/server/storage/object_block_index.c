@@ -102,14 +102,14 @@ static int init_ob_shared_ctx_array()
 
 static int init_ob_hashtable()
 {
-    int bytes;
+    int64_t bytes;
 
     ob_hashtable.capacity = STORAGE_CFG.object_block.hashtable_capacity;
     bytes = sizeof(OBEntry *) * ob_hashtable.capacity;
     ob_hashtable.buckets = (OBEntry **)malloc(bytes);
     if (ob_hashtable.buckets == NULL) {
         logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
+                "malloc %"PRId64" bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(ob_hashtable.buckets, 0, bytes);
