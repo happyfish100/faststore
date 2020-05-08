@@ -11,10 +11,10 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c fdir_config_filename] [-C fs_config_filename]"
-            " -n [namespace=fs] -o [offset=0] [-l length=0 for auto] "
-            "-i <input_filename> <filename>\n",
-            argv[0]);
+    fprintf(stderr, "Usage: %s [-c fdir_config_filename] "
+            "[-C fs_config_filename] -n [namespace=fs] "
+            "[-o offset=0] [-l length=0 for auto] [-A append mode] "
+            "[-T truncate mode] -i <input_filename> <filename>\n", argv[0]);
 }
 
 int main(int argc, char *argv[])
@@ -23,6 +23,7 @@ int main(int argc, char *argv[])
     const char *fs_config_filename = "/etc/fstore/client.conf";
 	int ch;
 	int result;
+    int open_flags;
     int64_t offset = 0;
     int64_t file_size;
     int length = 0;
@@ -41,7 +42,8 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    while ((ch=getopt(argc, argv, "hc:C:o:n:i:l:")) != -1) {
+    open_flags = 0;
+    while ((ch=getopt(argc, argv, "hc:C:o:n:i:l:AT")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -63,6 +65,12 @@ int main(int argc, char *argv[])
                 break;
             case 'l':
                 length = strtol(optarg, &endptr, 10);
+                break;
+            case 'A':
+                open_flags |= O_APPEND;
+                break;
+            case 'T':
+                open_flags |= O_TRUNC;
                 break;
             default:
                 usage(argv);
@@ -104,7 +112,9 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=fsapi_open(&fi, filename, O_CREAT | O_WRONLY, 0755)) != 0) {
+    if ((result=fsapi_open(&fi, filename, O_CREAT | O_WRONLY | open_flags,
+                    0755)) != 0)
+    {
         return result;
     }
 

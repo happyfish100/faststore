@@ -34,8 +34,10 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
                         return EEXIST;
                     }
 
-                    if ((result=fdir_client_stat_dentry(fi->ctx->contexts.
-                                    fdir, fullname, &fi->dentry)) != 0) {
+                    if ((result=fdir_client_stat_dentry_by_path(
+                                    fi->ctx->contexts.fdir, fullname,
+                                    &fi->dentry)) != 0)
+                    {
                         return result;
                     }
                     if ((fi->dentry.stat.mode & S_IFREG) == 0) {
@@ -82,7 +84,7 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     fi->flags = flags;
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
-    result = fdir_client_stat_dentry(ctx->contexts.fdir,
+    result = fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
             &fullname, &fi->dentry);
     if ((result=deal_open_flags(fi, &fullname, new_mode, result)) != 0) {
         return result;
@@ -144,8 +146,9 @@ static inline void print_block_slice_key(FSBlockSliceKeyInfo *bs_key)
             bs_key->block.offset, bs_key->slice.offset, bs_key->slice.length);
 }
 
-int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
-        const int size, const int64_t offset, int *written_bytes)
+static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
+        const int size, const int64_t offset, int *written_bytes,
+        const bool need_report_modified)
 {
     FSBlockSliceKeyInfo bs_key;
     int64_t new_offset;
@@ -154,18 +157,6 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
     int remain;
 
     *written_bytes = 0;
-    if (size == 0) {
-        return 0;
-    } else if (size < 0) {
-        return EINVAL;
-    }
-
-    if (fi->magic != FS_API_MAGIC_NUMBER || !((fi->flags & O_WRONLY) ||
-                (fi->flags & O_RDWR)))
-    {
-        return EBADF;
-    }
-
     new_offset = offset;
     fsapi_set_block_key(fi, &bs_key.block, offset);
     fsapi_set_slice_size(fi, &bs_key, offset, size);
@@ -198,6 +189,10 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
         bool report_modified;
         int64_t new_size;
 
+        if (!need_report_modified) {
+            return 0;
+        }
+
         new_size = offset + *written_bytes;
         if (new_size > fi->dentry.stat.size) {
             report_modified = true;
@@ -213,8 +208,9 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
 
         if (report_modified) {
-            fdir_client_set_dentry_size(fi->ctx->contexts.fdir, &fi->ctx->ns,
-                    fi->dentry.inode, new_size, false, &fi->dentry);
+            fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
+                    &fi->ctx->ns, fi->dentry.inode, new_size,
+                    false, &fi->dentry);
         }
         return 0;
     } else {
@@ -222,25 +218,77 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
     }
 }
 
+int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
+        const int size, const int64_t offset, int *written_bytes)
+{
+    if (size == 0) {
+        return 0;
+    } else if (size < 0) {
+        return EINVAL;
+    }
+
+    if (fi->magic != FS_API_MAGIC_NUMBER || !((fi->flags & O_WRONLY) ||
+                (fi->flags & O_RDWR)))
+    {
+        return EBADF;
+    }
+
+    return do_pwrite(fi, buff, size, offset, written_bytes, true);
+}
+
 int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         const int size, int *written_bytes)
 {
     int result;
+    bool need_report_modified;
+    int64_t old_size;
+
+    if (size == 0) {
+        return 0;
+    } else if (size < 0) {
+        return EINVAL;
+    }
+
+    if (fi->magic != FS_API_MAGIC_NUMBER || !((fi->flags & O_WRONLY) ||
+                (fi->flags & O_RDWR)))
+    {
+        return EBADF;
+    }
 
     if ((fi->flags & O_APPEND)) {
-        //TODO: fetch ans set fi->offset;
+        if ((result=fdir_client_dentry_sys_lock(fi->ctx->contexts.fdir,
+                        fi->dentry.inode, 0, &old_size)) != 0)
+        {
+            return result;
+        }
+
+        fi->offset = old_size;
+        need_report_modified = false;
+    } else {
+        old_size = 0;
+        need_report_modified = true;
     }
 
-    if ((result=fsapi_pwrite(fi, buff, size, fi->offset, written_bytes)) != 0) {
-        return result;
+    if ((result=do_pwrite(fi, buff, size, fi->offset,
+                    written_bytes, need_report_modified)) == 0)
+    {
+        fi->offset += *written_bytes;
     }
 
-    fi->offset += *written_bytes;
     if ((fi->flags & O_APPEND)) {
-        //TODO
+        string_t *ns;
+        if (fi->offset > old_size) {
+            ns = &fi->ctx->ns;
+        } else {
+            ns = NULL;
+        }
+        logInfo("====pid: %d, old file size: %"PRId64", new file size: %"PRId64", "
+                "written_bytes: %d", getpid(), old_size, fi->offset, *written_bytes);
+        fdir_client_dentry_sys_unlock_ex(fi->ctx->contexts.fdir,
+                ns, fi->dentry.inode, false, old_size, fi->offset);
     }
 
-    return 0;
+    return result;
 }
 
 int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
