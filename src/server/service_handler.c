@@ -219,6 +219,56 @@ static int service_deal_slice_write(struct fast_task_info *task)
     return TASK_STATUS_CONTINUE;
 }
 
+static int service_deal_slice_truncate(struct fast_task_info *task)
+{
+    int result;
+    FSProtoSliceTruncateReq *req;
+
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoSliceTruncateReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoSliceTruncateReq *)REQUEST.body;
+    if ((result=parse_check_block_slice(task, &req->bs)) != 0) {
+        return result;
+    }
+
+    if ((result=fs_slice_truncate(&TASK_CTX.bs_key)) != 0) {
+        set_slice_op_error_msg(task, "truncate", result);
+        return result;
+    }
+
+    return 0;
+}
+
+static int service_deal_slice_delete(struct fast_task_info *task)
+{
+    int result;
+    FSProtoSliceDeleteReq *req;
+
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_DELETE_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoSliceDeleteReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoSliceDeleteReq *)REQUEST.body;
+    if ((result=parse_check_block_slice(task, &req->bs)) != 0) {
+        return result;
+    }
+
+    if ((result=fs_slice_truncate(&TASK_CTX.bs_key)) != 0) {
+        set_slice_op_error_msg(task, "truncate", result);
+        return result;
+    }
+
+    return 0;
+}
+
 static void slice_read_done_notify(FSSliceOpNotify *notify)
 {
     struct fast_task_info *task;
@@ -429,6 +479,12 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
                 result = service_deal_slice_write(task);
+                break;
+            case FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ:
+                result = service_deal_slice_truncate(task);
+                break;
+            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+                result = service_deal_slice_delete(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_READ_REQ:
                 result = service_deal_slice_read(task);

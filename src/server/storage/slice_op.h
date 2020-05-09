@@ -20,6 +20,17 @@ extern "C" {
         return fs_slice_write_ex(bs_key, buff, notify, reclaim_alloc);
     }
 
+    int fs_slice_truncate_ex(const FSBlockSliceKeyInfo *bs_key,
+            const bool reclaim_alloc);
+
+    static inline int fs_slice_truncate(const FSBlockSliceKeyInfo *bs_key)
+    {
+        const bool reclaim_alloc = false;
+        return fs_slice_truncate_ex(bs_key, reclaim_alloc);
+    }
+
+    int fs_slice_delete(const FSBlockSliceKeyInfo *bs_key);
+
     int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
             FSSliceOpNotify *notify, OBSlicePtrArray *sarray);
 

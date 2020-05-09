@@ -33,6 +33,147 @@ typedef struct {
 static OBSharedContextArray ob_shared_ctx_array = {0, NULL};
 static OBHashtable ob_hashtable = {0, 0, NULL};
 
+#define OB_INDEX_SET_HASHTABLE_CTX(bkey) \
+    int64_t bucket_index;  \
+    OBSharedContext *ctx;  \
+    do {  \
+        bucket_index = FS_BLOCK_HASH_CODE(bkey) % ob_hashtable.capacity; \
+        ctx = ob_shared_ctx_array.contexts + bucket_index %    \
+            ob_shared_ctx_array.count;  \
+    } while (0)
+
+#define OB_INDEX_SET_BUCKET_AND_CTX(bkey) \
+    OBEntry **bucket;   \
+    OB_INDEX_SET_HASHTABLE_CTX(bkey);  \
+    do {  \
+        bucket = ob_hashtable.buckets + bucket_index; \
+    } while (0)
+
+
+static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
+{
+    int64_t sub;
+
+    sub = bkey1->oid - bkey2->oid;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    sub = bkey1->offset - bkey2->offset;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
+        const FSBlockKey *bkey, const bool create_flag, OBEntry **pprev)
+{
+    const int init_level_count = 2;
+    OBEntry *previous;
+    OBEntry *ob;
+    int cmpr;
+
+    if (pprev == NULL) {
+        pprev = &previous;
+    }
+    if (*bucket == NULL) {
+        if (!create_flag) {
+            return NULL;
+        }
+        *pprev = NULL;
+    } else {
+        cmpr = compare_block_key(bkey, &(*bucket)->bkey);
+        if (cmpr == 0) {
+            return *bucket;
+        } else if (cmpr < 0) {
+            *pprev = NULL;
+        } else {
+            *pprev = *bucket;
+            while ((*pprev)->next != NULL) {
+                cmpr = compare_block_key(bkey, &(*pprev)->next->bkey);
+                if (cmpr == 0) {
+                    return (*pprev)->next;
+                } else if (cmpr < 0) {
+                    break;
+                }
+
+                *pprev = (*pprev)->next;
+            }
+        }
+
+        if (!create_flag) {
+            return NULL;
+        }
+    }
+
+    ob = fast_mblock_alloc_object(&ctx->ob_allocator);
+    if (ob == NULL) {
+        return NULL;
+    }
+    ob->slices = uniq_skiplist_new(&ctx->factory, init_level_count);
+    if (ob->slices == NULL) {
+        fast_mblock_free_object(&ctx->ob_allocator, ob);
+        return NULL;
+    }
+
+    ob->bkey = *bkey;
+    if (*pprev == NULL) {
+        ob->next = *bucket;
+        *bucket = ob;
+    } else {
+        ob->next = (*pprev)->next;
+        (*pprev)->next = ob;
+    }
+    return ob;
+}
+
+#define get_ob_entry(ctx, bucket, bkey, create_flag)  \
+    get_ob_entry_ex(ctx, bucket, bkey, create_flag, NULL)
+
+OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
+{
+    OBEntry *ob;
+    OBSliceEntry *slice;
+
+    OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
+    pthread_mutex_lock(&ctx->lock);
+    ob = get_ob_entry(ctx, bucket, bkey, true);
+    if (ob == NULL) {
+        slice = NULL;
+    } else {
+        slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+        if (slice != NULL) {
+            slice->ob = ob;
+            slice->ref_count = 1;
+        }
+    }
+    pthread_mutex_unlock(&ctx->lock);
+
+    return slice;
+}
+
+void ob_index_free_slice(OBSliceEntry *slice)
+{
+    logInfo("free slice1: %p, ref_count: %d",
+            slice, __sync_add_and_fetch(&slice->ref_count, 0));
+    if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
+        OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+
+        logInfo("free slice2: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+                slice, __sync_add_and_fetch(&slice->ref_count, 0),
+                slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+
+        pthread_mutex_lock(&ctx->lock);
+        fast_mblock_free_object(&ctx->slice_allocator, slice);
+        pthread_mutex_unlock(&ctx->lock);
+    }
+}
+
 static int slice_compare(const void *p1, const void *p2)
 {
     return ((OBSliceEntry *)p1)->ssize.offset -
@@ -41,7 +182,18 @@ static int slice_compare(const void *p1, const void *p2)
 
 static void slice_free_func(void *ptr, const int delay_seconds)
 {
-    ob_index_free_slice((OBSliceEntry *)ptr);
+    OBSliceEntry *slice;
+
+    slice = (OBSliceEntry *)ptr;
+    if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
+        OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+
+        logInfo("free slice3: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+                slice, __sync_add_and_fetch(&slice->ref_count, 0),
+                slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+
+        fast_mblock_free_object(&ctx->slice_allocator, slice);
+    }
 }
 
 static int init_ob_shared_ctx_array()
@@ -134,85 +286,6 @@ int ob_index_init()
 
 void ob_index_destroy()
 {
-}
-
-static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
-{
-    int64_t sub;
-
-    sub = bkey1->oid - bkey2->oid;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
-    }
-
-    sub = bkey1->offset - bkey2->offset;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
-    }
-    return 0;
-}
-
-static OBEntry *get_ob_entry(OBSharedContext *ctx, OBEntry **bucket,
-        const FSBlockKey *bkey, const bool create_flag)
-{
-    const int init_level_count = 2;
-    OBEntry *previous;
-    OBEntry *ob;
-    int cmpr;
-
-    if (*bucket == NULL) {
-        if (!create_flag) {
-            return NULL;
-        }
-        previous = NULL;
-    } else {
-        cmpr = compare_block_key(bkey, &(*bucket)->bkey);
-        if (cmpr == 0) {
-            return *bucket;
-        } else if (cmpr < 0) {
-            previous = NULL;
-        } else {
-            previous = *bucket;
-            while (previous->next != NULL) {
-                cmpr = compare_block_key(bkey, &previous->next->bkey);
-                if (cmpr == 0) {
-                    return previous->next;
-                } else if (cmpr < 0) {
-                    break;
-                }
-
-                previous = previous->next;
-            }
-        }
-
-        if (!create_flag) {
-            return NULL;
-        }
-    }
-
-    ob = fast_mblock_alloc_object(&ctx->ob_allocator);
-    if (ob == NULL) {
-        return NULL;
-    }
-    ob->slices = uniq_skiplist_new(&ctx->factory, init_level_count);
-    if (ob->slices == NULL) {
-        fast_mblock_free_object(&ctx->ob_allocator, ob);
-        return NULL;
-    }
-
-    ob->bkey = *bkey;
-    if (previous == NULL) {
-        ob->next = *bucket;
-        *bucket = ob;
-    } else {
-        ob->next = previous->next;
-        previous->next = ob;
-    }
-    return ob;
 }
 
 static inline int do_delete_slice(OBEntry *ob, OBSliceEntry *slice)
@@ -325,14 +398,18 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
 
     node = uniq_skiplist_find_ge_node(ob->slices, (void *)slice);
     if (node == NULL) {
-        return do_add_slice(ob, slice);
+        previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
+        if (previous == ob->slices->top) {
+            return do_add_slice(ob, slice);
+        }
+    } else {
+        previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
     }
 
     INIT_SLICE_PTR_ARRAY(add_slice_array);
     INIT_SLICE_PTR_ARRAY(del_slice_array);
 
     slice_end = slice->ssize.offset + slice->ssize.length;
-    previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
     if (previous != ob->slices->top) {
         curr_slice = (OBSliceEntry *)previous->data;
         curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
@@ -344,7 +421,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
             }
 
             if ((result=dup_slice_to_smart_array(ctx, curr_slice,
-                            curr_slice->ssize.  offset, slice->ssize.offset -
+                            curr_slice->ssize.offset, slice->ssize.offset -
                             curr_slice->ssize.offset, &add_slice_array)) != 0)
             {
                 return result;
@@ -360,31 +437,34 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
         }
     }
 
-    do {
-        curr_slice = (OBSliceEntry *)node->data;
-        if (slice_end <= curr_slice->ssize.offset) {  //not overlap
-            break;
-        }
+    if (node != NULL) {
+        do {
+            curr_slice = (OBSliceEntry *)node->data;
+            if (slice_end <= curr_slice->ssize.offset) {  //not overlap
+                break;
+            }
 
-        if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
-                        curr_slice)) != 0)
-        {
-            return result;
-        }
-
-        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
-        if (curr_end > slice_end) {
-            if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
-                            curr_end - slice_end, &add_slice_array)) != 0)
+            if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
+                            curr_slice)) != 0)
             {
                 return result;
             }
 
-            break;
-        }
+            curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+            if (curr_end > slice_end) {
+                if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                                slice_end, curr_end - slice_end,
+                                &add_slice_array)) != 0)
+                {
+                    return result;
+                }
 
-        node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
-    } while (node != ob->slices->factory->tail);
+                break;
+            }
+
+            node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
+        } while (node != ob->slices->factory->tail);
+    }
 
     for (i=0; i<del_slice_array.count; i++) {
         do_delete_slice(ob, del_slice_array.slices[i]);
@@ -401,70 +481,158 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
 
 int ob_index_add_slice(OBSliceEntry *slice)
 {
-    OBSharedContext *ctx;
-    int64_t bucket_index;
     int result;
 
-    bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
-        ob_hashtable.capacity;
-    ctx = ob_shared_ctx_array.contexts + bucket_index %
-        ob_shared_ctx_array.count;
+    logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
+            "block {oid: %"PRId64", offset: %"PRId64"}",
+            slice, __sync_add_and_fetch(&slice->ref_count, 0),
+            slice->ob->bkey.oid, slice->ob->bkey.offset);
 
+    OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
     pthread_mutex_lock(&ctx->lock);
     result = add_slice(ctx, slice->ob, slice);
+    pthread_mutex_unlock(&ctx->lock);
+
+    logInfo("######file: "__FILE__", line: %d, func: %s, ctx: %p",
+            __LINE__, __FUNCTION__, ctx);
+
+    return result;
+}
+
+static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
+        const FSBlockSliceKeyInfo *bs_key, int *count)
+{
+    OBSliceEntry target;
+    UniqSkiplistNode *node;
+    UniqSkiplistNode *previous;
+    OBSliceEntry *curr_slice;
+    OBSlicePtrSmartArray add_slice_array;
+    OBSlicePtrSmartArray del_slice_array;
+    int result;
+    int curr_end;
+    int slice_end;
+    int i;
+
+    *count = 0;
+    target.ssize = bs_key->slice;
+    node = uniq_skiplist_find_ge_node(ob->slices, &target);
+    if (node == NULL) {
+        previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
+        if (previous == ob->slices->top) {
+            return 0;
+        }
+    } else {
+        previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
+    }
+
+    INIT_SLICE_PTR_ARRAY(add_slice_array);
+    INIT_SLICE_PTR_ARRAY(del_slice_array);
+
+    slice_end = bs_key->slice.offset + bs_key->slice.length;
+    if (previous != ob->slices->top) {
+        curr_slice = (OBSliceEntry *)previous->data;
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > bs_key->slice.offset) {  //overlap
+            if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
+                            curr_slice)) != 0)
+            {
+                return result;
+            }
+
+            if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                            curr_slice->ssize.offset, bs_key->slice.offset -
+                            curr_slice->ssize.offset, &add_slice_array)) != 0)
+            {
+                return result;
+            }
+
+            if (curr_end > slice_end) {
+                if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
+                                curr_end - slice_end, &add_slice_array)) != 0)
+                {
+                    return result;
+                }
+            }
+        }
+    }
+ 
+    if (node != NULL) {
+        do {
+            curr_slice = (OBSliceEntry *)node->data;
+            if (slice_end <= curr_slice->ssize.offset) {  //not overlap
+                break;
+            }
+
+            if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
+                            curr_slice)) != 0)
+            {
+                return result;
+            }
+
+            curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+            if (curr_end > slice_end) {
+                if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                                slice_end, curr_end - slice_end,
+                                &add_slice_array)) != 0)
+                {
+                    return result;
+                }
+
+                break;
+            }
+
+            node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
+        } while (node != ob->slices->factory->tail);
+    }
+
+    *count = del_slice_array.count;
+    for (i=0; i<del_slice_array.count; i++) {
+        do_delete_slice(ob, del_slice_array.slices[i]);
+    }
+    FREE_SLICE_PTR_ARRAY(del_slice_array);
+
+    for (i=0; i<add_slice_array.count; i++) {
+        do_add_slice(ob, add_slice_array.slices[i]);
+    }
+    FREE_SLICE_PTR_ARRAY(add_slice_array);
+
+    return 0;
+}
+
+int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
+{
+    OBEntry *ob;
+    int result;
+    int count;
+
+    OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
+    pthread_mutex_lock(&ctx->lock);
+    ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
+    if (ob == NULL) {
+        result = ENOENT;
+    } else {
+        result = delete_slices(ctx, ob, bs_key, &count);
+    }
     pthread_mutex_unlock(&ctx->lock);
 
     return result;
 }
 
-OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
+int ob_index_delete_block(const FSBlockKey *bkey)
 {
-    OBSharedContext *ctx;
-    OBEntry **bucket;
     OBEntry *ob;
-    OBSliceEntry *slice;
-    int64_t bucket_index;
+    OBEntry *previous;
 
-    bucket_index = FS_BLOCK_HASH_CODE(*bkey) % ob_hashtable.capacity;
-    ctx = ob_shared_ctx_array.contexts + bucket_index %
-        ob_shared_ctx_array.count;
-    bucket = ob_hashtable.buckets + bucket_index;
-
+    OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
     pthread_mutex_lock(&ctx->lock);
-    ob = get_ob_entry(ctx, bucket, bkey, true);
-    if (ob == NULL) {
-        slice = NULL;
-    } else {
-        slice = fast_mblock_alloc_object(&ctx->slice_allocator);
-        if (slice != NULL) {
-            slice->ob = ob;
-            slice->ref_count = 1;
-        }
+    ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
+    if (ob != NULL) {
+        //TODO
+        fast_mblock_free_object(&ctx->ob_allocator, ob);
     }
     pthread_mutex_unlock(&ctx->lock);
 
-    return slice;
-}
-
-void ob_index_free_slice(OBSliceEntry *slice)
-{
-    OBSharedContext *ctx;
-    int64_t bucket_index;
-
-    logInfo("free slice1: %p, ref_count: %d", slice, __sync_add_and_fetch(&slice->ref_count, 0));
-    if (__sync_sub_and_fetch(&slice->ref_count, 1) != 0) {
-        return;
-    }
-    logInfo("free slice2: %p, ref_count: %d", slice, __sync_add_and_fetch(&slice->ref_count, 0));
-
-    bucket_index = FS_BLOCK_HASH_CODE(slice->ob->bkey) %
-        ob_hashtable.capacity;
-    ctx = ob_shared_ctx_array.contexts + bucket_index %
-        ob_shared_ctx_array.count;
-
-    pthread_mutex_lock(&ctx->lock);
-    fast_mblock_free_object(&ctx->slice_allocator, slice);
-    pthread_mutex_unlock(&ctx->lock);
+    return ob != NULL ? 0 : ENOENT;
 }
 
 static int add_to_slice_ptr_array(OBSlicePtrArray *array,
@@ -674,18 +842,11 @@ static void free_slices(OBSlicePtrArray *sarray)
 int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
         OBSlicePtrArray *sarray)
 {
-    OBSharedContext *ctx;
-    OBEntry **bucket;
     OBEntry *ob;
-    int64_t bucket_index;
     int result;
 
+    OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
     sarray->count = 0;
-    bucket_index = FS_BLOCK_HASH_CODE(bs_key->block) %
-        ob_hashtable.capacity;
-    ctx = ob_shared_ctx_array.contexts + bucket_index %
-        ob_shared_ctx_array.count;
-    bucket = ob_hashtable.buckets + bucket_index;
 
     pthread_mutex_lock(&ctx->lock);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
