@@ -32,10 +32,10 @@ static inline void proto_pack_block_slice_key(const FSBlockSliceKeyInfo *
 */
 
 static inline void proto_pack_block_key(const FSBlockKey *
-        bkey, FSProtoBlockSlice *proto_bs)
+        bkey, FSProtoBlockKey *proto_bkey)
 {
-    long2buff(bkey->oid, proto_bs->bkey.oid);
-    long2buff(bkey->offset, proto_bs->bkey.offset);
+    long2buff(bkey->oid, proto_bkey->oid);
+    long2buff(bkey->offset, proto_bkey->offset);
 }
 
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
@@ -56,7 +56,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     *write_bytes = 0;
     proto_header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
-    proto_pack_block_key(&bs_key->block, &req_header->bs);
+    proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
                         bs_key->block.hash_codes, &result)) == NULL)
@@ -142,7 +142,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
             sizeof(FSProtoSliceReadReqHeader));
-    proto_pack_block_key(&bs_key->block, &req_header->bs);
+    proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
                         bs_key->block.hash_codes, &result)) == NULL)
@@ -210,6 +210,108 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                 break;
             }
         }
+
+        fs_client_release_connection(client_ctx, conn, result);
+        if (result != 0) {
+            fs_log_network_error(&response, conn, result);
+        }
+
+        if (!(result != 0 && is_network_error(result))) {
+            break;
+        }
+    }
+
+    return result;
+}
+
+static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const int req_cmd,
+        const int resp_cmd)
+{
+    ConnectionInfo *conn;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceTruncateReq)];
+    FSProtoHeader *proto_header;
+    FSProtoSliceTruncateReq *req;
+    FSResponseInfo response;
+    int result;
+    int i;
+
+    proto_header = (FSProtoHeader *)out_buff;
+    req = (FSProtoSliceTruncateReq *)(proto_header + 1);
+    proto_pack_block_key(&bs_key->block, &req->bs.bkey);
+    for (i=0; i<3; i++) {
+        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
+                        bs_key->block.hash_codes, &result)) == NULL)
+        {
+            return result;
+        }
+
+        response.error.length = 0;
+        FS_PROTO_SET_HEADER(proto_header, req_cmd,
+                sizeof(FSProtoSliceTruncateReq));
+        int2buff(bs_key->slice.offset, req->bs.slice_size.offset);
+        int2buff(bs_key->slice.length, req->bs.slice_size.length);
+        result = fs_send_and_recv_response(conn, out_buff,
+                sizeof(out_buff), &response, g_fs_client_vars.
+                network_timeout, resp_cmd, NULL, 0);
+
+        fs_client_release_connection(client_ctx, conn, result);
+        if (result != 0) {
+            fs_log_network_error(&response, conn, result);
+        }
+
+        if (!(result != 0 && is_network_error(result))) {
+            break;
+        }
+    }
+
+    return result;
+}
+
+int fs_client_proto_slice_truncate(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key)
+{
+    return fs_client_proto_slice_operate(client_ctx,
+        bs_key, FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ,
+        FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP);
+}
+
+int fs_client_proto_slice_delete(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key)
+{
+    return fs_client_proto_slice_operate(client_ctx,
+        bs_key, FS_SERVICE_PROTO_SLICE_DELETE_REQ,
+        FS_SERVICE_PROTO_SLICE_DELETE_RESP);
+}
+
+int fs_client_proto_block_delete(FSClientContext *client_ctx,
+        const FSBlockKey *bkey)
+{
+    ConnectionInfo *conn;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoBlockDeleteReq)];
+    FSProtoHeader *proto_header;
+    FSProtoBlockDeleteReq *req;
+    FSResponseInfo response;
+    int result;
+    int i;
+
+    proto_header = (FSProtoHeader *)out_buff;
+    req = (FSProtoBlockDeleteReq *)(proto_header + 1);
+    proto_pack_block_key(bkey, &req->bkey);
+    for (i=0; i<3; i++) {
+        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
+                        bkey->hash_codes, &result)) == NULL)
+        {
+            return result;
+        }
+
+        response.error.length = 0;
+        FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
+                sizeof(FSProtoBlockDeleteReq));
+        result = fs_send_and_recv_response(conn, out_buff,
+                sizeof(out_buff), &response, g_fs_client_vars.
+                network_timeout, FS_SERVICE_PROTO_BLOCK_DELETE_RESP,
+                NULL, 0);
 
         fs_client_release_connection(client_ctx, conn, result);
         if (result != 0) {

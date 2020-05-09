@@ -150,6 +150,7 @@ int fs_slice_truncate_ex(const FSBlockSliceKeyInfo *bs_key,
 {
     int result;
     int slice_count;
+    int i;
     OBSliceEntry *slices[2];
 
     if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_TRUNC,
@@ -158,11 +159,9 @@ int fs_slice_truncate_ex(const FSBlockSliceKeyInfo *bs_key,
         return result;
     }
 
-    return 0;
-}
-
-int fs_slice_delete(const FSBlockSliceKeyInfo *bs_key)
-{
+    for (i=0; i<slice_count; i++) {
+        ob_index_add_slice(slices[i]);
+    }
     return 0;
 }
 

@@ -26,6 +26,8 @@
 #define FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP     30
 #define FS_SERVICE_PROTO_SLICE_DELETE_REQ        31
 #define FS_SERVICE_PROTO_SLICE_DELETE_RESP       32
+#define FS_SERVICE_PROTO_BLOCK_DELETE_REQ        33
+#define FS_SERVICE_PROTO_BLOCK_DELETE_RESP       34
 
 #define FS_SERVICE_PROTO_SERVICE_STAT_REQ        41
 #define FS_SERVICE_PROTO_SERVICE_STAT_RESP       42
@@ -141,6 +143,10 @@ typedef struct fs_proto_slice_truncate_req {
 typedef struct fs_proto_slice_delete_req {
     FSProtoBlockSlice bs;
 } FSProtoSliceDeleteReq;
+
+typedef struct fs_proto_block_delete_req {
+    FSProtoBlockKey bkey;
+} FSProtoBlockDeleteReq;
 
 typedef struct fs_proto_slice_read_req_header {
     FSProtoBlockSlice bs;

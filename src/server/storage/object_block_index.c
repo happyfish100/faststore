@@ -622,12 +622,24 @@ int ob_index_delete_block(const FSBlockKey *bkey)
 {
     OBEntry *ob;
     OBEntry *previous;
+    OBSliceEntry *slice;
+    UniqSkiplistIterator it;
 
     OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
     pthread_mutex_lock(&ctx->lock);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
-        //TODO
+        uniq_skiplist_iterator(ob->slices, &it);
+        while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+            storage_allocator_delete_slice(slice);
+        }
+
+        uniq_skiplist_free(ob->slices);
+        if (previous == NULL) {
+            *bucket = ob->next;
+        } else {
+            previous->next = ob->next;
+        }
         fast_mblock_free_object(&ctx->ob_allocator, ob);
     }
     pthread_mutex_unlock(&ctx->lock);

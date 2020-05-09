@@ -99,11 +99,11 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
-static int parse_check_block_slice(struct fast_task_info *task,
-        const FSProtoBlockSlice *bs)
+static int parse_check_block_key(struct fast_task_info *task,
+        const FSProtoBlockKey *bkey)
 {
-    TASK_CTX.bs_key.block.oid = buff2long(bs->bkey.oid);
-    TASK_CTX.bs_key.block.offset = buff2long(bs->bkey.offset);
+    TASK_CTX.bs_key.block.oid = buff2long(bkey->oid);
+    TASK_CTX.bs_key.block.offset = buff2long(bkey->offset);
     if (TASK_CTX.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "block offset: %"PRId64" "
@@ -114,6 +114,17 @@ static int parse_check_block_slice(struct fast_task_info *task,
 
     //TODO check if belong to my data group
     fs_calc_block_hashcode(&TASK_CTX.bs_key.block);
+    return 0;
+}
+
+static int parse_check_block_slice(struct fast_task_info *task,
+        const FSProtoBlockSlice *bs)
+{
+    int result;
+
+    if ((result=parse_check_block_key(task, &bs->bkey)) != 0) {
+        return result;
+    }
 
     TASK_CTX.bs_key.slice.offset = buff2int(bs->slice_size.offset);
     TASK_CTX.bs_key.slice.length = buff2int(bs->slice_size.length);
@@ -261,8 +272,33 @@ static int service_deal_slice_delete(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=fs_slice_truncate(&TASK_CTX.bs_key)) != 0) {
-        set_slice_op_error_msg(task, "truncate", result);
+    if ((result=ob_index_delete_slices(&TASK_CTX.bs_key)) != 0) {
+        set_slice_op_error_msg(task, "delete", result);
+        return result;
+    }
+
+    return 0;
+}
+
+static int service_deal_block_delete(struct fast_task_info *task)
+{
+    int result;
+    FSProtoBlockDeleteReq *req;
+
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_BLOCK_DELETE_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoBlockDeleteReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoBlockDeleteReq *)REQUEST.body;
+    if ((result=parse_check_block_key(task, &req->bkey)) != 0) {
+        return result;
+    }
+
+    if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block)) != 0) {
+        set_slice_op_error_msg(task, "delete", result);
         return result;
     }
 
@@ -485,6 +521,9 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
                 result = service_deal_slice_delete(task);
+                break;
+            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+                result = service_deal_block_delete(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_READ_REQ:
                 result = service_deal_slice_read(task);
