@@ -534,35 +534,66 @@ static int do_unlink(FSAPIContext *ctx, const int64_t oid,
 int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
 {
     FDIRDEntryFullName fullname;
-    int64_t inode;
-    int64_t file_size;
-    string_t *ns;
+    FDIRDEntryInfo dentry;
     int result;
-    int unlock_res;
 
-    if ((result=get_regular_file_inode(ctx, path, &inode)) != 0) {
-        return result;
-    }
-
-    if ((result=fdir_client_dentry_sys_lock(ctx->contexts.fdir,
-                    inode, 0, &file_size)) != 0)
+    fullname.ns = ctx->ns;
+    FC_SET_STRING(fullname.path, (char *)path);
+    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
+                    &fullname, &dentry)) != 0)
     {
         return result;
     }
-    if ((result=do_unlink(ctx, inode, file_size)) == 0) {
-        ns = &ctx->ns;
-    } else {
-        ns = NULL;
-    }
-    unlock_res = fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir,
-            ns, inode, true, file_size, 0);
-
-    if (result == 0) {
-        fullname.ns = ctx->ns;
-        FC_SET_STRING(fullname.path, (char *)path);
-        result = fdir_client_remove_dentry(ctx->contexts.fdir,
-                &fullname);
+    if ((dentry.stat.mode & S_IFREG) == 0) {
+        return EPERM;
     }
 
-    return result == 0 ? unlock_res : result;
+    if ((result=do_unlink(ctx, dentry.inode, dentry.stat.size)) == 0) {
+        result = fdir_client_remove_dentry(ctx->contexts.fdir, &fullname);
+    }
+
+    return result;
+}
+
+int fsapi_lseek(FSAPIFileInfo *fi, const int64_t offset, const int whence)
+{
+    int64_t new_offset;
+    int result;
+
+    if (fi->magic != FS_API_MAGIC_NUMBER) {
+        return EBADF;
+    }
+
+    switch (whence) {
+        case SEEK_SET:
+            if (offset < 0) {
+                return EINVAL;
+            }
+            fi->offset = offset;
+            break;
+        case SEEK_CUR:
+            new_offset = fi->offset + offset;
+            if (new_offset < 0) {
+                return EINVAL;
+            }
+            fi->offset = new_offset;
+            break;
+        case SEEK_END:
+            if ((result=fdir_client_stat_dentry_by_inode(fi->ctx->contexts.
+                            fdir, fi->dentry.inode, &fi->dentry)) != 0)
+            {
+                return result;
+            }
+
+            new_offset = fi->dentry.stat.size + offset;
+            if (new_offset < 0) {
+                return EINVAL;
+            }
+            fi->offset = new_offset;
+            break;
+        default:
+            return EINVAL;
+    }
+
+    return 0;
 }

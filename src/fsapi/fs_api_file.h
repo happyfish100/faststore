@@ -41,6 +41,8 @@ extern "C" {
 
     int fsapi_unlink_ex(FSAPIContext *ctx, const char *path);
 
+    int fsapi_lseek(FSAPIFileInfo *fi, const int64_t offset, const int whence);
+
 #ifdef __cplusplus
 }
 #endif
