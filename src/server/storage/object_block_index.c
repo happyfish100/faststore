@@ -141,7 +141,7 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
     OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry(ctx, bucket, bkey, true);
     if (ob == NULL) {
         slice = NULL;
@@ -152,7 +152,7 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
             slice->ref_count = 1;
         }
     }
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return slice;
 }
@@ -168,9 +168,9 @@ void ob_index_free_slice(OBSliceEntry *slice)
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
                 slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
 
-        pthread_mutex_lock(&ctx->lock);
+        PTHREAD_MUTEX_LOCK(&ctx->lock);
         fast_mblock_free_object(&ctx->slice_allocator, slice);
-        pthread_mutex_unlock(&ctx->lock);
+        PTHREAD_MUTEX_UNLOCK(&ctx->lock);
     }
 }
 
@@ -489,9 +489,9 @@ int ob_index_add_slice(OBSliceEntry *slice)
             slice->ob->bkey.oid, slice->ob->bkey.offset);
 
     OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     result = add_slice(ctx, slice->ob, slice);
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     logInfo("######file: "__FILE__", line: %d, func: %s, ctx: %p",
             __LINE__, __FUNCTION__, ctx);
@@ -606,14 +606,14 @@ int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
     int count;
 
     OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
         result = delete_slices(ctx, ob, bs_key, &count);
     }
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return result;
 }
@@ -626,7 +626,7 @@ int ob_index_delete_block(const FSBlockKey *bkey)
     UniqSkiplistIterator it;
 
     OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
         uniq_skiplist_iterator(ob->slices, &it);
@@ -642,7 +642,7 @@ int ob_index_delete_block(const FSBlockKey *bkey)
         }
         fast_mblock_free_object(&ctx->ob_allocator, ob);
     }
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return ob != NULL ? 0 : ENOENT;
 }
@@ -860,14 +860,14 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
     OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
     sarray->count = 0;
 
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
         result = get_slices(ctx, ob, bs_key, sarray);
     }
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);

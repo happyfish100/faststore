@@ -8,6 +8,9 @@
 
 #define FS_API_MAGIC_NUMBER    1588076578
 
+static int file_truncate(FSAPIContext *ctx, const int64_t oid,
+        const int64_t new_size);
+
 static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
         const mode_t mode, int result)
 {
@@ -56,7 +59,13 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
 
     fi->write_notify.last_modified_time = fi->dentry.stat.mtime;
     if ((fi->flags & O_TRUNC)) {
-        //TODO
+        if (fi->dentry.stat.size > 0) {
+            if ((result=file_truncate(fi->ctx, fi->dentry.inode, 0)) != 0) {
+                return result;
+            }
+
+            fi->dentry.stat.size = 0;
+        }
     }
 
     if ((fi->flags & O_APPEND)) {
@@ -131,11 +140,16 @@ static inline void fsapi_set_block_slice(FSBlockSliceKeyInfo *bs_key,
     fsapi_set_slice_size(bs_key, offset, current_size);
 }
 
+static inline void fsapi_next_block_key(FSBlockKey *bkey)
+{
+    bkey->offset += FS_FILE_BLOCK_SIZE;
+    fs_calc_block_hashcode(bkey);
+}
+
 static inline void fsapi_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,
         const int current_size)
 {
-    bs_key->block.offset += FS_FILE_BLOCK_SIZE;
-    fs_calc_block_hashcode(&bs_key->block);
+    fsapi_next_block_key(&bs_key->block);
 
     bs_key->slice.offset = 0;
     if (current_size <= FS_FILE_BLOCK_SIZE) {
@@ -389,7 +403,9 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
                 result = fs_client_proto_slice_delete(ctx->contexts.fs,
                         &bs_key);
             }
-            if (!(result == 0 || result == ENOENT)) {
+            if (result == ENOENT) {
+                result = 0;
+            } else if (result != 0) {
                 break;
             }
         } else {
@@ -415,7 +431,9 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
         const int64_t new_size)
 {
     int64_t old_size;
+    string_t *ns;
     int result;
+    int unlock_res;
 
     if (new_size < 0) {
         return EINVAL;
@@ -426,11 +444,15 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
     {
         return result;
     }
-    result = do_truncate(ctx, oid, old_size, new_size);
-    fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir, &ctx->ns,
-            oid, true, old_size, new_size);
+    if ((result=do_truncate(ctx, oid, old_size, new_size)) == 0) {
+        ns = &ctx->ns;
+    } else {
+        ns = NULL;
+    }
+    unlock_res = fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir,
+            ns, oid, true, old_size, new_size);
 
-    return result;
+    return result == 0 ? unlock_res : result;
 }
 
 int fsapi_ftruncate(FSAPIFileInfo *fi, const int64_t new_size)
@@ -444,8 +466,8 @@ int fsapi_ftruncate(FSAPIFileInfo *fi, const int64_t new_size)
     return file_truncate(fi->ctx, fi->dentry.inode, new_size);
 }
 
-int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
-        const int64_t new_size)
+static int get_regular_file_inode(FSAPIContext *ctx, const char *path,
+        int64_t *inode)
 {
     FDIRDEntryFullName fullname;
     FDIRDEntryInfo dentry;
@@ -462,5 +484,85 @@ int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
         return EISDIR;
     }
 
-    return file_truncate(ctx, dentry.inode, new_size);
+    *inode = dentry.inode;
+    return 0;
+}
+
+int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
+        const int64_t new_size)
+{
+    int result;
+    int64_t inode;
+
+    if ((result=get_regular_file_inode(ctx, path, &inode)) != 0) {
+        return result;
+    }
+    return file_truncate(ctx, inode, new_size);
+}
+
+static int do_unlink(FSAPIContext *ctx, const int64_t oid,
+        const int64_t file_size)
+{
+    FSBlockKey bkey;
+    int64_t remain;
+    int result;
+
+    remain = file_size;
+    fsapi_set_block_key(&bkey, oid, 0);
+    while (1) {
+        logInfo("block {oid: %"PRId64", offset: %"PRId64"}",
+                bkey.oid, bkey.offset);
+
+        result = fs_client_proto_block_delete(ctx->contexts.fs, &bkey);
+        if (result == ENOENT) {
+            result = 0;
+        } else if (result != 0) {
+            break;
+        }
+
+        remain -= FS_FILE_BLOCK_SIZE;
+        if (remain <= 0) {
+            break;
+        }
+
+        fsapi_next_block_key(&bkey);
+    }
+
+    return result;
+}
+
+int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
+{
+    FDIRDEntryFullName fullname;
+    int64_t inode;
+    int64_t file_size;
+    string_t *ns;
+    int result;
+    int unlock_res;
+
+    if ((result=get_regular_file_inode(ctx, path, &inode)) != 0) {
+        return result;
+    }
+
+    if ((result=fdir_client_dentry_sys_lock(ctx->contexts.fdir,
+                    inode, 0, &file_size)) != 0)
+    {
+        return result;
+    }
+    if ((result=do_unlink(ctx, inode, file_size)) == 0) {
+        ns = &ctx->ns;
+    } else {
+        ns = NULL;
+    }
+    unlock_res = fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir,
+            ns, inode, true, file_size, 0);
+
+    if (result == 0) {
+        fullname.ns = ctx->ns;
+        FC_SET_STRING(fullname.path, (char *)path);
+        result = fdir_client_remove_dentry(ctx->contexts.fdir,
+                &fullname);
+    }
+
+    return result == 0 ? unlock_res : result;
 }

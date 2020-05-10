@@ -159,7 +159,7 @@ int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
 
-    pthread_mutex_lock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
         subdir = (StoreSubdirInfo *)uniq_skiplist_find(
                 sorted_subdirs->all, &target);
@@ -195,7 +195,7 @@ int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
             id_info_context.max_subdir_id = id_info->subdir;
         }
     } while (0);
-    pthread_mutex_unlock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_UNLOCK(&sorted_subdirs->lock);
 
     return result;
 }
@@ -212,7 +212,7 @@ int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info)
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
 
-    pthread_mutex_lock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
         subdir = (StoreSubdirInfo *)uniq_skiplist_find(
                 sorted_subdirs->all, &target);
@@ -224,7 +224,7 @@ int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info)
             subdir->file_count--;
         }
     } while (0);
-    pthread_mutex_unlock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_UNLOCK(&sorted_subdirs->lock);
 
     return result;
 }
@@ -235,7 +235,7 @@ int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info)
     StoreSubdirInfo *sd_info;
 
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
-    pthread_mutex_lock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     sd_info = (StoreSubdirInfo *)uniq_skiplist_get_first(
                 sorted_subdirs->freelist);
     if (sd_info != NULL) {
@@ -244,7 +244,7 @@ int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info)
         id_info->subdir = ++(id_info_context.max_subdir_id);
     }
     id_info->id = ++(id_info_context.max_trunk_id);
-    pthread_mutex_unlock(&sorted_subdirs->lock);
+    PTHREAD_MUTEX_UNLOCK(&sorted_subdirs->lock);
 
     return 0;
 }

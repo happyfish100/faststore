@@ -292,7 +292,7 @@ int trunk_binlog_write(const char op_type, const int path_index,
             (int)g_current_time, op_type, path_index, id_info->id,
             id_info->subdir, file_size);
 
-    pthread_mutex_lock(&binlog_writer.lock);
+    PTHREAD_MUTEX_LOCK(&binlog_writer.lock);
     do {
         if (fc_safe_write(binlog_writer.fd, buff, len) != len) {
             result = errno != 0 ? errno : EIO;
@@ -313,7 +313,7 @@ int trunk_binlog_write(const char op_type, const int path_index,
         }
         result = 0;
     } while (0);
-    pthread_mutex_unlock(&binlog_writer.lock);
+    PTHREAD_MUTEX_UNLOCK(&binlog_writer.lock);
 
     return result;
 }

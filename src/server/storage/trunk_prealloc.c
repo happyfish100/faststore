@@ -40,7 +40,7 @@ int trunk_prealloc_push(FSTrunkAllocator *allocator,
 
     ctx = thread_contexts + allocator->path_info->
         store.index % prealloc_thread_count;
-    pthread_mutex_lock(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
     task = (TrunkPreallocTask *)fast_mblock_alloc_object(&ctx->mblock);
     if (task != NULL) {
         result = 0;
@@ -62,7 +62,7 @@ int trunk_prealloc_push(FSTrunkAllocator *allocator,
         result = ENOMEM;
         notify = false;
     }
-    pthread_mutex_unlock(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     if (notify) {
         pthread_cond_signal(&ctx->cond);
@@ -134,7 +134,7 @@ static void *trunk_prealloc_thread_func(void *arg)
 
     ctx = (TrunkPreallocThreadContext *)arg;
     while (SF_G_CONTINUE_FLAG) {
-        pthread_mutex_lock(&ctx->lock);
+        PTHREAD_MUTEX_LOCK(&ctx->lock);
         if (ctx->head == NULL) {
             pthread_cond_wait(&ctx->cond, &ctx->lock);
         }
@@ -149,7 +149,7 @@ static void *trunk_prealloc_thread_func(void *arg)
             }
 
         }
-        pthread_mutex_unlock(&ctx->lock);
+        PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
         if (task == NULL) {
             continue;
