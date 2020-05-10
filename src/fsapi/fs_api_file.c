@@ -105,17 +105,16 @@ int fsapi_close(FSAPIFileInfo *fi)
     return 0;
 }
 
-static inline void fsapi_set_block_key(const FSAPIFileInfo *fi,
-        FSBlockKey *bkey, const int64_t offset)
+static inline void fsapi_set_block_key(FSBlockKey *bkey,
+        const int64_t oid, const int64_t offset)
 {
-    bkey->oid = fi->dentry.inode;
+    bkey->oid = oid;
     bkey->offset = FS_FILE_BLOCK_ALIGN(offset);
     fs_calc_block_hashcode(bkey);
 }
 
-static inline void fsapi_set_slice_size(const FSAPIFileInfo *fi,
-        FSBlockSliceKeyInfo *bs_key, const int64_t offset,
-        const int current_size)
+static inline void fsapi_set_slice_size(FSBlockSliceKeyInfo *bs_key,
+        const int64_t offset, const int current_size)
 {
     bs_key->slice.offset = offset - bs_key->block.offset;
     if (bs_key->slice.offset + current_size <= FS_FILE_BLOCK_SIZE) {
@@ -125,8 +124,15 @@ static inline void fsapi_set_slice_size(const FSAPIFileInfo *fi,
     }
 }
 
-static inline void fsapi_next_block_slice_key(const FSAPIFileInfo *fi,
-        FSBlockSliceKeyInfo *bs_key, const int current_size)
+static inline void fsapi_set_block_slice(FSBlockSliceKeyInfo *bs_key,
+        const int64_t oid, const int64_t offset, const int current_size)
+{
+    fsapi_set_block_key(&bs_key->block, oid, offset);
+    fsapi_set_slice_size(bs_key, offset, current_size);
+}
+
+static inline void fsapi_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,
+        const int current_size)
 {
     bs_key->block.offset += FS_FILE_BLOCK_SIZE;
     fs_calc_block_hashcode(&bs_key->block);
@@ -158,8 +164,7 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
 
     *written_bytes = 0;
     new_offset = offset;
-    fsapi_set_block_key(fi, &bs_key.block, offset);
-    fsapi_set_slice_size(fi, &bs_key, offset, size);
+    fsapi_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_write(fi->ctx->contexts.fs,
@@ -179,9 +184,9 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
 
         if (current_written == bs_key.slice.length) {  //fully completed
-            fsapi_next_block_slice_key(fi, &bs_key, remain);
+            fsapi_next_block_slice_key(&bs_key, remain);
         } else {  //partially completed, try again the remain part
-            fsapi_set_slice_size(fi, &bs_key, new_offset, remain);
+            fsapi_set_slice_size(&bs_key, new_offset, remain);
         }
     }
 
@@ -312,8 +317,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
     }
 
     new_offset = offset;
-    fsapi_set_block_key(fi, &bs_key.block, offset);
-    fsapi_set_slice_size(fi, &bs_key, offset, size);
+    fsapi_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
@@ -332,7 +336,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
             break;
         }
 
-        fsapi_next_block_slice_key(fi, &bs_key, remain);
+        fsapi_next_block_slice_key(&bs_key, remain);
     }
 
     return *read_bytes > 0 ? 0 : EIO;
@@ -348,4 +352,115 @@ int fsapi_read(FSAPIFileInfo *fi, char *buff, const int size, int *read_bytes)
 
     fi->offset += *read_bytes;
     return 0;
+}
+
+static int do_truncate(FSAPIContext *ctx, const int64_t oid,
+        const int64_t old_size, const int64_t new_size)
+{
+    FSBlockSliceKeyInfo bs_key;
+    int64_t start_size;
+    int64_t end_size;
+    int64_t remain;
+    bool is_delete;
+    int result;
+
+    if (new_size == old_size) {
+        return 0;
+    }
+    if (new_size > old_size) {
+        start_size = old_size;
+        end_size = new_size;
+        is_delete = false;
+    } else {
+        start_size = new_size;
+        end_size = old_size;
+        is_delete = true;
+    }
+
+    remain = end_size - start_size;
+    fsapi_set_block_slice(&bs_key, oid, start_size, remain);
+    while (1) {
+        print_block_slice_key(&bs_key);
+        if (is_delete) {
+            if (bs_key.slice.length == FS_FILE_BLOCK_SIZE) {
+                result = fs_client_proto_block_delete(ctx->contexts.fs,
+                        &bs_key.block);
+            } else {
+                result = fs_client_proto_slice_delete(ctx->contexts.fs,
+                        &bs_key);
+            }
+            if (!(result == 0 || result == ENOENT)) {
+                break;
+            }
+        } else {
+            if ((result=fs_client_proto_slice_truncate(ctx->contexts.fs,
+                            &bs_key)) != 0)
+            {
+                break;
+            }
+        }
+
+        remain -= bs_key.slice.length;
+        if (remain <= 0) {
+            break;
+        }
+
+        fsapi_next_block_slice_key(&bs_key, remain);
+    }
+
+    return result;
+}
+
+static int file_truncate(FSAPIContext *ctx, const int64_t oid,
+        const int64_t new_size)
+{
+    int64_t old_size;
+    int result;
+
+    if (new_size < 0) {
+        return EINVAL;
+    }
+
+    if ((result=fdir_client_dentry_sys_lock(ctx->contexts.fdir,
+                    oid, 0, &old_size)) != 0)
+    {
+        return result;
+    }
+    result = do_truncate(ctx, oid, old_size, new_size);
+    fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir, &ctx->ns,
+            oid, true, old_size, new_size);
+
+    return result;
+}
+
+int fsapi_ftruncate(FSAPIFileInfo *fi, const int64_t new_size)
+{
+    if (fi->magic != FS_API_MAGIC_NUMBER || !((fi->flags & O_WRONLY) ||
+                (fi->flags & O_RDWR)))
+    {
+        return EBADF;
+    }
+
+    return file_truncate(fi->ctx, fi->dentry.inode, new_size);
+}
+
+int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
+        const int64_t new_size)
+{
+    FDIRDEntryFullName fullname;
+    FDIRDEntryInfo dentry;
+    int result;
+
+    fullname.ns = ctx->ns;
+    FC_SET_STRING(fullname.path, (char *)path);
+    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
+                    &fullname, &dentry)) != 0)
+    {
+        return result;
+    }
+    if ((dentry.stat.mode & S_IFREG) == 0) {
+        return EISDIR;
+    }
+
+    return file_truncate(ctx, dentry.inode, new_size);
 }

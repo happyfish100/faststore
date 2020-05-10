@@ -11,6 +11,9 @@ extern "C" {
 #define fsapi_open(fi, path, flags, mode) \
     fsapi_open_ex(&g_fs_api_ctx, fi, path, flags, mode)
 
+#define fsapi_truncate(path, length) \
+    fsapi_truncate_ex(&g_fs_api_ctx, path, length)
+
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
             const char *path, const int flags, const mode_t mode);
 
@@ -27,6 +30,11 @@ extern "C" {
 
     int fsapi_read(FSAPIFileInfo *fi, char *buff,
             const int size, int *read_bytes);
+
+    int fsapi_ftruncate(FSAPIFileInfo *fi, const int64_t new_size);
+
+    int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
+            const int64_t new_size);
 
 #ifdef __cplusplus
 }
