@@ -643,7 +643,7 @@ int ob_index_delete_block(const FSBlockKey *bkey)
             previous->next = ob->next;
         }
 
-        fast_mblock_free_object(&ctx->ob_allocator, ob);
+        fast_mblock_delay_free_object(&ctx->ob_allocator, ob, 3600);
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 

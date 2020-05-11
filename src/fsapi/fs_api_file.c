@@ -316,10 +316,12 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         const int64_t offset, int *read_bytes)
 {
     FSBlockSliceKeyInfo bs_key;
-    int64_t new_offset;
     int result;
     int current_read;
     int remain;
+    int64_t current_offset;
+    int64_t hole_bytes;
+    int fill_bytes;
 
     *read_bytes = 0;
     if (size == 0) {
@@ -332,7 +334,6 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         return EBADF;
     }
 
-    new_offset = offset;
     fsapi_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
@@ -341,11 +342,51 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
                         &current_read)) != 0)
         {
             if (current_read == 0) {
-                break;
+                if (result != ENOENT) {
+                    break;
+                }
             }
         }
 
-        new_offset += current_read;
+        /*
+        logInfo("=====slice.length: %d, current_read: %d==",
+                bs_key.slice.length, current_read);
+         */
+        while ((current_read < bs_key.slice.length) &&
+                (result == 0 || result == ENOENT))
+        {
+            /* deal file hole caused by lseek */
+            current_offset = offset + *read_bytes + current_read;
+            if (current_offset == fi->dentry.stat.size) {
+                break;
+            }
+
+            if (current_offset > fi->dentry.stat.size) {
+                if ((result=fdir_client_stat_dentry_by_inode(fi->
+                                ctx->contexts.fdir, fi->dentry.inode,
+                                &fi->dentry)) != 0)
+                {
+                    break;
+                }
+            }
+
+            hole_bytes = fi->dentry.stat.size - current_offset;
+            if (hole_bytes > 0) {
+                if (current_read + hole_bytes > (int64_t)bs_key.slice.length) {
+                    fill_bytes = bs_key.slice.length - current_read;
+                } else {
+                    fill_bytes = hole_bytes;
+                }
+
+                memset(buff + *read_bytes + current_read, 0, fill_bytes);
+                current_read += fill_bytes;
+
+                logInfo("=====hole_bytes: %"PRId64", fill_bytes: %d==", hole_bytes, fill_bytes);
+            }
+
+            break;
+        }
+
         *read_bytes += current_read;
         remain = size - *read_bytes;
         if (remain <= 0 || current_read < bs_key.slice.length) {
