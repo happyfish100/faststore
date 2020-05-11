@@ -17,6 +17,9 @@ extern "C" {
 #define fsapi_unlink(path)  \
     fsapi_unlink_ex(&g_fs_api_ctx, path)
 
+#define fsapi_stat(path, buf)  \
+    fsapi_stat_ex(&g_fs_api_ctx, path, buf)
+
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
             const char *path, const int flags, const mode_t mode);
 
@@ -42,6 +45,10 @@ extern "C" {
     int fsapi_unlink_ex(FSAPIContext *ctx, const char *path);
 
     int fsapi_lseek(FSAPIFileInfo *fi, const int64_t offset, const int whence);
+
+    int fsapi_fstat(FSAPIFileInfo *fi, struct stat *buf);
+
+    int fsapi_stat_ex(FSAPIContext *ctx, const char *path, struct stat *buf);
 
 #ifdef __cplusplus
 }

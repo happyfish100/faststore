@@ -89,6 +89,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
     } else {
         cmpr = compare_block_key(bkey, &(*bucket)->bkey);
         if (cmpr == 0) {
+            *pprev = NULL;
             return *bucket;
         } else if (cmpr < 0) {
             *pprev = NULL;
@@ -129,6 +130,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         ob->next = (*pprev)->next;
         (*pprev)->next = ob;
     }
+
     return ob;
 }
 
@@ -640,6 +642,7 @@ int ob_index_delete_block(const FSBlockKey *bkey)
         } else {
             previous->next = ob->next;
         }
+
         fast_mblock_free_object(&ctx->ob_allocator, ob);
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);

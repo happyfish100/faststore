@@ -14,8 +14,10 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
 static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
         const mode_t mode, int result)
 {
-    if ((result == 0) && (fi->dentry.stat.mode & S_IFREG) == 0) {
-        return EISDIR;
+    if (result == 0) {
+        if (S_ISDIR(fi->dentry.stat.mode)) {
+            return EISDIR;
+        }
     }
 
     if (!((fi->flags & O_WRONLY) || (fi->flags & O_RDWR))) {
@@ -43,7 +45,7 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
                     {
                         return result;
                     }
-                    if ((fi->dentry.stat.mode & S_IFREG) == 0) {
+                    if (S_ISDIR(fi->dentry.stat.mode)) {
                         return EISDIR;
                     }
                 } else {
@@ -480,7 +482,7 @@ static int get_regular_file_inode(FSAPIContext *ctx, const char *path,
     {
         return result;
     }
-    if ((dentry.stat.mode & S_IFREG) == 0) {
+    if (S_ISDIR(dentry.stat.mode)) {
         return EISDIR;
     }
 
@@ -544,8 +546,9 @@ int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
     {
         return result;
     }
-    if ((dentry.stat.mode & S_IFREG) == 0) {
-        return EPERM;
+
+    if (S_ISDIR(dentry.stat.mode)) {
+        return EISDIR;
     }
 
     if ((result=do_unlink(ctx, dentry.inode, dentry.stat.size)) == 0) {
@@ -592,8 +595,56 @@ int fsapi_lseek(FSAPIFileInfo *fi, const int64_t offset, const int whence)
             fi->offset = new_offset;
             break;
         default:
+            logError("file: "__FILE__", line: %d, "
+                    "invalid whence: %d", __LINE__, whence);
             return EINVAL;
     }
 
+    return 0;
+}
+
+static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *buf)
+{
+    memset(buf, 0, sizeof(struct stat));
+    buf->st_ino = dentry->inode;
+    buf->st_mode = dentry->stat.mode;
+    buf->st_size = dentry->stat.size;
+    buf->st_mtime = dentry->stat.mtime;
+    buf->st_ctime = dentry->stat.ctime;
+}
+
+int fsapi_fstat(FSAPIFileInfo *fi, struct stat *buf)
+{
+    int result;
+
+    if (fi->magic != FS_API_MAGIC_NUMBER) {
+        return EBADF;
+    }
+
+    if ((result=fdir_client_stat_dentry_by_inode(fi->ctx->contexts.
+                    fdir, fi->dentry.inode, &fi->dentry)) != 0)
+    {
+        return result;
+    }
+
+    fill_stat(&fi->dentry, buf);
+    return 0;
+}
+
+int fsapi_stat_ex(FSAPIContext *ctx, const char *path, struct stat *buf)
+{
+    int result;
+    FDIRDEntryFullName fullname;
+    FDIRDEntryInfo dentry;
+
+    fullname.ns = ctx->ns;
+    FC_SET_STRING(fullname.path, (char *)path);
+    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
+                    &fullname, &dentry)) != 0)
+    {
+        return result;
+    }
+
+    fill_stat(&dentry, buf);
     return 0;
 }

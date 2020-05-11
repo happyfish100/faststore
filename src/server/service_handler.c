@@ -177,6 +177,16 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
 
+static inline void set_block_op_error_msg(struct fast_task_info *task,
+        const char *caption, const int result)
+{
+    RESPONSE.error.length = sprintf(RESPONSE.error.message,
+            "block %s fail, result: %d, block {oid: %"PRId64", "
+            "offset: %"PRId64"}", caption, result,
+            TASK_CTX.bs_key.block.oid,
+            TASK_CTX.bs_key.block.offset);
+}
+
 static inline void set_slice_op_error_msg(struct fast_task_info *task,
         const char *caption, const int result)
 {
@@ -298,7 +308,7 @@ static int service_deal_block_delete(struct fast_task_info *task)
     }
 
     if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block)) != 0) {
-        set_slice_op_error_msg(task, "delete", result);
+        set_block_op_error_msg(task, "delete", result);
         return result;
     }
 

@@ -12,9 +12,10 @@
 static void usage(char *argv[])
 {
     fprintf(stderr, "Usage: %s [-c fdir_config_filename] "
-            "[-C fs_config_filename] -n [namespace=fs] "
-            "[-o offset=0] [-l length=0 for auto] [-A append mode] "
-            "[-T truncate mode] -i <input_filename> <filename>\n", argv[0]);
+            "[-C fs_config_filename] -n [namespace=fs] \n\t"
+            "[-o offset=0] [-l length=0 for auto] [-A append mode] \n\t"
+            "[-T truncate mode] [-S set file size = -1] "
+            "-i <input_filename> <filename>\n\n", argv[0]);
 }
 
 int main(int argc, char *argv[])
@@ -26,6 +27,7 @@ int main(int argc, char *argv[])
     int open_flags;
     int64_t offset = 0;
     int64_t file_size;
+    int64_t file_size_to_set;
     int length = 0;
     FSAPIFileInfo fi;
     char *ns = "fs";
@@ -43,7 +45,8 @@ int main(int argc, char *argv[])
     }
 
     open_flags = 0;
-    while ((ch=getopt(argc, argv, "hc:C:o:n:i:l:AT")) != -1) {
+    file_size_to_set = -1;
+    while ((ch=getopt(argc, argv, "hc:C:o:n:i:l:S:AT")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -65,6 +68,9 @@ int main(int argc, char *argv[])
                 break;
             case 'l':
                 length = strtol(optarg, &endptr, 10);
+                break;
+            case 'S':
+                file_size_to_set = strtol(optarg, &endptr, 10);
                 break;
             case 'A':
                 open_flags |= O_APPEND;
@@ -102,7 +108,7 @@ int main(int argc, char *argv[])
                 "empty file: %s", __LINE__, input_filename);
         return ENOENT;
     }
-    if (length == 0) {
+    if (length == 0 || length > file_size) {
         length = file_size;
     }
 
@@ -116,6 +122,12 @@ int main(int argc, char *argv[])
                     0755)) != 0)
     {
         return result;
+    }
+
+    if (file_size_to_set >= 0) {
+        if ((result=fsapi_ftruncate(&fi, file_size_to_set)) != 0) {
+            return result;
+        }
     }
 
     if (offset == 0) {
@@ -143,11 +155,15 @@ int main(int argc, char *argv[])
         return ENOMEM;
     }
 
-    memset(in_buff, 0, length);
+    if ((result=fsapi_lseek(&fi, offset, SEEK_SET)) != 0) {
+        return result;
+    }
+
     if (offset == 0) {
         result = fsapi_read(&fi, in_buff, length, &read_bytes);
     } else {
-        result = fsapi_pread(&fi, in_buff, length, offset, &read_bytes);
+        //result = fsapi_pread(&fi, in_buff, length, offset, &read_bytes);
+        result = fsapi_read(&fi, in_buff, length, &read_bytes);
     }
 
     if (result != 0) {
