@@ -6,7 +6,6 @@
 #include "faststore/fs_client.h"
 
 typedef struct fs_api_context {
-    //bool multi_thread_shared;
     string_t ns;  //namespace
     char ns_holder[NAME_MAX];
     struct {
@@ -17,6 +16,7 @@ typedef struct fs_api_context {
 
 typedef struct fs_api_file_info {
     FSAPIContext *ctx;
+    FDIRClientSession session;  //for flock
     FDIRDEntryInfo dentry;
     int flags;
     int magic;

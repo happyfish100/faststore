@@ -2,6 +2,7 @@
 #ifndef _FS_API_FILE_H
 #define _FS_API_FILE_H
 
+#include <fcntl.h>
 #include "fs_api_types.h"
 
 #ifdef __cplusplus
@@ -49,6 +50,13 @@ extern "C" {
     int fsapi_fstat(FSAPIFileInfo *fi, struct stat *buf);
 
     int fsapi_stat_ex(FSAPIContext *ctx, const char *path, struct stat *buf);
+
+    int fsapi_flock(FSAPIFileInfo *fi, const int operation);
+
+    //int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock);
+
+    int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
+        const int64_t owner_id);
 
 #ifdef __cplusplus
 }
