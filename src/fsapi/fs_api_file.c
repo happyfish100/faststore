@@ -798,6 +798,44 @@ static inline int fcntl_unlock(FSAPIFileInfo *fi, const int operation,
     return result;
 }
 
+static inline int fcntl_type_to_flock_op(const short type, int *operation)
+{
+    switch (type) {
+        case F_RDLCK:
+            *operation = LOCK_SH;
+            break;
+        case F_WRLCK:
+            *operation = LOCK_EX;
+            break;
+        case F_UNLCK:
+            *operation = LOCK_UN;
+            break;
+        default:
+            return EINVAL;
+    }
+
+    return 0;
+}
+
+static inline int flock_op_to_fcntl_type(const int operation, short *type)
+{
+    switch (operation) {
+        case LOCK_SH:
+            *type = F_RDLCK;
+            break;
+        case LOCK_EX:
+            *type = F_WRLCK;
+            break;
+        case LOCK_UN:
+            *type = F_UNLCK;
+            break;
+        default:
+            return EINVAL;
+    }
+
+    return 0;
+}
+
 int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         const int64_t owner_id)
 {
@@ -809,18 +847,8 @@ int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         return EBADF;
     }
 
-    switch (lock->l_type) {
-        case F_RDLCK:
-            operation = LOCK_SH;
-            break;
-        case F_WRLCK:
-            operation = LOCK_EX;
-            break;
-        case F_UNLCK:
-            operation = LOCK_UN;
-            break;
-        default:
-            return EINVAL;
+    if ((result=fcntl_type_to_flock_op(lock->l_type, &operation)) != 0) {
+        return result;
     }
 
     if ((result=calc_file_offset(fi, lock->l_start,
@@ -829,7 +857,7 @@ int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         return result;
     }
 
-    if ((operation & LOCK_UN)) {
+    if (operation == LOCK_UN) {
         if (fi->session.mconn == NULL) {
             return ENOENT;
         }
@@ -845,4 +873,43 @@ int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         return fcntl_lock(fi, operation, offset, lock->l_len,
                 owner_id, lock->l_pid);
     }
+}
+
+int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id)
+{
+    int operation;
+    int result;
+    int64_t offset;
+    int64_t length;
+
+    if (fi->magic != FS_API_MAGIC_NUMBER) {
+        return EBADF;
+    }
+
+    if ((result=fcntl_type_to_flock_op(lock->l_type, &operation)) != 0) {
+        return result;
+    }
+
+    if ((result=calc_file_offset(fi, lock->l_start,
+                    lock->l_whence, &offset)) != 0)
+    {
+        return result;
+    }
+
+    if (operation == LOCK_UN) {
+        return EINVAL;
+    }
+
+    length = lock->l_len;
+    if ((result=fdir_client_getlk_dentry(fi->ctx->contexts.fdir,
+                    fi->dentry.inode, &operation, &offset, &length,
+                    owner_id, &lock->l_pid)) == 0)
+    {
+        flock_op_to_fcntl_type(operation, &lock->l_type);
+        lock->l_whence = SEEK_SET;
+        lock->l_start = offset;
+        lock->l_len = length;
+    }
+
+    return result;
 }

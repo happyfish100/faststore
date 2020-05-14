@@ -53,7 +53,7 @@ extern "C" {
 
     int fsapi_flock(FSAPIFileInfo *fi, const int operation);
 
-    //int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock);
+    int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id);
 
     int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         const int64_t owner_id);
