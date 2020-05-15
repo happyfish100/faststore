@@ -152,6 +152,10 @@ replace_makefile
 make $1 $2
 cd ..
 
+cd ../fuse
+replace_makefile
+make $1 $2
+
 
 if [ "$1" = "install" ]; then
   cd ..
