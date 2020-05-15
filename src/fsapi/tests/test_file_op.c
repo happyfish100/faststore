@@ -112,7 +112,7 @@ int main(int argc, char *argv[])
         length = file_size;
     }
 
-    if ((result=fs_api_init(ns, fdir_config_filename,
+    if ((result=fs_api_pooled_init(ns, fdir_config_filename,
                     fs_config_filename)) != 0)
     {
         return result;
