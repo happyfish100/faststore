@@ -106,19 +106,38 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     return 0;
 }
 
+int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
+            const FDIRDEntryInfo *dentry, const int flags)
+{
+    int result;
+
+    fi->dentry = *dentry;
+    fi->ctx = ctx;
+    fi->flags = flags;
+    fi->session.mconn = NULL;
+    result = 0;
+    if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
+        return result;
+    }
+
+    fi->magic = FS_API_MAGIC_NUMBER;
+    return 0;
+}
+
 int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
             const int64_t inode, const int flags)
 {
     int result;
 
-    fi->ctx = ctx;
-    fi->flags = flags;
-    fi->session.mconn = NULL;
     if ((result=fdir_client_stat_dentry_by_inode(ctx->contexts.fdir,
                     inode, &fi->dentry)) != 0)
     {
         return result;
     }
+
+    fi->ctx = ctx;
+    fi->flags = flags;
+    fi->session.mconn = NULL;
     if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
         return result;
     }

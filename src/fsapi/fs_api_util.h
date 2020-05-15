@@ -9,7 +9,7 @@ extern "C" {
 #endif
 #define FSAPI_SET_PATH_FULLNAME(fullname, ctx, path_str) \
     fullname.ns = ctx->ns;    \
-    FC_SET_STRING(fullname.path, path_str)
+    FC_SET_STRING(fullname.path, (char *)path_str)
 
 #define fsapi_lookup_inode(path, inode)  \
     fsapi_lookup_inode_ex(&g_fs_api_ctx, path, inode)
@@ -22,6 +22,10 @@ extern "C" {
 
 #define fsapi_stat_dentry_by_pname(parent_inode, name, dentry)  \
     fsapi_stat_dentry_by_pname_ex(&g_fs_api_ctx, parent_inode, name, dentry)
+
+#define fsapi_create_dentry_by_pname(parent_inode, name, mode, dentry)  \
+    fsapi_create_dentry_by_pname_ex(&g_fs_api_ctx, \
+            parent_inode, name, mode, dentry)
 
 static inline int fsapi_lookup_inode_ex(FSAPIContext *ctx,
         const char *path, int64_t *inode)
@@ -49,10 +53,19 @@ static inline int fsapi_stat_dentry_by_inode_ex(FSAPIContext *ctx,
 }
 
 static inline int fsapi_stat_dentry_by_pname_ex(FSAPIContext *ctx,
-        const int64_t parent_inode, const char *name, FDIRDEntryInfo *dentry)
+        const int64_t parent_inode, const string_t *name,
+        FDIRDEntryInfo *dentry)
 {
     return fdir_client_stat_dentry_by_pname(ctx->contexts.fdir,
             parent_inode, name, dentry);
+}
+
+static inline int fsapi_create_dentry_by_pname_ex(FSAPIContext *ctx,
+        const int64_t parent_inode, const string_t *name,
+        const mode_t mode, FDIRDEntryInfo *dentry)
+{
+    return fdir_client_create_dentry_by_pname(ctx->contexts.fdir,
+            parent_inode, &ctx->ns, name, mode, dentry);
 }
 
 #ifdef __cplusplus
