@@ -46,7 +46,9 @@ int main(int argc, char *argv[])
         return result;
     }
 
-	fs_fuse_wrapper_get_ops(&fuse_operations);
+	if ((result=fs_fuse_wrapper_init(&fuse_operations)) != 0) {
+        return result;
+    }
 	se = fuse_session_new(&args, &fuse_operations,
 			      sizeof(fuse_operations), NULL);
 	if (se == NULL)

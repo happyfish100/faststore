@@ -10,7 +10,8 @@
 #define FS_ATTR_TIMEOUT  1.0
 #define FS_ENTRY_TIMEOUT 1.0
 
-static const char *hello_str = "Hello World!\n";
+static struct fast_mblock_man fh_allocator;
+
 static const char *hello_name = "hello";
 
 static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
@@ -138,30 +139,109 @@ static void fs_do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi)
 {
-	if (ino != 2)
-		fuse_reply_err(req, EISDIR);
-	else if ((fi->flags & O_ACCMODE) != O_RDONLY)
-		fuse_reply_err(req, EACCES);
-	else {
-        fprintf(stderr, "file: "__FILE__", line: %d, func: %s, "
-                "ino: %"PRId64", fh: %"PRId64"\n", __LINE__, __FUNCTION__,
-                ino, fi->fh);
-        fi->fh = 123456;
-		fuse_reply_open(req, fi);
+    int result;
+    FSAPIFileInfo *fh;
+
+    fh = (FSAPIFileInfo *)fast_mblock_alloc_object(&fh_allocator);
+    if (fh == NULL) {
+        fuse_reply_err(req, ENOMEM);
+        return;
     }
+
+    if ((result=fsapi_open_by_inode(fh, ino, fi->flags)) != 0) {
+        fast_mblock_free_object(&fh_allocator, fh);
+        if (!(result == EISDIR || result == ENOENT)) {
+            result = EACCES;
+        }
+        fuse_reply_err(req, result);
+        return;
+    }
+
+    fi->fh = (long)fh;
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64"\n",
+            __LINE__, __FUNCTION__, ino, fi->fh);
+
+    fi->fh = (long)fh;
+    fuse_reply_open(req, fi);
+}
+
+static void fs_do_release(fuse_req_t req, fuse_ino_t ino,
+             struct fuse_file_info *fi)
+{
+    int result;
+    FSAPIFileInfo *fh;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64"\n",
+            __LINE__, __FUNCTION__, ino, fi->fh);
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh != NULL) {
+        result = fsapi_close(fh);
+        fast_mblock_free_object(&fh_allocator, fh);
+    } else {
+        result = EBADF;
+    }
+    fuse_reply_err(req, result);
 }
 
 static void fs_do_read(fuse_req_t req, fuse_ino_t ino, size_t size,
-			  off_t off, struct fuse_file_info *fi)
+			  off_t offset, struct fuse_file_info *fi)
 {
-	reply_buf_limited(req, hello_str, strlen(hello_str), off, size);
+    FSAPIFileInfo *fh;
+    int result;
+    int read_bytes;
+    char fixed_buff[128 * 1024];
+    char *buff;
+    
+    if (size < sizeof(fixed_buff)) {
+        buff = fixed_buff;
+    } else if ((buff=(char *)malloc(size)) == NULL) {
+        logError("file: "__FILE__", line: %d, func: %s, "
+                "malloc %d bytes fail", __LINE__, __FUNCTION__, (int)size);
+        fuse_reply_err(req, ENOMEM);
+        return;
+    }
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        fuse_reply_err(req, EBADF);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", size: %"PRId64", offset: %"PRId64,
+            __LINE__, __FUNCTION__, ino, size, offset);
+
+    if ((result=fsapi_pread(fh, buff, size, offset, &read_bytes)) != 0) {
+        fuse_reply_err(req, result);
+        return;
+    }
+
+    fuse_reply_buf(req, buff, read_bytes);
+
+    if (buff != fixed_buff) {
+        free(buff);
+    }
 }
 
-void fs_fuse_wrapper_get_ops(struct fuse_lowlevel_ops *ops)
+int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
 {
-	ops->lookup	= fs_do_lookup;
-	ops->getattr	= fs_do_getattr;
-	ops->readdir	= fs_do_readdir;
-	ops->open	= fs_do_open;
-	ops->read	= fs_do_read;
+    int result;
+    if ((result=fast_mblock_init_ex2(&fh_allocator, "fuse_fh",
+                    sizeof(FSAPIFileInfo), 4096, NULL, NULL,
+                    true, NULL, NULL, NULL)) != 0)
+    {
+        return result;
+    }
+
+    ops->lookup  = fs_do_lookup;
+    ops->getattr = fs_do_getattr;
+    ops->readdir = fs_do_readdir;
+    ops->open    = fs_do_open;
+    ops->release = fs_do_release;
+    ops->read    = fs_do_read;
+
+    return 0;
 }

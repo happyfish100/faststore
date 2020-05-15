@@ -106,6 +106,27 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     return 0;
 }
 
+int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
+            const int64_t inode, const int flags)
+{
+    int result;
+
+    fi->ctx = ctx;
+    fi->flags = flags;
+    fi->session.mconn = NULL;
+    if ((result=fdir_client_stat_dentry_by_inode(ctx->contexts.fdir,
+                    inode, &fi->dentry)) != 0)
+    {
+        return result;
+    }
+    if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
+        return result;
+    }
+
+    fi->magic = FS_API_MAGIC_NUMBER;
+    return 0;
+}
+
 int fsapi_close(FSAPIFileInfo *fi)
 {
     if (fi->magic != FS_API_MAGIC_NUMBER) {

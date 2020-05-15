@@ -15,7 +15,7 @@
 extern "C" {
 #endif
 
-	void fs_fuse_wrapper_get_ops(struct fuse_lowlevel_ops *ops);
+	int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops);
 
 #ifdef __cplusplus
 }
