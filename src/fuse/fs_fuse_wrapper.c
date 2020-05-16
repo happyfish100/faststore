@@ -5,6 +5,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "fastcommon/common_define.h"
+#include "fastcommon/sched_thread.h"
 #include "fs_fuse_wrapper.h"
 
 #define FS_ATTR_TIMEOUT  1.0
@@ -19,8 +20,11 @@ static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
     stat->st_ino = dentry->inode;
     stat->st_mode = dentry->stat.mode;
     stat->st_size = dentry->stat.size;
+    stat->st_atime = dentry->stat.atime;
     stat->st_mtime = dentry->stat.mtime;
     stat->st_ctime = dentry->stat.ctime;
+    stat->st_uid = dentry->stat.uid;
+    stat->st_gid = dentry->stat.gid;
     //stat->st_nlink = 2;
 }
 
@@ -52,12 +56,19 @@ static inline int fs_convert_inode(const fuse_ino_t ino, int64_t *new_inode)
     return 0;
 }
 
+static inline void do_reply_attr(fuse_req_t req, FDIRDEntryInfo *dentry)
+{
+    struct stat stat;
+    memset(&stat, 0, sizeof(stat));
+    fill_stat(dentry, &stat);
+    fuse_reply_attr(req, &stat, FS_ATTR_TIMEOUT);
+}
+
 static void fs_do_getattr(fuse_req_t req, fuse_ino_t ino,
 			     struct fuse_file_info *fi)
 {
     int64_t new_inode;
     FDIRDEntryInfo dentry;
-    struct stat stat;
 
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -69,12 +80,69 @@ static void fs_do_getattr(fuse_req_t req, fuse_ino_t ino,
             __LINE__, __FUNCTION__, ino, new_inode, fi);
 
     if (fsapi_stat_dentry_by_inode(new_inode, &dentry) == 0) {
-        memset(&stat, 0, sizeof(stat));
-        fill_stat(&dentry, &stat);
-        fuse_reply_attr(req, &stat, FS_ATTR_TIMEOUT);
+        do_reply_attr(req, &dentry);
     } else {
         fuse_reply_err(req, ENOENT);
     }
+}
+
+void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
+             int to_set, struct fuse_file_info *fi)
+{
+    FDIRDEntryInfo dentry;
+    FDIRStatModifyFlags options;
+    int result;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fi: %p, sizeof(options): %d",
+            __LINE__, __FUNCTION__, ino, fi, (int)sizeof(options));
+
+    options.flags = 0;
+    if ((to_set & FUSE_SET_ATTR_MODE)) {
+        options.mode = 1;
+    }
+
+    if ((to_set & FUSE_SET_ATTR_UID)) {
+        options.uid  = 1;
+    }
+
+    if ((to_set & FUSE_SET_ATTR_GID)) {
+        options.gid  = 1;
+    }
+
+    if ((to_set & FUSE_SET_ATTR_SIZE)) {
+        options.size  = 1;
+    }
+
+    if ((to_set & FUSE_SET_ATTR_CTIME)) {
+        options.ctime = 1;
+    }
+
+    if ((to_set & FUSE_SET_ATTR_ATIME)) {
+        options.atime = 1;
+    } else if ((to_set & FUSE_SET_ATTR_ATIME_NOW)) {
+        options.atime = 1;
+        //attr->st_atime = get_current_time();
+    }
+
+    if ((to_set & FUSE_SET_ATTR_MTIME)) {
+        options.mtime = 1;
+    } else if ((to_set & FUSE_SET_ATTR_MTIME_NOW)) {
+        options.mtime = 1;
+        //attr->st_mtime = get_current_time();
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, flags: %"PRId64", atime bit: %d, mtime bit: %d",
+            __LINE__, __FUNCTION__, options.flags,  options.atime, options.mtime);
+
+    if ((result=fsapi_modify_dentry_stat(ino, attr,
+                    options.flags, &dentry)) != 0)
+    {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    do_reply_attr(req, &dentry);
 }
 
 static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -334,6 +402,7 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
 
     ops->lookup  = fs_do_lookup;
     ops->getattr = fs_do_getattr;
+    ops->setattr = fs_do_setattr;
     ops->readdir = fs_do_readdir;
     ops->create  = fs_do_create;
     ops->open    = fs_do_open;

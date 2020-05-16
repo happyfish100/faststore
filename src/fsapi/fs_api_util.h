@@ -27,6 +27,9 @@ extern "C" {
     fsapi_create_dentry_by_pname_ex(&g_fs_api_ctx, \
             parent_inode, name, mode, dentry)
 
+#define fsapi_modify_dentry_stat(inode, attr, flags, dentry)  \
+    fsapi_modify_dentry_stat_ex(&g_fs_api_ctx, inode, attr, flags, dentry)
+
 static inline int fsapi_lookup_inode_ex(FSAPIContext *ctx,
         const char *path, int64_t *inode)
 {
@@ -65,7 +68,23 @@ static inline int fsapi_create_dentry_by_pname_ex(FSAPIContext *ctx,
         const mode_t mode, FDIRDEntryInfo *dentry)
 {
     return fdir_client_create_dentry_by_pname(ctx->contexts.fdir,
-            parent_inode, &ctx->ns, name, mode, dentry);
+            &ctx->ns, parent_inode, name, mode, dentry);
+}
+
+static inline int fsapi_modify_dentry_stat_ex(FSAPIContext *ctx,
+        const int64_t inode, const struct stat *attr, const int64_t flags,
+        FDIRDEntryInfo *dentry)
+{
+    FDIRDEntryStatus stat;
+    stat.mode = attr->st_mode;
+    stat.gid = attr->st_gid;
+    stat.uid = attr->st_uid;
+    stat.atime = attr->st_atime;
+    stat.ctime = attr->st_ctime;
+    stat.mtime = attr->st_mtime;
+    stat.size = attr->st_size;
+    return fdir_client_modify_dentry_stat(ctx->contexts.fdir,
+            &ctx->ns, inode, flags, &stat, dentry);
 }
 
 #ifdef __cplusplus
