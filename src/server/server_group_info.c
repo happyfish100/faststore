@@ -96,17 +96,19 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
         for (i=0; i<count; i++) {
             server = fc_server_get_by_ip_port(&SERVER_CONFIG_CTX,
                     local_ip, ports[i]);
-            if (myself == NULL) {
-                myself = server;
-            } else if (myself != server) {
-                logError("file: "__FILE__", line: %d, "
-                        "cluster config file: %s, my ip and port "
-                        "in more than one servers, %s:%d in "
-                        "server id %d, and %s:%d in server id %d",
-                        __LINE__, filename, found.ip_addr, found.port,
-                        myself->id, local_ip, ports[i], server->id);
-                *err_no = EEXIST;
-                return NULL;
+            if (server != NULL) {
+                if (myself == NULL) {
+                    myself = server;
+                } else if (myself != server) {
+                    logError("file: "__FILE__", line: %d, "
+                            "cluster config file: %s, my ip and port "
+                            "in more than one servers, %s:%d in "
+                            "server id %d, and %s:%d in server id %d",
+                            __LINE__, filename, found.ip_addr, found.port,
+                            myself->id, local_ip, ports[i], server->id);
+                    *err_no = EEXIST;
+                    return NULL;
+                }
             }
 
             found.ip_addr = local_ip;
