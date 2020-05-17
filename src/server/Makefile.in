@@ -14,7 +14,7 @@ ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o \
            storage/trunk_id_info.o storage/trunk_binlog.o \
            storage/object_block_index.o dio/trunk_io_thread.o \
            storage/slice_op.o dio/trunk_fd_cache.o binlog/binlog_func.o \
-           binlog/binlog_writer.o  server_binlog.o
+           binlog/binlog_writer.o storage/slice_binlog.o server_binlog.o
 
 ALL_PRGS = fs_serverd
 

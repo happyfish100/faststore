@@ -6,6 +6,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "storage_allocator.h"
+#include "slice_binlog.h"
 #include "object_block_index.h"
 
 //TODO fixeme!!!
@@ -485,6 +486,8 @@ int ob_index_add_slice(OBSliceEntry *slice)
 {
     int result;
 
+    __sync_add_and_fetch(&slice->ref_count, 1);
+
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
@@ -497,6 +500,11 @@ int ob_index_add_slice(OBSliceEntry *slice)
 
     logInfo("######file: "__FILE__", line: %d, func: %s, ctx: %p",
             __LINE__, __FUNCTION__, ctx);
+
+    if (result == 0) {
+        result = slice_binlog_log_add_slice(slice);
+    }
+    ob_index_free_slice(slice);
 
     return result;
 }
@@ -617,6 +625,9 @@ int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
+    if (result == 0) {
+        result = slice_binlog_log_del_slice(bs_key);
+    }
     return result;
 }
 
@@ -647,7 +658,11 @@ int ob_index_delete_block(const FSBlockKey *bkey)
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    return ob != NULL ? 0 : ENOENT;
+    if (ob != NULL) {
+        return slice_binlog_log_del_block(bkey);
+    } else {
+        return ENOENT;
+    }
 }
 
 static int add_to_slice_ptr_array(OBSlicePtrArray *array,

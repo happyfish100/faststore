@@ -48,9 +48,6 @@ extern "C" {
 
     int ob_index_add_slice(OBSliceEntry *slice);
 
-    int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
-            OBSlicePtrArray *sarray);
-
     int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key);
 
     int ob_index_delete_block(const FSBlockKey *bkey);
@@ -58,6 +55,9 @@ extern "C" {
     OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
 
     void ob_index_free_slice(OBSliceEntry *slice);
+
+    int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
+            OBSlicePtrArray *sarray);
 
     static inline void ob_index_init_slice_ptr_array(OBSlicePtrArray *sarray)
     {

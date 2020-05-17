@@ -12,6 +12,7 @@
 #include "storage/trunk_allocator.h"
 #include "storage/storage_allocator.h"
 #include "storage/object_block_index.h"
+#include "storage/slice_binlog.h"
 #include "storage/slice_op.h"
 
 #ifdef __cplusplus

@@ -28,8 +28,23 @@
 #include "server_storage.h"
 #include "service_handler.h"
 
+//TODO
+static int write_fd =  -1;
+
 int service_handler_init()
 {
+    //TODO
+    {
+    const char *filename = "/tmp/fuse.dat";
+    write_fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0775);
+    if (write_fd < 0) {
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "open file %s fail, errno: %d, error info: %s",
+                __LINE__, __FUNCTION__, filename, errno, strerror(errno));
+        return errno != 0 ? errno : EPERM;
+    }
+    }
+
     return 0;
 }
 
@@ -230,6 +245,29 @@ static int service_deal_slice_write(struct fast_task_info *task)
     buff = REQUEST.body + sizeof(FSProtoSliceWriteReqHeader);
     TASK_CTX.slice_notify.notify.func = slice_write_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
+
+    //TODO
+    /*
+    {
+        int64_t offset = TASK_CTX.bs_key.block.offset + TASK_CTX.bs_key.slice.offset;
+        int size = TASK_CTX.bs_key.slice.length;
+        if (lseek(write_fd, 0, SEEK_CUR) != offset) {
+            logError("file: "__FILE__", line: %d, func: %s, "
+                    "lseek file offset: %"PRId64" != %"PRId64,
+                    __LINE__, __FUNCTION__, (int64_t)lseek(write_fd, 0, SEEK_CUR),
+                    (int64_t)offset);
+            return EIO;
+        }
+        if (write(write_fd, buff, size) != size) {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, func: %s, "
+                    "write to file fail, errno: %d, error info: %s",
+                    __LINE__, __FUNCTION__, errno, strerror(errno));
+            return result;
+        }
+    }
+    */
+
     if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
                     &TASK_CTX.slice_notify)) != 0)
     {
