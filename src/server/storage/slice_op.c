@@ -32,6 +32,25 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
     }
 }
 
+static inline OBSliceEntry *alloc_init_slice(const FSBlockKey *bkey,
+        FSTrunkSpaceInfo *space, const OBSliceType slice_type,
+        const int offset, const int length)
+{
+    OBSliceEntry *slice;
+
+    slice = ob_index_alloc_slice(bkey);
+    if (slice == NULL) {
+        return NULL;
+    }
+
+    slice->type = slice_type;
+    slice->read_offset = 0;
+    slice->space = *space;
+    slice->ssize.offset = offset;
+    slice->ssize.length = length;
+    return slice;
+}
+
 static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         const OBSliceType slice_type, const bool reclaim_alloc,
         OBSliceEntry **slices, int *slice_count)
@@ -59,18 +78,14 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
             bs_key->slice.offset, bs_key->slice.length);
 
     if (*slice_count == 1) {
-        slices[0] = ob_index_alloc_slice(&bs_key->block);
+        slices[0] = alloc_init_slice(&bs_key->block, spaces + 0, slice_type,
+                bs_key->slice.offset, bs_key->slice.length);
         if (slices[0] == NULL) {
             return ENOMEM;
         }
 
         logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
                 0, spaces[0].offset, spaces[0].size);
-
-        slices[0]->type = slice_type;
-        slices[0]->space = spaces[0];
-        slices[0]->ssize.offset = bs_key->slice.offset;
-        slices[0]->ssize.length = bs_key->slice.length;
     } else {
         int offset;
         int remain;
@@ -79,22 +94,15 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         offset = bs_key->slice.offset;
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
-            slices[i] = ob_index_alloc_slice(&bs_key->block);
+            slices[i] = alloc_init_slice(&bs_key->block, spaces + i,
+                    slice_type, offset, (spaces[i].size < remain ?
+                    spaces[i].size : remain));
             if (slices[i] == NULL) {
                 return ENOMEM;
             }
 
             logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
                     i, spaces[i].offset, spaces[i].size);
-
-            slices[i]->type = slice_type;
-            slices[i]->space = spaces[i];
-            slices[i]->ssize.offset = offset;
-            if (spaces[i].size > remain) {
-                slices[i]->ssize.length = remain;
-            } else {
-                slices[i]->ssize.length = spaces[i].size;
-            }
 
             offset += slices[i]->ssize.length;
             remain -= slices[i]->ssize.length;

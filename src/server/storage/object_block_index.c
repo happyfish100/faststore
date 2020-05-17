@@ -312,7 +312,7 @@ static inline int do_add_slice(OBEntry *ob, OBSliceEntry *slice)
 }
 
 static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
-        const OBSliceEntry *src)
+        const OBSliceEntry *src, const int offset, const int length)
 {
     OBSliceEntry *slice;
 
@@ -322,6 +322,11 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
     }
 
     *slice = *src;
+    if (offset > src->ssize.offset) {
+        slice->read_offset += offset - src->ssize.offset;
+        slice->ssize.offset = offset;
+    }
+    slice->ssize.length = length;
     slice->ref_count = 1;
     return slice;
 }
@@ -362,13 +367,11 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
 {
     OBSliceEntry *new_slice;
 
-    new_slice = splice_dup(ctx, src_slice);
+    new_slice = splice_dup(ctx, src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
 
-    new_slice->ssize.offset = offset;
-    new_slice->ssize.length = length;
     return add_to_slice_ptr_smart_array(array, new_slice);
 }
 
@@ -706,13 +709,11 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
 {
     OBSliceEntry *new_slice;
 
-    new_slice = splice_dup(ctx, src_slice);
+    new_slice = splice_dup(ctx, src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
 
-    new_slice->ssize.offset = offset;
-    new_slice->ssize.length = length;
     return add_to_slice_ptr_array(array, new_slice);
 }
 
