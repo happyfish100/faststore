@@ -252,6 +252,10 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
     }
 
+    logInfo("file: "__FILE__", line: %d, "
+            "offset: %"PRId64", *written_bytes: %d, need_report_modified: %d",
+            __LINE__, offset, *written_bytes, need_report_modified);
+
     if (*written_bytes > 0) {
         bool report_modified;
         int64_t new_size;
