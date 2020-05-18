@@ -2,8 +2,15 @@
 #define _FS_API_TYPES_H
 
 #include <limits.h>
+#include "fastcommon/fast_mblock.h"
+#include "fastcommon/fast_buffer.h"
 #include "fastdir/fdir_client.h"
 #include "faststore/fs_client.h"
+
+typedef struct fs_api_opendir_session {
+    FDIRClientDentryArray array;
+    FastBuffer buffer;
+} FSAPIOpendirSession;
 
 typedef struct fs_api_context {
     string_t ns;  //namespace
@@ -12,11 +19,16 @@ typedef struct fs_api_context {
         FDIRClientContext *fdir;
         FSClientContext *fs;
     } contexts;
+
+    struct fast_mblock_man opendir_session_pool;
 } FSAPIContext;
 
 typedef struct fs_api_file_info {
     FSAPIContext *ctx;
-    FDIRClientSession session;  //for flock
+    struct {
+        FDIRClientSession flock;
+        FSAPIOpendirSession *opendir;
+    } sessions;
     FDIRDEntryInfo dentry;
     int flags;
     int magic;

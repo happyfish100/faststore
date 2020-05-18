@@ -93,7 +93,7 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
 
     fi->ctx = ctx;
     fi->flags = flags;
-    fi->session.mconn = NULL;
+    fi->sessions.flock.mconn = NULL;
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
     result = fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
@@ -114,7 +114,7 @@ int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     fi->dentry = *dentry;
     fi->ctx = ctx;
     fi->flags = flags;
-    fi->session.mconn = NULL;
+    fi->sessions.flock.mconn = NULL;
     result = 0;
     if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
         return result;
@@ -137,7 +137,7 @@ int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
 
     fi->ctx = ctx;
     fi->flags = flags;
-    fi->session.mconn = NULL;
+    fi->sessions.flock.mconn = NULL;
     if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
         return result;
     }
@@ -152,9 +152,9 @@ int fsapi_close(FSAPIFileInfo *fi)
         return EBADF;
     }
 
-    if (fi->session.mconn != NULL) {
+    if (fi->sessions.flock.mconn != NULL) {
         /* force close connection to unlock */
-        fdir_client_close_session(&fi->session, true);
+        fdir_client_close_session(&fi->sessions.flock, true);
     }
 
     fi->ctx = NULL;
@@ -764,15 +764,15 @@ static inline int flock_lock(FSAPIFileInfo *fi, const int operation)
 {
     int result;
     if ((result=fdir_client_init_session(fi->ctx->contexts.fdir,
-                    &fi->session)) != 0)
+                    &fi->sessions.flock)) != 0)
     {
         return result;
     }
 
-    if ((result=fdir_client_flock_dentry(&fi->session, operation,
+    if ((result=fdir_client_flock_dentry(&fi->sessions.flock, operation,
                     fi->dentry.inode)) != 0)
     {
-        fdir_client_close_session(&fi->session, is_network_error(result));
+        fdir_client_close_session(&fi->sessions.flock, is_network_error(result));
     }
 
     return result;
@@ -781,9 +781,9 @@ static inline int flock_lock(FSAPIFileInfo *fi, const int operation)
 static inline int flock_unlock(FSAPIFileInfo *fi, const int operation)
 {
     int result;
-    result = fdir_client_flock_dentry(&fi->session, operation,
+    result = fdir_client_flock_dentry(&fi->sessions.flock, operation,
             fi->dentry.inode);
-    fdir_client_close_session(&fi->session, result != 0);
+    fdir_client_close_session(&fi->sessions.flock, result != 0);
     return result;
 }
 
@@ -794,12 +794,12 @@ int fsapi_flock(FSAPIFileInfo *fi, const int operation)
     }
 
     if ((operation & LOCK_UN)) {
-        if (fi->session.mconn == NULL) {
+        if (fi->sessions.flock.mconn == NULL) {
             return ENOENT;
         }
         return flock_unlock(fi, operation);
     } else if ((operation & LOCK_SH) || (operation & LOCK_EX)) {
-        if (fi->session.mconn != NULL) {
+        if (fi->sessions.flock.mconn != NULL) {
             logError("file: "__FILE__", line: %d, "
                     "flock on inode: %"PRId64" already exist",
                     __LINE__, fi->dentry.inode);
@@ -817,15 +817,15 @@ static inline int fcntl_lock(FSAPIFileInfo *fi, const int operation,
 {
     int result;
     if ((result=fdir_client_init_session(fi->ctx->contexts.fdir,
-                    &fi->session)) != 0)
+                    &fi->sessions.flock)) != 0)
     {
         return result;
     }
 
-    if ((result=fdir_client_flock_dentry_ex2(&fi->session, operation,
+    if ((result=fdir_client_flock_dentry_ex2(&fi->sessions.flock, operation,
                     fi->dentry.inode, offset, length, owner_id, pid)) != 0)
     {
-        fdir_client_close_session(&fi->session, is_network_error(result));
+        fdir_client_close_session(&fi->sessions.flock, is_network_error(result));
     }
 
     return result;
@@ -836,9 +836,9 @@ static inline int fcntl_unlock(FSAPIFileInfo *fi, const int operation,
         const int64_t owner_id, const pid_t pid)
 {
     int result;
-    result = fdir_client_flock_dentry_ex2(&fi->session, operation,
+    result = fdir_client_flock_dentry_ex2(&fi->sessions.flock, operation,
             fi->dentry.inode, offset, length, owner_id, pid);
-    fdir_client_close_session(&fi->session, result != 0);
+    fdir_client_close_session(&fi->sessions.flock, result != 0);
     return result;
 }
 
@@ -902,13 +902,13 @@ int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
     }
 
     if (operation == LOCK_UN) {
-        if (fi->session.mconn == NULL) {
+        if (fi->sessions.flock.mconn == NULL) {
             return ENOENT;
         }
         return fcntl_unlock(fi, operation, offset, lock->l_len,
                 owner_id, lock->l_pid);
     } else {
-        if (fi->session.mconn != NULL) {
+        if (fi->sessions.flock.mconn != NULL) {
             logError("file: "__FILE__", line: %d, "
                     "flock on inode: %"PRId64" already exist",
                     __LINE__, fi->dentry.inode);

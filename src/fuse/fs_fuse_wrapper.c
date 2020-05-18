@@ -13,8 +13,6 @@
 
 static struct fast_mblock_man fh_allocator;
 
-static const char *hello_name = "hello";
-
 static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
 {
     stat->st_ino = dentry->inode;
@@ -177,53 +175,127 @@ static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     fuse_reply_entry(req, &param);
 }
 
-struct dirbuf {
-	char *p;
-	size_t size;
-};
-
-static void dirbuf_add(fuse_req_t req, struct dirbuf *b, const char *name,
-		       fuse_ino_t ino)
+static int dentry_list_to_buff(fuse_req_t req, FSAPIOpendirSession *session)
 {
-	struct stat stbuf;
-	size_t oldsize = b->size;
-	b->size += fuse_add_direntry(req, NULL, 0, name, NULL, 0);
-	b->p = (char *) realloc(b->p, b->size);
-	memset(&stbuf, 0, sizeof(stbuf));
-	stbuf.st_ino = ino;
-	fuse_add_direntry(req, b->p + oldsize, b->size - oldsize, name, &stbuf,
-			  b->size);
+    FDIRClientDentry *dentry;
+    FDIRClientDentry *end;
+    struct stat stat;
+    int result;
+    int len;
+    int next_offset;
+    char name[NAME_MAX];
+
+    fast_buffer_reset(&session->buffer);
+    if (session->array.count == 0) {
+        return 0;
+    }
+
+    memset(&stat, 0, sizeof(stat));
+    end = session->array.entries + session->array.count;
+    for (dentry=session->array.entries; dentry<end; dentry++) {
+        snprintf(name, sizeof(name), "%.*s",
+                dentry->name.len, dentry->name.str);
+        len = fuse_add_direntry(req, NULL, 0, name, NULL, 0);
+        next_offset = session->buffer.length + len;
+        if (next_offset > session->buffer.alloc_size) {
+            if ((result=fast_buffer_set_capacity(&session->buffer,
+                            next_offset)) != 0)
+            {
+                return result;
+            }
+        }
+
+        stat.st_ino = dentry->inode;
+        fuse_add_direntry(req, session->buffer.data + session->buffer.length,
+                session->buffer.alloc_size - session->buffer.length,
+                name, &stat, next_offset);
+        session->buffer.length = next_offset;
+    }
+
+    return 0;
 }
 
-#define min(x, y) ((x) < (y) ? (x) : (y))
-
-static int reply_buf_limited(fuse_req_t req, const char *buf, size_t bufsize,
-			     off_t off, size_t maxsize)
+static void fs_do_opendir(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi)
 {
-	if (off < bufsize)
-		return fuse_reply_buf(req, buf + off,
-				      min(bufsize - off, maxsize));
-	else
-		return fuse_reply_buf(req, NULL, 0);
+    int64_t new_inode;
+    FSAPIOpendirSession *session;
+    int result;
+
+    if (fs_convert_inode(ino, &new_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    if ((session=fsapi_alloc_opendir_session()) == NULL) {
+        fuse_reply_err(req, ENOMEM);
+        return;
+    }
+
+    do {
+        if ((result=fsapi_list_dentry_by_inode(new_inode,
+                        &session->array)) != 0)
+        {
+            break;
+        }
+
+        if ((result=dentry_list_to_buff(req, session)) != 0) {
+            break;
+        }
+    } while (0);
+
+    if (result != 0) {
+        fsapi_free_opendir_session(session);
+        fuse_reply_err(req, result);
+    } else {
+        fi->fh = (long)session;
+        fuse_reply_open(req, fi);
+    }
 }
 
 static void fs_do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
-			     off_t off, struct fuse_file_info *fi)
+			     off_t offset, struct fuse_file_info *fi)
 {
-	(void) fi;
+    FSAPIOpendirSession *session;
 
-	if (ino != 1)
-		fuse_reply_err(req, ENOTDIR);
-	else {
-		struct dirbuf b;
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", offset: %"PRId64", size: %"PRId64"\n",
+            __LINE__, __FUNCTION__, ino, fi->fh,
+            (int64_t)offset, (int64_t)size);
 
-		memset(&b, 0, sizeof(b));
-		dirbuf_add(req, &b, ".", 1);
-		dirbuf_add(req, &b, "..", 1);
-		dirbuf_add(req, &b, hello_name, 2);
-		reply_buf_limited(req, b.p, b.size, off, size);
-		free(b.p);
-	}
+    session = (FSAPIOpendirSession *)fi->fh;
+    if (session == NULL) {
+        fuse_reply_err(req, EBUSY);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, offset: %d, length: %d",
+            __LINE__, __FUNCTION__, (int)offset, session->buffer.length);
+
+    if (offset < session->buffer.length) {
+        fuse_reply_buf(req, session->buffer.data + offset,
+                FC_MIN(session->buffer.length - offset, size));
+    } else {
+        fuse_reply_buf(req, NULL, 0);
+    }
+}
+
+static void fs_do_releasedir(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi)
+{
+    FSAPIOpendirSession *session;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64,
+            __LINE__, __FUNCTION__, ino, fi->fh);
+
+    session = (FSAPIOpendirSession *)fi->fh;
+    if (session != NULL) {
+        fsapi_free_opendir_session(session);
+        fi->fh = 0;
+    }
+
+    fuse_reply_err(req, 0);
 }
 
 static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
@@ -261,7 +333,6 @@ static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
 void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
     int64_t new_inode;
-    //FDIRDEntryInfo dentry;
 
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -272,7 +343,6 @@ void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
             "inode: %"PRId64", mask: %d",
             __LINE__, __FUNCTION__, new_inode, mask);
 
-    //TODO
     fuse_reply_err(req, 0);
 }
 
@@ -365,7 +435,7 @@ static void fs_do_release(fuse_req_t req, fuse_ino_t ino,
     fuse_reply_err(req, result);
 }
 
-static int write_fd = -1;
+//static int write_fd = -1;
 
 static void fs_do_read(fuse_req_t req, fuse_ino_t ino, size_t size,
 			  off_t offset, struct fuse_file_info *fi)
@@ -392,35 +462,15 @@ static void fs_do_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", size: %"PRId64", offset: %"PRId64,
-            __LINE__, __FUNCTION__, ino, size, offset);
+            "ino: %"PRId64", fh: %p, size: %"PRId64", offset: %"PRId64,
+            __LINE__, __FUNCTION__, ino, fh, size, offset);
 
     if ((result=fsapi_pread(fh, buff, size, offset, &read_bytes)) != 0) {
         fuse_reply_err(req, result);
         return;
     }
 
-    {
-        /*
-    if (lseek(write_fd, 0, SEEK_CUR) != offset) {
-        logError("file: "__FILE__", line: %d, func: %s, "
-                "lseek file offset: %"PRId64" != %"PRId64,
-                __LINE__, __FUNCTION__, (int64_t)lseek(write_fd, 0, SEEK_CUR),
-                (int64_t)offset);
-        fuse_reply_err(req, EIO);
-        return;
-    }
-    */
-    if (write(write_fd, buff, read_bytes) != read_bytes) {
-        logError("file: "__FILE__", line: %d, func: %s, "
-                "write to file fail, errno: %d, error info: %s",
-                __LINE__, __FUNCTION__, errno, strerror(errno));
-    }
-    }
-
-
     fuse_reply_buf(req, buff, read_bytes);
-
     if (buff != fixed_buff) {
         free(buff);
     }
@@ -466,6 +516,7 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
         return result;
     }
 
+    /*
     const char *filename = "/tmp/fuse.dat";
     write_fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0775);
     if (write_fd < 0) {
@@ -474,11 +525,14 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
                 __LINE__, __FUNCTION__, filename, errno, strerror(errno));
         return errno != 0 ? errno : EPERM;
     }
+    */
 
     ops->lookup  = fs_do_lookup;
     ops->getattr = fs_do_getattr;
     ops->setattr = fs_do_setattr;
+    ops->opendir = fs_do_opendir;
     ops->readdir = fs_do_readdir;
+    ops->releasedir = fs_do_releasedir;
     ops->create  = fs_do_create;
     ops->access  = fs_do_access;
     ops->open    = fs_do_open;

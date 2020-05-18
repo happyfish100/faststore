@@ -30,6 +30,16 @@ extern "C" {
 #define fsapi_modify_dentry_stat(inode, attr, flags, dentry)  \
     fsapi_modify_dentry_stat_ex(&g_fs_api_ctx, inode, attr, flags, dentry)
 
+#define fsapi_list_dentry_by_inode(inode, array)  \
+    fsapi_list_dentry_by_inode_ex(&g_fs_api_ctx, inode, array)
+
+#define fsapi_alloc_opendir_session()  \
+    fsapi_alloc_opendir_session_ex(&g_fs_api_ctx)
+
+#define fsapi_free_opendir_session(session) \
+        fsapi_free_opendir_session_ex(&g_fs_api_ctx, session)
+
+
 static inline int fsapi_lookup_inode_ex(FSAPIContext *ctx,
         const char *path, int64_t *inode)
 {
@@ -85,6 +95,25 @@ static inline int fsapi_modify_dentry_stat_ex(FSAPIContext *ctx,
     stat.size = attr->st_size;
     return fdir_client_modify_dentry_stat(ctx->contexts.fdir,
             &ctx->ns, inode, flags, &stat, dentry);
+}
+
+static inline int fsapi_list_dentry_by_inode_ex(FSAPIContext *ctx,
+        const int64_t inode, FDIRClientDentryArray *array)
+{
+    return fdir_client_list_dentry_by_inode(ctx->contexts.fdir, inode, array);
+}
+
+static inline FSAPIOpendirSession *fsapi_alloc_opendir_session_ex(
+        FSAPIContext *ctx)
+{
+    return (FSAPIOpendirSession *)fast_mblock_alloc_object(
+            &ctx->opendir_session_pool);
+}
+
+static inline void fsapi_free_opendir_session_ex(
+        FSAPIContext *ctx, FSAPIOpendirSession *session)
+{
+    fast_mblock_free_object(&ctx->opendir_session_pool, session);
 }
 
 #ifdef __cplusplus

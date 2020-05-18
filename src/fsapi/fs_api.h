@@ -42,27 +42,29 @@ extern "C" {
     int fs_api_init_ex1(FSAPIContext *ctx, FDIRClientContext *fdir,
             FSClientContext *fs, const char *ns, const char *fdir_config_file,
             const char *fs_config_file, const FDIRConnectionManager *
-            fdir_conn_manager, const FSConnectionManager *fs_conn_manager);
+            fdir_conn_manager, const FSConnectionManager *fs_conn_manager,
+            const bool need_lock);
 
     static inline int fs_api_init_ex(FSAPIContext *ctx, const char *ns,
             const char *fdir_config_file, const char *fs_config_file)
     {
         return fs_api_init_ex1(ctx, &g_fdir_client_vars.client_ctx,
                 &g_fs_client_vars.client_ctx, ns, fdir_config_file,
-                fs_config_file, NULL, NULL);
+                fs_config_file, NULL, NULL, false);
     }
 
     int fs_api_init_ex2(FSAPIContext *ctx, FDIRClientContext *fdir,
             FSClientContext *fs, const char *ns, const char *fdir_config_file,
             const char *fs_config_file, const FDIRClientConnManagerType
-            conn_manager_type, const FSConnectionManager *fs_conn_manager);
+            conn_manager_type, const FSConnectionManager *fs_conn_manager,
+            const bool need_lock);
 
     static inline int fs_api_pooled_init_ex(FSAPIContext *ctx, const char *ns,
             const char *fdir_config_file, const char *fs_config_file)
     {
         return fs_api_init_ex2(ctx, &g_fdir_client_vars.client_ctx,
                 &g_fs_client_vars.client_ctx, ns, fdir_config_file,
-                fs_config_file, conn_manager_type_pooled, NULL);
+                fs_config_file, conn_manager_type_pooled, NULL, true);
     }
 
     void fs_api_destroy_ex(FSAPIContext *ctx);
