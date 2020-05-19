@@ -27,6 +27,10 @@ extern "C" {
     fsapi_create_dentry_by_pname_ex(&g_fs_api_ctx, \
             parent_inode, name, mode, dentry)
 
+#define fsapi_remove_dentry_by_pname(parent_inode, name)  \
+    fsapi_remove_dentry_by_pname_ex(&g_fs_api_ctx, \
+            parent_inode, name)
+
 #define fsapi_modify_dentry_stat(inode, attr, flags, dentry)  \
     fsapi_modify_dentry_stat_ex(&g_fs_api_ctx, inode, attr, flags, dentry)
 
@@ -79,6 +83,13 @@ static inline int fsapi_create_dentry_by_pname_ex(FSAPIContext *ctx,
 {
     return fdir_client_create_dentry_by_pname(ctx->contexts.fdir,
             &ctx->ns, parent_inode, name, mode, dentry);
+}
+
+static inline int fsapi_remove_dentry_by_pname_ex(FSAPIContext *ctx,
+        const int64_t parent_inode, const string_t *name)
+{
+    return fdir_client_remove_dentry_by_pname(ctx->contexts.fdir,
+            &ctx->ns, parent_inode, name);
 }
 
 static inline int fsapi_modify_dentry_stat_ex(FSAPIContext *ctx,

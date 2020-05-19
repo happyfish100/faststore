@@ -330,7 +330,7 @@ static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
     return 0;
 }
 
-void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
+static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
     int64_t new_inode;
 
@@ -346,8 +346,8 @@ void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
     fuse_reply_err(req, 0);
 }
 
-void fs_do_create(fuse_req_t req, fuse_ino_t parent, const char *name,
-        mode_t mode, struct fuse_file_info *fi)
+static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
+        const char *name, mode_t mode, struct fuse_file_info *fi)
 {
     int result;
     int64_t parent_inode;
@@ -394,6 +394,92 @@ void fs_do_create(fuse_req_t req, fuse_ino_t parent, const char *name,
 
     fill_entry_param(&dentry, &param);
     fuse_reply_create(req, &param, fi);
+}
+
+static void fs_do_mkdir(fuse_req_t req, fuse_ino_t parent,
+        const char *name, mode_t mode)
+{
+    int result;
+    int64_t parent_inode;
+    string_t nm;
+    FDIRDEntryInfo dentry;
+    struct fuse_entry_param param;
+
+    if (fs_convert_inode(parent, &parent_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "parent ino: %"PRId64", name: %s, mode: %03o, isdir: %d",
+            __LINE__, __FUNCTION__, parent_inode, name, mode, S_ISDIR(mode));
+
+    mode |= S_IFDIR;
+    FC_SET_STRING(nm, (char *)name);
+    if ((result=fsapi_create_dentry_by_pname(parent_inode, &nm,
+                    mode, &dentry)) != 0)
+    {
+        if (result == EEXIST || result == ENOENT) {
+            fuse_reply_err(req, result);
+        } else {
+            fuse_reply_err(req, ENOENT);
+        }
+        return;
+    }
+
+    fill_entry_param(&dentry, &param);
+    fuse_reply_entry(req, &param);
+}
+
+static int remove_dentry(fuse_ino_t parent, const char *name)
+{
+    int64_t parent_inode;
+    string_t nm;
+
+    if (fs_convert_inode(parent, &parent_inode) != 0) {
+        return ENOENT;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "parent ino: %"PRId64", name: %s",
+            __LINE__, __FUNCTION__, parent_inode, name);
+
+    FC_SET_STRING(nm, (char *)name);
+    return fsapi_remove_dentry_by_pname(parent_inode, &nm);
+}
+
+static void fs_do_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+    int result;
+    if ((result=remove_dentry(parent, name)) != 0) {
+        result = ENOENT;
+    }
+    fuse_reply_err(req, result);
+}
+
+static void fs_do_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+    int result;
+    if ((result=remove_dentry(parent, name)) != 0) {
+        result = ENOENT;
+    }
+    fuse_reply_err(req, result);
+}
+
+static void fs_do_forget(fuse_req_t req, fuse_ino_t ino, uint64_t nlookup)
+{
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", nlookup: %"PRId64,
+            __LINE__, __FUNCTION__, ino, nlookup);
+    fuse_reply_none(req);
+}
+
+static void fs_do_forget_multi(fuse_req_t req, size_t count,
+        struct fuse_forget_data *forgets)
+{
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "count: %d", __LINE__, __FUNCTION__, (int)count);
+    fuse_reply_none(req);
 }
 
 static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
@@ -539,6 +625,11 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->release = fs_do_release;
     ops->read    = fs_do_read;
     ops->write   = fs_do_write;
+    ops->mkdir   = fs_do_mkdir;
+    ops->rmdir   = fs_do_rmdir;
+    ops->unlink  = fs_do_unlink;
+    ops->forget  = fs_do_forget;
+    ops->forget_multi = fs_do_forget_multi;
 
     return 0;
 }
