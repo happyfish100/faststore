@@ -31,6 +31,11 @@ extern "C" {
     fsapi_remove_dentry_by_pname_ex(&g_fs_api_ctx, \
             parent_inode, name)
 
+#define fsapi_rename_dentry_by_pname(src_parent_inode, src_name, \
+        dest_parent_inode, dest_name, flags)  \
+    fsapi_rename_dentry_by_pname_ex(&g_fs_api_ctx, src_parent_inode, \
+            src_name, dest_parent_inode, dest_name, flags)
+
 #define fsapi_modify_dentry_stat(inode, attr, flags, dentry)  \
     fsapi_modify_dentry_stat_ex(&g_fs_api_ctx, inode, attr, flags, dentry)
 
@@ -73,24 +78,29 @@ static inline int fsapi_stat_dentry_by_pname_ex(FSAPIContext *ctx,
         const int64_t parent_inode, const string_t *name,
         FDIRDEntryInfo *dentry)
 {
+    FDIRDEntryPName pname;
+    FDIR_SET_DENTRY_PNAME_PTR(&pname, parent_inode, name);
     return fdir_client_stat_dentry_by_pname(ctx->contexts.fdir,
-            parent_inode, name, dentry);
+            &pname, dentry);
 }
 
 static inline int fsapi_create_dentry_by_pname_ex(FSAPIContext *ctx,
         const int64_t parent_inode, const string_t *name,
         const mode_t mode, FDIRDEntryInfo *dentry)
 {
+    FDIRDEntryPName pname;
+    FDIR_SET_DENTRY_PNAME_PTR(&pname, parent_inode, name);
     return fdir_client_create_dentry_by_pname(ctx->contexts.fdir,
-            &ctx->ns, parent_inode, name, mode, dentry);
+            &ctx->ns, &pname, mode, dentry);
 }
 
-static inline int fsapi_remove_dentry_by_pname_ex(FSAPIContext *ctx,
-        const int64_t parent_inode, const string_t *name)
-{
-    return fdir_client_remove_dentry_by_pname(ctx->contexts.fdir,
-            &ctx->ns, parent_inode, name);
-}
+int fsapi_remove_dentry_by_pname_ex(FSAPIContext *ctx,
+        const int64_t parent_inode, const string_t *name);
+
+int fsapi_rename_dentry_by_pname_ex(FSAPIContext *ctx,
+        const int64_t src_parent_inode, const string_t *src_name,
+        const int64_t dest_parent_inode, const string_t *dest_name,
+        const int flags);
 
 static inline int fsapi_modify_dentry_stat_ex(FSAPIContext *ctx,
         const int64_t inode, const struct stat *attr, const int64_t flags,

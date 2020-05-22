@@ -43,11 +43,13 @@ static inline int fs_convert_inode(const fuse_ino_t ino, int64_t *new_inode)
 
     if (ino == FUSE_ROOT_ID) {
         if (root_inode == 0) {
-            if ((result=fsapi_lookup_inode("/", &root_inode)) != 0) {
+            if ((result=fsapi_lookup_inode("/", new_inode)) != 0) {
                 return result;
             }
+            root_inode = *new_inode;
+        } else {
+            *new_inode = root_inode;
         }
-        *new_inode = root_inode;
     } else {
         *new_inode = ino;
     }
@@ -396,8 +398,8 @@ static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
     fuse_reply_create(req, &param, fi);
 }
 
-static void fs_do_mkdir(fuse_req_t req, fuse_ino_t parent,
-        const char *name, mode_t mode)
+static void do_mknod(fuse_req_t req, fuse_ino_t parent,
+        const char *name, mode_t mode, dev_t rdev)
 {
     int result;
     int64_t parent_inode;
@@ -414,7 +416,6 @@ static void fs_do_mkdir(fuse_req_t req, fuse_ino_t parent,
             "parent ino: %"PRId64", name: %s, mode: %03o, isdir: %d",
             __LINE__, __FUNCTION__, parent_inode, name, mode, S_ISDIR(mode));
 
-    mode |= S_IFDIR;
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_create_dentry_by_pname(parent_inode, &nm,
                     mode, &dentry)) != 0)
@@ -429,6 +430,19 @@ static void fs_do_mkdir(fuse_req_t req, fuse_ino_t parent,
 
     fill_entry_param(&dentry, &param);
     fuse_reply_entry(req, &param);
+}
+
+static void fs_do_mknod(fuse_req_t req, fuse_ino_t parent,
+        const char *name, mode_t mode, dev_t rdev)
+{
+    do_mknod(req, parent, name, mode, rdev);
+}
+
+static void fs_do_mkdir(fuse_req_t req, fuse_ino_t parent,
+        const char *name, mode_t mode)
+{
+    mode |= S_IFDIR;
+    do_mknod(req, parent, name, mode, 0);
 }
 
 static int remove_dentry(fuse_ino_t parent, const char *name)
@@ -463,6 +477,38 @@ static void fs_do_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
     if ((result=remove_dentry(parent, name)) != 0) {
         result = ENOENT;
     }
+    fuse_reply_err(req, result);
+}
+
+void fs_do_rename(fuse_req_t req, fuse_ino_t oldparent, const char *oldname,
+            fuse_ino_t newparent, const char *newname, unsigned int flags)
+{
+    int64_t old_parent_inode;
+    int64_t new_parent_inode;
+    string_t old_nm;
+    string_t new_nm;
+    int result;
+
+    if (fs_convert_inode(oldparent, &old_parent_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    if (fs_convert_inode(newparent, &new_parent_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "parent ino: %"PRId64", name: %s, "
+            "newparent ino: %"PRId64", new name: %s",
+            __LINE__, __FUNCTION__, old_parent_inode, oldname,
+            new_parent_inode, newname);
+
+    FC_SET_STRING(old_nm, (char *)oldname);
+    FC_SET_STRING(new_nm, (char *)newname);
+    result = fsapi_rename_dentry_by_pname(old_parent_inode, &old_nm,
+            new_parent_inode, &new_nm, flags);
     fuse_reply_err(req, result);
 }
 
@@ -625,9 +671,11 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->release = fs_do_release;
     ops->read    = fs_do_read;
     ops->write   = fs_do_write;
+    ops->mknod   = fs_do_mknod;
     ops->mkdir   = fs_do_mkdir;
     ops->rmdir   = fs_do_rmdir;
     ops->unlink  = fs_do_unlink;
+    ops->rename  = fs_do_rename;
     ops->forget  = fs_do_forget;
     ops->forget_multi = fs_do_forget_multi;
 

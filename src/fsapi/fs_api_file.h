@@ -33,6 +33,9 @@ extern "C" {
 #define fsapi_stat(path, buf)  \
     fsapi_stat_ex(&g_fs_api_ctx, path, buf)
 
+#define fsapi_rename(old_path, new_path)  \
+    fsapi_rename_ex(&g_fs_api_ctx, old_path, new_path, 0)
+
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
             const char *path, const int flags, const mode_t mode);
 
@@ -82,6 +85,9 @@ extern "C" {
 
     int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         const int64_t owner_id);
+
+    int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
+            const char *new_path, const int flags);
 
 #ifdef __cplusplus
 }

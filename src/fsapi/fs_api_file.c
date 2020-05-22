@@ -162,51 +162,6 @@ int fsapi_close(FSAPIFileInfo *fi)
     return 0;
 }
 
-static inline void fsapi_set_block_key(FSBlockKey *bkey,
-        const int64_t oid, const int64_t offset)
-{
-    bkey->oid = oid;
-    bkey->offset = FS_FILE_BLOCK_ALIGN(offset);
-    fs_calc_block_hashcode(bkey);
-}
-
-static inline void fsapi_set_slice_size(FSBlockSliceKeyInfo *bs_key,
-        const int64_t offset, const int current_size)
-{
-    bs_key->slice.offset = offset - bs_key->block.offset;
-    if (bs_key->slice.offset + current_size <= FS_FILE_BLOCK_SIZE) {
-        bs_key->slice.length = current_size;
-    } else {
-        bs_key->slice.length = FS_FILE_BLOCK_SIZE - bs_key->slice.offset;
-    }
-}
-
-static inline void fsapi_set_block_slice(FSBlockSliceKeyInfo *bs_key,
-        const int64_t oid, const int64_t offset, const int current_size)
-{
-    fsapi_set_block_key(&bs_key->block, oid, offset);
-    fsapi_set_slice_size(bs_key, offset, current_size);
-}
-
-static inline void fsapi_next_block_key(FSBlockKey *bkey)
-{
-    bkey->offset += FS_FILE_BLOCK_SIZE;
-    fs_calc_block_hashcode(bkey);
-}
-
-static inline void fsapi_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,
-        const int current_size)
-{
-    fsapi_next_block_key(&bs_key->block);
-
-    bs_key->slice.offset = 0;
-    if (current_size <= FS_FILE_BLOCK_SIZE) {
-        bs_key->slice.length = current_size;
-    } else {
-        bs_key->slice.length = FS_FILE_BLOCK_SIZE;
-    }
-}
-
 static inline void print_block_slice_key(FSBlockSliceKeyInfo *bs_key)
 {
     logInfo("block {oid: %"PRId64", offset: %"PRId64"}, "
@@ -226,7 +181,7 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
 
     *written_bytes = 0;
     new_offset = offset;
-    fsapi_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
+    fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_write(fi->ctx->contexts.fs,
@@ -246,9 +201,9 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
 
         if (current_written == bs_key.slice.length) {  //fully completed
-            fsapi_next_block_slice_key(&bs_key, remain);
+            fs_next_block_slice_key(&bs_key, remain);
         } else {  //partially completed, try again the remain part
-            fsapi_set_slice_size(&bs_key, new_offset, remain);
+            fs_set_slice_size(&bs_key, new_offset, remain);
         }
     }
 
@@ -384,7 +339,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         return EBADF;
     }
 
-    fsapi_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
+    fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
@@ -443,7 +398,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
             break;
         }
 
-        fsapi_next_block_slice_key(&bs_key, remain);
+        fs_next_block_slice_key(&bs_key, remain);
     }
 
     return *read_bytes > 0 ? 0 : EIO;
@@ -485,7 +440,7 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
     }
 
     remain = end_size - start_size;
-    fsapi_set_block_slice(&bs_key, oid, start_size, remain);
+    fs_set_block_slice(&bs_key, oid, start_size, remain);
     while (1) {
         print_block_slice_key(&bs_key);
         if (is_delete) {
@@ -514,7 +469,7 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
             break;
         }
 
-        fsapi_next_block_slice_key(&bs_key, remain);
+        fs_next_block_slice_key(&bs_key, remain);
     }
 
     return result;
@@ -593,37 +548,6 @@ int fsapi_truncate_ex(FSAPIContext *ctx, const char *path,
     return file_truncate(ctx, inode, new_size);
 }
 
-static int do_unlink(FSAPIContext *ctx, const int64_t oid,
-        const int64_t file_size)
-{
-    FSBlockKey bkey;
-    int64_t remain;
-    int result;
-
-    remain = file_size;
-    fsapi_set_block_key(&bkey, oid, 0);
-    while (1) {
-        logInfo("block {oid: %"PRId64", offset: %"PRId64"}",
-                bkey.oid, bkey.offset);
-
-        result = fs_client_proto_block_delete(ctx->contexts.fs, &bkey);
-        if (result == ENOENT) {
-            result = 0;
-        } else if (result != 0) {
-            break;
-        }
-
-        remain -= FS_FILE_BLOCK_SIZE;
-        if (remain <= 0) {
-            break;
-        }
-
-        fsapi_next_block_key(&bkey);
-    }
-
-    return result;
-}
-
 int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
 {
     FDIRDEntryFullName fullname;
@@ -642,7 +566,9 @@ int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
         return EISDIR;
     }
 
-    if ((result=do_unlink(ctx, dentry.inode, dentry.stat.size)) == 0) {
+    if ((result=fs_unlink_file(ctx->contexts.fs, dentry.inode,
+                    dentry.stat.size)) == 0)
+    {
         result = fdir_client_remove_dentry(ctx->contexts.fdir, &fullname);
     }
 
@@ -953,6 +879,34 @@ int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id)
         lock->l_whence = SEEK_SET;
         lock->l_start = offset;
         lock->l_len = length;
+    }
+
+    return result;
+}
+
+int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
+        const char *new_path, const int flags)
+{
+    FDIRDEntryFullName src_fullname;
+    FDIRDEntryFullName dest_fullname;
+    FDIRDEntryInfo dentry;
+    FDIRDEntryInfo *pe;
+    int result;
+
+    src_fullname.ns = ctx->ns;
+    FC_SET_STRING(src_fullname.path, (char *)old_path);
+    dest_fullname.ns = ctx->ns;
+    FC_SET_STRING(dest_fullname.path, (char *)new_path);
+
+    pe = &dentry;
+    if ((result=fdir_client_rename_dentry_ex(ctx->contexts.fdir,
+                    &src_fullname, &dest_fullname, flags, &pe)) != 0)
+    {
+        return result;
+    }
+
+    if (pe != NULL && S_ISREG(pe->stat.mode)) {
+        fs_unlink_file(ctx->contexts.fs, pe->inode, pe->stat.size);
     }
 
     return result;
