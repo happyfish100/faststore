@@ -79,7 +79,19 @@ extern "C" {
 
     int fsapi_stat_ex(FSAPIContext *ctx, const char *path, struct stat *buf);
 
-    int fsapi_flock(FSAPIFileInfo *fi, const int operation);
+    int fsapi_flock_ex2(FSAPIFileInfo *fi, const int operation,
+            const int64_t owner_id, const pid_t pid);
+
+    static inline int fsapi_flock_ex(FSAPIFileInfo *fi, const int operation,
+            const int64_t owner_id)
+    {
+        return fsapi_flock_ex2(fi, operation, owner_id, getpid());
+    }
+
+    static inline int fsapi_flock(FSAPIFileInfo *fi, const int operation)
+    {
+        return fsapi_flock_ex2(fi, operation, (long)pthread_self(), getpid());
+    }
 
     int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id);
 

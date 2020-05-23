@@ -89,13 +89,15 @@ static void fs_do_getattr(fuse_req_t req, fuse_ino_t ino,
 void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
              int to_set, struct fuse_file_info *fi)
 {
-    FDIRDEntryInfo dentry;
-    FDIRStatModifyFlags options;
     int result;
+    int64_t new_inode;
+    FDIRStatModifyFlags options;
+    FDIRDEntryInfo *pe;
+    FDIRDEntryInfo dentry;
 
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", fi: %p, sizeof(options): %d",
-            __LINE__, __FUNCTION__, ino, fi, (int)sizeof(options));
+    logInfo("=====file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fi: %p ====",
+            __LINE__, __FUNCTION__, ino, fi);
 
     options.flags = 0;
     if ((to_set & FUSE_SET_ATTR_MODE)) {
@@ -117,7 +119,32 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     }
 
     if ((to_set & FUSE_SET_ATTR_SIZE)) {
-        options.size = 1;
+        FSAPIFileInfo *fh;
+        if (fi == NULL) {
+            fuse_reply_err(req, EBADF);
+            return;
+        }
+
+        fh = (FSAPIFileInfo *)fi->fh;
+        if (fh == NULL) {
+            fuse_reply_err(req, EBADF);
+            return;
+        }
+
+        if ((result=fsapi_ftruncate(fh, attr->st_size)) != 0) {
+            fuse_reply_err(req, result);
+            return;
+        }
+
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "SET file size from %"PRId64" to: %"PRId64,
+                __LINE__, __FUNCTION__, fh->dentry.stat.size,
+                (int64_t)attr->st_size);
+
+        fh->dentry.stat.size = attr->st_size;
+        pe = &fh->dentry;
+    } else {
+        pe = NULL;
     }
 
     if ((to_set & FUSE_SET_ATTR_CTIME)) {
@@ -138,17 +165,33 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         //attr->st_mtime = get_current_time();
     }
 
-    logInfo("file: "__FILE__", line: %d, func: %s, flags: %"PRId64", atime bit: %d, mtime bit: %d",
-            __LINE__, __FUNCTION__, options.flags,  options.atime, options.mtime);
-
-    if ((result=fsapi_modify_dentry_stat(ino, attr,
-                    options.flags, &dentry)) != 0)
-    {
+    if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
     }
 
-    do_reply_attr(req, &dentry);
+    logInfo("file: "__FILE__", line: %d, func: %s, new_inode: %"PRId64", "
+            "flags: %"PRId64", atime bit: %d, mtime bit: %d",
+            __LINE__, __FUNCTION__, new_inode, options.flags,
+            options.atime, options.mtime);
+
+    if (options.flags == 0) {
+        if (pe == NULL) {
+            pe = &dentry;
+            result = fsapi_stat_dentry_by_inode(new_inode, &dentry);
+        } else {
+            result = 0;
+        }
+    } else {
+        pe = &dentry;
+        result = fsapi_modify_dentry_stat(ino, attr, options.flags, &dentry);
+    }
+    if (result != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    do_reply_attr(req, pe);
 }
 
 static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
@@ -539,12 +582,36 @@ static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
         return;
     }
 
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", O_APPEND flag: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, (fi->flags & O_APPEND));
+
     if ((result=do_open(req, &dentry, fi)) != 0) {
         fuse_reply_err(req, result);
         return;
     }
 
     fuse_reply_open(req, fi);
+}
+
+static void fs_do_flush(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi)
+{
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64"\n",
+            __LINE__, __FUNCTION__, ino, fi->fh);
+
+    fuse_reply_err(req, 0);
+}
+
+static void fs_do_fsync(fuse_req_t req, fuse_ino_t ino,
+        int datasync, struct fuse_file_info *fi)
+{
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", datasync: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, datasync);
+    fuse_reply_err(req, 0);
 }
 
 static void fs_do_release(fuse_req_t req, fuse_ino_t ino,
@@ -638,6 +705,116 @@ void fs_do_write(fuse_req_t req, fuse_ino_t ino, const char *buff,
     fuse_reply_write(req, written_bytes);
 }
 
+void fs_do_lseek(fuse_req_t req, fuse_ino_t ino, off_t offset,
+        int whence, struct fuse_file_info *fi)
+{
+    FSAPIFileInfo *fh;
+    int result;
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        fuse_reply_err(req, EBADF);
+        return;
+    }
+
+    logInfo("@@@@@@@ file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", offset: %"PRId64", whence: %d @@@@@@",
+            __LINE__, __FUNCTION__, ino, (int64_t)offset, whence);
+
+    if ((result=fsapi_lseek(fh, offset, whence)) != 0) {
+        fuse_reply_err(req, result);
+        return;
+    }
+
+    fuse_reply_lseek(req, fh->offset);
+}
+
+static void fs_do_getlk(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi, struct flock *lock)
+{
+    int result;
+    FSAPIFileInfo *fh;
+    int64_t owner_id;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64"\n",
+            __LINE__, __FUNCTION__, ino, fi->fh);
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        result = EBADF;
+    } else {
+        result = fsapi_getlk(fh, lock, &owner_id);
+    }
+
+    if (result == 0) {
+        fuse_reply_lock(req, lock);
+    } else {
+        fuse_reply_err(req, result);
+    }
+}
+
+static void fs_do_setlk(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi, struct flock *lock, int sleep)
+{
+    int result;
+    FSAPIFileInfo *fh;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", lock_owner: %"PRId64,
+            __LINE__, __FUNCTION__, ino, fi->fh, fi->lock_owner);
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        result = EBADF;
+    } else {
+        result = fsapi_setlk(fh, lock, fi->lock_owner);
+    }
+    fuse_reply_err(req, result);
+}
+
+static void fs_do_flock(fuse_req_t req, fuse_ino_t ino,
+        struct fuse_file_info *fi, int op)
+{
+    int result;
+    FSAPIFileInfo *fh;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", lock_owner: %"PRId64", op: %d, operation: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, fi->lock_owner, op,
+            (op & (LOCK_SH | LOCK_EX | LOCK_UN)));
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        result = EBADF;
+    } else {
+        result = fsapi_flock_ex(fh, op, fi->lock_owner);
+    }
+    fuse_reply_err(req, result);
+}
+
+static void fs_do_statfs(fuse_req_t req, fuse_ino_t ino)
+{
+    struct statvfs stbuf;
+
+    if (statvfs("/", &stbuf) < 0) {
+        fuse_reply_err(req, errno != 0 ? errno : ENOENT);
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
+
+    fuse_reply_statfs(req, &stbuf);
+}
+
+static void fs_do_fallocate(fuse_req_t req, fuse_ino_t ino, int mode,
+        off_t offset, off_t length, struct fuse_file_info *fi)
+{
+    logInfo("!!!!!!!!!! file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
+    fuse_reply_err(req, 0);
+}
+
 int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
 {
     int result;
@@ -668,6 +845,8 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->create  = fs_do_create;
     ops->access  = fs_do_access;
     ops->open    = fs_do_open;
+    ops->fsync   = fs_do_fsync;
+    ops->flush   = fs_do_flush;
     ops->release = fs_do_release;
     ops->read    = fs_do_read;
     ops->write   = fs_do_write;
@@ -678,6 +857,12 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->rename  = fs_do_rename;
     ops->forget  = fs_do_forget;
     ops->forget_multi = fs_do_forget_multi;
+    ops->lseek   = fs_do_lseek;
+    ops->getlk   = fs_do_getlk;
+    ops->setlk   = fs_do_setlk;
+    ops->flock   = fs_do_flock;
+    ops->statfs  = fs_do_statfs;
+    ops->fallocate = fs_do_fallocate;
 
     return 0;
 }
