@@ -4,6 +4,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/sched_thread.h"
+#include "fs_api_util.h"
 #include "fs_api_file.h"
 
 #define FS_API_MAGIC_NUMBER    1588076578
@@ -236,9 +237,12 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         }
 
         if (report_modified) {
-            fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
+            result = fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
                     &fi->ctx->ns, fi->dentry.inode, new_size,
                     false, &fi->dentry);
+
+            logInfo("file: "__FILE__", line: %d, func: %s, set_dentry_size result: %d",
+                    __LINE__, __FUNCTION__, result);
         }
         return 0;
     } else {
@@ -267,6 +271,7 @@ int fsapi_pwrite(FSAPIFileInfo *fi, const char *buff,
 int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         const int size, int *written_bytes)
 {
+    FDIRClientSession session;
     int result;
     bool need_report_modified;
     int64_t old_size;
@@ -284,7 +289,7 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
     }
 
     if ((fi->flags & O_APPEND)) {
-        if ((result=fdir_client_dentry_sys_lock(fi->ctx->contexts.fdir,
+        if ((result=fsapi_dentry_sys_lock(&session,
                         fi->dentry.inode, 0, &old_size)) != 0)
         {
             return result;
@@ -312,8 +317,9 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         }
         logInfo("=========pid: %d, old file size: %"PRId64", new file size: %"PRId64", "
                 "written_bytes: %d", getpid(), old_size, fi->offset, *written_bytes);
-        fdir_client_dentry_sys_unlock_ex(fi->ctx->contexts.fdir,
-                ns, fi->dentry.inode, false, old_size, fi->offset);
+
+        fsapi_dentry_sys_unlock(&session, ns, fi->dentry.inode,
+                false, old_size, fi->offset);
     }
 
     return result;
@@ -480,6 +486,7 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
 static int file_truncate(FSAPIContext *ctx, const int64_t oid,
         const int64_t new_size)
 {
+    FDIRClientSession session;
     int64_t old_size;
     string_t *ns;
     int result;
@@ -489,18 +496,23 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
         return EINVAL;
     }
 
-    if ((result=fdir_client_dentry_sys_lock(ctx->contexts.fdir,
-                    oid, 0, &old_size)) != 0)
-    {
+    if ((result=fsapi_dentry_sys_lock(&session, oid, 0, &old_size)) != 0) {
         return result;
     }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, SYS_LOCK",
+            __LINE__, __FUNCTION__);
+
     if ((result=do_truncate(ctx, oid, old_size, new_size)) == 0) {
         ns = &ctx->ns;
     } else {
         ns = NULL;
     }
-    unlock_res = fdir_client_dentry_sys_unlock_ex(ctx->contexts.fdir,
-            ns, oid, true, old_size, new_size);
+    unlock_res = fsapi_dentry_sys_unlock(&session, ns, oid,
+            true, old_size, new_size);
+
+    logInfo("file: "__FILE__", line: %d, func: %s, SYS_UNLOCK: %d",
+            __LINE__, __FUNCTION__, unlock_res);
 
     return result == 0 ? unlock_res : result;
 }
@@ -705,7 +717,7 @@ static inline int flock_lock(FSAPIFileInfo *fi, const int operation,
                     fi->dentry.inode, operation, offset, length,
                     owner_id, pid)) != 0)
     {
-        fdir_client_close_session(&fi->sessions.flock, is_network_error(result));
+        fdir_client_close_session(&fi->sessions.flock, result != 0);
     }
 
     return result;
@@ -760,10 +772,11 @@ static inline int fcntl_lock(FSAPIFileInfo *fi, const int operation,
         return result;
     }
 
-    if ((result=fdir_client_flock_dentry_ex2(&fi->sessions.flock, operation,
-                    fi->dentry.inode, offset, length, owner_id, pid)) != 0)
+    if ((result=fdir_client_flock_dentry_ex2(&fi->sessions.flock,
+                    fi->dentry.inode, operation, offset, length,
+                    owner_id, pid)) != 0)
     {
-        fdir_client_close_session(&fi->sessions.flock, is_network_error(result));
+        fdir_client_close_session(&fi->sessions.flock, result != 0);
     }
 
     return result;
@@ -774,8 +787,8 @@ static inline int fcntl_unlock(FSAPIFileInfo *fi, const int operation,
         const int64_t owner_id, const pid_t pid)
 {
     int result;
-    result = fdir_client_flock_dentry_ex2(&fi->sessions.flock, operation,
-            fi->dentry.inode, offset, length, owner_id, pid);
+    result = fdir_client_flock_dentry_ex2(&fi->sessions.flock,
+            fi->dentry.inode, operation, offset, length, owner_id, pid);
     fdir_client_close_session(&fi->sessions.flock, result != 0);
     return result;
 }

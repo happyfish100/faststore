@@ -131,15 +131,15 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
             return;
         }
 
-        if ((result=fsapi_ftruncate(fh, attr->st_size)) != 0) {
-            fuse_reply_err(req, result);
-            return;
-        }
-
         logInfo("file: "__FILE__", line: %d, func: %s, "
                 "SET file size from %"PRId64" to: %"PRId64,
                 __LINE__, __FUNCTION__, fh->dentry.stat.size,
                 (int64_t)attr->st_size);
+
+        if ((result=fsapi_ftruncate(fh, attr->st_size)) != 0) {
+            fuse_reply_err(req, result);
+            return;
+        }
 
         fh->dentry.stat.size = attr->st_size;
         pe = &fh->dentry;
@@ -737,8 +737,8 @@ static void fs_do_getlk(fuse_req_t req, fuse_ino_t ino,
     int64_t owner_id;
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", fh: %"PRId64"\n",
-            __LINE__, __FUNCTION__, ino, fi->fh);
+            "ino: %"PRId64", fh: %"PRId64", type: %d, pid: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, lock->l_type, lock->l_pid);
 
     fh = (FSAPIFileInfo *)fi->fh;
     if (fh == NULL) {
@@ -761,8 +761,8 @@ static void fs_do_setlk(fuse_req_t req, fuse_ino_t ino,
     FSAPIFileInfo *fh;
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", fh: %"PRId64", lock_owner: %"PRId64,
-            __LINE__, __FUNCTION__, ino, fi->fh, fi->lock_owner);
+            "ino: %"PRId64", fh: %"PRId64", lock_owner: %"PRId64", pid: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, fi->lock_owner, lock->l_pid);
 
     fh = (FSAPIFileInfo *)fi->fh;
     if (fh == NULL) {

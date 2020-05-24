@@ -9,8 +9,6 @@
 extern "C" {
 #endif
 
-    extern FSAPIContext g_fs_api_ctx;
-
 #define fs_api_set_contexts(ns)  fs_api_set_contexts_ex(&g_fs_api_ctx, ns)
 
 #define fs_api_init(ns, fdir_config_file, fs_config_file) \

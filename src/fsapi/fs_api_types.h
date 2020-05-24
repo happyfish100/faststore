@@ -38,4 +38,14 @@ typedef struct fs_api_file_info {
     int64_t offset;  //current offset
 } FSAPIFileInfo;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+    extern FSAPIContext g_fs_api_ctx;
+
+#ifdef __cplusplus
+}
+#endif
+
 #endif
