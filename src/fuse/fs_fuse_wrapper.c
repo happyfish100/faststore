@@ -826,7 +826,7 @@ static void fs_do_fallocate(fuse_req_t req, fuse_ino_t ino, int mode,
     if (fh == NULL) {
         result = EBADF;
     } else {
-        result = fsapi_fallocate(fh, mode, offset, len);
+        result = fsapi_fallocate(fh, mode, offset, length);
     }
 
     fuse_reply_err(req, result);
