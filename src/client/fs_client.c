@@ -6,6 +6,7 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
     FSBlockKey bkey;
     int64_t remain;
     int result;
+    int dec_alloc;
 
     remain = file_size;
     fs_set_block_key(&bkey, oid, 0);
@@ -13,7 +14,7 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
         logInfo("block {oid: %"PRId64", offset: %"PRId64"}",
                 bkey.oid, bkey.offset);
 
-        result = fs_client_proto_block_delete(client_ctx, &bkey);
+        result = fs_client_proto_block_delete(client_ctx, &bkey, &dec_alloc);
         if (result == ENOENT) {
             result = 0;
         } else if (result != 0) {

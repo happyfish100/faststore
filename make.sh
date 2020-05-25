@@ -8,7 +8,13 @@ WITH_LINUX_SERVICE=1
 
 DEBUG_FLAG=1
 
-CFLAGS='-Wall -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE'
+export CC=gcc
+CFLAGS='-Wall'
+GCC_VERSION=$(gcc -dM -E -  < /dev/null | grep -w __GNUC__ | awk '{print $NF;}')
+if [ -n "$GCC_VERSION" ] && [ $GCC_VERSION -ge 7 ]; then
+  CFLAGS="$CFLAGS -Wformat-truncation=0 -Wformat-overflow=0"
+fi
+CFLAGS="$CFLAGS -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE"
 if [ "$DEBUG_FLAG" = "1" ]; then
   CFLAGS="$CFLAGS -g -O1 -DDEBUG_FLAG"
 else
@@ -54,11 +60,9 @@ elif [ "$uname" = "SunOS" ]; then
   LIBS="$LIBS -L/usr/lib"
   CFLAGS="$CFLAGS -D_THREAD_SAFE"
   LIBS="$LIBS -lsocket -lnsl -lresolv"
-  export CC=gcc
 elif [ "$uname" = "AIX" ]; then
   LIBS="$LIBS -L/usr/lib"
   CFLAGS="$CFLAGS -D_THREAD_SAFE"
-  export CC=gcc
 elif [ "$uname" = "HP-UX" ]; then
   LIBS="$LIBS -L/usr/lib"
   CFLAGS="$CFLAGS"

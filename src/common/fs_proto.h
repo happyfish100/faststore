@@ -22,8 +22,8 @@
 #define FS_SERVICE_PROTO_SLICE_WRITE_RESP        26
 #define FS_SERVICE_PROTO_SLICE_READ_REQ          27
 #define FS_SERVICE_PROTO_SLICE_READ_RESP         28
-#define FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ      29
-#define FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP     30
+#define FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ      29
+#define FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP     30
 #define FS_SERVICE_PROTO_SLICE_DELETE_REQ        31
 #define FS_SERVICE_PROTO_SLICE_DELETE_RESP       32
 #define FS_SERVICE_PROTO_BLOCK_DELETE_REQ        33
@@ -136,9 +136,13 @@ typedef struct fs_proto_slice_write_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceWriteReqHeader;
 
-typedef struct fs_proto_slice_truncate_req {
+typedef struct fs_proto_slice_update_resp {
+    char inc_alloc[4];   //increase alloc space in bytes
+} FSProtoSliceUpdateResp;
+
+typedef struct fs_proto_slice_allocate_req {
     FSProtoBlockSlice bs;
-} FSProtoSliceTruncateReq;
+} FSProtoSliceAllocateReq;
 
 typedef struct fs_proto_slice_delete_req {
     FSProtoBlockSlice bs;

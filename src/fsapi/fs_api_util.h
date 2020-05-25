@@ -152,11 +152,11 @@ static inline int fsapi_dentry_sys_lock_ex(FSAPIContext *ctx,
 
 static inline int fsapi_dentry_sys_unlock(FDIRClientSession *session,
         const string_t *ns, const int64_t inode, const bool force,
-        const int64_t old_size, const int64_t new_size)
+        const int64_t old_size, const int64_t new_size, const int64_t inc_alloc)
 {
     int result;
     result = fdir_client_dentry_sys_unlock_ex(session, ns, inode,
-            force, old_size, new_size);
+            force, old_size, new_size, inc_alloc);
     fdir_client_close_session(session, result != 0);
     return result;
 }

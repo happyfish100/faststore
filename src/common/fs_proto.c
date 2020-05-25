@@ -253,10 +253,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "SLICE_READ_REQ";
         case FS_SERVICE_PROTO_SLICE_READ_RESP:
             return "SLICE_READ_RESP";
-        case FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ:
-            return "SLICE_TRUNCATE_REQ";
-        case FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP:
-            return "SLICE_TRUNCATE_RESP";
+        case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+            return "SLICE_ALLOCATE_REQ";
+        case FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP:
+            return "SLICE_ALLOCATE_RESP";
         case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
             return "SLICE_DELETE_REQ";
         case FS_SERVICE_PROTO_SLICE_DELETE_RESP:

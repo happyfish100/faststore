@@ -11,13 +11,20 @@
 static void slice_write_done(struct trunk_io_buffer *record, const int result)
 {
     FSSliceOpNotify *notify;
+    int inc_alloc;
+    int r;
 
     notify = (FSSliceOpNotify *)record->notify.args;
     if (result == 0) {
         notify->done_bytes += record->slice->ssize.length;
-        ob_index_add_slice(record->slice);
+        if ((r=ob_index_add_slice(record->slice, &inc_alloc)) == 0) {
+            notify->inc_alloc += inc_alloc;
+        }
     } else {
-        notify->result = result;
+        r = result;
+    }
+    if (r != 0) {
+        notify->result = r;
         ob_index_free_slice(record->slice);
     }
 
@@ -153,14 +160,17 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     return result;
 }
 
-int fs_slice_truncate_ex(const FSBlockSliceKeyInfo *bs_key,
-        const bool reclaim_alloc)
+int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
+        const bool reclaim_alloc, int *inc_alloc)
 {
     int result;
+    int r;
     int slice_count;
+    int inc;
     int i;
     OBSliceEntry *slices[2];
 
+    *inc_alloc = 0;
     if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_TRUNC,
                     reclaim_alloc, slices, &slice_count)) != 0)
     {
@@ -168,9 +178,13 @@ int fs_slice_truncate_ex(const FSBlockSliceKeyInfo *bs_key,
     }
 
     for (i=0; i<slice_count; i++) {
-        ob_index_add_slice(slices[i]);
+        if ((r=ob_index_add_slice(slices[i], &inc)) == 0) {
+            *inc_alloc += inc;
+        } else {
+            result = r;
+        }
     }
-    return 0;
+    return result;
 }
 
 static void do_read_done(OBSliceEntry *slice, FSSliceOpNotify *notify,

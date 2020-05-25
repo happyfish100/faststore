@@ -47,11 +47,12 @@ extern "C" {
     int ob_index_init();
     void ob_index_destroy();
 
-    int ob_index_add_slice(OBSliceEntry *slice);
+    int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc);
 
-    int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key);
+    int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
+            int *dec_alloc);
 
-    int ob_index_delete_block(const FSBlockKey *bkey);
+    int ob_index_delete_block(const FSBlockKey *bkey, int *dec_alloc);
 
     OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
 

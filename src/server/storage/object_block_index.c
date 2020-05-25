@@ -390,7 +390,8 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
     } while (0)
 
 
-static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
+static int add_slice(OBSharedContext *ctx, OBEntry *ob,
+        OBSliceEntry *slice, int *inc_alloc)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -400,12 +401,15 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     int result;
     int curr_end;
     int slice_end;
+    int new_space_start;
     int i;
 
+    *inc_alloc = 0;
     node = uniq_skiplist_find_ge_node(ob->slices, (void *)slice);
     if (node == NULL) {
         previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
         if (previous == ob->slices->top) {
+            *inc_alloc += slice->ssize.length;
             return do_add_slice(ob, slice);
         }
     } else {
@@ -415,6 +419,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     INIT_SLICE_PTR_ARRAY(add_slice_array);
     INIT_SLICE_PTR_ARRAY(del_slice_array);
 
+    new_space_start = slice->ssize.offset;
     slice_end = slice->ssize.offset + slice->ssize.length;
     if (previous != ob->slices->top) {
         curr_slice = (OBSliceEntry *)previous->data;
@@ -433,6 +438,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
                 return result;
             }
 
+            new_space_start = curr_end;
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
                                 curr_end - slice_end, &add_slice_array)) != 0)
@@ -456,7 +462,12 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
                 return result;
             }
 
+            if (curr_slice->ssize.offset > new_space_start) {
+                *inc_alloc += curr_slice->ssize.offset - new_space_start;
+            }
+
             curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+            new_space_start = curr_end;
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(ctx, curr_slice,
                                 slice_end, curr_end - slice_end,
@@ -472,6 +483,10 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
         } while (node != ob->slices->factory->tail);
     }
 
+    if (slice_end > new_space_start) {
+        *inc_alloc += slice_end - new_space_start;
+    }
+
     for (i=0; i<del_slice_array.count; i++) {
         do_delete_slice(ob, del_slice_array.slices[i]);
     }
@@ -485,7 +500,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob, OBSliceEntry *slice)
     return do_add_slice(ob, slice);
 }
 
-int ob_index_add_slice(OBSliceEntry *slice)
+int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc)
 {
     int result;
 
@@ -498,7 +513,7 @@ int ob_index_add_slice(OBSliceEntry *slice)
 
     OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&ctx->lock);
-    result = add_slice(ctx, slice->ob, slice);
+    result = add_slice(ctx, slice->ob, slice, inc_alloc);
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     logInfo("######file: "__FILE__", line: %d, func: %s, ctx: %p",
@@ -513,7 +528,7 @@ int ob_index_add_slice(OBSliceEntry *slice)
 }
 
 static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
-        const FSBlockSliceKeyInfo *bs_key, int *count)
+        const FSBlockSliceKeyInfo *bs_key, int *count, int *dec_alloc)
 {
     OBSliceEntry target;
     UniqSkiplistNode *node;
@@ -526,6 +541,7 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
     int slice_end;
     int i;
 
+    *dec_alloc = 0;
     *count = 0;
     target.ssize = bs_key->slice;
     node = uniq_skiplist_find_ge_node(ob->slices, &target);
@@ -565,6 +581,10 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
                 {
                     return result;
                 }
+
+                *dec_alloc += bs_key->slice.length;
+            } else {
+                *dec_alloc += curr_end - bs_key->slice.offset;
             }
         }
     }
@@ -591,7 +611,10 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
                     return result;
                 }
 
+                *dec_alloc += slice_end - curr_slice->ssize.offset;
                 break;
+            } else {
+                *dec_alloc += curr_slice->ssize.length;
             }
 
             node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
@@ -612,7 +635,7 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
     return 0;
 }
 
-int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
+int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key, int *dec_alloc)
 {
     OBEntry *ob;
     int result;
@@ -624,7 +647,7 @@ int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        result = delete_slices(ctx, ob, bs_key, &count);
+        result = delete_slices(ctx, ob, bs_key, &count, dec_alloc);
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
@@ -634,7 +657,7 @@ int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key)
     return result;
 }
 
-int ob_index_delete_block(const FSBlockKey *bkey)
+int ob_index_delete_block(const FSBlockKey *bkey, int *dec_alloc)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -642,11 +665,14 @@ int ob_index_delete_block(const FSBlockKey *bkey)
     UniqSkiplistIterator it;
 
     OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
+
+    *dec_alloc = 0;
     PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+            *dec_alloc += slice->ssize.length;
             storage_allocator_delete_slice(slice);
         }
 

@@ -166,6 +166,17 @@ static int parse_check_block_slice(struct fast_task_info *task,
     return 0;
 }
 
+static inline void fill_slice_update_response(struct fast_task_info *task,
+        const int inc_alloc)
+{
+    FSProtoSliceUpdateResp *resp;
+    resp = (FSProtoSliceUpdateResp *)REQUEST.body;
+    int2buff(inc_alloc, resp->inc_alloc);
+
+    RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
+    TASK_ARG->context.response_done = true;
+}
+
 static void slice_write_done_notify(FSSliceOpNotify *notify)
 {
     struct fast_task_info *task;
@@ -186,6 +197,9 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
+    } else {
+        RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
+        fill_slice_update_response(task, notify->inc_alloc);
     }
 
     RESPONSE_STATUS = notify->result;
@@ -220,7 +234,6 @@ static int service_deal_slice_write(struct fast_task_info *task)
     FSProtoSliceWriteReqHeader *req_header;
     char *buff;
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     if ((result=server_check_min_body_length(task,
                     sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
@@ -278,37 +291,39 @@ static int service_deal_slice_write(struct fast_task_info *task)
     return TASK_STATUS_CONTINUE;
 }
 
-static int service_deal_slice_truncate(struct fast_task_info *task)
+static int service_deal_slice_allocate(struct fast_task_info *task)
 {
     int result;
-    FSProtoSliceTruncateReq *req;
+    int inc_alloc;
+    FSProtoSliceAllocateReq *req;
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP;
     if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoSliceTruncateReq))) != 0)
+                    sizeof(FSProtoSliceAllocateReq))) != 0)
     {
         return result;
     }
 
-    req = (FSProtoSliceTruncateReq *)REQUEST.body;
+    req = (FSProtoSliceAllocateReq *)REQUEST.body;
     if ((result=parse_check_block_slice(task, &req->bs)) != 0) {
         return result;
     }
 
-    if ((result=fs_slice_truncate(&TASK_CTX.bs_key)) != 0) {
-        set_slice_op_error_msg(task, "truncate", result);
+    if ((result=fs_slice_allocate(&TASK_CTX.bs_key, &inc_alloc)) != 0) {
+        set_slice_op_error_msg(task, "allocate", result);
         return result;
     }
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP;
+    fill_slice_update_response(task, inc_alloc);
     return 0;
 }
 
 static int service_deal_slice_delete(struct fast_task_info *task)
 {
     int result;
+    int dec_alloc;
     FSProtoSliceDeleteReq *req;
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_DELETE_RESP;
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoSliceDeleteReq))) != 0)
     {
@@ -320,20 +335,22 @@ static int service_deal_slice_delete(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=ob_index_delete_slices(&TASK_CTX.bs_key)) != 0) {
+    if ((result=ob_index_delete_slices(&TASK_CTX.bs_key, &dec_alloc)) != 0) {
         set_slice_op_error_msg(task, "delete", result);
         return result;
     }
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_DELETE_RESP;
+    fill_slice_update_response(task, dec_alloc);
     return 0;
 }
 
 static int service_deal_block_delete(struct fast_task_info *task)
 {
     int result;
+    int dec_alloc;
     FSProtoBlockDeleteReq *req;
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_BLOCK_DELETE_RESP;
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoBlockDeleteReq))) != 0)
     {
@@ -345,11 +362,15 @@ static int service_deal_block_delete(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block)) != 0) {
+    if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block,
+                    &dec_alloc)) != 0)
+    {
         set_block_op_error_msg(task, "delete", result);
         return result;
     }
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_BLOCK_DELETE_RESP;
+    fill_slice_update_response(task, dec_alloc);
     return 0;
 }
 
@@ -564,8 +585,8 @@ int service_deal_task(struct fast_task_info *task)
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
                 result = service_deal_slice_write(task);
                 break;
-            case FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ:
-                result = service_deal_slice_truncate(task);
+            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+                result = service_deal_slice_allocate(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
                 result = service_deal_slice_delete(task);

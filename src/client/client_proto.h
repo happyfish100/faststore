@@ -12,19 +12,19 @@ extern "C" {
 
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
             const FSBlockSliceKeyInfo *bs_key, const char *buff,
-            int *write_bytes);
+            int *write_bytes, int *inc_alloc);
 
     int fs_client_proto_slice_read(FSClientContext *client_ctx,
             const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
 
-    int fs_client_proto_slice_truncate(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key);
+    int fs_client_proto_slice_allocate(FSClientContext *client_ctx,
+            const FSBlockSliceKeyInfo *bs_key, int *inc_alloc);
 
     int fs_client_proto_slice_delete(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key);
+            const FSBlockSliceKeyInfo *bs_key, int *dec_alloc);
 
     int fs_client_proto_block_delete(FSClientContext *client_ctx,
-            const FSBlockKey *bkey);
+            const FSBlockKey *bkey, int *dec_alloc);
 
     int fs_client_proto_join_server(ConnectionInfo *conn,
             FSConnectionParameters *conn_params);

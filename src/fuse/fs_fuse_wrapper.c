@@ -23,6 +23,12 @@ static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
     stat->st_ctime = dentry->stat.ctime;
     stat->st_uid = dentry->stat.uid;
     stat->st_gid = dentry->stat.gid;
+
+    stat->st_blksize = 512;
+    if (stat->st_size > 0) {
+        stat->st_blocks = (stat->st_size + stat->st_blksize - 1) /
+            stat->st_blksize;
+    }
     stat->st_nlink = 1;
 }
 
@@ -810,9 +816,20 @@ static void fs_do_statfs(fuse_req_t req, fuse_ino_t ino)
 static void fs_do_fallocate(fuse_req_t req, fuse_ino_t ino, int mode,
         off_t offset, off_t length, struct fuse_file_info *fi)
 {
+    int result;
+    FSAPIFileInfo *fh;
+
     logInfo("!!!!!!!!!! file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
-    fuse_reply_err(req, 0);
+            "ino: %"PRId64", mode: %d", __LINE__, __FUNCTION__, ino, mode);
+
+    fh = (FSAPIFileInfo *)fi->fh;
+    if (fh == NULL) {
+        result = EBADF;
+    } else {
+        result = fsapi_fallocate(fh, mode, offset, len);
+    }
+
+    fuse_reply_err(req, result);
 }
 
 int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)

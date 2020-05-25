@@ -909,6 +909,27 @@ int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id)
     return result;
 }
 
+int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
+        const int64_t offset, const int64_t len)
+{
+    int op;
+
+    op = mode & (~FALLOC_FL_KEEP_SIZE);
+#ifdef FALLOC_FL_UNSHARE
+    op &= ~FALLOC_FL_UNSHARE;
+#endif
+
+    if (op == 0) {   //allocate space
+
+    } else if (op == FALLOC_FL_PUNCH_HOLE) {  //deallocate space
+
+    } else {
+        result = EOPNOTSUPP;
+    }
+
+    return result;
+}
+
 int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
         const char *new_path, const int flags)
 {

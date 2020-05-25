@@ -15,6 +15,7 @@ typedef struct fs_slice_op_notify {
     volatile int counter;
     int result;
     int done_bytes;
+    int inc_alloc;   //increase alloc space in bytes for slice write
 } FSSliceOpNotify;
 
 #endif

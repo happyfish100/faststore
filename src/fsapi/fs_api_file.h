@@ -98,6 +98,9 @@ extern "C" {
     int fsapi_setlk(FSAPIFileInfo *fi, const struct flock *lock,
         const int64_t owner_id);
 
+    int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
+            const int64_t offset, const int64_t len);
+
     int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
             const char *new_path, const int flags);
 

@@ -40,7 +40,7 @@ static inline void proto_pack_block_key(const FSBlockKey *
 
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
-        int *write_bytes)
+        int *write_bytes, int *inc_alloc)
 {
     ConnectionInfo *conn;
     const FSConnectionParameters *connection_params;
@@ -48,12 +48,13 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     FSProtoHeader *proto_header;
     FSProtoSliceWriteReqHeader *req_header;
     FSResponseInfo response;
+    FSProtoSliceUpdateResp resp;
     int result;
     int remain;
     int bytes;
     int i;
 
-    *write_bytes = 0;
+    *write_bytes = *inc_alloc = 0;
     proto_header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
@@ -100,11 +101,12 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
             if ((result=fs_recv_response(conn, &response, g_fs_client_vars.
                             network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
-                            NULL, 0)) != 0)
+                            (char *)&resp, sizeof(FSProtoSliceUpdateResp))) != 0)
             {
                 break;
             }
 
+            *inc_alloc += buff2int(resp.inc_alloc);
             *write_bytes += bytes;
             remain -= bytes;
         }
@@ -226,18 +228,19 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
 
 static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const int req_cmd,
-        const int resp_cmd)
+        const int resp_cmd, int *inc_alloc)
 {
     ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceTruncateReq)];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceAllocateReq)];
     FSProtoHeader *proto_header;
-    FSProtoSliceTruncateReq *req;
+    FSProtoSliceAllocateReq *req;
     FSResponseInfo response;
+    FSProtoSliceUpdateResp resp;
     int result;
     int i;
 
     proto_header = (FSProtoHeader *)out_buff;
-    req = (FSProtoSliceTruncateReq *)(proto_header + 1);
+    req = (FSProtoSliceAllocateReq *)(proto_header + 1);
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
@@ -248,18 +251,20 @@ static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
 
         response.error.length = 0;
         FS_PROTO_SET_HEADER(proto_header, req_cmd,
-                sizeof(FSProtoSliceTruncateReq));
+                sizeof(FSProtoSliceAllocateReq));
         int2buff(bs_key->slice.offset, req->bs.slice_size.offset);
         int2buff(bs_key->slice.length, req->bs.slice_size.length);
-        result = fs_send_and_recv_response(conn, out_buff,
+        if ((result=fs_send_and_recv_response(conn, out_buff,
                 sizeof(out_buff), &response, g_fs_client_vars.
-                network_timeout, resp_cmd, NULL, 0);
-
-        fs_client_release_connection(client_ctx, conn, result);
-        if (result != 0) {
+                network_timeout, resp_cmd, (char *)&resp,
+                sizeof(FSProtoSliceUpdateResp))) == 0)
+        {
+            *inc_alloc = buff2int(resp.inc_alloc);
+        } else {
             fs_log_network_error(&response, conn, result);
         }
 
+        fs_client_release_connection(client_ctx, conn, result);
         if (!(result != 0 && is_network_error(result))) {
             break;
         }
@@ -268,30 +273,31 @@ static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_proto_slice_truncate(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key)
+int fs_client_proto_slice_allocate(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, int *inc_alloc)
 {
     return fs_client_proto_slice_operate(client_ctx,
-        bs_key, FS_SERVICE_PROTO_SLICE_TRUNCATE_REQ,
-        FS_SERVICE_PROTO_SLICE_TRUNCATE_RESP);
+        bs_key, FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ,
+        FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, inc_alloc);
 }
 
 int fs_client_proto_slice_delete(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key)
+        const FSBlockSliceKeyInfo *bs_key, int *dec_alloc)
 {
     return fs_client_proto_slice_operate(client_ctx,
         bs_key, FS_SERVICE_PROTO_SLICE_DELETE_REQ,
-        FS_SERVICE_PROTO_SLICE_DELETE_RESP);
+        FS_SERVICE_PROTO_SLICE_DELETE_RESP, dec_alloc);
 }
 
 int fs_client_proto_block_delete(FSClientContext *client_ctx,
-        const FSBlockKey *bkey)
+        const FSBlockKey *bkey, int *dec_alloc)
 {
     ConnectionInfo *conn;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoBlockDeleteReq)];
     FSProtoHeader *proto_header;
     FSProtoBlockDeleteReq *req;
     FSResponseInfo response;
+    FSProtoSliceUpdateResp resp;
     int result;
     int i;
 
@@ -308,16 +314,17 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         response.error.length = 0;
         FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
                 sizeof(FSProtoBlockDeleteReq));
-        result = fs_send_and_recv_response(conn, out_buff,
+        if ((result=fs_send_and_recv_response(conn, out_buff,
                 sizeof(out_buff), &response, g_fs_client_vars.
                 network_timeout, FS_SERVICE_PROTO_BLOCK_DELETE_RESP,
-                NULL, 0);
-
-        fs_client_release_connection(client_ctx, conn, result);
-        if (result != 0) {
+                (char *)&resp, sizeof(FSProtoSliceUpdateResp))) == 0)
+        {
+            *dec_alloc = buff2int(resp.inc_alloc);
+        } else {
             fs_log_network_error(&response, conn, result);
         }
 
+        fs_client_release_connection(client_ctx, conn, result);
         if (!(result != 0 && is_network_error(result))) {
             break;
         }
