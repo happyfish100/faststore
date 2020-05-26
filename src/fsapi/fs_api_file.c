@@ -217,8 +217,8 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
             __LINE__, offset, *written_bytes, need_report_modified);
 
     if (*written_bytes > 0) {
-        bool report_modified;
         int64_t new_size;
+        int flags;
 
         if (!need_report_modified) {
             return 0;
@@ -226,22 +226,27 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
 
         new_size = offset + *written_bytes;
         if (new_size > fi->dentry.stat.size) {
-            report_modified = true;
+            flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE |
+                FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
         } else {
             int current_time;
             current_time = get_current_time();
             if (current_time > fi->write_notify.last_modified_time) {
                 fi->write_notify.last_modified_time = current_time;
-                report_modified = true;
+                flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_MTIME;
             } else {
-                report_modified = false;
+                flags = 0;
             }
         }
 
-        if (report_modified) {
+        if (*total_inc_alloc != 0)  {
+            flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_INC_ALLOC;
+        }
+
+        if (flags != 0) {
             result = fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
                     &fi->ctx->ns, fi->dentry.inode, new_size,
-                    *total_inc_alloc, false, &fi->dentry);
+                    *total_inc_alloc, false, &fi->dentry, flags);
 
             logInfo("file: "__FILE__", line: %d, func: %s, set_dentry_size result: %d",
                     __LINE__, __FUNCTION__, result);
@@ -280,7 +285,9 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
     bool need_report_modified;
     int result;
     int total_inc_alloc;
+    int flags;
     int64_t old_size;
+    int64_t space_end;
 
     if (size == 0) {
         return 0;
@@ -295,8 +302,8 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
     }
 
     if ((fi->flags & O_APPEND)) {
-        if ((result=fsapi_dentry_sys_lock(&session,
-                        fi->dentry.inode, 0, &old_size)) != 0)
+        if ((result=fsapi_dentry_sys_lock(&session, fi->dentry.inode,
+                        0, &old_size, &space_end)) != 0)
         {
             return result;
         }
@@ -324,8 +331,10 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         logInfo("=========pid: %d, old file size: %"PRId64", new file size: %"PRId64", "
                 "written_bytes: %d", getpid(), old_size, fi->offset, *written_bytes);
 
+        flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE |
+            FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
         fsapi_dentry_sys_unlock(&session, ns, fi->dentry.inode,
-                false, old_size, fi->offset, total_inc_alloc);
+                false, old_size, fi->offset, total_inc_alloc, flags);
     }
 
     return result;
@@ -431,58 +440,77 @@ int fsapi_read(FSAPIFileInfo *fi, char *buff, const int size, int *read_bytes)
 }
 
 static int do_truncate(FSAPIContext *ctx, const int64_t oid,
-        const int64_t old_size, const int64_t new_size,
-        int64_t *total_inc_alloc)
+        const int64_t old_space_end, const int64_t offset,
+        const int64_t length, int64_t *total_dec_alloc)
 {
     FSBlockSliceKeyInfo bs_key;
-    int64_t start_size;
-    int64_t end_size;
     int64_t remain;
-    bool is_delete;
-    int inc_alloc;
     int dec_alloc;
     int result;
 
-    *total_inc_alloc = 0;
-    if (new_size == old_size) {
+    *total_dec_alloc = 0;
+    if (offset >= old_space_end) {
         return 0;
     }
-    if (new_size > old_size) {
-        start_size = old_size;
-        end_size = new_size;
-        is_delete = false;
-    } else {
-        start_size = new_size;
-        end_size = old_size;
-        is_delete = true;
-    }
 
-    remain = end_size - start_size;
-    fs_set_block_slice(&bs_key, oid, start_size, remain);
+    if (offset + length > old_space_end) {
+        remain = old_space_end - offset;
+    } else {
+        remain = length;
+    }
+    fs_set_block_slice(&bs_key, oid, offset, remain);
     while (1) {
         print_block_slice_key(&bs_key);
-        if (is_delete) {
-            if (bs_key.slice.length == FS_FILE_BLOCK_SIZE) {
-                result = fs_client_proto_block_delete(ctx->contexts.fs,
-                        &bs_key.block, &dec_alloc);
-            } else {
-                result = fs_client_proto_slice_delete(ctx->contexts.fs,
-                        &bs_key, &dec_alloc);
-            }
-            if (result == ENOENT) {
-                result = 0;
-            } else if (result != 0) {
-                break;
-            }
-            *total_inc_alloc -= dec_alloc;
+        if (bs_key.slice.length == FS_FILE_BLOCK_SIZE) {
+            result = fs_client_proto_block_delete(ctx->contexts.fs,
+                    &bs_key.block, &dec_alloc);
         } else {
-            if ((result=fs_client_proto_slice_allocate(ctx->contexts.fs,
-                            &bs_key, &inc_alloc)) != 0)
-            {
-                break;
-            }
-            *total_inc_alloc += inc_alloc;
+            result = fs_client_proto_slice_delete(ctx->contexts.fs,
+                    &bs_key, &dec_alloc);
         }
+        if (result == 0) {
+            *total_dec_alloc -= dec_alloc;
+        } else if (result == ENOENT) {
+            result = 0;
+        } else if (result != 0) {
+            break;
+        }
+
+        remain -= bs_key.slice.length;
+        if (remain <= 0) {
+            break;
+        }
+
+        fs_next_block_slice_key(&bs_key, remain);
+    }
+
+    return result;
+}
+
+static int do_allocate(FSAPIContext *ctx, const int64_t oid,
+        const int64_t offset, const int64_t length,
+        int64_t *total_inc_alloc)
+{
+    FSBlockSliceKeyInfo bs_key;
+    int64_t remain;
+    int inc_alloc;
+    int result;
+
+    *total_inc_alloc = 0;
+    if (length <= 0) {
+        return 0;
+    }
+
+    remain = length;
+    fs_set_block_slice(&bs_key, oid, offset, remain);
+    while (1) {
+        print_block_slice_key(&bs_key);
+        if ((result=fs_client_proto_slice_allocate(ctx->contexts.fs,
+                        &bs_key, &inc_alloc)) != 0)
+        {
+            break;
+        }
+        *total_inc_alloc += inc_alloc;
 
         remain -= bs_key.slice.length;
         if (remain <= 0) {
@@ -501,30 +529,46 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
     FDIRClientSession session;
     int64_t old_size;
     string_t *ns;
+    int64_t alloc_bytes;
+    int64_t space_end;
     int result;
-    int64_t total_inc_alloc;
+    int flags;
     int unlock_res;
 
     if (new_size < 0) {
         return EINVAL;
     }
 
-    if ((result=fsapi_dentry_sys_lock(&session, oid, 0, &old_size)) != 0) {
+    if ((result=fsapi_dentry_sys_lock(&session, oid, 0,
+                    &old_size, &space_end)) != 0)
+    {
         return result;
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, SYS_LOCK",
             __LINE__, __FUNCTION__);
 
-    if ((result=do_truncate(ctx, oid, old_size, new_size,
-                    &total_inc_alloc)) == 0)
-    {
+    if (new_size >= old_size) {
+        result = 0;
+        alloc_bytes = 0;
+        flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+    } else {
+        result = do_truncate(ctx, oid, space_end, new_size,
+                old_size - new_size, &alloc_bytes);
+
+        flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+        if (new_size < space_end) {
+            flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
+        }
+    }
+
+    if (result == 0) {
         ns = &ctx->ns;
     } else {
         ns = NULL;
     }
     unlock_res = fsapi_dentry_sys_unlock(&session, ns, oid,
-            true, old_size, new_size, total_inc_alloc);
+            true, old_size, new_size, alloc_bytes, flags);
 
     logInfo("file: "__FILE__", line: %d, func: %s, SYS_UNLOCK: %d",
             __LINE__, __FUNCTION__, unlock_res);
@@ -925,25 +969,83 @@ int fsapi_getlk(FSAPIFileInfo *fi, struct flock *lock, int64_t *owner_id)
 }
 
 int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
-        const int64_t offset, const int64_t len)
+        const int64_t offset, const int64_t length)
 {
+    FDIRClientSession session;
+    int64_t old_size;
+    int64_t new_size;
+    int64_t space_end;
+    int64_t alloc_bytes;
+    string_t *ns;
     int op;
+    int flags;
     int result;
+    int unlock_res;
 
-    op = mode & (~FALLOC_FL_KEEP_SIZE);
-#ifdef FALLOC_FL_UNSHARE
-    op &= ~FALLOC_FL_UNSHARE;
-#endif
-
-    if (op == 0) {   //allocate space
-        result = 0;
-    } else if (op == FALLOC_FL_PUNCH_HOLE) {  //deallocate space
-        result = 0;
-    } else {
-        result = EOPNOTSUPP;
+    if (offset < 0) {
+        return EINVAL;
     }
 
-    return result;
+    if (fi->magic != FS_API_MAGIC_NUMBER) {
+        return EBADF;
+    }
+
+    op = mode & (~FALLOC_FL_KEEP_SIZE);
+    if (!(op == 0 || op == FALLOC_FL_PUNCH_HOLE)) {
+        return EOPNOTSUPP;
+    }
+
+    if (length == 0) {
+        return 0;
+    }
+
+    if ((result=fsapi_dentry_sys_lock(&session, fi->dentry.inode,
+                    0, &old_size, &space_end)) != 0)
+    {
+        return result;
+    }
+
+    flags = 0;
+    if (op == 0) {   //allocate space
+        result = do_allocate(fi->ctx, fi->dentry.inode,
+                offset, length, &alloc_bytes);
+        new_size = offset + length;
+        if (new_size > space_end) {
+            flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
+        }
+        if (new_size > old_size) {
+            flags |= (mode & FALLOC_FL_KEEP_SIZE) ? 0 :
+                FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+        }
+    } else {  //deallocate space
+        result = do_truncate(fi->ctx, fi->dentry.inode, space_end,
+                offset, length, &alloc_bytes);
+        if (offset + length == old_size) {
+            new_size = offset;
+            flags |= (mode & FALLOC_FL_KEEP_SIZE) ? 0 :
+                FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+            if (new_size < space_end) {
+                flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
+            }
+        } else {
+            if (offset < space_end && offset + length > space_end) {
+                new_size = offset;
+                flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
+            } else {
+                new_size = old_size;
+            }
+        }
+    }
+
+    if (result == 0) {
+        ns = &fi->ctx->ns;
+    } else {
+        ns = NULL;
+    }
+    unlock_res = fsapi_dentry_sys_unlock(&session, ns, fi->dentry.inode,
+            true, old_size, new_size, alloc_bytes, flags);
+
+    return result == 0 ? unlock_res : result;
 }
 
 int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,

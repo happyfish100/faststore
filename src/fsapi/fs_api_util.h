@@ -48,8 +48,9 @@ extern "C" {
 #define fsapi_free_opendir_session(session) \
         fsapi_free_opendir_session_ex(&g_fs_api_ctx, session)
 
-#define fsapi_dentry_sys_lock(session, inode, flags, file_size) \
-    fsapi_dentry_sys_lock_ex(&g_fs_api_ctx, session, inode, flags, file_size)
+#define fsapi_dentry_sys_lock(session, inode, flags, file_size, space_end) \
+    fsapi_dentry_sys_lock_ex(&g_fs_api_ctx, session, inode, \
+            flags, file_size, space_end)
 
 static inline int fsapi_lookup_inode_ex(FSAPIContext *ctx,
         const char *path, int64_t *inode)
@@ -141,22 +142,24 @@ static inline void fsapi_free_opendir_session_ex(
 
 static inline int fsapi_dentry_sys_lock_ex(FSAPIContext *ctx,
         FDIRClientSession *session, const int64_t inode, const int flags,
-        int64_t *file_size)
+        int64_t *file_size, int64_t *space_end)
 {
     int result;
     if ((result=fdir_client_init_session(ctx->contexts.fdir, session)) != 0) {
         return result;
     }
-    return fdir_client_dentry_sys_lock(session, inode, flags, file_size);
+    return fdir_client_dentry_sys_lock(session, inode,
+            flags, file_size, space_end);
 }
 
 static inline int fsapi_dentry_sys_unlock(FDIRClientSession *session,
         const string_t *ns, const int64_t inode, const bool force,
-        const int64_t old_size, const int64_t new_size, const int64_t inc_alloc)
+        const int64_t old_size, const int64_t new_size,
+        const int64_t inc_alloc, const int flags)
 {
     int result;
     result = fdir_client_dentry_sys_unlock_ex(session, ns, inode,
-            force, old_size, new_size, inc_alloc);
+            force, old_size, new_size, inc_alloc, flags);
     fdir_client_close_session(session, result != 0);
     return result;
 }

@@ -135,6 +135,7 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
 
     notify->result = 0;
     notify->done_bytes = 0;
+    notify->inc_alloc = 0;
     notify->counter = slice_count;
     if (slice_count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
@@ -171,7 +172,7 @@ int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
     OBSliceEntry *slices[2];
 
     *inc_alloc = 0;
-    if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_TRUNC,
+    if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_ALLOC,
                     reclaim_alloc, slices, &slice_count)) != 0)
     {
         return result;
@@ -251,7 +252,7 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
                 (*pp)->type, (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
 
         ssize = (*pp)->ssize;
-        if ((*pp)->type == OB_SLICE_TYPE_TRUNC) {
+        if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {
             memset(ps, 0, (*pp)->ssize.length);
             do_read_done(*pp, notify, 0);
         } else if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,

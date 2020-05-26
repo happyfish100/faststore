@@ -7,8 +7,8 @@
 #include "../../common/fs_types.h"
 
 typedef enum ob_slice_type {
-    OB_SLICE_TYPE_FILE  = 'F',  /* in file slice */
-    OB_SLICE_TYPE_TRUNC = 'T'   /* ftruncate slice */
+    OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
+    OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
 } OBSliceType;
 
 typedef struct {
@@ -26,7 +26,7 @@ typedef struct ob_entry {
 
 typedef struct ob_slice_entry {
     OBEntry *ob;
-    OBSliceType type;    //in file or memory as ftruncate
+    OBSliceType type;    //in file or memory as fallocate
     int read_offset;     //offset of the space start offset
     volatile int ref_count;
     FSSliceSize ssize;
