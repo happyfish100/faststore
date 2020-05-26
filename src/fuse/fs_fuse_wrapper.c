@@ -25,8 +25,8 @@ static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
     stat->st_gid = dentry->stat.gid;
 
     stat->st_blksize = 512;
-    if (stat->st_size > 0) {
-        stat->st_blocks = (stat->st_size + stat->st_blksize - 1) /
+    if (dentry->stat.alloc > 0) {
+        stat->st_blocks = (dentry->stat.alloc + stat->st_blksize - 1) /
             stat->st_blksize;
     }
     stat->st_nlink = 1;

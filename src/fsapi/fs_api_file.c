@@ -230,12 +230,17 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
                 FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
         } else {
             int current_time;
+
+            if (new_size > fi->dentry.stat.space_end) {
+                flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
+            } else {
+                flags = 0;
+            }
+
             current_time = get_current_time();
             if (current_time > fi->write_notify.last_modified_time) {
                 fi->write_notify.last_modified_time = current_time;
-                flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_MTIME;
-            } else {
-                flags = 0;
+                flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_MTIME;
             }
         }
 
@@ -324,9 +329,9 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
     if ((fi->flags & O_APPEND)) {
         string_t *ns;
         if (fi->offset > old_size) {
-            ns = &fi->ctx->ns;
+            ns = &fi->ctx->ns; //set ns for update file_size, space_end etc.
         } else {
-            ns = NULL;
+            ns = NULL;  //do NOT update
         }
         logInfo("=========pid: %d, old file size: %"PRId64", new file size: %"PRId64", "
                 "written_bytes: %d", getpid(), old_size, fi->offset, *written_bytes);
@@ -345,6 +350,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
 {
     FSBlockSliceKeyInfo bs_key;
     int result;
+    int stat_res;
     int current_read;
     int remain;
     int64_t current_offset;
@@ -362,12 +368,12 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         return EBADF;
     }
 
+    stat_res = 0;
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
-                        &bs_key, buff + *read_bytes,
-                        &current_read)) != 0)
+                        &bs_key, buff + *read_bytes, &current_read)) != 0)
         {
             if (current_read == 0) {
                 if (result != ENOENT) {
@@ -377,20 +383,20 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         }
 
         /*
-        logInfo("=====slice.length: %d, current_read: %d==",
-                bs_key.slice.length, current_read);
-         */
+           logInfo("=====slice.length: %d, current_read: %d==",
+           bs_key.slice.length, current_read);
+           */
         while ((current_read < bs_key.slice.length) &&
                 (result == 0 || result == ENOENT))
         {
-            /* deal file hole caused by lseek */
+            /* deal file hole caused by ftruncate and lseek */
             current_offset = offset + *read_bytes + current_read;
             if (current_offset == fi->dentry.stat.size) {
                 break;
             }
 
             if (current_offset > fi->dentry.stat.size) {
-                if ((result=fdir_client_stat_dentry_by_inode(fi->
+                if ((stat_res=fdir_client_stat_dentry_by_inode(fi->
                                 ctx->contexts.fdir, fi->dentry.inode,
                                 &fi->dentry)) != 0)
                 {
@@ -424,7 +430,13 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         fs_next_block_slice_key(&bs_key, remain);
     }
 
-    return *read_bytes > 0 ? 0 : EIO;
+    if (*read_bytes > 0) {
+        return 0;
+    } else if (result == ENOENT && stat_res == 0) {
+        return 0;   //allow read nothing
+    } else {
+        return EIO;
+    }
 }
 
 int fsapi_read(FSAPIFileInfo *fi, char *buff, const int size, int *read_bytes)
@@ -551,7 +563,11 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
     if (new_size >= old_size) {
         result = 0;
         alloc_bytes = 0;
-        flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+        if (new_size == old_size) {
+            flags = 0;
+        } else {
+            flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
+        }
     } else {
         result = do_truncate(ctx, oid, space_end, new_size,
                 old_size - new_size, &alloc_bytes);
@@ -563,9 +579,9 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
     }
 
     if (result == 0) {
-        ns = &ctx->ns;
+        ns = &ctx->ns;  //set ns for update file_size, space_end etc.
     } else {
-        ns = NULL;
+        ns = NULL;  //do NOT update
     }
     unlock_res = fsapi_dentry_sys_unlock(&session, ns, oid,
             true, old_size, new_size, alloc_bytes, flags);
@@ -982,7 +998,7 @@ int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
     int result;
     int unlock_res;
 
-    if (offset < 0) {
+    if (offset < 0 || length < 0) {
         return EINVAL;
     }
 
@@ -1020,7 +1036,7 @@ int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
     } else {  //deallocate space
         result = do_truncate(fi->ctx, fi->dentry.inode, space_end,
                 offset, length, &alloc_bytes);
-        if (offset + length == old_size) {
+        if (offset + length >= old_size) {
             new_size = offset;
             flags |= (mode & FALLOC_FL_KEEP_SIZE) ? 0 :
                 FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE;
@@ -1028,7 +1044,7 @@ int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
                 flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
             }
         } else {
-            if (offset < space_end && offset + length > space_end) {
+            if (offset < space_end && offset + length >= space_end) {
                 new_size = offset;
                 flags |= FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
             } else {
@@ -1038,9 +1054,9 @@ int fsapi_fallocate(FSAPIFileInfo *fi, const int mode,
     }
 
     if (result == 0) {
-        ns = &fi->ctx->ns;
+        ns = &fi->ctx->ns; //set ns for update file_size, space_end etc.
     } else {
-        ns = NULL;
+        ns = NULL;  //do NOT update
     }
     unlock_res = fsapi_dentry_sys_unlock(&session, ns, fi->dentry.inode,
             true, old_size, new_size, alloc_bytes, flags);
