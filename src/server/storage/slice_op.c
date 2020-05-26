@@ -161,30 +161,110 @@ int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     return result;
 }
 
-int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
-        const bool reclaim_alloc, int *inc_alloc)
+static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
+        OBSlicePtrArray *sarray, FSSliceSize *ssizes,
+        const int max_size, int *count)
 {
     int result;
+    int offset;
+    int hole_len;
+    OBSliceEntry **pp;
+    OBSliceEntry **end;
+
+    if ((result=ob_index_get_slices(bs_key, sarray)) != 0) {
+        if (result == ENOENT) {
+            ssizes[0] = bs_key->slice;
+            *count = 1;
+            return 0;
+        } else {
+            *count = 0;
+            return result;
+        }
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "read sarray->count: %d, target slice offset: %d, length: %d",
+            __LINE__, sarray->count, bs_key->slice.offset, bs_key->slice.length);
+
+    *count = 0;
+    offset = bs_key->slice.offset;
+    end = sarray->slices + sarray->count;
+    for (pp=sarray->slices; pp<end; pp++) {
+        hole_len = (*pp)->ssize.offset - offset;
+        if (hole_len > 0) {
+            if (*count >= max_size) {
+                return ENOSPC;
+            }
+            ssizes[*count].offset = offset;
+            ssizes[*count].length = hole_len;
+            (*count)++;
+        }
+
+        logInfo("slice %d. type: %c (0x%02x), offset: %d, length: %d, "
+                "hole_len: %d", (int)(pp - sarray->slices), (*pp)->type,
+                (*pp)->type, (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
+
+        offset = (*pp)->ssize.offset + (*pp)->ssize.length;
+    }
+
+    if (offset < bs_key->slice.offset + bs_key->slice.length) {
+        if (*count >= max_size) {
+            return ENOSPC;
+        }
+        ssizes[*count].offset = offset;
+        ssizes[*count].length = bs_key->slice.offset +
+            bs_key->slice.length - offset;
+        (*count)++;
+    }
+
+    return 0;
+}
+
+int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
+        OBSlicePtrArray *sarray, int *inc_alloc)
+{
+#define SLICE_MAX_HOLES  256
+    int result;
     int r;
+    FSSliceSize ssizes[SLICE_MAX_HOLES];
+    FSBlockSliceKeyInfo new_bskey;
+    int count;
     int slice_count;
     int inc;
     int i;
+    int k;
     OBSliceEntry *slices[2];
 
     *inc_alloc = 0;
-    if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_ALLOC,
-                    reclaim_alloc, slices, &slice_count)) != 0)
+    if ((result=get_slice_index_holes(bs_key, sarray, ssizes,
+                    SLICE_MAX_HOLES, &count)) != 0)
     {
         return result;
     }
 
-    for (i=0; i<slice_count; i++) {
-        if ((r=ob_index_add_slice(slices[i], &inc)) == 0) {
-            *inc_alloc += inc;
-        } else {
-            result = r;
+    new_bskey.block = bs_key->block;
+    for (k=0; k<count; k++) {
+        new_bskey.slice = ssizes[k];
+        if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
+                        false, slices, &slice_count)) != 0)
+        {
+            return result;
+        }
+
+        for (i=0; i<slice_count; i++) {
+            if ((r=ob_index_add_slice(slices[i], &inc)) == 0) {
+                *inc_alloc += inc;
+            } else {
+                result = r;
+            }
         }
     }
+
+
+    logInfo("file: "__FILE__", line: %d, "
+            "slice hole count: %d, inc_alloc: %d",
+            __LINE__, count, *inc_alloc);
+
     return result;
 }
 
@@ -263,6 +343,7 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
 
         ps += ssize.length;
         offset = ssize.offset + ssize.length;
+        ob_index_free_slice(*pp);
     }
 
     return result;

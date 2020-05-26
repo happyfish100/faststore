@@ -21,13 +21,18 @@ extern "C" {
     }
 
     int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
-            const bool reclaim_alloc, int *inc_alloc);
+        OBSlicePtrArray *sarray, int *inc_alloc);
 
     static inline int fs_slice_allocate(const FSBlockSliceKeyInfo *bs_key,
             int *inc_alloc)
     {
-        const bool reclaim_alloc = false;
-        return fs_slice_allocate_ex(bs_key, reclaim_alloc, inc_alloc);
+        OBSlicePtrArray sarray;
+        int result;
+
+        ob_index_init_slice_ptr_array(&sarray);
+        result = fs_slice_allocate_ex(bs_key, &sarray, inc_alloc);
+        ob_index_free_slice_ptr_array(&sarray);
+        return result;
     }
 
     int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,

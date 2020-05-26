@@ -308,7 +308,10 @@ static int service_deal_slice_allocate(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=fs_slice_allocate(&TASK_CTX.bs_key, &inc_alloc)) != 0) {
+    if ((result=fs_slice_allocate_ex(&TASK_CTX.bs_key, ((FSServerContext *)
+                        task->thread_data->arg)->service.slice_ptr_array,
+                    &inc_alloc)) != 0)
+    {
         set_slice_op_error_msg(task, "allocate", result);
         return result;
     }
@@ -433,8 +436,9 @@ static int service_deal_slice_read(struct fast_task_info *task)
     buff = REQUEST.body;
     TASK_CTX.slice_notify.notify.func = slice_read_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
-    if ((result=fs_slice_read(&TASK_CTX.bs_key, buff,
-                    &TASK_CTX.slice_notify)) != 0)
+    if ((result=fs_slice_read_ex(&TASK_CTX.bs_key, buff,
+                    &TASK_CTX.slice_notify, ((FSServerContext *)task->
+                        thread_data->arg)->service.slice_ptr_array)) != 0)
     {
         set_slice_op_error_msg(task, "read", result);
         return result;
@@ -616,17 +620,20 @@ int service_deal_task(struct fast_task_info *task)
 
 void *service_alloc_thread_extra_data(const int thread_index)
 {
+    int bytes;
     FSServerContext *server_context;
 
-    server_context = (FSServerContext *)malloc(sizeof(FSServerContext));
+    bytes = sizeof(FSServerContext) + sizeof(struct ob_slice_ptr_array);
+    server_context = (FSServerContext *)malloc(bytes);
     if (server_context == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail, errno: %d, error info: %s",
-                __LINE__, (int)sizeof(FSServerContext),
-                errno, strerror(errno));
+                __LINE__, bytes, errno, strerror(errno));
         return NULL;
     }
+    memset(server_context, 0, bytes);
 
-    memset(server_context, 0, sizeof(FSServerContext));
+    server_context->service.slice_ptr_array = (struct ob_slice_ptr_array *)
+        (server_context + 1);
     return server_context;
 }
