@@ -205,6 +205,7 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
                 (*pp)->type, (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
 
         offset = (*pp)->ssize.offset + (*pp)->ssize.length;
+        ob_index_free_slice(*pp);
     }
 
     if (offset < bs_key->slice.offset + bs_key->slice.length) {
@@ -212,8 +213,8 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
             return ENOSPC;
         }
         ssizes[*count].offset = offset;
-        ssizes[*count].length = bs_key->slice.offset +
-            bs_key->slice.length - offset;
+        ssizes[*count].length = (bs_key->slice.offset +
+            bs_key->slice.length) - offset;
         (*count)++;
     }
 
@@ -320,11 +321,11 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     offset = bs_key->slice.offset;
     end = sarray->slices + sarray->count;
     for (pp=sarray->slices; pp<end; pp++) {
-
         hole_len = (*pp)->ssize.offset - offset;
         if (hole_len > 0) {
             memset(ps, 0, hole_len);
             ps += hole_len;
+            notify->done_bytes += hole_len;
         }
 
         logInfo("slice %d. type: %c (0x%02x), offset: %d, length: %d, "
@@ -338,12 +339,12 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
         } else if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,
                         *pp, ps, slice_read_done, notify)) != 0)
         {
+            ob_index_free_slice(*pp);
             break;
         }
 
         ps += ssize.length;
         offset = ssize.offset + ssize.length;
-        ob_index_free_slice(*pp);
     }
 
     return result;
