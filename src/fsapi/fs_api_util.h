@@ -27,6 +27,17 @@ extern "C" {
     fsapi_create_dentry_by_pname_ex(&g_fs_api_ctx, \
             parent_inode, name, mode, dentry)
 
+#define fsapi_symlink_dentry_by_pname(link, parent_inode, name, mode, dentry) \
+    fsapi_symlink_dentry_by_pname_ex(&g_fs_api_ctx, link, \
+            parent_inode, name, mode, dentry)
+
+#define fsapi_readlink_by_pname(parent_inode, name, link, size) \
+    fsapi_readlink_by_pname_ex(&g_fs_api_ctx, parent_inode, \
+            name, link, size)
+
+#define fsapi_readlink_by_inode(inode, link, size) \
+    fsapi_readlink_by_inode_ex(&g_fs_api_ctx, inode, link, size)
+
 #define fsapi_remove_dentry_by_pname(parent_inode, name)  \
     fsapi_remove_dentry_by_pname_ex(&g_fs_api_ctx, \
             parent_inode, name)
@@ -95,6 +106,33 @@ static inline int fsapi_create_dentry_by_pname_ex(FSAPIContext *ctx,
     FDIR_SET_DENTRY_PNAME_PTR(&pname, parent_inode, name);
     return fdir_client_create_dentry_by_pname(ctx->contexts.fdir,
             &ctx->ns, &pname, mode, dentry);
+}
+
+static inline int fsapi_symlink_dentry_by_pname_ex(FSAPIContext *ctx,
+        const string_t *link, const int64_t parent_inode,
+        const string_t *name, const mode_t mode, FDIRDEntryInfo *dentry)
+{
+    FDIRDEntryPName pname;
+    FDIR_SET_DENTRY_PNAME_PTR(&pname, parent_inode, name);
+    return fdir_client_symlink_dentry_by_pname(ctx->contexts.fdir,
+            link, &ctx->ns, &pname, mode, dentry);
+}
+
+static inline int fsapi_readlink_by_pname_ex(FSAPIContext *ctx,
+        const int64_t parent_inode, const string_t *name,
+        string_t *link, const int size)
+{
+    FDIRDEntryPName pname;
+    FDIR_SET_DENTRY_PNAME_PTR(&pname, parent_inode, name);
+    return fdir_client_readlink_by_pname(ctx->contexts.fdir,
+            &pname, link, size);
+}
+
+static inline int fsapi_readlink_by_inode_ex(FSAPIContext *ctx,
+        const int64_t inode, string_t *link, const int size)
+{
+    return fdir_client_readlink_by_inode(ctx->contexts.fdir,
+            inode, link, size);
 }
 
 int fsapi_remove_dentry_by_pname_ex(FSAPIContext *ctx,

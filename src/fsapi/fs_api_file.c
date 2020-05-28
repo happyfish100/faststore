@@ -412,10 +412,13 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
                     fill_bytes = hole_bytes;
                 }
 
+                logInfo("=====offset: %"PRId64", current_read: %d, "
+                        "hole_bytes: %"PRId64", fill_bytes: %d, "
+                        "buff offset: %d =====", offset, current_read,
+                        hole_bytes, fill_bytes, *read_bytes + current_read);
+
                 memset(buff + *read_bytes + current_read, 0, fill_bytes);
                 current_read += fill_bytes;
-
-                logInfo("=====hole_bytes: %"PRId64", fill_bytes: %d==", hole_bytes, fill_bytes);
             }
 
             break;
@@ -1090,4 +1093,31 @@ int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
     }
 
     return result;
+}
+
+int fsapi_symlink_ex(FSAPIContext *ctx, const char *target,
+        const char *path, const mode_t mode)
+{
+    FDIRDEntryFullName fullname;
+    string_t link;
+    FDIRDEntryInfo dentry;
+
+    fullname.ns = ctx->ns;
+    FC_SET_STRING(fullname.path, (char *)path);
+    FC_SET_STRING(link, (char *)target);
+    return fdir_client_symlink_dentry(ctx->contexts.fdir,
+            &link, &fullname, mode, &dentry);
+}
+
+int fsapi_readlink(FSAPIContext *ctx, const char *path,
+        char *buff, const int size)
+{
+    FDIRDEntryFullName fullname;
+    string_t link;
+
+    fullname.ns = ctx->ns;
+    FC_SET_STRING(fullname.path, (char *)path);
+    link.str = buff;
+    return fdir_client_readlink_by_path(ctx->contexts.fdir,
+        &fullname, &link, size);
 }

@@ -2,6 +2,8 @@
 #ifndef _FS_API_FILE_H
 #define _FS_API_FILE_H
 
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include "fs_api_types.h"
 
@@ -111,6 +113,24 @@ extern "C" {
 
     int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
             const char *new_path, const int flags);
+
+    int fsapi_symlink_ex(FSAPIContext *ctx, const char *target,
+            const char *path, const mode_t mode);
+
+    static inline int fsapi_symlink(FSAPIContext *ctx, const char *target,
+            const char *path)
+    {
+        mode_t mode;
+        int result;
+
+        mode = umask(0); //fetch
+        result = fsapi_symlink_ex(ctx, target, path, 0777 & (~mode));
+        umask(mode);    //restore
+        return result;
+    }
+
+    int fsapi_readlink(FSAPIContext *ctx, const char *path,
+            char *buff, const int size);
 
 #ifdef __cplusplus
 }

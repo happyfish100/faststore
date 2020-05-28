@@ -561,6 +561,54 @@ void fs_do_rename(fuse_req_t req, fuse_ino_t oldparent, const char *oldname,
     fuse_reply_err(req, result);
 }
 
+static void fs_do_symlink(fuse_req_t req, const char *link,
+        fuse_ino_t parent, const char *name)
+{
+    int64_t parent_inode;
+    string_t nm;
+    string_t lk;
+    FDIRDEntryInfo dentry;
+    struct fuse_entry_param param;
+    int result;
+
+    if (fs_convert_inode(parent, &parent_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "link: %s, parent ino: %"PRId64", name: %s",
+            __LINE__, __FUNCTION__, link, parent_inode, name);
+
+    FC_SET_STRING(lk, (char *)link);
+    FC_SET_STRING(nm, (char *)name);
+    if ((result=fsapi_symlink_dentry_by_pname(&lk, parent_inode,
+                    &nm, 0660, &dentry)) == 0)
+    {
+        fill_entry_param(&dentry, &param);
+        fuse_reply_entry(req, &param);
+    } else {
+        fuse_reply_err(req, result);
+    }
+}
+
+static void fs_do_readlink(fuse_req_t req, fuse_ino_t ino)
+{
+    int result;
+    char buff[PATH_MAX];
+    string_t link;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64, __LINE__, __FUNCTION__, (int64_t)ino);
+
+    link.str = buff;
+    if ((result=fsapi_readlink_by_inode(ino, &link, PATH_MAX)) == 0) {
+        fuse_reply_readlink(req, link.str);
+    } else {
+        fuse_reply_err(req, result);
+    }
+}
+
 static void fs_do_forget(fuse_req_t req, fuse_ino_t ino, uint64_t nlookup)
 {
     logInfo("file: "__FILE__", line: %d, func: %s, "
@@ -871,6 +919,8 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->mkdir   = fs_do_mkdir;
     ops->rmdir   = fs_do_rmdir;
     ops->unlink  = fs_do_unlink;
+    ops->symlink = fs_do_symlink;
+    ops->readlink = fs_do_readlink;
     ops->rename  = fs_do_rename;
     ops->forget  = fs_do_forget;
     ops->forget_multi = fs_do_forget_multi;
