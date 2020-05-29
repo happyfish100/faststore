@@ -120,17 +120,20 @@ extern "C" {
     static inline int fsapi_symlink(FSAPIContext *ctx, const char *target,
             const char *path)
     {
-        mode_t mode;
-        int result;
-
-        mode = umask(0); //fetch
-        result = fsapi_symlink_ex(ctx, target, path, 0777 & (~mode));
-        umask(mode);    //restore
-        return result;
+        return fsapi_symlink_ex(ctx, target, path, ctx->default_mode);
     }
 
     int fsapi_readlink(FSAPIContext *ctx, const char *path,
             char *buff, const int size);
+
+    int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
+            const char *new_path, const mode_t mode);
+
+    static inline int fsapi_link(FSAPIContext *ctx, const char *old_path,
+            const char *new_path)
+    {
+        return fsapi_link_ex(ctx, old_path, new_path, ctx->default_mode);
+    }
 
 #ifdef __cplusplus
 }

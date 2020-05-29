@@ -2,6 +2,8 @@
 #define _FS_API_TYPES_H
 
 #include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/fast_buffer.h"
 #include "fastdir/fdir_client.h"
@@ -13,6 +15,7 @@ typedef struct fs_api_opendir_session {
 } FSAPIOpendirSession;
 
 typedef struct fs_api_context {
+    mode_t default_mode;
     string_t ns;  //namespace
     char ns_holder[NAME_MAX];
     struct {

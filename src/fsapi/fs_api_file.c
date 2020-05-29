@@ -1121,3 +1121,19 @@ int fsapi_readlink(FSAPIContext *ctx, const char *path,
     return fdir_client_readlink_by_path(ctx->contexts.fdir,
         &fullname, &link, size);
 }
+
+int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
+        const char *new_path, const mode_t mode)
+{
+    FDIRDEntryFullName src_fullname;
+    FDIRDEntryFullName dest_fullname;
+    FDIRDEntryInfo dentry;
+
+    src_fullname.ns = ctx->ns;
+    FC_SET_STRING(src_fullname.path, (char *)old_path);
+    dest_fullname.ns = ctx->ns;
+    FC_SET_STRING(dest_fullname.path, (char *)new_path);
+
+    return fdir_client_link_dentry(ctx->contexts.fdir,
+            &src_fullname, &dest_fullname, mode, &dentry);
+}

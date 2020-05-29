@@ -23,13 +23,13 @@ static void fill_stat(const FDIRDEntryInfo *dentry, struct stat *stat)
     stat->st_ctime = dentry->stat.ctime;
     stat->st_uid = dentry->stat.uid;
     stat->st_gid = dentry->stat.gid;
+    stat->st_nlink = dentry->stat.nlink;
 
     stat->st_blksize = 512;
     if (dentry->stat.alloc > 0) {
         stat->st_blocks = (dentry->stat.alloc + stat->st_blksize - 1) /
             stat->st_blksize;
     }
-    stat->st_nlink = 1;
 }
 
 static void fill_entry_param(const FDIRDEntryInfo *dentry,
@@ -80,10 +80,6 @@ static void fs_do_getattr(fuse_req_t req, fuse_ino_t ino,
         fuse_reply_err(req, ENOENT);
         return;
     }
-
-    fprintf(stderr, "file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", new_inode: %"PRId64", fi: %p\n",
-            __LINE__, __FUNCTION__, ino, new_inode, fi);
 
     if (fsapi_stat_dentry_by_inode(new_inode, &dentry) == 0) {
         do_reply_attr(req, &dentry);
@@ -208,13 +204,10 @@ static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     string_t nm;
     struct fuse_entry_param param;
 
-    fprintf(stderr, "parent1: %"PRId64", name: %s\n", parent, name);
-
     if (fs_convert_inode(parent, &parent_inode) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
     }
-    fprintf(stderr, "parent2: %"PRId64", name: %s\n", parent_inode, name);
 
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_stat_dentry_by_pname(parent_inode, &nm, &dentry)) != 0) {
@@ -309,19 +302,18 @@ static void fs_do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
 {
     FSAPIOpendirSession *session;
 
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64", fh: %"PRId64", offset: %"PRId64", size: %"PRId64"\n",
             __LINE__, __FUNCTION__, ino, fi->fh,
             (int64_t)offset, (int64_t)size);
+            */
 
     session = (FSAPIOpendirSession *)fi->fh;
     if (session == NULL) {
         fuse_reply_err(req, EBUSY);
         return;
     }
-
-    logInfo("file: "__FILE__", line: %d, func: %s, offset: %d, length: %d",
-            __LINE__, __FUNCTION__, (int)offset, session->buffer.length);
 
     if (offset < session->buffer.length) {
         fuse_reply_buf(req, session->buffer.data + offset,
@@ -335,10 +327,6 @@ static void fs_do_releasedir(fuse_req_t req, fuse_ino_t ino,
         struct fuse_file_info *fi)
 {
     FSAPIOpendirSession *session;
-
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", fh: %"PRId64,
-            __LINE__, __FUNCTION__, ino, fi->fh);
 
     session = (FSAPIOpendirSession *)fi->fh;
     if (session != NULL) {
@@ -561,6 +549,31 @@ void fs_do_rename(fuse_req_t req, fuse_ino_t oldparent, const char *oldname,
     fuse_reply_err(req, result);
 }
 
+static void fs_do_link(fuse_req_t req, fuse_ino_t ino,
+        fuse_ino_t parent, const char *name)
+{
+    FDIRDEntryInfo dentry;
+    struct fuse_entry_param param;
+    int64_t parent_inode;
+    string_t nm;
+    int result;
+
+    if (fs_convert_inode(parent, &parent_inode) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    FC_SET_STRING(nm, (char *)name);
+    if ((result=fsapi_link_dentry_by_pname(ino, parent_inode,
+                    &nm, fs_api_default_mode(), &dentry)) == 0)
+    {
+        fill_entry_param(&dentry, &param);
+        fuse_reply_entry(req, &param);
+    } else {
+        fuse_reply_err(req, result);
+    }
+}
+
 static void fs_do_symlink(fuse_req_t req, const char *link,
         fuse_ino_t parent, const char *name)
 {
@@ -583,7 +596,7 @@ static void fs_do_symlink(fuse_req_t req, const char *link,
     FC_SET_STRING(lk, (char *)link);
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_symlink_dentry_by_pname(&lk, parent_inode,
-                    &nm, 0660, &dentry)) == 0)
+                    &nm, fs_api_default_mode(), &dentry)) == 0)
     {
         fill_entry_param(&dentry, &param);
         fuse_reply_entry(req, &param);
@@ -919,6 +932,7 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->mkdir   = fs_do_mkdir;
     ops->rmdir   = fs_do_rmdir;
     ops->unlink  = fs_do_unlink;
+    ops->link    = fs_do_link;
     ops->symlink = fs_do_symlink;
     ops->readlink = fs_do_readlink;
     ops->rename  = fs_do_rename;
