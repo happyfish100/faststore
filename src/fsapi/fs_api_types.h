@@ -11,6 +11,7 @@
 
 typedef struct fs_api_opendir_session {
     FDIRClientDentryArray array;
+    int btype;   //buffer type
     FastBuffer buffer;
 } FSAPIOpendirSession;
 

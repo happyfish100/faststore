@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
     char *in_buff;
     int write_bytes;
     int read_bytes;
+    int inc_alloc;
 
     if (argc < 2) {
         usage(argv);
@@ -98,7 +99,8 @@ int main(int argc, char *argv[])
 
     fs_calc_block_hashcode(&bs_key.block);
     if ((result=fs_client_proto_slice_write(&g_fs_client_vars.
-                    client_ctx, &bs_key, out_buff, &write_bytes)) != 0)
+                    client_ctx, &bs_key, out_buff,
+		    &write_bytes, &inc_alloc)) != 0)
     {
         return result;
     }
