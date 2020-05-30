@@ -8,8 +8,8 @@
 #include "fastcommon/sched_thread.h"
 #include "fs_fuse_wrapper.h"
 
-#define FS_ATTR_TIMEOUT  1.0
-#define FS_ENTRY_TIMEOUT 1.0
+#define FS_ATTR_TIMEOUT  5.0
+#define FS_ENTRY_TIMEOUT 5.0
 
 static struct fast_mblock_man fh_allocator;
 
@@ -204,6 +204,9 @@ static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     string_t nm;
     struct fuse_entry_param param;
 
+    logInfo("file: "__FILE__", line: %d, func: %s, parent: %"PRId64", name: %s(%d)",
+            __LINE__, __FUNCTION__, parent, name, (int)strlen(name));
+
     if (fs_convert_inode(parent, &parent_inode) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
@@ -373,13 +376,16 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
     int64_t new_inode;
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
+
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "inode: %"PRId64", mask: %d",
+            "inode: %"PRId64", mask: %o",
             __LINE__, __FUNCTION__, new_inode, mask);
 
     fuse_reply_err(req, 0);
@@ -393,6 +399,9 @@ static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
     string_t nm;
     FDIRDEntryInfo dentry;
     struct fuse_entry_param param;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "parent ino: %"PRId64, __LINE__, __FUNCTION__, parent);
 
     if (fs_convert_inode(parent, &parent_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -443,6 +452,9 @@ static void do_mknod(fuse_req_t req, fuse_ino_t parent,
     string_t nm;
     FDIRDEntryInfo dentry;
     struct fuse_entry_param param;
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "parent ino: %"PRId64, __LINE__, __FUNCTION__, parent);
 
     if (fs_convert_inode(parent, &parent_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -502,18 +514,16 @@ static int remove_dentry(fuse_ino_t parent, const char *name)
 static void fs_do_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
     int result;
-    if ((result=remove_dentry(parent, name)) != 0) {
-        result = ENOENT;
-    }
+
+    result = remove_dentry(parent, name);
     fuse_reply_err(req, result);
 }
 
 static void fs_do_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
 {
     int result;
-    if ((result=remove_dentry(parent, name)) != 0) {
-        result = ENOENT;
-    }
+
+    result = remove_dentry(parent, name);
     fuse_reply_err(req, result);
 }
 
@@ -644,15 +654,14 @@ static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
     int result;
     FDIRDEntryInfo dentry;
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", fh: %"PRId64", O_APPEND flag: %d",
+            __LINE__, __FUNCTION__, ino, fi->fh, (fi->flags & O_APPEND));
+
     if ((result=fsapi_stat_dentry_by_inode(ino, &dentry)) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
     }
-
-
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", fh: %"PRId64", O_APPEND flag: %d",
-            __LINE__, __FUNCTION__, ino, fi->fh, (fi->flags & O_APPEND));
 
     if ((result=do_open(req, &dentry, fi)) != 0) {
         fuse_reply_err(req, result);

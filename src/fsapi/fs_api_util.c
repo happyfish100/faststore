@@ -21,12 +21,15 @@ int fsapi_remove_dentry_by_pname_ex(FSAPIContext *ctx,
     }
 
     if (S_ISREG(dentry.stat.mode)) {
-        if ((result=fs_unlink_file(ctx->contexts.fs, dentry.inode,
-                        dentry.stat.size)) == 0)
-        {
-            result = fdir_client_remove_dentry_by_pname(
-                    ctx->contexts.fdir, &ctx->ns, &pname);
-        }
+        result = fs_unlink_file(ctx->contexts.fs, dentry.inode,
+                dentry.stat.size);
+    } else {
+        result = 0;
+    }
+
+    if (result == 0) {
+        result = fdir_client_remove_dentry_by_pname(
+                ctx->contexts.fdir, &ctx->ns, &pname);
     }
     return result;
 }
