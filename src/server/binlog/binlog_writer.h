@@ -3,22 +3,48 @@
 #ifndef _BINLOG_WRITER_H_
 #define _BINLOG_WRITER_H_
 
+#include "fastcommon/fc_queue.h"
 #include "binlog_types.h"
+
+typedef struct binlog_writer_buffer {
+    BufferInfo bf;
+    struct binlog_writer_buffer *next;
+} BinlogWriterBuffer;
+
+typedef struct {
+    char *filepath;
+    char *filename;
+    int binlog_index;
+    int binlog_compress_index;
+    int file_size;
+    int fd;
+    ServerBinlogBuffer binlog_buffer;
+    struct fast_mblock_man mblock;
+    struct fc_queue queue;
+    volatile bool thread_running;
+} BinlogWriterContext;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-extern struct common_blocked_queue *g_binlog_writer_queue;
+int binlog_writer_init(BinlogWriterContext *writer,
+        const char *filepath, const int max_record_size);
 
-int binlog_writer_init();
-void binlog_writer_finish();
+void binlog_writer_finish(BinlogWriterContext *writer);
 
-int binlog_get_current_write_index();
-void binlog_get_current_write_position(FSBinlogFilePosition *position);
+int binlog_get_current_write_index(BinlogWriterContext *writer);
+void binlog_get_current_write_position(BinlogWriterContext *writer,
+        FSBinlogFilePosition *position);
 
-#define push_to_binlog_write_queue(rbuffer)  \
-    common_blocked_queue_push(g_binlog_writer_queue, rbuffer)
+static inline BinlogWriterBuffer *binlog_writer_alloc_buffer(
+        BinlogWriterContext *writer)
+{
+    return (BinlogWriterBuffer *)fast_mblock_alloc_object(&writer->mblock);
+}
+
+#define push_to_binlog_write_queue(writer, buffer) \
+    fc_queue_push(&(writer)->queue, buffer)
 
 #ifdef __cplusplus
 }

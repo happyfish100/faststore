@@ -26,21 +26,11 @@
 #define BINLOG_INDEX_ITEM_CURRENT_WRITE     "current_write"
 #define BINLOG_INDEX_ITEM_CURRENT_COMPRESS  "current_compress"
 
-typedef struct {
-    char filename[PATH_MAX];
-    int binlog_index;
-    int binlog_compress_index;
-    int file_size;
-    int fd;
-    ServerBinlogBuffer binlog_buffer;
-    struct common_blocked_queue queue;
-} BinlogWriterContext;
+#define GET_BINLOG_FILENAME(writer) \
+    sprintf(writer->filename, "%s/%s"BINLOG_FILE_EXT_FMT,  \
+            writer->filepath, BINLOG_FILE_PREFIX, writer->binlog_index)
 
-static BinlogWriterContext writer_context = {{'\0'}, -1, 0, 0, -1};
-static volatile bool write_thread_running = false;
-struct common_blocked_queue *g_binlog_writer_queue = NULL;
-
-static int write_to_binlog_index_file()
+static int write_to_binlog_index_file(BinlogWriterContext *writer)
 {
     char full_filename[PATH_MAX];
     char buff[256];
@@ -48,14 +38,14 @@ static int write_to_binlog_index_file()
     int len;
 
     snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", DATA_PATH_STR, BINLOG_INDEX_FILENAME);
+            "%s/%s", writer->filepath, BINLOG_INDEX_FILENAME);
 
     len = sprintf(buff, "%s=%d\n"
             "%s=%d\n",
             BINLOG_INDEX_ITEM_CURRENT_WRITE,
-            writer_context.binlog_index,
+            writer->binlog_index,
             BINLOG_INDEX_ITEM_CURRENT_COMPRESS,
-            writer_context.binlog_compress_index);
+            writer->binlog_compress_index);
     if ((result=safeWriteToFile(full_filename, buff, len)) != 0) {
         logError("file: "__FILE__", line: %d, "
             "write to file \"%s\" fail, "
@@ -67,18 +57,18 @@ static int write_to_binlog_index_file()
     return result;
 }
 
-static int get_binlog_index_from_file()
+static int get_binlog_index_from_file(BinlogWriterContext *writer)
 {
     char full_filename[PATH_MAX];
     IniContext ini_context;
     int result;
 
     snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", DATA_PATH_STR, BINLOG_INDEX_FILENAME);
+            "%s/%s", writer->filepath, BINLOG_INDEX_FILENAME);
     if (access(full_filename, F_OK) != 0) {
         if (errno == ENOENT) {
-            writer_context.binlog_index = 0;
-            return write_to_binlog_index_file();
+            writer->binlog_index = 0;
+            return write_to_binlog_index_file(writer);
         }
     }
 
@@ -89,40 +79,39 @@ static int get_binlog_index_from_file()
         return result;
     }
 
-    writer_context.binlog_index = iniGetIntValue(NULL,
+    writer->binlog_index = iniGetIntValue(NULL,
             BINLOG_INDEX_ITEM_CURRENT_WRITE, &ini_context, 0);
-    writer_context.binlog_compress_index = iniGetIntValue(NULL,
+    writer->binlog_compress_index = iniGetIntValue(NULL,
             BINLOG_INDEX_ITEM_CURRENT_COMPRESS, &ini_context, 0);
 
     iniFreeContext(&ini_context);
     return 0;
 }
 
-static int open_writable_binlog()
+static int open_writable_binlog(BinlogWriterContext *writer)
 {
-    if (writer_context.fd >= 0) {
-        close(writer_context.fd);
+    if (writer->fd >= 0) {
+        close(writer->fd);
     }
 
-    GET_BINLOG_FILENAME(writer_context.filename, sizeof(writer_context.
-                filename), writer_context.binlog_index);
-    writer_context.fd = open(writer_context.filename,
+    GET_BINLOG_FILENAME(writer);
+    writer->fd = open(writer->filename,
             O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (writer_context.fd < 0) {
+    if (writer->fd < 0) {
         logError("file: "__FILE__", line: %d, "
                 "open file \"%s\" fail, "
                 "errno: %d, error info: %s",
-                __LINE__, writer_context.filename,
+                __LINE__, writer->filename,
                 errno, STRERROR(errno));
         return errno != 0 ? errno : EACCES;
     }
 
-    writer_context.file_size = lseek(writer_context.fd, 0, SEEK_END);
-    if (writer_context.file_size < 0) {
+    writer->file_size = lseek(writer->fd, 0, SEEK_END);
+    if (writer->file_size < 0) {
         logError("file: "__FILE__", line: %d, "
                 "lseek file \"%s\" fail, "
                 "errno: %d, error info: %s",
-                __LINE__, writer_context.filename,
+                __LINE__, writer->filename,
                 errno, STRERROR(errno));
         return errno != 0 ? errno : EIO;
     }
@@ -130,265 +119,290 @@ static int open_writable_binlog()
     return 0;
 }
 
-static int open_next_binlog()
+static int open_next_binlog(BinlogWriterContext *writer)
 {
-    GET_BINLOG_FILENAME(writer_context.filename, sizeof(writer_context.
-                filename), writer_context.binlog_index);
-    if (access(writer_context.filename, F_OK) == 0) {
+    GET_BINLOG_FILENAME(writer);
+    if (access(writer->filename, F_OK) == 0) {
         char bak_filename[PATH_MAX];
         char date_str[32];
 
-        sprintf(bak_filename, "%s.%s", writer_context.filename,
+        sprintf(bak_filename, "%s.%s", writer->filename,
                 formatDatetime(g_current_time, "%Y%m%d%H%M%S",
                     date_str, sizeof(date_str)));
-        if (rename(writer_context.filename, bak_filename) == 0) { 
+        if (rename(writer->filename, bak_filename) == 0) { 
             logWarning("file: "__FILE__", line: %d, "
                     "binlog file %s exist, rename to %s",
-                    __LINE__, writer_context.filename, bak_filename);
+                    __LINE__, writer->filename, bak_filename);
         } else {
             logError("file: "__FILE__", line: %d, "
                     "rename binlog %s to backup %s fail, "
                     "errno: %d, error info: %s",
-                    __LINE__, writer_context.filename, bak_filename,
+                    __LINE__, writer->filename, bak_filename,
                     errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
     }
 
-    return open_writable_binlog();
+    return open_writable_binlog(writer);
 }
 
-static int do_write_to_file(char *buff, const int len)
+static int do_write_to_file(BinlogWriterContext *writer,
+        char *buff, const int len)
 {
     int result;
 
-    if (fc_safe_write(writer_context.fd, buff, len) != len) {
+    if (fc_safe_write(writer->fd, buff, len) != len) {
         result = errno != 0 ? errno : EIO;
         logError("file: "__FILE__", line: %d, "
                 "write to binlog file \"%s\" fail, fd: %d, "
                 "errno: %d, error info: %s",
-                __LINE__, writer_context.filename,
-                writer_context.fd, result, STRERROR(result));
+                __LINE__, writer->filename,
+                writer->fd, result, STRERROR(result));
         return result;
-    } else if (fsync(writer_context.fd) != 0) {
+    }
+
+    if (fsync(writer->fd) != 0) {
         result = errno != 0 ? errno : EIO;
         logError("file: "__FILE__", line: %d, "
                 "fsync to binlog file \"%s\" fail, "
                 "errno: %d, error info: %s",
-                __LINE__, writer_context.filename,
+                __LINE__, writer->filename,
                 result, STRERROR(result));
         return result;
     }
 
-    writer_context.file_size += len;
+    writer->file_size += len;
     return 0;
 }
 
-static int check_write_to_file(char *buff, const int len)
+static int check_write_to_file(BinlogWriterContext *writer,
+        char *buff, const int len)
 {
     int result;
 
-    if (writer_context.file_size + len <= BINLOG_FILE_MAX_SIZE) {
-        return do_write_to_file(buff, len);
+    if (writer->file_size + len <= BINLOG_FILE_MAX_SIZE) {
+        return do_write_to_file(writer, buff, len);
     }
 
-    writer_context.binlog_index++;  //binlog rotate
-    if ((result=write_to_binlog_index_file()) == 0) {
-        result = open_next_binlog();
+    writer->binlog_index++;  //binlog rotate
+    if ((result=write_to_binlog_index_file(writer)) == 0) {
+        result = open_next_binlog(writer);
     }
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "open binlog file \"%s\" fail",
-                __LINE__, writer_context.filename);
+                __LINE__, writer->filename);
         return result;
     }
 
-    return do_write_to_file(buff, len);
+    return do_write_to_file(writer, buff, len);
 }
 
-static int binlog_write_to_file()
+static int binlog_write_to_file(BinlogWriterContext *writer)
 {
     int result;
     int len;
 
-    len = BINLOG_BUFFER_LENGTH(writer_context.binlog_buffer);
+    len = BINLOG_BUFFER_LENGTH(writer->binlog_buffer);
     if (len == 0) {
         return 0;
     }
 
-    result = check_write_to_file(writer_context.binlog_buffer.buff, len);
-    writer_context.binlog_buffer.end = writer_context.binlog_buffer.buff;
+    result = check_write_to_file(writer, writer->binlog_buffer.buff, len);
+    writer->binlog_buffer.end = writer->binlog_buffer.buff;
     return result;
 }
 
-int binlog_get_current_write_index()
+int binlog_get_current_write_index(BinlogWriterContext *writer)
 {
-    if (writer_context.binlog_index < 0) {
-        get_binlog_index_from_file();
+    if (writer->binlog_index < 0) {
+        get_binlog_index_from_file(writer);
     }
 
-    return writer_context.binlog_index;
+    return writer->binlog_index;
 }
 
-void binlog_get_current_write_position(FSBinlogFilePosition *position)
+void binlog_get_current_write_position(BinlogWriterContext *writer,
+        FSBinlogFilePosition *position)
 {
-    position->index = writer_context.binlog_index;
-    position->offset = writer_context.file_size;
+    position->index = writer->binlog_index;
+    position->offset = writer->file_size;
 }
 
-static inline int deal_binlog_one_record(ServerBinlogRecordBuffer *rb)
+static inline int deal_binlog_one_record(BinlogWriterContext *writer,
+        BinlogWriterBuffer *wbuffer)
 {
     int result;
 
-    if (rb->buffer.length >= writer_context.binlog_buffer.size / 4) {
-        if (BINLOG_BUFFER_LENGTH(writer_context.binlog_buffer) > 0) {
-            if ((result=binlog_write_to_file()) != 0) {
+    if (wbuffer->bf.length >= writer->binlog_buffer.size / 4) {
+        if (BINLOG_BUFFER_LENGTH(writer->binlog_buffer) > 0) {
+            if ((result=binlog_write_to_file(writer)) != 0) {
                 return result;
             }
         }
 
-        return check_write_to_file(rb->buffer.data, rb->buffer.length);
+        return check_write_to_file(writer,wbuffer->bf.buff,
+                wbuffer->bf.length);
     }
 
-    if (writer_context.file_size + BINLOG_BUFFER_LENGTH(writer_context.
-                binlog_buffer) + rb->buffer.length > BINLOG_FILE_MAX_SIZE)
+    if (writer->file_size + BINLOG_BUFFER_LENGTH(writer->
+                binlog_buffer) + wbuffer->bf.length > BINLOG_FILE_MAX_SIZE)
     {
-        if ((result=binlog_write_to_file()) != 0) {
+        if ((result=binlog_write_to_file(writer)) != 0) {
             return result;
         }
-    } else if (writer_context.binlog_buffer.size - BINLOG_BUFFER_LENGTH(
-                writer_context.binlog_buffer) < rb->buffer.length)
+    } else if (writer->binlog_buffer.size - BINLOG_BUFFER_LENGTH(
+                writer->binlog_buffer) < wbuffer->bf.length)
     {
-        if ((result=binlog_write_to_file()) != 0) {
+        if ((result=binlog_write_to_file(writer)) != 0) {
             return result;
         }
     }
 
-    memcpy(writer_context.binlog_buffer.end,
-            rb->buffer.data, rb->buffer.length);
-    writer_context.binlog_buffer.end += rb->buffer.length;
+    memcpy(writer->binlog_buffer.end,
+            wbuffer->bf.buff, wbuffer->bf.length);
+    writer->binlog_buffer.end += wbuffer->bf.length;
     return 0;
 }
 
-static int deal_binlog_records(struct common_blocked_node *node)
+static int deal_binlog_records(BinlogWriterContext *writer,
+        BinlogWriterBuffer *wb_head)
 {
-    ServerBinlogRecordBuffer *rb;
     int result;
-    static int max_wait_count = 0;
-    int wait_count;
+    BinlogWriterBuffer *wbuffer;
+    BinlogWriterBuffer *deleted;
 
+    wbuffer = wb_head;
     do {
-        rb = (ServerBinlogRecordBuffer *)node->data;
-
-        wait_count = 0;
-        while ((rb->data_version > DATA_CURRENT_VERSION) &&
-                (++wait_count < 100))
-        {
-            usleep(1000);
-        }
-
-        if (wait_count > 0) {
-            if (max_wait_count < wait_count) {
-                max_wait_count = wait_count;
-                logWarning("file: "__FILE__", line: %d, "
-                        "curent write data version: %"PRId64" "
-                        "reach max wait count: %d", __LINE__,
-                        rb->data_version, wait_count);
-            }
-            if (wait_count == 100) {
-                logError("file: "__FILE__", line: %d, "
-                        "wait curent write data version: %"PRId64" "
-                        "timeout", __LINE__, rb->data_version);
-            }
-        }
-
-        if ((result=deal_binlog_one_record(rb)) != 0) {
+        if ((result=deal_binlog_one_record(writer, wbuffer)) != 0) {
             return result;
         }
 
-        rb->release_func(rb);
-        node = node->next;
-    } while (node != NULL);
+        deleted = wbuffer;
+        wbuffer = wbuffer->next;
+        fast_mblock_free_object(&writer->mblock, deleted);
+    } while (wbuffer != NULL);
 
-    return binlog_write_to_file();
+    return binlog_write_to_file(writer);
 }
 
-void binlog_writer_finish()
+void binlog_writer_finish(BinlogWriterContext *writer)
 {
-    struct common_blocked_node *node;
+    BinlogWriterBuffer *wb_head;
     int count;
 
-    if (g_binlog_writer_queue != NULL) {
+    if (writer->filename != NULL) {
         count = 0;
-        while (write_thread_running && ++count < 100) {
+        while (writer->thread_running && ++count < 100) {
             usleep(100 * 1000);
         }
         
-        if (write_thread_running) {
+        if (writer->thread_running) {
             logWarning("file: "__FILE__", line: %d, "
                     "binlog write thread still running, "
                     "exit anyway!", __LINE__);
         }
 
-        node = common_blocked_queue_try_pop_all_nodes(g_binlog_writer_queue);
-        if (node != NULL) {
-            deal_binlog_records(node);
-            common_blocked_queue_free_all_nodes(g_binlog_writer_queue, node);
+        wb_head = (BinlogWriterBuffer *)fc_queue_try_pop_all(&writer->queue);
+        if (wb_head != NULL) {
+            deal_binlog_records(writer, wb_head);
         }
-        g_binlog_writer_queue = NULL;
     }
 
-    if (writer_context.fd >= 0) {
-        close(writer_context.fd);
-        writer_context.fd = -1;
+    if (writer->fd >= 0) {
+        close(writer->fd);
+        writer->fd = -1;
     }
 }
 
 static void *binlog_writer_func(void *arg)
 {
-    struct common_blocked_node *node;
+    BinlogWriterContext *writer;
+    BinlogWriterBuffer *wb_head;
 
-    write_thread_running = true;
-    g_binlog_writer_queue = &writer_context.queue;
+    writer = (BinlogWriterContext *)arg;
+    writer->thread_running = true;
     while (SF_G_CONTINUE_FLAG) {
-        node = common_blocked_queue_pop_all_nodes(g_binlog_writer_queue);
-        if (node == NULL) {
+        wb_head = (BinlogWriterBuffer *)fc_queue_pop_all(&writer->queue);
+        if (wb_head == NULL) {
             continue;
         }
 
-        if (deal_binlog_records(node) != 0) {
+        if (deal_binlog_records(writer, wb_head) != 0) {
             logCrit("file: "__FILE__", line: %d, "
                     "deal_binlog_records fail, program exit!", __LINE__);
             SF_G_CONTINUE_FLAG = false;
         }
-        common_blocked_queue_free_all_nodes(g_binlog_writer_queue, node);
     }
 
-    write_thread_running = false;
+    writer->thread_running = false;
     return NULL;
 }
 
-int binlog_writer_init()
+static int binlog_wbuffer_alloc_init(void *element, void *args)
+{
+    BinlogWriterBuffer *wbuffer;
+
+    wbuffer = (BinlogWriterBuffer *)element;
+    wbuffer->bf.alloc_size = (long)args;
+    wbuffer->bf.buff = (char *)(wbuffer + 1);
+    return 0;
+}
+
+int binlog_writer_init(BinlogWriterContext *writer,
+        const char *filepath, const int max_record_size)
 {
     int result;
+    int path_len;
+    const int alloc_elements_once = 1024;
     pthread_t tid;
 
-    if ((result=binlog_buffer_init(&writer_context.binlog_buffer)) != 0) {
+    if ((result=binlog_buffer_init(&writer->binlog_buffer)) != 0) {
         return result;
     }
 
-    if ((result=common_blocked_queue_init_ex(&writer_context.queue, 10240)) != 0) {
-        return result;
-    }
-    if ((result=get_binlog_index_from_file()) != 0) {
+    if ((result=fast_mblock_init_ex2(&writer->mblock, "binlog_wbuffer",
+                    sizeof(BinlogWriterBuffer) + max_record_size,
+                    alloc_elements_once, binlog_wbuffer_alloc_init,
+                    (void *)((long)max_record_size), true,
+                    NULL, NULL, NULL)) != 0)
+    {
         return result;
     }
 
-    if ((result=open_writable_binlog()) != 0) {
+    if ((result=fc_queue_init(&writer->queue, (unsigned long)
+                    (&((BinlogWriterBuffer *)NULL)->next))) != 0)
+    {
         return result;
     }
 
-    return fc_create_thread(&tid, binlog_writer_func, NULL,
+    path_len = strlen(filepath);
+    writer->filepath = (char *)malloc(path_len + 1);
+    if (writer->filepath == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__,
+                path_len + 1);
+        return ENOMEM;
+    }
+    memcpy(writer->filepath, filepath, path_len + 1);
+
+    writer->filename = (char *)malloc(path_len + 32);
+    if (writer->filename == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__,
+                path_len + 32);
+        return ENOMEM;
+    }
+
+    if ((result=get_binlog_index_from_file(writer)) != 0) {
+        return result;
+    }
+
+    if ((result=open_writable_binlog(writer)) != 0) {
+        return result;
+    }
+
+    return fc_create_thread(&tid, binlog_writer_func, writer,
             SF_G_THREAD_STACK_SIZE);
 }

@@ -9,7 +9,10 @@
 #include "../dio/trunk_io_thread.h"
 #include "storage_allocator.h"
 #include "trunk_id_info.h"
+#include "../binlog/binlog_writer.h"
 #include "slice_binlog.h"
+
+#define SLICE_BINLOG_MAX_RECORD_SIZE   256
 
 #define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
 #define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
@@ -23,15 +26,9 @@ typedef struct {
     const char *filename;
 } SliceBinlogReader;
 
-typedef struct {
-    int fd;
-    char filename[PATH_MAX];
-    pthread_mutex_t lock;
-} SliceBinlogWriter;
-
 #define SLICE_BINLOG_FILENAME        "slice_binlog.dat"
 
-static SliceBinlogWriter binlog_writer = {-1, {0}};
+static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
 
 static char *get_slice_binlog_filename(char *full_filename, const int size)
 {
@@ -236,43 +233,37 @@ static int slice_binlog_load(const char *binlog_filename)
 static int init_binlog_writer()
 {
     int result;
+    bool create;
+    char filepath[PATH_MAX];
 
-    if ((result=init_pthread_lock(&binlog_writer.lock)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-            "init_pthread_lock fail, errno: %d, error info: %s",
-            __LINE__, result, STRERROR(result));
+    snprintf(filepath, sizeof(filepath), "%s/slice", DATA_PATH_STR);
+    if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
         return result;
     }
-
-    binlog_writer.fd = open(binlog_writer.filename,
-            O_WRONLY | O_CREAT | O_APPEND, 0644);
-    if (binlog_writer.fd < 0) {
-        logError("file: "__FILE__", line: %d, "
-                "open file \"%s\" fail, "
-                "errno: %d, error info: %s",
-                __LINE__, binlog_writer.filename,
-                errno, STRERROR(errno));
-        return errno != 0 ? errno : EACCES;
+    if (create) {
+        SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
     }
 
-    return 0;
+    return binlog_writer_init(&binlog_writer, filepath,
+            SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 int slice_binlog_init()
 {
     int result;
+    char binlog_filename[PATH_MAX];
 
-    get_slice_binlog_filename(binlog_writer.filename,
-            sizeof(binlog_writer.filename));
-    if (access(binlog_writer.filename, F_OK) != 0) {
+    get_slice_binlog_filename(binlog_filename,
+            sizeof(binlog_filename));
+    if (access(binlog_filename, F_OK) != 0) {
         if (errno != ENOENT) {
             result = errno != 0 ? errno : EPERM;
             logError("file: "__FILE__", line: %d, "
                     "access file %s fail, errno: %d, error info: %s",
-                    __LINE__, binlog_writer.filename, result, STRERROR(result));
+                    __LINE__, binlog_filename, result, STRERROR(result));
             return result;
         }
-    } else if ((result=slice_binlog_load(binlog_writer.filename)) != 0) {
+    } else if ((result=slice_binlog_load(binlog_filename)) != 0) {
         return result;
     }
 
@@ -281,19 +272,8 @@ int slice_binlog_init()
 
 void slice_binlog_destroy()
 {
-    if (binlog_writer.fd >= 0) {
-        close(binlog_writer.fd);
-        binlog_writer.fd = -1;
-    }
+    binlog_writer_finish(&binlog_writer);
 }
-
-/*
-    int ob_index_add_slice(OBSliceEntry *slice);
-
-    int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key);
-
-    int ob_index_delete_block(const FSBlockKey *bkey);
-    */
 
 #define COMMON_FIELD_INDEX_TIMESTAMP   0
 #define COMMON_FIELD_INDEX_OP_TYPE     1
@@ -311,42 +291,16 @@ void slice_binlog_destroy()
 #define ADD_SLICE_EXPECT_FIELD_COUNT          12
 #define ADD_SLICE_MAX_FIELD_COUNT             16
 
-static int slice_binlog_write(const char *buff, const int len)
-{
-    int result;
-
-    PTHREAD_MUTEX_LOCK(&binlog_writer.lock);
-    do {
-        if (fc_safe_write(binlog_writer.fd, buff, len) != len) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "write to binlog file \"%s\" fail, fd: %d, "
-                    "errno: %d, error info: %s",
-                    __LINE__, binlog_writer.filename,
-                    binlog_writer.fd, result, STRERROR(result));
-            break;
-        } else if (fsync(binlog_writer.fd) != 0) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "fsync to binlog file \"%s\" fail, "
-                    "errno: %d, error info: %s",
-                    __LINE__, binlog_writer.filename,
-                    result, STRERROR(result));
-            break;
-        }
-        result = 0;
-    } while (0);
-    PTHREAD_MUTEX_UNLOCK(&binlog_writer.lock);
-
-    return result;
-}
-
 int slice_binlog_log_add_slice(const OBSliceEntry *slice)
 {
-    int len;
-    char buff[256];
+    BinlogWriterBuffer *wbuffer;
 
-    len = sprintf(buff, "%d %c %c %"PRId64" %"PRId64" %d %d "
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+        return ENOMEM;
+    }
+
+    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
+            "%d %c %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
             (int)g_current_time, SLICE_BINLOG_OP_TYPE_ADD_SLICE,
             slice->type, slice->ob->bkey.oid, slice->ob->bkey.offset,
@@ -354,28 +308,39 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice)
             slice->space.store->index, slice->space.id_info.id,
             slice->space.id_info.subdir, slice->space.offset,
             slice->space.size);
-    return slice_binlog_write(buff, len);
+    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    return 0;
 }
 
 int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key)
 {
-    int len;
-    char buff[128];
+    BinlogWriterBuffer *wbuffer;
 
-    len = sprintf(buff, "%d %c %"PRId64" %"PRId64" %d %d\n",
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+        return ENOMEM;
+    }
+
+    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
+            "%d %c %"PRId64" %"PRId64" %d %d\n",
             (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_SLICE,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
-    return slice_binlog_write(buff, len);
+    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    return 0;
 }
 
 int slice_binlog_log_del_block(const FSBlockKey *bkey)
 {
-    int len;
-    char buff[128];
+    BinlogWriterBuffer *wbuffer;
 
-    len = sprintf(buff, "%d %c %"PRId64" %"PRId64"\n",
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+        return ENOMEM;
+    }
+
+    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
+            "%d %c %"PRId64" %"PRId64"\n",
             (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
-    return slice_binlog_write(buff, len);
+    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    return 0;
 }

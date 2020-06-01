@@ -17,16 +17,16 @@
 
 int server_binlog_init()
 {
+    /*
     int result;
 
-    /*
     if ((result=binlog_pack_init()) != 0) {
         return result;
     }
-    */
     if ((result=binlog_writer_init()) != 0) {
         return result;
     }
+    */
 
 	return 0;
 }
@@ -37,5 +37,4 @@ void server_binlog_destroy()
  
 void server_binlog_terminate()
 {
-    binlog_writer_finish();
 }

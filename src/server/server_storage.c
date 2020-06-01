@@ -42,6 +42,7 @@ int server_storage_init()
 void server_storage_destroy()
 {
     trunk_binlog_destroy();
+    slice_binlog_destroy();
 }
  
 void server_storage_terminate()
