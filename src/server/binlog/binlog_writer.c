@@ -27,8 +27,9 @@
 #define BINLOG_INDEX_ITEM_CURRENT_COMPRESS  "current_compress"
 
 #define GET_BINLOG_FILENAME(writer) \
-    sprintf(writer->filename, "%s/%s"BINLOG_FILE_EXT_FMT,  \
-            writer->filepath, BINLOG_FILE_PREFIX, writer->binlog_index)
+    sprintf(writer->filename, "%s/%s/%s"BINLOG_FILE_EXT_FMT,  \
+            DATA_PATH_STR, writer->subdir_name, BINLOG_FILE_PREFIX, \
+            writer->binlog_index)
 
 static int write_to_binlog_index_file(BinlogWriterContext *writer)
 {
@@ -37,8 +38,8 @@ static int write_to_binlog_index_file(BinlogWriterContext *writer)
     int result;
     int len;
 
-    snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", writer->filepath, BINLOG_INDEX_FILENAME);
+    snprintf(full_filename, sizeof(full_filename), "%s/%s/%s",
+            DATA_PATH_STR, writer->subdir_name, BINLOG_INDEX_FILENAME);
 
     len = sprintf(buff, "%s=%d\n"
             "%s=%d\n",
@@ -63,8 +64,8 @@ static int get_binlog_index_from_file(BinlogWriterContext *writer)
     IniContext ini_context;
     int result;
 
-    snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", writer->filepath, BINLOG_INDEX_FILENAME);
+    snprintf(full_filename, sizeof(full_filename), "%s/%s/%s",
+            DATA_PATH_STR, writer->subdir_name, BINLOG_INDEX_FILENAME);
     if (access(full_filename, F_OK) != 0) {
         if (errno == ENOENT) {
             writer->binlog_index = 0;
@@ -293,6 +294,8 @@ void binlog_writer_finish(BinlogWriterContext *writer)
     int count;
 
     if (writer->filename != NULL) {
+        fc_queue_terminate(&writer->queue);
+
         count = 0;
         while (writer->thread_running && ++count < 100) {
             usleep(100 * 1000);
@@ -300,14 +303,17 @@ void binlog_writer_finish(BinlogWriterContext *writer)
         
         if (writer->thread_running) {
             logWarning("file: "__FILE__", line: %d, "
-                    "binlog write thread still running, "
-                    "exit anyway!", __LINE__);
+                    "%s binlog write thread still running, "
+                    "exit anyway!", __LINE__, writer->subdir_name);
         }
 
         wb_head = (BinlogWriterBuffer *)fc_queue_try_pop_all(&writer->queue);
         if (wb_head != NULL) {
             deal_binlog_records(writer, wb_head);
         }
+
+        free(writer->filename);
+        writer->filename = NULL;
     }
 
     if (writer->fd >= 0) {
@@ -351,10 +357,12 @@ static int binlog_wbuffer_alloc_init(void *element, void *args)
 }
 
 int binlog_writer_init(BinlogWriterContext *writer,
-        const char *filepath, const int max_record_size)
+        const char *subdir_name, const int max_record_size)
 {
     int result;
     int path_len;
+    bool create;
+    char filepath[PATH_MAX];
     const int alloc_elements_once = 1024;
     pthread_t tid;
 
@@ -377,16 +385,17 @@ int binlog_writer_init(BinlogWriterContext *writer,
         return result;
     }
 
-    path_len = strlen(filepath);
-    writer->filepath = (char *)malloc(path_len + 1);
-    if (writer->filepath == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__,
-                path_len + 1);
-        return ENOMEM;
-    }
-    memcpy(writer->filepath, filepath, path_len + 1);
 
+    path_len = snprintf(filepath, sizeof(filepath), "%s/%s",
+            DATA_PATH_STR, subdir_name);
+    if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
+        return result;
+    }
+    if (create) {
+        SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
+    }
+
+    writer->subdir_name = subdir_name;
     writer->filename = (char *)malloc(path_len + 32);
     if (writer->filename == NULL) {
         logError("file: "__FILE__", line: %d, "

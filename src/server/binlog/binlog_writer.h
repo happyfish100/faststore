@@ -12,7 +12,7 @@ typedef struct binlog_writer_buffer {
 } BinlogWriterBuffer;
 
 typedef struct {
-    char *filepath;
+    const char *subdir_name;
     char *filename;
     int binlog_index;
     int binlog_compress_index;

@@ -11,6 +11,8 @@ extern "C" {
     int slice_binlog_init();
     void slice_binlog_destroy();
 
+    int slice_binlog_get_current_write_index();
+
     int slice_binlog_log_add_slice(const OBSliceEntry *slice);
 
     int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key);

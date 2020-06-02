@@ -10,79 +10,33 @@
 #include "storage_allocator.h"
 #include "trunk_id_info.h"
 #include "../binlog/binlog_writer.h"
+#include "../binlog/binlog_loader.h"
 #include "slice_binlog.h"
 
 #define SLICE_BINLOG_MAX_RECORD_SIZE   256
+#define SLICE_BINLOG_SUBDIR_NAME     "slice"
 
 #define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
 #define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
 #define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
 
-typedef struct {
-    int fd;
-    int64_t line_count;
-    BufferInfo buffer;
-    char *current;
-    const char *filename;
-} SliceBinlogReader;
-
-#define SLICE_BINLOG_FILENAME        "slice_binlog.dat"
-
 static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
 
-static char *get_slice_binlog_filename(char *full_filename, const int size)
-{
-    snprintf(full_filename, size, "%s/%s",
-            DATA_PATH_STR, SLICE_BINLOG_FILENAME);
-    return full_filename;
-}
+#define SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
+        line_str, line_count) \
+        BINLOG_GET_FILENAME_LINE_COUNT(r, SLICE_BINLOG_SUBDIR_NAME, \
+        binlog_filename, line_str, line_count)
 
-static int read_data(SliceBinlogReader *reader)
-{
-    int result;
-    int bytes;
-    int remain;
+#define SLICE_PARSE_INT_EX(var, caption, index, endchr, min_val) \
+    BINLOG_PARSE_INT_EX(SLICE_BINLOG_SUBDIR_NAME, var, caption,  \
+            index, endchr, min_val)
 
-    remain = (reader->buffer.buff + reader->buffer.length) - reader->current;
-    if (remain > 0) {
-        memmove(reader->buffer.buff, reader->current, remain);
-    }
-    reader->buffer.length = remain;
+#define SLICE_PARSE_INT(var, index, endchr, min_val)  \
+    BINLOG_PARSE_INT_EX(SLICE_BINLOG_SUBDIR_NAME, var, #var, \
+            index, endchr, min_val)
 
-    bytes = read(reader->fd, reader->buffer.buff + reader->buffer.length,
-            reader->buffer.alloc_size - reader->buffer.length);
-    if (bytes < 0) {
-        result = errno != 0 ? errno : EIO;
-        logError("file: "__FILE__", line: %d, "
-                "read from file %s fail, errno: %d, error info: %s",
-                __LINE__, reader->filename, result, STRERROR(result));
-        return result;
-    } else if (bytes == 0) {
-        return ENOENT;
-    }
-
-    reader->buffer.length += bytes;
-    reader->current = reader->buffer.buff;
-    return 0;
-}
-
-#define PARSE_INTEGER_EX(var, caption, index, endchr, min_val) \
-    do {   \
-        var = strtol(cols[index].str, &endptr, 10);  \
-        if (*endptr != endchr || var < min_val) {    \
-            logError("file: "__FILE__", line: %d, "  \
-                    "binlog file %s, line no: %"PRId64", " \
-                    "invalid %s: %.*s", __LINE__,          \
-                    reader->filename, reader->line_count,  \
-                    caption, cols[index].len, cols[index].str); \
-            return EINVAL;  \
-        }  \
-    } while (0)
-
-#define PARSE_INTEGER(var, index, endchr, min_val)  \
-    PARSE_INTEGER_EX(var, #var, index, endchr, min_val)
-
-static int parse_line(SliceBinlogReader *reader, char *line_end)
+static int slice_parse_line(BinlogReadThreadResult *r,
+        string_t *line, char *line_end)
 {
     /*
 #define MAX_FIELD_COUNT     8
@@ -96,47 +50,52 @@ static int parse_line(SliceBinlogReader *reader, char *line_end)
 
     int result;
     int count;
-    string_t line;
+    int64_t line_count;
     string_t cols[MAX_FIELD_COUNT];
+    char binlog_filename[PATH_MAX];
     char *endptr;
     char op_type;
     int path_index;
     FSTrunkIdInfo id_info;
     int64_t trunk_size;
 
-    line.str = reader->current;
-    line.len = line_end - reader->current;
-    count = split_string_ex(&line, ' ', cols,
+    count = split_string_ex(line, ' ', cols,
             MAX_FIELD_COUNT, false);
     if (count < EXPECT_FIELD_COUNT) {
+        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                line->str, line_count);
         logError("file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", "
                 "field count: %d < %d", __LINE__,
-                reader->filename, reader->line_count,
+                binlog_filename, line_count,
                 count, EXPECT_FIELD_COUNT);
         return EINVAL;
     }
 
     op_type = cols[FIELD_INDEX_OP_TYPE].str[0];
-    PARSE_INTEGER(path_index, FIELD_INDEX_PATH_INDEX, ' ', 0);
+    SLICE_PARSE_INT(path_index, FIELD_INDEX_PATH_INDEX, ' ', 0);
     if (path_index > STORAGE_CFG.max_store_path_index) {
+        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                line->str, line_count);
         logError("file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", "
                 "invalid path_index: %d > max_store_path_index: %d",
-                __LINE__, reader->filename, reader->line_count,
+                __LINE__, binlog_filename, line_count,
                 path_index, STORAGE_CFG.max_store_path_index);
         return EINVAL;
     }
 
-    PARSE_INTEGER_EX(id_info.id, "trunk_id", FIELD_INDEX_TRUNK_ID, ' ', 1);
-    PARSE_INTEGER_EX(id_info.subdir, "subdir", FIELD_INDEX_SUBDIR, ' ', 1);
-    PARSE_INTEGER(trunk_size, FIELD_INDEX_TRUNK_SIZE,
+    SLICE_PARSE_INT_EX(id_info.id, "trunk_id", FIELD_INDEX_TRUNK_ID, ' ', 1);
+    SLICE_PARSE_INT_EX(id_info.subdir, "subdir", FIELD_INDEX_SUBDIR, ' ', 1);
+    SLICE_PARSE_INT(trunk_size, FIELD_INDEX_TRUNK_SIZE,
             '\n', FS_TRUNK_FILE_MIN_SIZE);
     if (trunk_size > FS_TRUNK_FILE_MAX_SIZE) {
+        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                line->str, line_count);
         logError("file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", "
                 "invalid trunk size: %"PRId64, __LINE__,
-                reader->filename, reader->line_count, trunk_size);
+                binlog_filename, line_count, trunk_size);
         return EINVAL;
     }
 
@@ -153,121 +112,42 @@ static int parse_line(SliceBinlogReader *reader, char *line_end)
             return result;
         }
     } else {
+        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                line->str, line_count);
         logError("file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", "
                 "invalid op_type: %c (0x%02x)", __LINE__,
-                reader->filename, reader->line_count,
+                binlog_filename, line_count,
                 op_type, (unsigned char)op_type);
         return EINVAL;
     }
-    */
+*/
 
     return 0;
-}
-
-static int parse_binlog(SliceBinlogReader *reader)
-{
-    int result;
-    char *buff_end;
-    char *line_end;
-
-    buff_end = reader->buffer.buff + reader->buffer.length;
-    while (reader->current < buff_end) {
-        line_end = (char *)memchr(reader->current, '\n',
-                buff_end - reader->current);
-        if (line_end == NULL) {
-            break;
-        }
-
-        reader->line_count++;
-        if ((result=parse_line(reader, line_end)) != 0) {
-            break;
-        }
-
-        reader->current = line_end + 1;
-    }
-
-    return 0;
-}
-
-static int load_data(SliceBinlogReader *reader)
-{
-    int result;
-
-    while ((result=read_data(reader)) == 0) {
-        if ((result=parse_binlog(reader)) != 0) {
-            break;
-        }
-    }
-
-    return result == ENOENT ? 0 : result;
-}
-
-static int slice_binlog_load(const char *binlog_filename)
-{
-    int result;
-    SliceBinlogReader reader;
-
-    if ((result=fc_init_buffer(&reader.buffer, 256 * 1024)) != 0) {
-        return result;
-    }
-
-    reader.line_count = 0;
-    reader.current = reader.buffer.buff;
-    reader.filename = binlog_filename;
-    reader.fd = open(binlog_filename, O_RDONLY);
-    if (reader.fd < 0) {
-        result = errno != 0 ? errno : EACCES;
-        logError("file: "__FILE__", line: %d, "
-                "open file \"%s\" fail, errno: %d, error info: %s",
-                __LINE__, binlog_filename, result, STRERROR(result));
-        return result;
-    }
-
-    result = load_data(&reader);
-    fc_free_buffer(&reader.buffer);
-    close(reader.fd);
-    return result;
 }
 
 static int init_binlog_writer()
 {
-    int result;
-    bool create;
-    char filepath[PATH_MAX];
-
-    snprintf(filepath, sizeof(filepath), "%s/slice", DATA_PATH_STR);
-    if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
-        return result;
-    }
-    if (create) {
-        SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
-    }
-
-    return binlog_writer_init(&binlog_writer, filepath,
+    return binlog_writer_init(&binlog_writer, SLICE_BINLOG_SUBDIR_NAME,
             SLICE_BINLOG_MAX_RECORD_SIZE);
+}
+
+int slice_binlog_get_current_write_index()
+{
+    return binlog_get_current_write_index(&binlog_writer);
 }
 
 int slice_binlog_init()
 {
     int result;
-    char binlog_filename[PATH_MAX];
 
-    get_slice_binlog_filename(binlog_filename,
-            sizeof(binlog_filename));
-    if (access(binlog_filename, F_OK) != 0) {
-        if (errno != ENOENT) {
-            result = errno != 0 ? errno : EPERM;
-            logError("file: "__FILE__", line: %d, "
-                    "access file %s fail, errno: %d, error info: %s",
-                    __LINE__, binlog_filename, result, STRERROR(result));
-            return result;
-        }
-    } else if ((result=slice_binlog_load(binlog_filename)) != 0) {
+    if ((result=init_binlog_writer()) != 0) {
         return result;
     }
 
-    return init_binlog_writer();
+    return binlog_loader_load(SLICE_BINLOG_SUBDIR_NAME,
+                    slice_binlog_get_current_write_index,
+                    slice_parse_line);
 }
 
 void slice_binlog_destroy()

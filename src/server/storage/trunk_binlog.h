@@ -12,6 +12,8 @@ extern "C" {
     int trunk_binlog_init();
     void trunk_binlog_destroy();
 
+    int trunk_binlog_get_current_write_index();
+
     int trunk_binlog_write(const char op_type, const int path_index,
             const FSTrunkIdInfo *id_info, const int64_t file_size);
 
