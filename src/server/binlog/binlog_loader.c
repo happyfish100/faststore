@@ -32,7 +32,7 @@ static int parse_binlog(BinlogParseContext *ctx)
 
         line.str = line_start;
         line.len = line_end - line_start;
-        if ((result=ctx->parse_line(ctx->r, &line, line_end)) != 0) {
+        if ((result=ctx->parse_line(ctx->r, &line)) != 0) {
             break;
         }
 

@@ -48,6 +48,7 @@ typedef struct server_global_vars {
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
 
 #define STORAGE_CFG           g_server_global_vars.storage_cfg
+#define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
 #define DATA_CURRENT_VERSION  g_server_global_vars.data.current_version

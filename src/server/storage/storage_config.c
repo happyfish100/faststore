@@ -99,7 +99,7 @@ static int load_one_path(FSStorageConfig *storage_cfg,
     if (path->str == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, path->len + 1);
-        return result;
+        return ENOMEM;
     }
 
     memcpy(path->str, path_str, path->len + 1);
@@ -415,7 +415,38 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption)
     return 0;
 }
 
-int load_store_path_indexes(FSStorageConfig *storage_cfg,
+static void do_set_paths_by_index(FSStorageConfig *storage_cfg,
+        FSStoragePathArray *parray)
+{
+    FSStoragePathInfo *p;
+    FSStoragePathInfo *end;
+
+    end = parray->paths + parray->count;
+    for (p=parray->paths; p<end; p++) {
+        storage_cfg->paths_by_index.paths[p->store.index] = p;
+    }
+}
+
+static int set_paths_by_index(FSStorageConfig *storage_cfg)
+{
+    int bytes;
+
+    storage_cfg->paths_by_index.count = storage_cfg->max_store_path_index + 1;
+    bytes = sizeof(FSStoragePathInfo *) * storage_cfg->paths_by_index.count;
+    storage_cfg->paths_by_index.paths = (FSStoragePathInfo **)malloc(bytes);
+    if (storage_cfg->paths_by_index.paths == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(storage_cfg->paths_by_index.paths, 0, bytes);
+
+    do_set_paths_by_index(storage_cfg, &storage_cfg->write_cache);
+    do_set_paths_by_index(storage_cfg, &storage_cfg->store_path);
+    return 0;
+}
+
+static int load_store_path_indexes(FSStorageConfig *storage_cfg,
         const char *storage_filename)
 {
     int result;
@@ -441,6 +472,10 @@ int load_store_path_indexes(FSStorageConfig *storage_cfg,
     storage_cfg->max_store_path_index = store_path_index_max();
     if (store_path_index_count() != old_count) {
         result = store_path_index_save();
+    }
+
+    if (result == 0) {
+        result = set_paths_by_index(storage_cfg);
     }
 
     logInfo("old_count: %d, new_count: %d, max_store_path_index: %d",

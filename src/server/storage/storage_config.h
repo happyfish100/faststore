@@ -27,8 +27,14 @@ typedef struct {
 } FSStoragePathArray;
 
 typedef struct {
+    FSStoragePathInfo **paths;
+    int count;
+} FSStoragePathPtrArray;
+
+typedef struct {
     FSStoragePathArray store_path;
     FSStoragePathArray write_cache;
+    FSStoragePathPtrArray paths_by_index;
     int max_store_path_index;  //the max of FSStorePath->index from dat file
 
     struct {

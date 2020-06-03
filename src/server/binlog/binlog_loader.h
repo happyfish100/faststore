@@ -36,8 +36,8 @@
     BINLOG_PARSE_INT_EX(subdir_name, var, #var, index, endchr, min_val)
 
 
-typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r,
-        string_t *line, char *line_end);
+typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r, \
+        string_t *line);
 
 #ifdef __cplusplus
 extern "C" {

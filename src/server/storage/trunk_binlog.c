@@ -31,8 +31,7 @@ static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
     BINLOG_PARSE_INT_EX(TRUNK_BINLOG_SUBDIR_NAME, var, #var, \
             index, endchr, min_val)
 
-static int trunk_parse_line(BinlogReadThreadResult *r,
-        string_t *line, char *line_end)
+static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
 {
 #define MAX_FIELD_COUNT     8
 #define EXPECT_FIELD_COUNT  6
