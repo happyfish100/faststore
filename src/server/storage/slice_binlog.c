@@ -5,6 +5,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
+#include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
 #include "storage_allocator.h"
@@ -68,7 +69,6 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
 {
     FSBlockKey bkey;
     OBSliceEntry *slice;
-    int dec_alloc;
     int64_t line_count;
     char binlog_filename[PATH_MAX];
     char *endptr;
@@ -103,6 +103,7 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
             ADD_SLICE_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
             ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+    fs_calc_block_hashcode(&bkey);
     if ((slice=ob_index_alloc_slice(&bkey)) == NULL) {
         return ENOMEM;
     }
@@ -145,14 +146,13 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
     SLICE_PARSE_INT(slice->space.size,
             ADD_SLICE_FIELD_INDEX_SPACE_SIZE, '\n', 0);
 
-    return ob_index_add_slice(slice, &dec_alloc);
+    return ob_index_add_slice_by_binlog(slice);
 }
 
 static int del_slice(BinlogReadThreadResult *r, string_t *line,
         string_t *cols, const int count)
 {
     FSBlockSliceKeyInfo bs_key;
-    int dec_alloc;
     int64_t line_count;
     char binlog_filename[PATH_MAX];
     char *endptr;
@@ -176,14 +176,14 @@ static int del_slice(BinlogReadThreadResult *r, string_t *line,
             DEL_SLICE_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     SLICE_PARSE_INT_EX(bs_key.slice.length, "slice length",
             DEL_SLICE_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
-    return ob_index_delete_slices(&bs_key, &dec_alloc);
+    fs_calc_block_hashcode(&bs_key.block);
+    return ob_index_delete_slices_by_binlog(&bs_key);
 }
 
 static int del_block(BinlogReadThreadResult *r, string_t *line,
         string_t *cols, const int count)
 {
     FSBlockKey bkey;
-    int dec_alloc;
     int64_t line_count;
     char binlog_filename[PATH_MAX];
     char *endptr;
@@ -203,12 +203,14 @@ static int del_block(BinlogReadThreadResult *r, string_t *line,
             DEL_BLOCK_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
             DEL_BLOCK_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
-    return ob_index_delete_block(&bkey, &dec_alloc);
+    fs_calc_block_hashcode(&bkey);
+    return ob_index_delete_block_by_binlog(&bkey);
 }
 
 static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
 {
     int count;
+    int result;
     int64_t line_count;
     string_t cols[MAX_BINLOG_FIELD_COUNT];
     char binlog_filename[PATH_MAX];
@@ -230,11 +232,14 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
     op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     switch (op_type) {
         case SLICE_BINLOG_OP_TYPE_ADD_SLICE:
-            return add_slice(r, line, cols, count);
+            result = add_slice(r, line, cols, count);
+            break;
         case SLICE_BINLOG_OP_TYPE_DEL_SLICE:
-            return del_slice(r, line, cols, count);
+            result = del_slice(r, line, cols, count);
+            break;
         case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
-            return del_block(r, line, cols, count);
+            result = del_block(r, line, cols, count);
+            break;
         default:
             SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
                     line->str, line_count);
@@ -243,8 +248,22 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
                     "invalid op_type: %c (0x%02x)", __LINE__,
                     binlog_filename, line_count,
                     op_type, (unsigned char)op_type);
-            return EINVAL;
+            result = EINVAL;
+            break;
     }
+
+    if (result != 0) {
+        if (result != EINVAL) {
+            SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                    line->str, line_count);
+            logError("file: "__FILE__", line: %d, "
+                    "binlog file %s, line no: %"PRId64", op_type: %c, "
+                    "add to index fail, errno: %d", __LINE__,
+                    binlog_filename, line_count, op_type, result);
+        }
+    }
+
+    return result;
 }
 
 static int init_binlog_writer()

@@ -24,11 +24,11 @@ int server_storage_init()
         return result;
     }
 
-    if ((result=slice_binlog_init()) != 0) {
+    if ((result=ob_index_init()) != 0) {
         return result;
     }
 
-    if ((result=ob_index_init()) != 0) {
+    if ((result=slice_binlog_init()) != 0) {
         return result;
     }
 

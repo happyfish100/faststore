@@ -13,6 +13,7 @@
                 sizeof(binlog_filename));  \
         fc_get_file_line_count_ex(binlog_filename, r->binlog_position.offset + \
                 (line_str - r->buffer.buff), &line_count); \
+        line_count++;   \
     } while (0)
 
 

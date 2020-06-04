@@ -516,13 +516,23 @@ int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc)
     result = add_slice(ctx, slice->ob, slice, inc_alloc);
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    logInfo("######file: "__FILE__", line: %d, func: %s, ctx: %p",
-            __LINE__, __FUNCTION__, ctx);
-
     if (result == 0) {
         result = slice_binlog_log_add_slice(slice);
     }
     ob_index_free_slice(slice);
+
+    return result;
+}
+
+int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
+{
+    int result;
+    int inc_alloc;
+
+    OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    result = add_slice(ctx, slice->ob, slice, &inc_alloc);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return result;
 }
@@ -635,7 +645,8 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
     return 0;
 }
 
-int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key, int *dec_alloc)
+int ob_index_delete_slices_ex(const FSBlockSliceKeyInfo *bs_key,
+        int *dec_alloc, const bool write_to_binlog)
 {
     OBEntry *ob;
     int result;
@@ -651,13 +662,14 @@ int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key, int *dec_alloc)
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    if (result == 0) {
+    if (write_to_binlog && (result == 0)) {
         result = slice_binlog_log_del_slice(bs_key);
     }
     return result;
 }
 
-int ob_index_delete_block(const FSBlockKey *bkey, int *dec_alloc)
+int ob_index_delete_block_ex(const FSBlockKey *bkey, int *dec_alloc,
+        const bool write_to_binlog)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -688,7 +700,11 @@ int ob_index_delete_block(const FSBlockKey *bkey, int *dec_alloc)
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     if (ob != NULL) {
-        return slice_binlog_log_del_block(bkey);
+        if (write_to_binlog) {
+            return slice_binlog_log_del_block(bkey);
+        } else {
+            return 0;
+        }
     } else {
         return ENOENT;
     }
@@ -754,12 +770,13 @@ static void print_skiplist(OBEntry *ob)
     uniq_skiplist_iterator(ob->slices, &it);
     while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
 
-        if (count <= 1) {
+        ++count;
+        //if (count <= 1)
+        {
             logInfo("%d. slice offset: %d, length: %d, end: %d",
                     count, slice->ssize.offset, slice->ssize.length,
                     slice->ssize.offset + slice->ssize.length);
         }
-        ++count;
     }
 
 
@@ -770,13 +787,13 @@ static void print_skiplist(OBEntry *ob)
     while (node != ob->slices->top) {
         slice = (OBSliceEntry *)node->data;
 
-        --count;
-        if (count <= 1) {
+        //if (count <= 1)
+        {
             logInfo("%d. slice offset: %d, length: %d, end: %d",
                     count, slice->ssize.offset, slice->ssize.length,
                     slice->ssize.offset + slice->ssize.length);
         }
-
+        --count;
         if (count < 0) {
             break;
         }
@@ -904,6 +921,12 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
 
     OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
     sarray->count = 0;
+
+    /*
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "block key: %"PRId64", offset: %"PRId64,
+            __LINE__, __FUNCTION__, bs_key->block.oid, bs_key->block.offset);
+            */
 
     PTHREAD_MUTEX_LOCK(&ctx->lock);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
