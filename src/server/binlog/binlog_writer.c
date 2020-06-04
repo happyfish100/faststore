@@ -243,7 +243,7 @@ static inline int deal_binlog_one_record(BinlogWriterContext *writer,
             }
         }
 
-        return check_write_to_file(writer,wbuffer->bf.buff,
+        return check_write_to_file(writer, wbuffer->bf.buff,
                 wbuffer->bf.length);
     }
 
@@ -395,6 +395,7 @@ int binlog_writer_init(BinlogWriterContext *writer,
         SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
     }
 
+    writer->fd = -1;
     writer->subdir_name = subdir_name;
     writer->filename = (char *)malloc(path_len + 32);
     if (writer->filename == NULL) {

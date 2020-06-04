@@ -348,11 +348,12 @@ static void do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
             return;
         }
     } else if (session->btype != buffer_type) {
-        logError("file: "__FILE__", line: %d, func: %s, "
+        logWarning("file: "__FILE__", line: %d, func: %s, "
                 "ino: %"PRId64", unexpect buffer type: %d != %d",
                 __LINE__, __FUNCTION__, ino, session->btype,
                 buffer_type);
-        fuse_reply_err(req, EBUSY);
+        //fuse_reply_err(req, EBUSY);
+        fuse_reply_buf(req, NULL, 0);
         return;
     }
 

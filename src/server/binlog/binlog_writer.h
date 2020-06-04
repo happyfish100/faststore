@@ -16,8 +16,8 @@ typedef struct {
     char *filename;
     int binlog_index;
     int binlog_compress_index;
-    int file_size;
     int fd;
+    int64_t file_size;
     ServerBinlogBuffer binlog_buffer;
     struct fast_mblock_man mblock;
     struct fc_queue queue;

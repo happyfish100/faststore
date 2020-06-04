@@ -191,9 +191,11 @@ static void slice_free_func(void *ptr, const int delay_seconds)
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
         OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
 
+        /*
         logInfo("free slice3: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
                 slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+                */
 
         fast_mblock_free_object(&ctx->slice_allocator, slice);
     }
