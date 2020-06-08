@@ -16,7 +16,7 @@
 #define FS_CLUSTER_TASK_TYPE_REPLICA_MASTER     2   //[Master] -> slave
 #define FS_CLUSTER_TASK_TYPE_REPLICA_SLAVE      3   //master -> [Slave]
 
-#define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  1
+#define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  2
 #define FS_DEFAULT_TRUNK_FILE_SIZE  (  1 * 1024 * 1024 * 1024LL)
 #define FS_TRUNK_FILE_MIN_SIZE      (256 * 1024 * 1024LL)
 #define FS_TRUNK_FILE_MAX_SIZE      ( 16 * 1024 * 1024 * 1024LL)
@@ -75,16 +75,36 @@ typedef struct fs_binlog_file_position {
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
     char key[FS_REPLICA_KEY_SIZE];  //for slave server
-    char status;                      //the slave status
-    int64_t last_data_version;  //for replication
-    int last_change_version;    //for push server status to the slave
 } FSClusterServerInfo;
 
 typedef struct fs_cluster_server_array {
     FSClusterServerInfo *servers;
     int count;
-    volatile int change_version;
 } FSClusterServerArray;
+
+typedef struct fs_cluster_server_ptr {
+    FSClusterServerInfo *cs;
+    char status;                //the slave status
+    int64_t last_data_version;  //for replication
+    int last_change_version;    //for push server status to the slave
+} FSClusterServerPtr;
+
+typedef struct fs_cluster_server_ptr_array {
+    FSClusterServerPtr *servers;
+    int count;
+} FSClusterServerPtrArray;
+
+typedef struct fs_cluster_data_group_info {
+    int data_group_id;
+    int last_synced_version;
+    volatile int change_version;
+    FSClusterServerPtrArray server_ptr_array;
+} FSClusterDataGroupInfo;
+
+typedef struct fs_cluster_data_group_array {
+    FSClusterDataGroupInfo *groups;
+    int count;
+} FSClusterDataGroupArray;
 
 typedef struct fs_replication_context {
     struct {

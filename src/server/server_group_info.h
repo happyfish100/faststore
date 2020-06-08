@@ -21,10 +21,13 @@ int server_group_info_setup_sync_to_file_task();
 static inline void server_group_info_set_status(FSClusterServerInfo *cs,
         const int status)
 {
+    //TODO
+    /*
     if (cs->status != status) {
         cs->status = status;
         __sync_add_and_fetch(&CLUSTER_SERVER_ARRAY.change_version, 1);
     }
+    */
 }
 
 #ifdef __cplusplus

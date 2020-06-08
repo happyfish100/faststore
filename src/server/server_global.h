@@ -18,6 +18,7 @@ typedef struct server_global_vars {
         } config;
 
         FSClusterServerArray server_array;
+        FSClusterDataGroupArray data_group_array;
 
         SFContext sf_context;  //for cluster communication
     } cluster;
@@ -42,6 +43,7 @@ typedef struct server_global_vars {
 #define CLUSTER_MYSELF_PTR    g_server_global_vars.cluster.myself
 
 #define CLUSTER_SERVER_ARRAY  g_server_global_vars.cluster.server_array
+#define CLUSTER_DATA_RGOUP_ARRAY g_server_global_vars.cluster.data_group_array
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 

@@ -971,6 +971,40 @@ int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
     return 0;
 }
 
+FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
+        const int server_id)
+{
+    FSServerDataMapping target;
+    FSServerDataMapping *mapping;
+
+    target.server_id = server_id;
+    mapping = (FSServerDataMapping *)bsearch(&target,
+            cluster_cfg->server_data_mappings.mappings,
+            cluster_cfg->server_data_mappings.count,
+            sizeof(FSServerDataMapping),
+            compare_server_data_mapping);
+    return (mapping != NULL) ?  &mapping->data_group : NULL;
+}
+
+int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
+        const int server_id)
+{
+    FSServerDataMapping target;
+    FSServerDataMapping *mapping;
+
+    target.server_id = server_id;
+    mapping = (FSServerDataMapping *)bsearch(&target,
+            cluster_cfg->server_data_mappings.mappings,
+            cluster_cfg->server_data_mappings.count,
+            sizeof(FSServerDataMapping),
+            compare_server_data_mapping);
+    if (mapping != NULL && mapping->data_group.count > 0) {
+        return mapping->data_group.ids[mapping->data_group.count - 1];
+    } else {
+        return -1;
+    }
+}
+
 int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
         IniContext *ini_context, const char *cfg_filename)
 {

@@ -86,6 +86,12 @@ extern "C" {
             const int server_id, FCServerInfo **servers,
             const int size, int *count);
 
+    FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
+            const int server_id);
+
+    int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
+            const int server_id);
+
     void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 
 #ifdef __cplusplus

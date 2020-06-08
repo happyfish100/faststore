@@ -13,15 +13,106 @@
 #include "server_global.h"
 #include "server_group_info.h"
 
-#define SERVER_GROUP_INFO_FILENAME                "server_group.info"
+#define DATA_GROUP_INFO_SUBDIR_NAME               "cluster"
+#define DATA_GROUP_INFO_FILENAME_FORMAT           "data_group%05d.info"
 
 #define SERVER_SECTION_PREFIX_STR                 "server-"
 #define SERVER_GROUP_INFO_ITEM_STATUS             "status"
-#define SERVER_GROUP_INFO_ITEM_LAST_DATA_VERSION  "last_data_version"
 
-static int server_group_info_write_to_file();
-static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
-        int *err_no);
+static int server_group_info_write_to_file(FSClusterDataGroupInfo *group);
+
+static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
+{
+    FSServerGroup *server_group;
+    FCServerInfo **pp;
+    FCServerInfo **end;
+    FSClusterServerPtr *sp;
+    int bytes;
+
+    if ((server_group=fs_cluster_cfg_get_server_group(&CLUSTER_CONFIG_CTX,
+                    group->data_group_id - 1)) == NULL)
+    {
+        return ENOENT;
+    }
+
+
+    bytes = sizeof(FSClusterServerPtr) * server_group->server_array.count;
+    group->server_ptr_array.servers = (FSClusterServerPtr *)malloc(bytes);
+    if (group->server_ptr_array.servers == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(group->server_ptr_array.servers, 0, bytes);
+    group->server_ptr_array.count = server_group->server_array.count;
+
+    end = server_group->server_array.servers + server_group->server_array.count;
+    for (pp=server_group->server_array.servers,
+            sp=group->server_ptr_array.servers;
+            pp < end; pp++, sp++)
+    {
+        sp->cs = fs_get_server_by_id((*pp)->id);
+    }
+
+    return 0;
+}
+
+static int init_cluster_data_group_array(const char *filename)
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *end;
+    int result;
+    int bytes;
+    int count;
+    int data_group_id;
+    int i;
+
+    if ((id_array=fs_cluster_cfg_get_server_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, no data group",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    if ((count=fs_cluster_cfg_get_server_max_group_id(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id)) <= 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, no data group",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    bytes = sizeof(FSClusterDataGroupInfo) * count;
+    CLUSTER_DATA_RGOUP_ARRAY.groups = (FSClusterDataGroupInfo *)malloc(bytes);
+    if (CLUSTER_DATA_RGOUP_ARRAY.groups == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
+
+    end = CLUSTER_DATA_RGOUP_ARRAY.groups + count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+        group->data_group_id = (group - CLUSTER_DATA_RGOUP_ARRAY.groups) + 1;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        if ((result=init_cluster_server_ptr_array(
+                        CLUSTER_DATA_RGOUP_ARRAY.groups +
+                        (data_group_id - 1))) != 0)
+        {
+            return result;
+        }
+    }
+
+    CLUSTER_DATA_RGOUP_ARRAY.count = count;
+    return 0;
+}
 
 static int init_cluster_server_array(const char *filename)
 {
@@ -31,16 +122,12 @@ static int init_cluster_server_array(const char *filename)
     int count;
     FSClusterServerInfo *cs;
     FCServerInfo *servers[MAX_GROUP_SERVERS];
-    FCServerInfo *myself;
     FCServerInfo **server;
     FCServerInfo **end;
 
-    if ((myself=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
-        return result;
-    }
-
     if ((result=fs_cluster_cfg_get_group_servers(&CLUSTER_CONFIG_CTX,
-                    myself->id, servers, MAX_GROUP_SERVERS, &count)) != 0)
+                    CLUSTER_MYSELF_PTR->server->id, servers,
+                    MAX_GROUP_SERVERS, &count)) != 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "get group servers fail, errno: %d, error info: %s",
@@ -161,42 +248,49 @@ FSClusterServerInfo *fs_get_server_by_id(const int server_id)
     return NULL;
 }
 
-static int load_servers_from_ini_ctx(IniContext *ini_context)
+static void get_server_group_filename(FSClusterDataGroupInfo *group,
+        char *full_filename, const int size)
 {
-    FSClusterServerInfo *cs;
-    FSClusterServerInfo *end;
+    snprintf(full_filename, size, "%s/%s/"DATA_GROUP_INFO_FILENAME_FORMAT,
+            DATA_PATH_STR, DATA_GROUP_INFO_SUBDIR_NAME, group->data_group_id);
+}
+
+static int load_servers_from_ini_ctx(IniContext *ini_context,
+        FSClusterServerPtrArray *server_ptr_array)
+{
+    FSClusterServerPtr *sp;
+    FSClusterServerPtr *end;
     char section_name[64];
 
-    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
-    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+    end = server_ptr_array->servers + server_ptr_array->count;
+    for (sp=server_ptr_array->servers; sp<end; sp++) {
         sprintf(section_name, "%s%d",
                 SERVER_SECTION_PREFIX_STR,
-                cs->server->id);
-        cs->status = iniGetIntValue(section_name,
+                sp->cs->server->id);
+        sp->status = iniGetIntValue(section_name,
                 SERVER_GROUP_INFO_ITEM_STATUS, ini_context,
                 FS_SERVER_STATUS_INIT);
 
-        if (cs->status == FS_SERVER_STATUS_SYNCING ||
-                cs->status == FS_SERVER_STATUS_ACTIVE)
+        if (sp->status == FS_SERVER_STATUS_SYNCING ||
+                sp->status == FS_SERVER_STATUS_ACTIVE)
         {
-            cs->status = FS_SERVER_STATUS_OFFLINE;
+            sp->status = FS_SERVER_STATUS_OFFLINE;
         }
     }
 
     return 0;
 }
 
-static int load_server_group_info_from_file()
+static int load_server_group_info_from_file(FSClusterDataGroupInfo *group)
 {
     char full_filename[PATH_MAX];
     IniContext ini_context;
     int result;
 
-    snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", DATA_PATH_STR, SERVER_GROUP_INFO_FILENAME);
+    get_server_group_filename(group, full_filename, sizeof(full_filename));
     if (access(full_filename, F_OK) != 0) {
         if (errno == ENOENT) {
-            return server_group_info_write_to_file();
+            return server_group_info_write_to_file(group);
         }
     }
 
@@ -207,51 +301,81 @@ static int load_server_group_info_from_file()
         return result;
     }
 
-    result = load_servers_from_ini_ctx(&ini_context);
+    result = load_servers_from_ini_ctx(&ini_context, &group->server_ptr_array);
     iniFreeContext(&ini_context);
 
     return result;
 }
 
-int server_group_info_init(const char *cluster_config_filename)
+static int load_server_groups()
 {
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *end;
     int result;
 
-    if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
+    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+        if ((result=load_server_group_info_from_file(group)) != 0) {
+            return result;
+        }
+    }
+
+    return 0;
+}
+
+int server_group_info_init(const char *cluster_config_filename)
+{
+    char filepath[PATH_MAX];
+    int result;
+    bool create;
+
+    snprintf(filepath, sizeof(filepath), "%s/%s",
+            DATA_PATH_STR, DATA_GROUP_INFO_SUBDIR_NAME);
+    if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
         return result;
     }
-    if ((result=load_server_group_info_from_file()) != 0) {
-        return result;
+    if (create) {
+        SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
     }
 
     if ((result=find_myself_in_cluster_config(cluster_config_filename)) != 0) {
         return result;
     }
 
+    if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=init_cluster_data_group_array(cluster_config_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=load_server_groups()) != 0) {
+        return result;
+    }
+
     return 0;
 }
 
-static int server_group_info_write_to_file()
+static int server_group_info_write_to_file(FSClusterDataGroupInfo *group)
 {
     char full_filename[PATH_MAX];
     char buff[8 * 1024];
     char *p;
-    FSClusterServerInfo *cs;
-    FSClusterServerInfo *end;
+    FSClusterServerPtr *sp;
+    FSClusterServerPtr *end;
     int result;
     int len;
 
-    snprintf(full_filename, sizeof(full_filename),
-            "%s/%s", DATA_PATH_STR, SERVER_GROUP_INFO_FILENAME);
-
+    get_server_group_filename(group, full_filename, sizeof(full_filename));
     p = buff;
-    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
-    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+    end = group->server_ptr_array.servers + group->server_ptr_array.count;
+    for (sp=group->server_ptr_array.servers; sp<end; sp++) {
         p += sprintf(p,
                 "[%s%d]\n"
                 "%s=%d\n\n",
-                SERVER_SECTION_PREFIX_STR, cs->server->id,
-                SERVER_GROUP_INFO_ITEM_STATUS, cs->status
+                SERVER_SECTION_PREFIX_STR, sp->cs->server->id,
+                SERVER_GROUP_INFO_ITEM_STATUS, sp->status
                 );
     }
 
@@ -269,14 +393,24 @@ static int server_group_info_write_to_file()
 
 static int server_group_info_sync_to_file(void *args)
 {
-    static int last_synced_version = 0;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *end;
+    int result;
 
-    if (last_synced_version == CLUSTER_SERVER_ARRAY.change_version) {
-        return 0;
+    result = 0;
+    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+        if (group->last_synced_version == group->change_version) {
+            continue;
+        }
+
+        group->last_synced_version = group->change_version;
+        if ((result=server_group_info_write_to_file(group)) != 0) {
+            break;
+        }
     }
 
-    last_synced_version = CLUSTER_SERVER_ARRAY.change_version;
-    return server_group_info_write_to_file();
+    return result;
 }
 
 int server_group_info_setup_sync_to_file_task()
