@@ -13,22 +13,19 @@
 #include "trunk_id_info.h"
 #include "trunk_binlog.h"
 
-#define TRUNK_BINLOG_MAX_RECORD_SIZE   128
-#define TRUNK_BINLOG_SUBDIR_NAME      "trunk"
-
 static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
 
 #define TRUNK_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
-        BINLOG_GET_FILENAME_LINE_COUNT(r, TRUNK_BINLOG_SUBDIR_NAME, \
+        BINLOG_GET_FILENAME_LINE_COUNT(r, FS_TRUNK_BINLOG_SUBDIR_NAME, \
         binlog_filename, line_str, line_count)
 
 #define TRUNK_PARSE_INT_EX(var, caption, index, endchr, min_val) \
-    BINLOG_PARSE_INT_EX(TRUNK_BINLOG_SUBDIR_NAME, var, caption,  \
+    BINLOG_PARSE_INT_EX(FS_TRUNK_BINLOG_SUBDIR_NAME, var, caption,  \
             index, endchr, min_val)
 
 #define TRUNK_PARSE_INT(var, index, endchr, min_val)  \
-    BINLOG_PARSE_INT_EX(TRUNK_BINLOG_SUBDIR_NAME, var, #var, \
+    BINLOG_PARSE_INT_EX(FS_TRUNK_BINLOG_SUBDIR_NAME, var, #var, \
             index, endchr, min_val)
 
 static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
@@ -126,8 +123,8 @@ int trunk_binlog_get_current_write_index()
 
 static int init_binlog_writer()
 {
-    return binlog_writer_init(&binlog_writer, TRUNK_BINLOG_SUBDIR_NAME,
-            TRUNK_BINLOG_MAX_RECORD_SIZE);
+    return binlog_writer_init(&binlog_writer, FS_TRUNK_BINLOG_SUBDIR_NAME,
+            FS_TRUNK_BINLOG_MAX_RECORD_SIZE);
 }
 
 int trunk_binlog_init()
@@ -137,7 +134,7 @@ int trunk_binlog_init()
         return result;
     }
 
-    return binlog_loader_load(TRUNK_BINLOG_SUBDIR_NAME,
+    return binlog_loader_load(FS_TRUNK_BINLOG_SUBDIR_NAME,
                     trunk_binlog_get_current_write_index,
                     trunk_parse_line);
 }

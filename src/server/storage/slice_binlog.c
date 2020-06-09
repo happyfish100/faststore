@@ -14,9 +14,6 @@
 #include "../binlog/binlog_loader.h"
 #include "slice_binlog.h"
 
-#define SLICE_BINLOG_MAX_RECORD_SIZE   256
-#define SLICE_BINLOG_SUBDIR_NAME     "slice"
-
 #define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
 #define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
 #define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
@@ -53,15 +50,15 @@ static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
 
 #define SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
-        BINLOG_GET_FILENAME_LINE_COUNT(r, SLICE_BINLOG_SUBDIR_NAME, \
+        BINLOG_GET_FILENAME_LINE_COUNT(r, FS_SLICE_BINLOG_SUBDIR_NAME, \
         binlog_filename, line_str, line_count)
 
 #define SLICE_PARSE_INT_EX(var, caption, index, endchr, min_val) \
-    BINLOG_PARSE_INT_EX(SLICE_BINLOG_SUBDIR_NAME, var, caption,  \
+    BINLOG_PARSE_INT_EX(FS_SLICE_BINLOG_SUBDIR_NAME, var, caption,  \
             index, endchr, min_val)
 
 #define SLICE_PARSE_INT(var, index, endchr, min_val)  \
-    BINLOG_PARSE_INT_EX(SLICE_BINLOG_SUBDIR_NAME, var, #var, \
+    BINLOG_PARSE_INT_EX(FS_SLICE_BINLOG_SUBDIR_NAME, var, #var, \
             index, endchr, min_val)
 
 static int add_slice(BinlogReadThreadResult *r, string_t *line,
@@ -268,8 +265,8 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
 
 static int init_binlog_writer()
 {
-    return binlog_writer_init(&binlog_writer, SLICE_BINLOG_SUBDIR_NAME,
-            SLICE_BINLOG_MAX_RECORD_SIZE);
+    return binlog_writer_init(&binlog_writer, FS_SLICE_BINLOG_SUBDIR_NAME,
+            FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 int slice_binlog_get_current_write_index()
@@ -285,7 +282,7 @@ int slice_binlog_init()
         return result;
     }
 
-    return binlog_loader_load(SLICE_BINLOG_SUBDIR_NAME,
+    return binlog_loader_load(FS_SLICE_BINLOG_SUBDIR_NAME,
                     slice_binlog_get_current_write_index,
                     slice_parse_line);
 }

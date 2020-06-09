@@ -4,6 +4,7 @@
 #include <time.h>
 #include <pthread.h>
 #include "fastcommon/common_define.h"
+#include "fastcommon/fc_queue.h"
 #include "fastcommon/fast_task_queue.h"
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/fast_allocator.h"
@@ -11,10 +12,25 @@
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
 
+#define FS_TRUNK_BINLOG_MAX_RECORD_SIZE    128
+#define FS_TRUNK_BINLOG_SUBDIR_NAME      "trunk"
+
+#define FS_SLICE_BINLOG_MAX_RECORD_SIZE    256
+#define FS_SLICE_BINLOG_SUBDIR_NAME      "slice"
+
+#define FS_REPLICA_BINLOG_MAX_RECORD_SIZE  128
+#define FS_REPLICA_BINLOG_SUBDIR_NAME    "replica"
+
 #define FS_CLUSTER_TASK_TYPE_NONE               0
 #define FS_CLUSTER_TASK_TYPE_RELATIONSHIP       1   //slave  -> master
 #define FS_CLUSTER_TASK_TYPE_REPLICA_MASTER     2   //[Master] -> slave
 #define FS_CLUSTER_TASK_TYPE_REPLICA_SLAVE      3   //master -> [Slave]
+
+#define FS_REPLICATION_STAGE_NONE               0
+#define FS_REPLICATION_STAGE_CONNECTING         1
+#define FS_REPLICATION_STAGE_WAITING_JOIN_RESP  2
+#define FS_REPLICATION_STAGE_SYNC_FROM_DISK     3
+#define FS_REPLICATION_STAGE_SYNC_FROM_QUEUE    4
 
 #define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  2
 #define FS_DEFAULT_TRUNK_FILE_SIZE  (  1 * 1024 * 1024 * 1024LL)
@@ -106,7 +122,35 @@ typedef struct fs_cluster_data_group_array {
     int count;
 } FSClusterDataGroupArray;
 
+typedef struct fdir_binlog_push_result_entry {
+    uint64_t data_version;
+    int64_t task_version;
+    time_t expires;
+    struct fast_task_info *waiting_task;
+    struct fdir_binlog_push_result_entry *next;
+} FSBinlogPushResultEntry;
+
+typedef struct fdir_binlog_push_result_context {
+    struct {
+        FSBinlogPushResultEntry *entries;
+        FSBinlogPushResultEntry *start; //for consumer
+        FSBinlogPushResultEntry *end;   //for producer
+        int size;
+    } ring;
+
+    struct {
+        FSBinlogPushResultEntry *head;
+        FSBinlogPushResultEntry *tail;
+        struct fast_mblock_man rentry_allocator;
+    } queue;   //for overflow exceptions
+
+    time_t last_check_timeout_time;
+} FSBinlogPushResultContext;
+
 typedef struct fs_replication_context {
+    struct fc_queue queue;  //push to the slave
+    FSBinlogPushResultContext push_result_ctx;   //push result recv from the slave
+
     struct {
         int64_t by_queue;
         struct {
@@ -167,9 +211,7 @@ typedef struct {
 
             FSClusterServerInfo *peer;   //the peer server in the cluster
 
-            /*
-               FSSlaveReplication *replica; //master side
-             */
+            FSSlaveReplication *replica;
         } cluster;
     };
 

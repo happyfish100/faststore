@@ -114,47 +114,6 @@ static int init_cluster_data_group_array(const char *filename)
     return 0;
 }
 
-static int init_cluster_server_array(const char *filename)
-{
-#define MAX_GROUP_SERVERS 64
-    int bytes;
-    int result;
-    int count;
-    FSClusterServerInfo *cs;
-    FCServerInfo *servers[MAX_GROUP_SERVERS];
-    FCServerInfo **server;
-    FCServerInfo **end;
-
-    if ((result=fs_cluster_cfg_get_group_servers(&CLUSTER_CONFIG_CTX,
-                    CLUSTER_MYSELF_PTR->server->id, servers,
-                    MAX_GROUP_SERVERS, &count)) != 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "get group servers fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
-    bytes = sizeof(FSClusterServerInfo) * count;
-    CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)malloc(bytes);
-    if (CLUSTER_SERVER_ARRAY.servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
-        return ENOMEM;
-    }
-    memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
-
-    end = servers + count;
-    for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
-            server<end; server++, cs++)
-    {
-        cs->server = *server;
-    }
-
-    CLUSTER_SERVER_ARRAY.count = count;
-    return 0;
-}
-
 static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
         int *err_no)
 {
@@ -212,6 +171,51 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
         *err_no = ENOENT;
     }
     return myself;
+}
+
+static int init_cluster_server_array(const char *filename)
+{
+#define MAX_GROUP_SERVERS 64
+    int bytes;
+    int result;
+    int count;
+    FCServerInfo *svr;
+    FSClusterServerInfo *cs;
+    FCServerInfo *servers[MAX_GROUP_SERVERS];
+    FCServerInfo **server;
+    FCServerInfo **end;
+
+    if ((svr=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
+        return result;
+    }
+
+    if ((result=fs_cluster_cfg_get_group_servers(&CLUSTER_CONFIG_CTX,
+                    svr->id, servers, MAX_GROUP_SERVERS, &count)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "get group servers fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    bytes = sizeof(FSClusterServerInfo) * count;
+    CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)malloc(bytes);
+    if (CLUSTER_SERVER_ARRAY.servers == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
+
+    end = servers + count;
+    for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
+            server<end; server++, cs++)
+    {
+        cs->server = *server;
+    }
+
+    CLUSTER_SERVER_ARRAY.count = count;
+    return 0;
 }
 
 static int find_myself_in_cluster_config(const char *filename)
@@ -338,11 +342,11 @@ int server_group_info_init(const char *cluster_config_filename)
         SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
     }
 
-    if ((result=find_myself_in_cluster_config(cluster_config_filename)) != 0) {
+    if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
         return result;
     }
 
-    if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
+    if ((result=find_myself_in_cluster_config(cluster_config_filename)) != 0) {
         return result;
     }
 
