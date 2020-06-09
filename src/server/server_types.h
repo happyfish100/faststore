@@ -90,6 +90,7 @@ typedef struct fs_binlog_file_position {
 
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
+    int link_index;      //current binlog file
     char key[FS_REPLICA_KEY_SIZE];  //for slave server
 } FSClusterServerInfo;
 
@@ -169,9 +170,9 @@ typedef struct fs_replication_context {
 
 typedef struct fs_slave_replication {
     struct fast_task_info *task;
-    FSClusterServerInfo *slave;
+    FSClusterServerInfo *peer;
     int stage;
-    int index;  //for next links
+    int thread_index; //for nio thread
     struct {
         int start_time;
         int next_connect_time;

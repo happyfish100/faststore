@@ -66,7 +66,7 @@ static int remove_from_replication_ptr_array(FSSlaveReplicationPtrArray *
     if (i == array->count) {
         logError("file: "__FILE__", line: %d, "
                 "can't found replication slave id: %d",
-                __LINE__, replication->slave->server->id);
+                __LINE__, replication->peer->server->id);
         return ENOENT;
     }
 
@@ -83,10 +83,10 @@ static inline void set_replication_stage(FSSlaveReplication *
     switch (stage) {
         case FS_REPLICATION_STAGE_NONE:
             /*
-            if (replication->slave->status == FS_SERVER_STATUS_SYNCING ||
-                    replication->slave->status == FS_SERVER_STATUS_ACTIVE)
+            if (replication->peer->status == FS_SERVER_STATUS_SYNCING ||
+                    replication->peer->status == FS_SERVER_STATUS_ACTIVE)
             {
-                cluster_info_set_status(replication->slave,
+                cluster_info_set_status(replication->peer,
                         FS_SERVER_STATUS_OFFLINE);
             }
             */
@@ -94,13 +94,13 @@ static inline void set_replication_stage(FSSlaveReplication *
 
         case FS_REPLICATION_STAGE_SYNC_FROM_DISK:
             /*
-            if (replication->slave->status == FS_SERVER_STATUS_INIT) {
-                cluster_info_set_status(replication->slave,
+            if (replication->peer->status == FS_SERVER_STATUS_INIT) {
+                cluster_info_set_status(replication->peer,
                         FS_SERVER_STATUS_BUILDING);
-            } else if (replication->slave->status !=
+            } else if (replication->peer->status !=
                     FS_SERVER_STATUS_BUILDING)
             {
-                cluster_info_set_status(replication->slave,
+                cluster_info_set_status(replication->peer,
                         FS_SERVER_STATUS_SYNCING);
             }
             */
@@ -108,7 +108,7 @@ static inline void set_replication_stage(FSSlaveReplication *
 
         case FS_REPLICATION_STAGE_SYNC_FROM_QUEUE:
             /*
-            cluster_info_set_status(replication->slave,
+            cluster_info_set_status(replication->peer,
                     FS_SERVER_STATUS_ACTIVE);
                     */
             break;
@@ -146,7 +146,7 @@ int binlog_replication_bind_thread(FSSlaveReplication *replication)
     task->ctx = &CLUSTER_SF_CTX;
     task->event.fd = -1;
     task->thread_data = CLUSTER_SF_CTX.thread_data +
-        replication->index % CLUSTER_SF_CTX.work_threads;
+        replication->thread_index % CLUSTER_SF_CTX.work_threads;
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
     replication->context.last_data_versions.by_disk.previous = 0;
@@ -290,7 +290,7 @@ static int check_and_make_replica_connection(FSSlaveReplication *replication)
             return EAGAIN;
         }
 
-        addr_array = &CLUSTER_GROUP_ADDRESS_ARRAY(replication->slave->server);
+        addr_array = &CLUSTER_GROUP_ADDRESS_ARRAY(replication->peer->server);
         addr = addr_array->addrs[addr_array->index++];
         if (addr_array->index >= addr_array->count) {
             addr_array->index = 0;
@@ -353,7 +353,7 @@ static int send_join_slave_package(FSSlaveReplication *replication)
     //int2buff(CLUSTER_ID, req->cluster_id);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     int2buff(replication->task->size, req->buffer_size);
-    memcpy(req->key, replication->slave->key, FS_REPLICA_KEY_SIZE);
+    memcpy(req->key, replication->peer->key, FS_REPLICA_KEY_SIZE);
 
     if ((result=tcpsenddata_nb(replication->connection_info.conn.sock,
                     out_buff, sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
@@ -397,7 +397,7 @@ static void discard_queue(FSSlaveReplication *replication,
     ServerBinlogRecordBuffer *rb;
     while (head != tail) {
         rb = head;
-        head = head->nexts[replication->index];
+        head = head->nexts[replication->peer->link_index];
 
         replication->context.last_data_versions.by_queue = rb->data_version;
         decrease_task_waiting_rpc_count(rb);
@@ -438,7 +438,7 @@ static void replication_queue_discard_synced(FSSlaveReplication *replication)
         while ((tail != NULL) && (tail->data_version <=
                     replication->context.last_data_versions.by_disk.current))
         {
-            tail = tail->nexts[replication->index];
+            tail = tail->nexts[replication->peer->link_index];
         }
 
         replication->context.queue.head = tail;
@@ -532,9 +532,9 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
                     cluster.connectings, replication) == 0)
         {
             /*
-            replication->slave->last_data_version = -1;
-            replication->slave->binlog_pos_hint.index = -1;
-            replication->slave->binlog_pos_hint.offset = -1;
+            replication->peer->last_data_version = -1;
+            replication->peer->binlog_pos_hint.index = -1;
+            replication->peer->binlog_pos_hint.offset = -1;
             */
 
             add_to_replication_ptr_array(&server_ctx->
@@ -568,7 +568,7 @@ static void repush_to_replication_queue(FSSlaveReplication *replication,
         ServerBinlogRecordBuffer *head, ServerBinlogRecordBuffer *tail)
 {
     PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
-    tail->nexts[replication->index] = replication->context.queue.head;
+    tail->nexts[replication->peer->link_index] = replication->context.queue.head;
     replication->context.queue.head = head;
     if (replication->context.queue.tail == NULL) {
         replication->context.queue.tail = tail;
@@ -633,7 +633,7 @@ static int sync_binlog_from_queue(FSSlaveReplication *replication)
             }
         }
 
-        head = head->nexts[replication->index];
+        head = head->nexts[replication->peer->link_index];
         rb->release_func(rb);
     }
 
@@ -684,9 +684,9 @@ static int deal_connected_replication(FSSlaveReplication *replication)
 
     if (replication->stage == FS_REPLICATION_STAGE_WAITING_JOIN_RESP) {
         /*
-        if (replication->slave->last_data_version < 0 ||
-                replication->slave->binlog_pos_hint.index < 0 ||
-                replication->slave->binlog_pos_hint.offset < 0)
+        if (replication->peer->last_data_version < 0 ||
+                replication->peer->binlog_pos_hint.index < 0 ||
+                replication->peer->binlog_pos_hint.offset < 0)
         {
             return 0;
         }

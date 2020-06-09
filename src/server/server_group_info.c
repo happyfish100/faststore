@@ -13,11 +13,24 @@
 #include "server_global.h"
 #include "server_group_info.h"
 
+typedef struct {
+    int id1;
+    int id2;
+    int offset;
+} ServerPairBaseIndexEntry;
+
+typedef struct {
+    int count;
+    ServerPairBaseIndexEntry *entries;
+} ServerPairBaseIndexArray;
+
 #define DATA_GROUP_INFO_SUBDIR_NAME               "cluster"
 #define DATA_GROUP_INFO_FILENAME_FORMAT           "data_group%05d.info"
 
 #define SERVER_SECTION_PREFIX_STR                 "server-"
 #define SERVER_GROUP_INFO_ITEM_STATUS             "status"
+
+static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
 
 static int server_group_info_write_to_file(FSClusterDataGroupInfo *group);
 
@@ -173,6 +186,11 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
     return myself;
 }
 
+static int compare_server_ptr(const void *p1, const void *p2)
+{
+    return (*((FCServerInfo **)p1))->id - (*((FCServerInfo **)p2))->id;
+}
+
 static int init_cluster_server_array(const char *filename)
 {
 #define MAX_GROUP_SERVERS 64
@@ -197,6 +215,7 @@ static int init_cluster_server_array(const char *filename)
                 __LINE__, result, STRERROR(result));
         return result;
     }
+    qsort(servers, count, sizeof(FCServerInfo *), compare_server_ptr);
 
     bytes = sizeof(FSClusterServerInfo) * count;
     CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)malloc(bytes);
@@ -211,11 +230,86 @@ static int init_cluster_server_array(const char *filename)
     for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
             server<end; server++, cs++)
     {
+        logInfo("%d. id = %d", (int)(server - servers) + 1, (*server)->id);
         cs->server = *server;
     }
 
     CLUSTER_SERVER_ARRAY.count = count;
     return 0;
+}
+
+static int compare_server_pair_entry(const void *p1, const void *p2)
+{
+    int sub;
+
+    sub = ((ServerPairBaseIndexEntry *)p1)->id1 -
+        ((ServerPairBaseIndexEntry *)p2)->id1;
+    if (sub != 0) {
+        return sub;
+    }
+
+    return ((ServerPairBaseIndexEntry *)p1)->id2 -
+        ((ServerPairBaseIndexEntry *)p2)->id2;
+}
+
+static int init_server_pair_index_array()
+{
+    ServerPairBaseIndexEntry *entry;
+    FSClusterServerInfo *cs1;
+    FSClusterServerInfo *cs2;
+    FSClusterServerInfo *end;
+    int count;
+    int bytes;
+
+    if (CLUSTER_SERVER_ARRAY.count <= 1) {
+        return 0;
+    }
+
+    count = CLUSTER_SERVER_ARRAY.count * (CLUSTER_SERVER_ARRAY.count - 1) / 2;
+    bytes = sizeof(ServerPairBaseIndexEntry) * count;
+    server_pair_index_array.entries = (ServerPairBaseIndexEntry *)malloc(bytes);
+    if (server_pair_index_array.entries == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+
+    entry = server_pair_index_array.entries;
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs1=CLUSTER_SERVER_ARRAY.servers; cs1<end; cs1++) {
+        for (cs2=cs1+1; cs2<end; cs2++) {
+            entry->id1 = cs1->server->id;
+            entry->id2 = cs2->server->id;
+            entry->offset = (entry - server_pair_index_array.entries) *
+                REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
+            entry++;
+        }
+    }
+
+    logInfo("server count: %d, server_pair_index_array.count: %d, "
+            "replica_channels_between_two_servers: %d",
+            CLUSTER_SERVER_ARRAY.count, count, REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
+
+    server_pair_index_array.count = count;
+    return 0;
+}
+
+int fs_get_server_pair_offset(const int server_id1, const int server_id2)
+{
+    ServerPairBaseIndexEntry target;
+    ServerPairBaseIndexEntry *found;
+
+    target.id1 = FC_MIN(server_id1, server_id2);
+    target.id2 = FC_MAX(server_id1, server_id2);
+    if ((found=(ServerPairBaseIndexEntry *)bsearch(&target,
+                    server_pair_index_array.entries,
+                    server_pair_index_array.count,
+                    sizeof(ServerPairBaseIndexEntry),
+                    compare_server_pair_entry)) != NULL)
+    {
+        return found->offset;
+    }
+    return -1;
 }
 
 static int find_myself_in_cluster_config(const char *filename)
@@ -347,6 +441,10 @@ int server_group_info_init(const char *cluster_config_filename)
     }
 
     if ((result=find_myself_in_cluster_config(cluster_config_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=init_server_pair_index_array()) != 0) {
         return result;
     }
 
