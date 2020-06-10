@@ -25,6 +25,7 @@
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "replication/binlog_replication.h"
 #include "cluster_handler.h"
 
 int cluster_handler_init()
@@ -278,12 +279,12 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
 
     server_ctx = (FSServerContext *)thread_data->arg;
 
-    if (count++ % 100000 == 0) {
-        /*
-        logInfo("is_master: %d, consumer_ctx: %p, connected.count: %d",
-                MYSELF_IS_MASTER, server_ctx->cluster.consumer_ctx,
+    if (count++ % 10000 == 0) {
+        logInfo("connectings.count: %d, connected.count: %d",
+                server_ctx->cluster.connectings.count,
                 server_ctx->cluster.connected.count);
-                */
     }
+
+    binlog_replication_process(server_ctx);
     return 0;
 }

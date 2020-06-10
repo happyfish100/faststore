@@ -16,7 +16,7 @@ int server_group_info_destroy();
 
 FSClusterServerInfo *fs_get_server_by_id(const int server_id);
 
-int fs_get_server_pair_offset(const int server_id1, const int server_id2);
+int fs_get_server_pair_base_offset(const int server_id1, const int server_id2);
 
 int server_group_info_setup_sync_to_file_task();
 

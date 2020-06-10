@@ -17,14 +17,10 @@
 #define BINLOG_BUFFER_LENGTH(buffer) ((buffer).end - (buffer).buff)
 #define BINLOG_BUFFER_REMAIN(buffer) ((buffer).end - (buffer).current)
 
-struct server_binlog_record_buffer;
 struct fs_binlog_record;
 
 typedef void (*data_thread_notify_func)(struct fs_binlog_record *record,
         const int result, const bool is_error);
-
-typedef void (*release_binlog_rbuffer_func)(
-        struct server_binlog_record_buffer *rbuffer);
 
 typedef struct server_binlog_buffer {
     char *buff;    //the buffer pointer
@@ -32,17 +28,6 @@ typedef struct server_binlog_buffer {
     char *end;     //data end ptr
     int size;      //the buffer size (capacity)
 } ServerBinlogBuffer;
-
-typedef struct server_binlog_record_buffer {
-    uint64_t data_version; //for idempotency (slave only)
-    int64_t task_version;
-    volatile int reffer_count;
-    void *args;  //for notify & release 
-    release_binlog_rbuffer_func release_func;
-    FastBuffer buffer;
-    struct server_binlog_record_buffer *next;      //for producer
-    struct server_binlog_record_buffer *nexts[0];  //for slave replications
-} ServerBinlogRecordBuffer;
 
 #ifdef __cplusplus
 extern "C" {

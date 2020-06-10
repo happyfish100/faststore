@@ -13,7 +13,8 @@ int binlog_local_consumer_init();
 void binlog_local_consumer_destroy();
 void binlog_local_consumer_terminate();
 
-int binlog_local_consumer_replication_start();
+int binlog_local_consumer_start();
+
 int binlog_local_consumer_push_to_queues(const int data_group_index,
         ServerBinlogRecordBuffer *rbuffer);
 

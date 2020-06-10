@@ -17,12 +17,13 @@
 
 int server_binlog_init()
 {
-    /*
     int result;
 
-    if ((result=binlog_pack_init()) != 0) {
+    if ((result=binlog_local_consumer_init()) != 0) {
         return result;
     }
+
+    /*
     if ((result=binlog_writer_init()) != 0) {
         return result;
     }

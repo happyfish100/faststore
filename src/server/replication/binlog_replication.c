@@ -81,7 +81,7 @@ static inline void set_replication_stage(FSSlaveReplication *
         replication, const int stage)
 {
     switch (stage) {
-        case FS_REPLICATION_STAGE_NONE:
+        case FS_REPLICATION_STAGE_INITED:
             /*
             if (replication->peer->status == FS_SERVER_STATUS_SYNCING ||
                     replication->peer->status == FS_SERVER_STATUS_ACTIVE)
@@ -148,7 +148,7 @@ int binlog_replication_bind_thread(FSSlaveReplication *replication)
     task->thread_data = CLUSTER_SF_CTX.thread_data +
         replication->thread_index % CLUSTER_SF_CTX.work_threads;
 
-    set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
+    set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
     replication->context.last_data_versions.by_disk.previous = 0;
     replication->context.last_data_versions.by_disk.current = 0;
     replication->context.last_data_versions.by_queue = 0;
@@ -373,21 +373,18 @@ static int send_join_slave_package(FSSlaveReplication *replication)
 
 static void decrease_task_waiting_rpc_count(ServerBinlogRecordBuffer *rb)
 {
-    struct fast_task_info *task;
-    task = (struct fast_task_info *)rb->args;
-
     if (rb->task_version != __sync_add_and_fetch(&((FSServerTaskArg *)
-                    task->arg)->task_version, 0))
+                    rb->task->arg)->task_version, 0))
     {
         logWarning("file: "__FILE__", line: %d, "
-                "task %p already cleanup", __LINE__, task);
+                "task %p already cleanup", __LINE__, rb->task);
         return;
     }
 
-    if (__sync_sub_and_fetch(&((FSServerTaskArg *)task->arg)->
+    if (__sync_sub_and_fetch(&((FSServerTaskArg *)rb->task->arg)->
                 context.service.waiting_rpc_count, 1) == 0)
     {
-        sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+        sf_nio_notify(rb->task, SF_NIO_STAGE_CONTINUE);
     }
 }
 
@@ -457,7 +454,6 @@ static int deal_connecting_replication(FSSlaveReplication *replication)
 {
     int result;
 
-    replication_queue_discard_all(replication);
     result = check_and_make_replica_connection(replication);
     if (result == 0) {
         result = send_join_slave_package(replication);
@@ -468,7 +464,7 @@ static int deal_connecting_replication(FSSlaveReplication *replication)
 
 static int deal_replication_connectings(FSServerContext *server_ctx)
 {
-#define SUCCESS_ARRAY_ELEMENT_MAX  8
+#define SUCCESS_ARRAY_ELEMENT_MAX  64
 
     int result;
     int i;
@@ -581,7 +577,6 @@ static int sync_binlog_from_queue(FSSlaveReplication *replication)
     ServerBinlogRecordBuffer *rb;
     ServerBinlogRecordBuffer *head;
     ServerBinlogRecordBuffer *tail;
-    struct fast_task_info *waiting_task;
     FSProtoPushBinlogReqBodyHeader *body_header;
     uint64_t last_data_version;
     int body_len;
@@ -604,14 +599,15 @@ static int sync_binlog_from_queue(FSSlaveReplication *replication)
         sizeof(FSProtoPushBinlogReqBodyHeader);
     while (head != NULL) {
         rb = head;
-
-        waiting_task = (struct fast_task_info *)rb->args;
         if (rb->task_version != __sync_add_and_fetch(&((FSServerTaskArg *)
-                        waiting_task->arg)->task_version, 0))
+                        rb->task->arg)->task_version, 0))
         {
             logWarning("file: "__FILE__", line: %d, "
-                    "task %p already cleanup", __LINE__, waiting_task);
+                    "task %p already cleanup", __LINE__, rb->task);
         } else {
+
+            //TODO
+            /*
             if (replication->task->length + rb->buffer.length >
                     replication->task->size)
             {
@@ -623,11 +619,12 @@ static int sync_binlog_from_queue(FSSlaveReplication *replication)
             memcpy(replication->task->data + replication->task->length,
                     rb->buffer.data, rb->buffer.length);
             replication->task->length += rb->buffer.length;
+            */
 
             //logInfo("call push_result_ring_add data_version: %"PRId64, rb->data_version);
             if ((result=push_result_ring_add(&replication->context.
                             push_result_ctx, rb->data_version,
-                            waiting_task, rb->task_version)) != 0)
+                            rb->task, rb->task_version)) != 0)
             {
                 return result;
             }

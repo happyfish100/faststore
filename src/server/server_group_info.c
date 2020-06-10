@@ -294,7 +294,7 @@ static int init_server_pair_index_array()
     return 0;
 }
 
-int fs_get_server_pair_offset(const int server_id1, const int server_id2)
+int fs_get_server_pair_base_offset(const int server_id1, const int server_id2)
 {
     ServerPairBaseIndexEntry target;
     ServerPairBaseIndexEntry *found;

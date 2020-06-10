@@ -147,6 +147,8 @@ int main(int argc, char *argv[])
             break;
         }
         sf_set_remove_from_ready_list(false);
+
+        result = binlog_local_consumer_start();
     } while (0);
 
     if (result != 0) {

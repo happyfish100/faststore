@@ -3,7 +3,7 @@
 #ifndef _BINLOG_REPLICATION_H_
 #define _BINLOG_REPLICATION_H_
 
-#include "../server_types.h"
+#include "replication_types.h"
 
 #ifdef __cplusplus
 extern "C" {
