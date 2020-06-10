@@ -25,6 +25,7 @@
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "server_group_info.h"
 #include "replication/binlog_replication.h"
 #include "cluster_handler.h"
 
@@ -82,6 +83,91 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
 static int cluster_deal_actvie_test(struct fast_task_info *task)
 {
     return server_expect_body_length(task, 0);
+}
+
+static int cluster_check_config_sign(struct fast_task_info *task,
+        const int server_id, const unsigned char *config_sign,
+        const unsigned char *my_sign, const int sign_len,
+        const char *caption)
+{
+    if (memcmp(config_sign, my_sign, sign_len) != 0) {
+        char peer_hex[2 * CLUSTER_CONFIG_SIGN_LEN + 1];
+        char my_hex[2 * CLUSTER_CONFIG_SIGN_LEN + 1];
+
+        bin2hex((const char *)config_sign, sign_len, peer_hex);
+        bin2hex((const char *)my_sign, sign_len, my_hex);
+
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "server #%d 's %s config md5: %s != mine: %s",
+                server_id, caption, peer_hex, my_hex);
+        return EFAULT;
+    }
+
+    return 0;
+}
+
+static int cluster_deal_join_server_req(struct fast_task_info *task)
+{
+    int result;
+    int server_id;
+    int buffer_size;
+    int replica_channels_between_two_servers;
+    FSProtoJoinServerReq *req;
+    FSClusterServerInfo *peer;
+    FSProtoJoinServerResp *resp;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoJoinServerReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoJoinServerReq *)REQUEST.body;
+    server_id = buff2int(req->server_id);
+    buffer_size = buff2int(req->buffer_size);
+    replica_channels_between_two_servers = buff2int(
+            req->replica_channels_between_two_servers);
+    if (buffer_size != task->size) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "peer task buffer size: %d != mine: %d",
+                buffer_size, task->size);
+        return EINVAL;
+    }
+    if (replica_channels_between_two_servers !=
+            REPLICA_CHANNELS_BETWEEN_TWO_SERVERS)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "replica_channels_between_two_servers: %d != mine: %d",
+                replica_channels_between_two_servers,
+                REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
+        return EINVAL;
+    }
+
+    if ((result=cluster_check_config_sign(task, server_id,
+                    req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
+                    SERVERS_CONFIG_SIGN_LEN, "servers")) != 0)
+    {
+        return result;
+    }
+
+    if ((result=cluster_check_config_sign(task, server_id,
+                    req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
+                    CLUSTER_CONFIG_SIGN_LEN, "cluster")) != 0)
+    {
+        return result;
+    }
+
+    peer = fs_get_server_by_id(server_id);
+    if (peer == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "peer server id: %d not exist", server_id);
+        return ENOENT;
+    }
+
+    //TODO
+    return 0;
 }
 
 static int cluster_deal_slave_ack(struct fast_task_info *task)
@@ -236,6 +322,9 @@ int cluster_deal_task(struct fast_task_info *task)
             case FS_PROTO_ACK:
                 result = cluster_deal_slave_ack(task);
                 TASK_ARG->context.need_response = false;
+                break;
+            case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
+                result = cluster_deal_join_server_req(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

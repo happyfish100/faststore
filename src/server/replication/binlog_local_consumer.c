@@ -21,7 +21,12 @@
 #include "binlog_replication.h"
 #include "binlog_local_consumer.h"
 
-static FSSlaveReplicationArray slave_replication_array;
+typedef struct {
+    FSReplicationArray repl_array;
+    pthread_mutex_t lock;
+} BinlogReplicationContext;
+
+static BinlogReplicationContext repl_ctx;
 
 static void set_server_link_index_for_replication()
 {
@@ -51,26 +56,26 @@ static int init_binlog_local_consumer_array()
     int i;
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
-    FSSlaveReplication *replication;
+    FSReplication *replication;
 
     repl_server_count = CLUSTER_SERVER_ARRAY.count - 1;
     if (repl_server_count == 0) {
-        slave_replication_array.count = repl_server_count;
+        repl_ctx.repl_array.count = repl_server_count;
         return 0;
     }
 
-    bytes = sizeof(FSSlaveReplication) * (repl_server_count *
+    bytes = sizeof(FSReplication) * (repl_server_count *
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
-    slave_replication_array.replications = (FSSlaveReplication *)
+    repl_ctx.repl_array.replications = (FSReplication *)
         malloc(bytes);
-    if (slave_replication_array.replications == NULL) {
+    if (repl_ctx.repl_array.replications == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
-    memset(slave_replication_array.replications, 0, bytes);
+    memset(repl_ctx.repl_array.replications, 0, bytes);
 
-    replication = slave_replication_array.replications;
+    replication = repl_ctx.repl_array.replications;
     cs = CLUSTER_SERVER_ARRAY.servers;
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     while (cs < end) {
@@ -107,7 +112,7 @@ static int init_binlog_local_consumer_array()
 
             logInfo("file: "__FILE__", line: %d, "
                     "replication: %d, thread_index: %d",
-                    __LINE__, (int)(replication - slave_replication_array.replications),
+                    __LINE__, (int)(replication - repl_ctx.repl_array.replications),
                     replication->thread_index);
 
             replication++;
@@ -115,8 +120,8 @@ static int init_binlog_local_consumer_array()
         ++cs;
     }
 
-    slave_replication_array.count = replication -
-        slave_replication_array.replications;
+    repl_ctx.repl_array.count = replication -
+        repl_ctx.repl_array.replications;
     return 0;
 }
 
@@ -129,17 +134,24 @@ int binlog_local_consumer_init()
         return result;
     }
 
+    if ((result=init_pthread_lock(&repl_ctx.lock)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "init_pthread_lock fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
     return 0;
 }
 
 int binlog_local_consumer_start()
 {
     int result;
-    FSSlaveReplication *replication;
-    FSSlaveReplication *end;
+    FSReplication *replication;
+    FSReplication *end;
 
-    end = slave_replication_array.replications + slave_replication_array.count;
-    for (replication=slave_replication_array.replications; replication<end;
+    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
+    for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++)
     {
         if (CLUSTER_MYSELF_PTR->server->id < replication->peer->server->id) {
@@ -154,35 +166,35 @@ int binlog_local_consumer_start()
 
 void binlog_local_consumer_destroy()
 {
-    FSSlaveReplication *replication;
-    FSSlaveReplication *end;
-    if (slave_replication_array.replications == NULL) {
+    FSReplication *replication;
+    FSReplication *end;
+    if (repl_ctx.repl_array.replications == NULL) {
         return;
     }
 
-    end = slave_replication_array.replications + slave_replication_array.count;
-    for (replication=slave_replication_array.replications; replication<end;
+    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
+    for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++)
     {
         fc_queue_destroy(&replication->context.queue);
     }
-    free(slave_replication_array.replications);
-    slave_replication_array.replications = NULL;
+    free(repl_ctx.repl_array.replications);
+    repl_ctx.repl_array.replications = NULL;
 }
 
 void binlog_local_consumer_terminate()
 {
-    FSSlaveReplication *replication;
-    FSSlaveReplication *end;
+    FSReplication *replication;
+    FSReplication *end;
 
-    end = slave_replication_array.replications + slave_replication_array.count;
-    for (replication=slave_replication_array.replications; replication<end;
+    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
+    for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++) {
         iovent_notify_thread(replication->task->thread_data);
     }
 }
 
-static void push_to_slave_replica_queues(FSSlaveReplication *replication,
+static inline void push_to_slave_replica_queues(FSReplication *replication,
         ServerBinlogRecordBuffer *rbuffer)
 {
     bool notify;
@@ -196,25 +208,47 @@ static void push_to_slave_replica_queues(FSSlaveReplication *replication,
 int binlog_local_consumer_push_to_queues(const int data_group_index,
         ServerBinlogRecordBuffer *rbuffer)
 {
-    FSSlaveReplication *replication;
-    FSSlaveReplication *end;
+    FSReplication *replication;
+    FSReplication *end;
     //int result;
 
-    if (slave_replication_array.count == 0) {
+    if (repl_ctx.repl_array.count == 0) {
         return 0;
     }
 
     __sync_add_and_fetch(&rbuffer->reffer_count,
-            slave_replication_array.count + 1);
+            repl_ctx.repl_array.count + 1);
 
     __sync_add_and_fetch(&((FSServerTaskArg *)rbuffer->task->arg)->context.
-            service.waiting_rpc_count, slave_replication_array.count);
+            service.waiting_rpc_count, repl_ctx.repl_array.count);
 
-    end = slave_replication_array.replications + slave_replication_array.count;
-    for (replication=slave_replication_array.replications; replication<end;
+    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
+    for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++) {
         push_to_slave_replica_queues(replication, rbuffer);
     }
 
     return 0;
+}
+
+FSReplication *fs_get_idle_replication_by_peer(const int peer_id)
+{
+    FSReplication *replication;
+    FSReplication *end;
+
+    PTHREAD_MUTEX_LOCK(&repl_ctx.lock);
+    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
+    for (replication=repl_ctx.repl_array.replications; replication<end;
+            replication++)
+    {
+        if (peer_id == replication->peer->server->id &&
+                replication->stage == FS_REPLICATION_STAGE_NONE)
+        {
+            replication->stage = FS_REPLICATION_STAGE_INITED;
+            break;
+        }
+    }
+    PTHREAD_MUTEX_UNLOCK(&repl_ctx.lock);
+
+    return (replication < end) ? replication : NULL;
 }

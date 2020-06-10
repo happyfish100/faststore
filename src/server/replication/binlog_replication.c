@@ -25,9 +25,9 @@
 #include "push_result_ring.h"
 #include "binlog_replication.h"
 
-static void replication_queue_discard_all(FSSlaveReplication *replication);
+static void replication_queue_discard_all(FSReplication *replication);
 
-static int check_alloc_ptr_array(FSSlaveReplicationPtrArray *array)
+static int check_alloc_ptr_array(FSReplicationPtrArray *array)
 {
     int bytes;
 
@@ -35,8 +35,8 @@ static int check_alloc_ptr_array(FSSlaveReplicationPtrArray *array)
         return 0;
     }
 
-    bytes = sizeof(FSSlaveReplication *) * CLUSTER_SERVER_ARRAY.count;
-    array->replications = (FSSlaveReplication **)malloc(bytes);
+    bytes = sizeof(FSReplication *) * CLUSTER_SERVER_ARRAY.count;
+    array->replications = (FSReplication **)malloc(bytes);
     if (array->replications == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -46,14 +46,14 @@ static int check_alloc_ptr_array(FSSlaveReplicationPtrArray *array)
     return 0;
 }
 
-static void add_to_replication_ptr_array(FSSlaveReplicationPtrArray *
-        array, FSSlaveReplication *replication)
+static void add_to_replication_ptr_array(FSReplicationPtrArray *
+        array, FSReplication *replication)
 {
     array->replications[array->count++] = replication;
 }
 
-static int remove_from_replication_ptr_array(FSSlaveReplicationPtrArray *
-        array, FSSlaveReplication *replication)
+static int remove_from_replication_ptr_array(FSReplicationPtrArray *
+        array, FSReplication *replication)
 {
     int i;
 
@@ -77,7 +77,7 @@ static int remove_from_replication_ptr_array(FSSlaveReplicationPtrArray *
     return 0;
 }
 
-static inline void set_replication_stage(FSSlaveReplication *
+static inline void set_replication_stage(FSReplication *
         replication, const int stage)
 {
     switch (stage) {
@@ -119,7 +119,7 @@ static inline void set_replication_stage(FSSlaveReplication *
     replication->stage = stage;
 }
 
-int binlog_replication_bind_thread(FSSlaveReplication *replication)
+int binlog_replication_bind_thread(FSReplication *replication)
 {
     int result;
     int alloc_size;
@@ -180,7 +180,7 @@ int binlog_replication_bind_thread(FSSlaveReplication *replication)
     return 0;
 }
 
-int binlog_replication_rebind_thread(FSSlaveReplication *replication)
+int binlog_replication_rebind_thread(FSReplication *replication)
 {
     int result;
     FSServerContext *server_ctx;
@@ -247,7 +247,7 @@ static int async_connect_server(ConnectionInfo *conn)
     return 0;
 }
 
-static void calc_next_connect_time(FSSlaveReplication *replication)
+static void calc_next_connect_time(FSReplication *replication)
 {
     int interval;
 
@@ -275,7 +275,7 @@ static void calc_next_connect_time(FSSlaveReplication *replication)
     replication->connection_info.next_connect_time = g_current_time + interval;
 }
 
-static int check_and_make_replica_connection(FSSlaveReplication *replication)
+static int check_and_make_replica_connection(FSReplication *replication)
 {
     int result;
     int polled;
@@ -338,7 +338,7 @@ static int check_and_make_replica_connection(FSSlaveReplication *replication)
     return result;
 }
 
-static int send_join_slave_package(FSSlaveReplication *replication)
+static int send_join_slave_package(FSReplication *replication)
 {
 	int result;
 	FSProtoHeader *header;
@@ -391,7 +391,7 @@ static void decrease_task_waiting_rpc_count(ServerBinlogRecordBuffer *rb)
     }
 }
 
-static void discard_queue(FSSlaveReplication *replication,
+static void discard_queue(FSReplication *replication,
         ServerBinlogRecordBuffer *head, ServerBinlogRecordBuffer *tail)
 {
     ServerBinlogRecordBuffer *rb;
@@ -405,7 +405,7 @@ static void discard_queue(FSSlaveReplication *replication,
     }
 }
 
-static void replication_queue_discard_all(FSSlaveReplication *replication)
+static void replication_queue_discard_all(FSReplication *replication)
 {
     ServerBinlogRecordBuffer *head;
 
@@ -421,7 +421,7 @@ static void replication_queue_discard_all(FSSlaveReplication *replication)
     }
 }
 
-static void replication_queue_discard_synced(FSSlaveReplication *replication)
+static void replication_queue_discard_synced(FSReplication *replication)
 {
     ServerBinlogRecordBuffer *head;
     ServerBinlogRecordBuffer *tail;
@@ -453,7 +453,7 @@ static void replication_queue_discard_synced(FSSlaveReplication *replication)
     }
 }
 
-static int deal_connecting_replication(FSSlaveReplication *replication)
+static int deal_connecting_replication(FSReplication *replication)
 {
     int result;
 
@@ -474,9 +474,9 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
     char prompt[128];
     struct {
         int count;
-        FSSlaveReplication *replications[SUCCESS_ARRAY_ELEMENT_MAX];
+        FSReplication *replications[SUCCESS_ARRAY_ELEMENT_MAX];
     } success_array;
-    FSSlaveReplication *replication;
+    FSReplication *replication;
 
     if (server_ctx->cluster.connectings.count == 0) {
         return 0;
@@ -554,7 +554,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
 
 void clean_connected_replications(FSServerContext *server_ctx)
 {
-    FSSlaveReplication *replication;
+    FSReplication *replication;
     int i;
 
     for (i=0; i<server_ctx->cluster.connected.count; i++) {
@@ -563,7 +563,7 @@ void clean_connected_replications(FSServerContext *server_ctx)
     }
 }
 
-static void repush_to_replication_queue(FSSlaveReplication *replication,
+static void repush_to_replication_queue(FSReplication *replication,
         ServerBinlogRecordBuffer *head, ServerBinlogRecordBuffer *tail)
 {
     PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
@@ -575,7 +575,7 @@ static void repush_to_replication_queue(FSSlaveReplication *replication,
     PTHREAD_MUTEX_UNLOCK(&replication->context.queue.lock);
 }
 
-static int sync_binlog_from_queue(FSSlaveReplication *replication)
+static int sync_binlog_from_queue(FSReplication *replication)
 {
     ServerBinlogRecordBuffer *rb;
     ServerBinlogRecordBuffer *head;
@@ -655,7 +655,7 @@ static int sync_binlog_from_queue(FSSlaveReplication *replication)
 }
 
 int binlog_replications_check_response_data_version(
-        FSSlaveReplication *replication,
+        FSReplication *replication,
         const int64_t data_version)
 {
     if (data_version > replication->context.last_data_versions.by_resp) {
@@ -672,7 +672,7 @@ int binlog_replications_check_response_data_version(
     return 0;
 }
 
-static int deal_connected_replication(FSSlaveReplication *replication)
+static int deal_connected_replication(FSReplication *replication)
 {
     int result;
 
@@ -722,7 +722,7 @@ static int deal_connected_replication(FSSlaveReplication *replication)
 
 static int deal_replication_connected(FSServerContext *server_ctx)
 {
-    FSSlaveReplication *replication;
+    FSReplication *replication;
     int i;
 
     /*

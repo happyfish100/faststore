@@ -18,6 +18,8 @@ int binlog_local_consumer_start();
 int binlog_local_consumer_push_to_queues(const int data_group_index,
         ServerBinlogRecordBuffer *rbuffer);
 
+FSReplication *fs_get_idle_replication_by_peer(const int peer_id);
+
 #ifdef __cplusplus
 }
 #endif

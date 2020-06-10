@@ -169,7 +169,7 @@ typedef struct fs_replication_context {
     } sync_by_disk_stat;
 } FSReplicationContext;
 
-typedef struct fs_slave_replication {
+typedef struct fs_replication {
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
     int stage;
@@ -183,17 +183,17 @@ typedef struct fs_slave_replication {
     } connection_info;
 
     FSReplicationContext context;
-} FSSlaveReplication;
+} FSReplication;
 
-typedef struct fs_slave_replication_array {
-    FSSlaveReplication *replications;
+typedef struct fs_replication_array {
+    FSReplication *replications;
     int count;
-} FSSlaveReplicationArray;
+} FSReplicationArray;
 
-typedef struct fs_slave_replication_ptr_array {
+typedef struct fs_replication_ptr_array {
     int count;
-    FSSlaveReplication **replications;
-} FSSlaveReplicationPtrArray;
+    FSReplication **replications;
+} FSReplicationPtrArray;
 
 typedef struct {
     FSRequestInfo request;
@@ -213,7 +213,7 @@ typedef struct {
 
             FSClusterServerInfo *peer;   //the peer server in the cluster
 
-            FSSlaveReplication *replica;
+            FSReplication *replica;
         } cluster;
     };
 
@@ -238,8 +238,8 @@ typedef struct fs_server_context {
         } service;
 
         struct {
-            FSSlaveReplicationPtrArray connectings;  //master side
-            FSSlaveReplicationPtrArray connected;    //master side
+            FSReplicationPtrArray connectings;  //master side
+            FSReplicationPtrArray connected;    //master side
         } cluster;
     };
 

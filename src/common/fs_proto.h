@@ -190,8 +190,8 @@ typedef struct fs_proto_join_server_req {
     char buffer_size[4]; //the task size
     char replica_channels_between_two_servers[4];
     struct {
-        char servers[16];
-        char cluster[16];
+        unsigned char servers[16];
+        unsigned char cluster[16];
     } config_signs;
 } FSProtoJoinServerReq;
 
