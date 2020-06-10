@@ -40,15 +40,14 @@
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP  62
-#define FS_CLUSTER_PROTO_JOIN_MASTER             63  //slave  -> master
 #define FS_CLUSTER_PROTO_PING_MASTER_REQ         65
 #define FS_CLUSTER_PROTO_PING_MASTER_RESP        66
 #define FS_CLUSTER_PROTO_PRE_SET_NEXT_MASTER     67  //notify next leader to other servers
 #define FS_CLUSTER_PROTO_COMMIT_NEXT_MASTER      68  //commit next leader to other servers
 
 //replication commands, master -> slave
-#define FS_REPLICA_PROTO_JOIN_SLAVE_REQ          81
-#define FS_REPLICA_PROTO_JOIN_SLAVE_RESP         82
+#define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
+#define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
 #define FS_REPLICA_PROTO_PUSH_BINLOG_REQ         83
 #define FS_REPLICA_PROTO_PUSH_BINLOG_RESP        84
 
@@ -183,24 +182,21 @@ typedef struct fs_proto_get_slaves_resp_body_part {
 typedef struct fs_proto_join_master_req {
     char cluster_id[4];    //the cluster id
     char server_id[4];     //the slave server id
-    char config_sign[16];
     char key[FS_REPLICA_KEY_SIZE];   //the slave key used on JOIN_SLAVE
 } FSProtoJoinMasterReq;
 
-typedef struct fs_proto_join_slave_req {
-    char cluster_id[4];  //the cluster id
-    char server_id[4];   //the master server id
-    char buffer_size[4];   //the master task task size
-    char key[FS_REPLICA_KEY_SIZE];  //the slave key passed / set by JOIN_MASTER
-} FSProtoJoinSlaveReq;
-
-typedef struct fs_proto_join_slave_resp {
+typedef struct fs_proto_join_server_req {
+    char server_id[4];   //the server id
+    char buffer_size[4]; //the task size
+    char replica_channels_between_two_servers[4];
     struct {
-        char index[4];   //binlog file index
-        char offset[8];  //binlog file offset
-    } binlog_pos_hint;
-    char last_data_version[8];   //the slave's last data version
-} FSProtoJoinSlaveResp;
+        char servers[16];
+        char cluster[16];
+    } config_signs;
+} FSProtoJoinServerReq;
+
+typedef struct fs_proto_join_server_resp {
+} FSProtoJoinServerResp;
 
 typedef struct fs_proto_ping_master_resp_header {
     char oid_sn[8];  //current oid sn of master

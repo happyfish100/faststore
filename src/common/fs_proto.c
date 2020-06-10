@@ -273,8 +273,6 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_SERVER_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP:
             return "GET_SERVER_STATUS_RESP";
-        case FS_CLUSTER_PROTO_JOIN_MASTER:
-            return "JOIN_MASTER";
         case FS_CLUSTER_PROTO_PING_MASTER_REQ:
             return "PING_MASTER_REQ";
         case FS_CLUSTER_PROTO_PING_MASTER_RESP:
@@ -283,10 +281,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "PRE_SET_NEXT_MASTER";
         case FS_CLUSTER_PROTO_COMMIT_NEXT_MASTER:
             return "COMMIT_NEXT_MASTER";
-        case FS_REPLICA_PROTO_JOIN_SLAVE_REQ:
-            return "JOIN_SLAVE_REQ";
-        case FS_REPLICA_PROTO_JOIN_SLAVE_RESP:
-            return "JOIN_SLAVE_RESP";
+        case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
+            return "JOIN_SERVER_REQ";
+        case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
+            return "JOIN_SERVER_RESP";
         case FS_REPLICA_PROTO_PUSH_BINLOG_REQ:
             return "PUSH_BINLOG_REQ";
         case FS_REPLICA_PROTO_PUSH_BINLOG_RESP:

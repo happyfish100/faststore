@@ -342,19 +342,22 @@ static int send_join_slave_package(FSSlaveReplication *replication)
 {
 	int result;
 	FSProtoHeader *header;
-    FSProtoJoinSlaveReq *req;
-	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinSlaveReq)];
+    FSProtoJoinServerReq *req;
+	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinServerReq)];
 
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_JOIN_SLAVE_REQ,
+    FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_JOIN_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
-    req = (FSProtoJoinSlaveReq *)(out_buff + sizeof(FSProtoHeader));
-    //int2buff(CLUSTER_ID, req->cluster_id);
+    req = (FSProtoJoinServerReq *)(out_buff + sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     int2buff(replication->task->size, req->buffer_size);
-    memcpy(req->key, replication->peer->key, FS_REPLICA_KEY_SIZE);
-
+    int2buff(REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            req->replica_channels_between_two_servers);
+    memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
+            SERVERS_CONFIG_SIGN_LEN);
+    memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
+            CLUSTER_CONFIG_SIGN_LEN);
     if ((result=tcpsenddata_nb(replication->connection_info.conn.sock,
                     out_buff, sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
     {

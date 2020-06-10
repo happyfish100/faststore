@@ -156,23 +156,45 @@ static int check_realloc_id_array(FSIdArray *id_array, const int inc)
     return 0;
 }
 
-static void id_array_to_string(FSIdArray *id_array, char *buff, const int size)
+static int id_array_to_string_ex(FSIdArray *id_array,
+        string_t *buff, const int buff_size)
 {
     char *p;
     char *end;
+    char tmp[32];
+    int len;
     int i;
 
     if (id_array->count == 0) {
-        *buff = '\0';
-        return;
+        *buff->str = '\0';
+        buff->len = 0;
+        return 0;
     }
 
-    end = buff + size;
-    p = buff;
+    end = buff->str + buff_size;
+    p = buff->str;
     p += sprintf(p, "%d", id_array->ids[0]);
     for (i=1; i<id_array->count; i++) {
-        p += snprintf(p, end - p, " %d", id_array->ids[i]);
+        len = sprintf(tmp, ", %d", id_array->ids[i]);
+        if (end - p <= len) {
+            return ENOSPC;
+        }
+
+        memcpy(p, tmp, len);
+        p += len;
     }
+
+    *p = '\0';
+    buff->len = p - buff->str;
+    return 0;
+}
+
+static int id_array_to_string(FSIdArray *id_array,
+        char *id_str, const int buff_size)
+{
+    string_t buff;
+    buff.str = id_str;
+    return id_array_to_string_ex(id_array, &buff, buff_size);
 }
 
 static int check_data_groups(FSClusterConfig *cluster_cfg,
@@ -838,17 +860,20 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
     char server_id_buff[1024];
     char group_id_buff[1024];
     char *p;
-    char *end;
+    char *buff_end;
     int i;
 
-    end = server_id_buff + sizeof(server_id_buff);
+    logInfo("server_group_count = %d", cluster_cfg->server_groups.count);
+    logInfo("data_group_count = %d", cluster_cfg->data_groups.count);
+
+    buff_end = server_id_buff + sizeof(server_id_buff);
     send = cluster_cfg->server_groups.groups +
         cluster_cfg->server_groups.count;
     for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
         p = server_id_buff;
         p += sprintf(p, "%d", sgroup->server_array.servers[0]->id);
         for (i=1; i<sgroup->server_array.count; i++) {
-            p += snprintf(p, end - p, ", %d",
+            p += snprintf(p, buff_end - p, ", %d",
                     sgroup->server_array.servers[i]->id);
         }
 
@@ -859,6 +884,76 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
         logInfo("server_ids = %s", server_id_buff);
         logInfo("data_group_ids = %s", group_id_buff);
     }
+}
+
+int fc_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
+{
+    int result;
+    FSServerGroup *sgroup;
+    FSServerGroup *send;
+    char server_id_buff[1024];
+    char group_id_buff[1024];
+    char tmp[32];
+    string_t sid_buff;
+    string_t gid_buff;
+    char *p;
+    char *buff_end;
+    int len;
+    int i;
+
+    if ((result=fast_buffer_check(buffer, cluster_cfg->server_groups.count *
+                    256)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fast_buffer_append(buffer,
+                    "server_group_count = %d\n"
+                    "data_group_count = %d\n",
+                    cluster_cfg->server_groups.count,
+                    cluster_cfg->data_groups.count)) != 0)
+    {
+        return result;
+    }
+
+    sid_buff.str = server_id_buff;
+    gid_buff.str = group_id_buff;
+    buff_end = server_id_buff + sizeof(server_id_buff);
+    send = cluster_cfg->server_groups.groups +
+        cluster_cfg->server_groups.count;
+    for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
+        p = sid_buff.str;
+        p += sprintf(p, "%d", sgroup->server_array.servers[0]->id);
+        for (i=1; i<sgroup->server_array.count; i++) {
+            len = sprintf(tmp, ", %d", sgroup->server_array.servers[i]->id);
+            if (buff_end - p <= len) {
+                return ENOSPC;
+            }
+
+            memcpy(p, tmp, len);
+            p += len;
+        }
+        *p = '\0';
+        sid_buff.len = p - sid_buff.str;
+
+        if ((result=id_array_to_string_ex(&sgroup->data_group, &gid_buff,
+                        sizeof(group_id_buff))) != 0)
+        {
+            return result;
+        }
+
+        if ((result=fast_buffer_append(buffer,
+                        "[server-group-%d]\n"
+                        "server_ids = %s\n"
+                        "data_group_ids = %s\n",
+                        sgroup->server_group_id,
+                        sid_buff.str, gid_buff.str)) != 0)
+        {
+            return result;
+        }
+    }
+
+    return 0;
 }
 
 static int compare_server_group(const void *p1, const void *p2)

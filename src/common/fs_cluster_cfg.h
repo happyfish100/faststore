@@ -94,6 +94,9 @@ extern "C" {
 
     void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 
+    int fc_cluster_cfg_to_string(FSClusterConfig *cluster_cfg,
+            FastBuffer *buffer);
+
 #ifdef __cplusplus
 }
 #endif
