@@ -9,8 +9,15 @@
 extern "C" {
 #endif
 
+//replication server side
+void binlog_replication_bind_task(FSReplication *replication,
+        struct fast_task_info *task);
+
+//replication client side
 int binlog_replication_bind_thread(FSReplication *replication);
-int binlog_replication_rebind_thread(FSReplication *replication);
+
+//replication server and client
+int binlog_replication_unbind(FSReplication *replication);
 
 int binlog_replication_process(FSServerContext *server_ctx);
 

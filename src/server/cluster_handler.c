@@ -27,6 +27,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "replication/binlog_replication.h"
+#include "replication/binlog_local_consumer.h"
 #include "cluster_handler.h"
 
 int cluster_handler_init()
@@ -47,7 +48,6 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
     task_arg = (FSServerTaskArg *)task->arg;
     */
 
-    /*
     switch (CLUSTER_TASK_TYPE) {
         case FS_CLUSTER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
@@ -55,26 +55,16 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
             }
             CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
             break;
-        case  FS_CLUSTER_TASK_TYPE_REPLICA_MASTER:
+        case  FS_CLUSTER_TASK_TYPE_REPLICATION:
             if (CLUSTER_REPLICA != NULL) {
-                binlog_replication_rebind_thread(CLUSTER_REPLICA);
+                binlog_replication_unbind(CLUSTER_REPLICA);
                 CLUSTER_REPLICA = NULL;
-            }
-            CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
-            break;
-        case FS_CLUSTER_TASK_TYPE_REPLICA_SLAVE:
-            if (CLUSTER_CONSUMER_CTX != NULL) {
-                replica_consumer_thread_terminate(CLUSTER_CONSUMER_CTX);
-                CLUSTER_CONSUMER_CTX = NULL;
-                ((FSServerContext *)task->thread_data->arg)->
-                    cluster.consumer_ctx = NULL;
             }
             CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
             break;
         default:
             break;
     }
-    */
 
     __sync_add_and_fetch(&((FSServerTaskArg *)task->arg)->task_version, 1);
     sf_task_finish_clean_up(task);
@@ -116,6 +106,7 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
     FSProtoJoinServerReq *req;
     FSClusterServerInfo *peer;
     FSProtoJoinServerResp *resp;
+    FSReplication *replication;
 
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoJoinServerReq))) != 0)
@@ -160,13 +151,18 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
 
     peer = fs_get_server_by_id(server_id);
     if (peer == NULL) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
 
-    //TODO
+    if ((replication=fs_get_idle_replication_by_peer(server_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "peer server id: %d, NO replication slot", server_id);
+        return ENOENT;
+    }
+
+    binlog_replication_bind_task(replication, task);
     return 0;
 }
 
@@ -343,6 +339,20 @@ int cluster_deal_task(struct fast_task_info *task)
     }
 }
 
+static int alloc_replication_ptr_array(FSReplicationPtrArray *array)
+{
+    int bytes;
+
+    bytes = sizeof(FSReplication *) * fs_get_replication_count();
+    array->replications = (FSReplication **)malloc(bytes);
+    if (array->replications == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(array->replications, 0, bytes);
+    return 0;
+}
 
 void *cluster_alloc_thread_extra_data(const int thread_index)
 {
@@ -356,8 +366,19 @@ void *cluster_alloc_thread_extra_data(const int thread_index)
                 errno, strerror(errno));
         return NULL;
     }
-
     memset(server_context, 0, sizeof(FSServerContext));
+
+    if (alloc_replication_ptr_array(&server_context->
+                cluster.connectings) != 0)
+    {
+        return NULL;
+    }
+    if (alloc_replication_ptr_array(&server_context->
+                cluster.connected) != 0)
+    {
+        return NULL;
+    }
+
     return server_context;
 }
 

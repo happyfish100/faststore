@@ -27,25 +27,6 @@
 
 static void replication_queue_discard_all(FSReplication *replication);
 
-static int check_alloc_ptr_array(FSReplicationPtrArray *array)
-{
-    int bytes;
-
-    if (array->replications != NULL) {
-        return 0;
-    }
-
-    bytes = sizeof(FSReplication *) * CLUSTER_SERVER_ARRAY.count;
-    array->replications = (FSReplication **)malloc(bytes);
-    if (array->replications == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
-        return ENOMEM;
-    }
-    memset(array->replications, 0, bytes);
-    return 0;
-}
-
 static void add_to_replication_ptr_array(FSReplicationPtrArray *
         array, FSReplication *replication)
 {
@@ -80,49 +61,25 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
 static inline void set_replication_stage(FSReplication *
         replication, const int stage)
 {
-    switch (stage) {
-        case FS_REPLICATION_STAGE_INITED:
-            /*
-            if (replication->peer->status == FS_SERVER_STATUS_SYNCING ||
-                    replication->peer->status == FS_SERVER_STATUS_ACTIVE)
-            {
-                cluster_info_set_status(replication->peer,
-                        FS_SERVER_STATUS_OFFLINE);
-            }
-            */
-            break;
-
-        case FS_REPLICATION_STAGE_SYNC_FROM_DISK:
-            /*
-            if (replication->peer->status == FS_SERVER_STATUS_INIT) {
-                cluster_info_set_status(replication->peer,
-                        FS_SERVER_STATUS_BUILDING);
-            } else if (replication->peer->status !=
-                    FS_SERVER_STATUS_BUILDING)
-            {
-                cluster_info_set_status(replication->peer,
-                        FS_SERVER_STATUS_SYNCING);
-            }
-            */
-            break;
-
-        case FS_REPLICATION_STAGE_SYNC_FROM_QUEUE:
-            /*
-            cluster_info_set_status(replication->peer,
-                    FS_SERVER_STATUS_ACTIVE);
-                    */
-            break;
-
-        default:
-            break;
-    }
     replication->stage = stage;
+}
+
+void binlog_replication_bind_task(FSReplication *replication,
+        struct fast_task_info *task)
+{
+    FSServerContext *server_ctx;
+
+    set_replication_stage(replication, FS_REPLICATION_STAGE_SYNCING);
+    replication->task = task;
+    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_REPLICATION;
+    CLUSTER_REPLICA = replication;
+    server_ctx = (FSServerContext *)task->thread_data->arg;
+    add_to_replication_ptr_array(&server_ctx->
+            cluster.connected, replication);
 }
 
 int binlog_replication_bind_thread(FSReplication *replication)
 {
-    int result;
-    int alloc_size;
     struct fast_task_info *task;
     FSServerContext *server_ctx;
 
@@ -135,13 +92,6 @@ int binlog_replication_bind_thread(FSReplication *replication)
         return ENOMEM;
     }
 
-    alloc_size = 4 * task->size / FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
-    if ((result=push_result_ring_check_init(&replication->
-                    context.push_result_ctx, alloc_size)) != 0)
-    {
-        return result;
-    }
-
     task->canceled = false;
     task->ctx = &CLUSTER_SF_CTX;
     task->event.fd = -1;
@@ -149,38 +99,19 @@ int binlog_replication_bind_thread(FSReplication *replication)
         replication->thread_index % CLUSTER_SF_CTX.work_threads;
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
-    replication->context.last_data_versions.by_disk.previous = 0;
-    replication->context.last_data_versions.by_disk.current = 0;
-    replication->context.last_data_versions.by_queue = 0;
-    replication->context.last_data_versions.by_resp = 0;
 
-    replication->context.sync_by_disk_stat.start_time_ms = 0;
-    replication->context.sync_by_disk_stat.binlog_size = 0;
-    replication->context.sync_by_disk_stat.record_count = 0;
-
-    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_REPLICA_MASTER;
+    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_REPLICATION;
     CLUSTER_REPLICA = replication;
     replication->connection_info.conn.sock = -1;
     replication->task = task;
 
     server_ctx = (FSServerContext *)task->thread_data->arg;
-    if ((result=check_alloc_ptr_array(&server_ctx->
-                    cluster.connectings)) != 0)
-    {
-        return result;
-    }
-    if ((result=check_alloc_ptr_array(&server_ctx->
-                    cluster.connected)) != 0)
-    {
-        return result;
-    }
-
     add_to_replication_ptr_array(&server_ctx->
             cluster.connectings, replication);
     return 0;
 }
 
-int binlog_replication_rebind_thread(FSReplication *replication)
+int binlog_replication_unbind(FSReplication *replication)
 {
     int result;
     FSServerContext *server_ctx;
@@ -191,11 +122,11 @@ int binlog_replication_rebind_thread(FSReplication *replication)
     {
         replication_queue_discard_all(replication);
         push_result_ring_clear_all(&replication->context.push_result_ctx);
-        /*
-        if (MYSELF_IS_MASTER) {
+        if (replication->is_client) {
             result = binlog_replication_bind_thread(replication);
+        } else {
+            set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
         }
-        */
     }
 
     return result;
@@ -399,7 +330,6 @@ static void discard_queue(FSReplication *replication,
         rb = head;
         head = head->nexts[replication->peer->link_index];
 
-        replication->context.last_data_versions.by_queue = rb->data_version;
         decrease_task_waiting_rpc_count(rb);
         rb->release_func(rb);
     }
@@ -418,38 +348,6 @@ static void replication_queue_discard_all(FSReplication *replication)
 
     if (head != NULL) {
         discard_queue(replication, head, NULL);
-    }
-}
-
-static void replication_queue_discard_synced(FSReplication *replication)
-{
-    ServerBinlogRecordBuffer *head;
-    ServerBinlogRecordBuffer *tail;
-
-    PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
-    do {
-        head = replication->context.queue.head;
-        if (head == NULL) {
-            tail = NULL;
-            break;
-        }
-
-        tail = head;
-        while ((tail != NULL) && (tail->data_version <=
-                    replication->context.last_data_versions.by_disk.current))
-        {
-            tail = tail->nexts[replication->peer->link_index];
-        }
-
-        replication->context.queue.head = tail;
-        if (tail == NULL) {
-            replication->context.queue.tail = NULL;
-        }
-    } while (0);
-    PTHREAD_MUTEX_UNLOCK(&replication->context.queue.lock);
-
-    if (head != NULL) {
-        discard_queue(replication, head, tail);
     }
 }
 
@@ -618,7 +516,6 @@ static int sync_binlog_from_queue(FSReplication *replication)
             }
 
             last_data_version = rb->data_version;
-            replication->context.last_data_versions.by_queue = rb->data_version;
             memcpy(replication->task->data + replication->task->length,
                     rb->buffer.data, rb->buffer.length);
             replication->task->length += rb->buffer.length;
@@ -658,61 +555,30 @@ int binlog_replications_check_response_data_version(
         FSReplication *replication,
         const int64_t data_version)
 {
-    if (data_version > replication->context.last_data_versions.by_resp) {
-        replication->context.last_data_versions.by_resp = data_version;
-    }
-
-    if (replication->stage == FS_REPLICATION_STAGE_SYNC_FROM_QUEUE) {
+    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
         return push_result_ring_remove(&replication->context.
                 push_result_ctx, data_version);
-    } else if (replication->stage == FS_REPLICATION_STAGE_SYNC_FROM_DISK) {
-        replication->context.sync_by_disk_stat.record_count++;
     }
-
     return 0;
 }
 
 static int deal_connected_replication(FSReplication *replication)
 {
-    int result;
-
     //logInfo("replication stage: %d", replication->stage);
 
-    if (replication->stage != FS_REPLICATION_STAGE_SYNC_FROM_QUEUE) {
+    if (replication->stage != FS_REPLICATION_STAGE_SYNCING) {
         replication_queue_discard_all(replication);
     }
 
     if (replication->stage == FS_REPLICATION_STAGE_WAITING_JOIN_RESP) {
-        /*
-        if (replication->peer->last_data_version < 0 ||
-                replication->peer->binlog_pos_hint.index < 0 ||
-                replication->peer->binlog_pos_hint.offset < 0)
-        {
-            return 0;
-        }
-
-        if ((result=start_binlog_read_thread(replication)) == 0) {
-            set_replication_stage(replication,
-                    FS_REPLICATION_STAGE_SYNC_FROM_DISK);
-            replication->context.sync_by_disk_stat.start_time_ms =
-                get_current_time_ms();
-        }
-        */
-        result = 0;
-        return result;
+        return 0;
     }
 
     if (!(replication->task->offset == 0 && replication->task->length == 0)) {
         return 0;
     }
 
-    if (replication->stage == FS_REPLICATION_STAGE_SYNC_FROM_DISK) {
-        if (replication->context.last_data_versions.by_resp >=
-                replication->context.last_data_versions.by_disk.previous) //flow control
-        {
-            //return sync_binlog_from_disk(replication);
-        }
-    } else if (replication->stage == FS_REPLICATION_STAGE_SYNC_FROM_QUEUE) {
+    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
         push_result_ring_clear_timeouts(&replication->context.push_result_ctx);
         return sync_binlog_from_queue(replication);
     }

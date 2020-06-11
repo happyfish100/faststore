@@ -83,6 +83,29 @@ static int calc_cluster_config_sign()
     return 0;
 }
 
+static int find_group_indexes_in_cluster_config(const char *filename)
+{
+    CLUSTER_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
+            "cluster");
+    if (CLUSTER_GROUP_INDEX < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, cluster group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    SERVICE_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
+            "service");
+    if (SERVICE_GROUP_INDEX < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, service group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    return 0;
+}
+
 static int load_cluster_config(IniContext *ini_context, const char *filename)
 {
     int result;
@@ -294,6 +317,10 @@ int server_load_config(const char *filename)
     }
 
     if ((result=load_cluster_config(&ini_context, filename)) != 0) {
+        return result;
+    }
+
+    if ((result=find_group_indexes_in_cluster_config(filename)) != 0) {
         return result;
     }
 

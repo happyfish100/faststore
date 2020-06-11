@@ -19,6 +19,7 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "binlog_replication.h"
+#include "push_result_ring.h"
 #include "binlog_local_consumer.h"
 
 typedef struct {
@@ -45,6 +46,35 @@ static void set_server_link_index_for_replication()
                     cs->server->id, cs->link_index);
         }
     }
+}
+
+static int init_binlog_replication(FSReplication *replication)
+{
+    int result;
+    int alloc_size;
+
+    replication->connection_info.conn.sock = -1;
+    if ((result=fc_queue_init(&replication->context.queue,
+                    (long)(&((ServerBinlogRecordBuffer *)NULL)->nexts) +
+                    sizeof(void *) * replication->peer->link_index)) != 0)
+    {
+        return result;
+    }
+
+    alloc_size = 4 * g_sf_global_vars.min_buff_size /
+        FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
+    if ((result=push_result_ring_check_init(&replication->
+                    context.push_result_ctx, alloc_size)) != 0)
+    {
+        return result;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "replication: %d, thread_index: %d",
+            __LINE__, (int)(replication - repl_ctx.repl_array.replications),
+            replication->thread_index);
+
+    return 0;
 }
 
 static int init_binlog_local_consumer_array()
@@ -102,18 +132,9 @@ static int init_binlog_local_consumer_array()
         for (i=0; i<REPLICA_CHANNELS_BETWEEN_TWO_SERVERS; i++) {
             replication->peer = cs;
             replication->thread_index = offset + i;
-            replication->connection_info.conn.sock = -1;
-            if ((result=fc_queue_init(&replication->context.queue,
-                            (long)(&((ServerBinlogRecordBuffer *)NULL)->nexts) +
-                            sizeof(void *) * replication->peer->link_index)) != 0)
-            {
+            if ((result=init_binlog_replication(replication)) != 0) {
                 return result;
             }
-
-            logInfo("file: "__FILE__", line: %d, "
-                    "replication: %d, thread_index: %d",
-                    __LINE__, (int)(replication - repl_ctx.repl_array.replications),
-                    replication->thread_index);
 
             replication++;
         }
@@ -155,6 +176,7 @@ int binlog_local_consumer_start()
             replication++)
     {
         if (CLUSTER_MYSELF_PTR->server->id < replication->peer->server->id) {
+            replication->is_client = true;
             if ((result=binlog_replication_bind_thread(replication)) != 0) {
                 return result;
             }
@@ -229,6 +251,11 @@ int binlog_local_consumer_push_to_queues(const int data_group_index,
     }
 
     return 0;
+}
+
+int fs_get_replication_count()
+{
+    return repl_ctx.repl_array.count;
 }
 
 FSReplication *fs_get_idle_replication_by_peer(const int peer_id)

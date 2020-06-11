@@ -23,15 +23,13 @@
 
 #define FS_CLUSTER_TASK_TYPE_NONE               0
 #define FS_CLUSTER_TASK_TYPE_RELATIONSHIP       1   //slave  -> master
-#define FS_CLUSTER_TASK_TYPE_REPLICA_MASTER     2   //[Master] -> slave
-#define FS_CLUSTER_TASK_TYPE_REPLICA_SLAVE      3   //master -> [Slave]
+#define FS_CLUSTER_TASK_TYPE_REPLICATION        2
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
 #define FS_REPLICATION_STAGE_CONNECTING         2
 #define FS_REPLICATION_STAGE_WAITING_JOIN_RESP  3
-#define FS_REPLICATION_STAGE_SYNC_FROM_DISK     4
-#define FS_REPLICATION_STAGE_SYNC_FROM_QUEUE    5
+#define FS_REPLICATION_STAGE_SYNCING            4
 
 #define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  2
 #define FS_DEFAULT_TRUNK_FILE_SIZE  (  1 * 1024 * 1024 * 1024LL)
@@ -150,29 +148,15 @@ typedef struct fdir_binlog_push_result_context {
 } FSBinlogPushResultContext;
 
 typedef struct fs_replication_context {
-    struct fc_queue queue;  //push to the slave
-    FSBinlogPushResultContext push_result_ctx;   //push result recv from the slave
-
-    struct {
-        int64_t by_queue;
-        struct {
-            int64_t previous;
-            int64_t current;
-        } by_disk;
-        int64_t by_resp;  //for flow control
-    } last_data_versions;
-
-    struct {
-        int64_t start_time_ms;
-        int64_t binlog_size;
-        int64_t record_count;
-    } sync_by_disk_stat;
+    struct fc_queue queue;  //push to peer
+    FSBinlogPushResultContext push_result_ctx;   //push result recv from peer
 } FSReplicationContext;
 
 typedef struct fs_replication {
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
-    int stage;
+    short stage;
+    bool is_client;
     int thread_index; //for nio thread
     struct {
         int start_time;
