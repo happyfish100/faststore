@@ -39,7 +39,7 @@ static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
     FSServerGroup *server_group;
     FCServerInfo **pp;
     FCServerInfo **end;
-    FSClusterServerPtr *sp;
+    FSClusterServerPtrEntry *sp;
     int bytes;
 
     if ((server_group=fs_cluster_cfg_get_server_group(&CLUSTER_CONFIG_CTX,
@@ -49,8 +49,8 @@ static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
     }
 
 
-    bytes = sizeof(FSClusterServerPtr) * server_group->server_array.count;
-    group->server_ptr_array.servers = (FSClusterServerPtr *)malloc(bytes);
+    bytes = sizeof(FSClusterServerPtrEntry) * server_group->server_array.count;
+    group->server_ptr_array.servers = (FSClusterServerPtrEntry *)malloc(bytes);
     if (group->server_ptr_array.servers == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -58,6 +58,15 @@ static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
     }
     memset(group->server_ptr_array.servers, 0, bytes);
     group->server_ptr_array.count = server_group->server_array.count;
+
+    bytes = sizeof(FSClusterServerInfo *) * server_group->server_array.count;
+    group->active_slaves.servers = (FSClusterServerInfo **)malloc(bytes);
+    if (group->active_slaves.servers == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(group->active_slaves.servers, 0, bytes);
 
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
@@ -356,8 +365,8 @@ static void get_server_group_filename(FSClusterDataGroupInfo *group,
 static int load_servers_from_ini_ctx(IniContext *ini_context,
         FSClusterServerPtrArray *server_ptr_array)
 {
-    FSClusterServerPtr *sp;
-    FSClusterServerPtr *end;
+    FSClusterServerPtrEntry *sp;
+    FSClusterServerPtrEntry *end;
     char section_name[64];
 
     end = server_ptr_array->servers + server_ptr_array->count;
@@ -464,8 +473,8 @@ static int server_group_info_write_to_file(FSClusterDataGroupInfo *group)
     char full_filename[PATH_MAX];
     char buff[8 * 1024];
     char *p;
-    FSClusterServerPtr *sp;
-    FSClusterServerPtr *end;
+    FSClusterServerPtrEntry *sp;
+    FSClusterServerPtrEntry *end;
     int result;
     int len;
 

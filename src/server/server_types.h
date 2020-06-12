@@ -75,20 +75,25 @@ typedef struct {
     int64_t size;   //alloced space size
 } FSTrunkSpaceInfo;
 
-struct fs_server_dentry;
-typedef struct fs_server_dentry_array {
-    int alloc;
-    int count;
-    struct fs_server_dentry **entries;
-} FSServerDentryArray;  //for list entry
-
 typedef struct fs_binlog_file_position {
     int index;      //current binlog file
     int64_t offset; //current file offset
 } FSBinlogFilePosition;
 
+struct fs_replication;
+typedef struct fs_replication_array {
+    struct fs_replication *replications;
+    int count;
+} FSReplicationArray;
+
+typedef struct fs_replication_ptr_array {
+    int count;
+    struct fs_replication **replications;
+} FSReplicationPtrArray;
+
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
+    FSReplicationPtrArray repl_ptr_array;
     int link_index;      //current binlog file
     char key[FS_REPLICA_KEY_SIZE];  //for slave server
 } FSClusterServerInfo;
@@ -98,15 +103,20 @@ typedef struct fs_cluster_server_array {
     int count;
 } FSClusterServerArray;
 
-typedef struct fs_cluster_server_ptr {
+typedef struct fs_cluster_server_pp_array {
+    FSClusterServerInfo **servers;
+    int count;
+} FSClusterServerPPArray;
+
+typedef struct fs_cluster_server_ptr_entry {
     FSClusterServerInfo *cs;
-    char status;                //the slave status
+    char status;                //the server status
     int64_t last_data_version;  //for replication
     int last_change_version;    //for push server status to the slave
-} FSClusterServerPtr;
+} FSClusterServerPtrEntry;
 
 typedef struct fs_cluster_server_ptr_array {
-    FSClusterServerPtr *servers;
+    FSClusterServerPtrEntry *servers;
     int count;
 } FSClusterServerPtrArray;
 
@@ -115,6 +125,7 @@ typedef struct fs_cluster_data_group_info {
     int last_synced_version;
     volatile int change_version;
     FSClusterServerPtrArray server_ptr_array;
+    FSClusterServerPPArray active_slaves;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {
@@ -158,6 +169,7 @@ typedef struct fs_replication {
     short stage;
     bool is_client;
     int thread_index; //for nio thread
+    int conn_index;
     struct {
         int start_time;
         int next_connect_time;
@@ -168,16 +180,6 @@ typedef struct fs_replication {
 
     FSReplicationContext context;
 } FSReplication;
-
-typedef struct fs_replication_array {
-    FSReplication *replications;
-    int count;
-} FSReplicationArray;
-
-typedef struct fs_replication_ptr_array {
-    int count;
-    FSReplication **replications;
-} FSReplicationPtrArray;
 
 typedef struct {
     FSRequestInfo request;

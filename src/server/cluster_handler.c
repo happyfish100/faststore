@@ -155,6 +155,11 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
+    if (CLUSTER_TASK_TYPE != FS_CLUSTER_TASK_TYPE_NONE) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "server id: %d already joined", server_id);
+        return EEXIST;
+    }
 
     if ((replication=fs_get_idle_replication_by_peer(server_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -163,10 +168,25 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
     }
 
     binlog_replication_bind_task(replication, task);
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_JOIN_SERVER_RESP;
     return 0;
 }
 
-static int cluster_deal_slave_ack(struct fast_task_info *task)
+static int cluster_deal_join_server_resp(struct fast_task_info *task)
+{
+    if (!(CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_REPLICATION &&
+                CLUSTER_REPLICA != NULL))
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "unexpect cmd: %d", REQUEST.header.cmd);
+        return EINVAL;
+    }
+
+    set_replication_stage(CLUSTER_REPLICA, FS_REPLICATION_STAGE_SYNCING);
+    return 0;
+}
+
+static int cluster_deal_ack(struct fast_task_info *task)
 {
     if (REQUEST_STATUS != 0) {
         if (REQUEST.header.body_len > 0) {
@@ -316,15 +336,18 @@ int cluster_deal_task(struct fast_task_info *task)
                 result = cluster_deal_actvie_test(task);
                 break;
             case FS_PROTO_ACK:
-                result = cluster_deal_slave_ack(task);
+                result = cluster_deal_ack(task);
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
                 result = cluster_deal_join_server_req(task);
                 break;
+            case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
+                result = cluster_deal_join_server_resp(task);
+                TASK_ARG->context.need_response = false;
+                break;
             default:
-                RESPONSE.error.length = sprintf(
-                        RESPONSE.error.message,
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
                         "unkown cmd: %d", REQUEST.header.cmd);
                 result = -EINVAL;
                 break;
@@ -389,8 +412,9 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
 
     server_ctx = (FSServerContext *)thread_data->arg;
 
-    if (count++ % 10000 == 0) {
-        logInfo("connectings.count: %d, connected.count: %d",
+    if (count++ % 1000 == 0) {
+        logInfo("thread index: %d, connectings.count: %d, connected.count: %d",
+                SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
                 server_ctx->cluster.connectings.count,
                 server_ctx->cluster.connected.count);
     }

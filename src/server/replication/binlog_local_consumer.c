@@ -124,10 +124,19 @@ static int init_binlog_local_consumer_array()
             return ENOENT;
         }
 
+        bytes = sizeof(FSReplication *) * REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
+        cs->repl_ptr_array.replications = (FSReplication **)malloc(bytes);
+        if (cs->repl_ptr_array.replications == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "malloc %d bytes fail", __LINE__, bytes);
+            return ENOMEM;
+        }
+
         logInfo("file: "__FILE__", line: %d, "
                 "server pair ids: [%d, %d], offset: %d, link_index: %d",
-                __LINE__, CLUSTER_MYSELF_PTR->server->id,
-                cs->server->id, offset, cs->link_index);
+                __LINE__, FC_MIN(CLUSTER_MYSELF_PTR->server->id,
+                cs->server->id), FC_MAX(CLUSTER_MYSELF_PTR->server->id,
+                cs->server->id), offset, cs->link_index);
 
         for (i=0; i<REPLICA_CHANNELS_BETWEEN_TWO_SERVERS; i++) {
             replication->peer = cs;
@@ -136,8 +145,11 @@ static int init_binlog_local_consumer_array()
                 return result;
             }
 
+            cs->repl_ptr_array.replications[i] = replication;
             replication++;
         }
+
+        cs->repl_ptr_array.count = REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
         ++cs;
     }
 

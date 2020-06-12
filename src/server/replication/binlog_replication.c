@@ -58,12 +58,6 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
     return 0;
 }
 
-static inline void set_replication_stage(FSReplication *
-        replication, const int stage)
-{
-    replication->stage = stage;
-}
-
 void binlog_replication_bind_task(FSReplication *replication,
         struct fast_task_info *task)
 {
@@ -221,10 +215,11 @@ static int check_and_make_replica_connection(FSReplication *replication)
             return EAGAIN;
         }
 
+
         addr_array = &CLUSTER_GROUP_ADDRESS_ARRAY(replication->peer->server);
-        addr = addr_array->addrs[addr_array->index++];
-        if (addr_array->index >= addr_array->count) {
-            addr_array->index = 0;
+        addr = addr_array->addrs[replication->conn_index++];
+        if (replication->conn_index >= addr_array->count) {
+            replication->conn_index = 0;
         }
 
         replication->connection_info.start_time = g_current_time;

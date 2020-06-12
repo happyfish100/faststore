@@ -27,6 +27,12 @@ int binlog_replications_check_response_data_version(
         FSReplication *replication,
         const int64_t data_version);
 
+static inline void set_replication_stage(FSReplication *
+        replication, const int stage)
+{
+    replication->stage = stage;
+}
+
 #ifdef __cplusplus
 }
 #endif
