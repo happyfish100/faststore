@@ -122,7 +122,6 @@ typedef struct fs_cluster_server_ptr_array {
 
 typedef struct fs_cluster_data_group_info {
     int data_group_id;
-    int last_synced_version;
     volatile int change_version;
     FSClusterServerPtrArray server_ptr_array;
     FSClusterServerPPArray active_slaves;

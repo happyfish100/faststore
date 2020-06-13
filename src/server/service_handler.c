@@ -100,7 +100,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
 
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
-    long2buff(DATA_CURRENT_VERSION, stat_resp->dentry.current_data_version);
+    long2buff(CLUSTER_CURRENT_VERSION, stat_resp->dentry.current_data_version);
     long2buff(CURRENT_INODE_SN, stat_resp->dentry.current_oid_sn);
     long2buff(counters.ns, stat_resp->dentry.counters.ns);
     long2buff(counters.dir, stat_resp->dentry.counters.dir);

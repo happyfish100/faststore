@@ -24,15 +24,15 @@ typedef struct {
     ServerPairBaseIndexEntry *entries;
 } ServerPairBaseIndexArray;
 
-#define DATA_GROUP_INFO_SUBDIR_NAME               "cluster"
-#define DATA_GROUP_INFO_FILENAME_FORMAT           "data_group%05d.info"
+#define DATA_GROUP_INFO_FILENAME           "data_group.info"
 
-#define SERVER_SECTION_PREFIX_STR                 "server-"
-#define SERVER_GROUP_INFO_ITEM_STATUS             "status"
+#define DATA_GROUP_SECTION_PREFIX_STR      "data-group-"
+#define SERVER_GROUP_INFO_ITEM_VERSION     "version"
+#define SERVER_GROUP_INFO_ITEM_SERVER      "server"
 
 static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
 
-static int server_group_info_write_to_file(FSClusterDataGroupInfo *group);
+static int server_group_info_write_to_file(const uint64_t current_version);
 
 static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
 {
@@ -355,49 +355,87 @@ FSClusterServerInfo *fs_get_server_by_id(const int server_id)
     return NULL;
 }
 
-static void get_server_group_filename(FSClusterDataGroupInfo *group,
+static inline void get_server_group_filename(
         char *full_filename, const int size)
 {
-    snprintf(full_filename, size, "%s/%s/"DATA_GROUP_INFO_FILENAME_FORMAT,
-            DATA_PATH_STR, DATA_GROUP_INFO_SUBDIR_NAME, group->data_group_id);
+    snprintf(full_filename, size, "%s/%s",
+            DATA_PATH_STR, DATA_GROUP_INFO_FILENAME);
 }
 
-static int load_servers_from_ini_ctx(IniContext *ini_context,
-        FSClusterServerPtrArray *server_ptr_array)
+static int load_group_servers_from_ini(const char *group_filename,
+        IniContext *ini_context, FSClusterDataGroupInfo *group)
 {
+#define MAX_FIELD_COUNT 4
     FSClusterServerPtrEntry *sp;
-    FSClusterServerPtrEntry *end;
+    FSClusterServerPtrEntry *sp_end;
+    IniItem *items;
+    IniItem *it_end;
+    IniItem *it;
+    string_t fields[MAX_FIELD_COUNT];
+    string_t value;
+    int item_count;
+    int field_count;
+    int server_id;
+    int status;
+    int64_t last_data_version;
     char section_name[64];
 
-    end = server_ptr_array->servers + server_ptr_array->count;
-    for (sp=server_ptr_array->servers; sp<end; sp++) {
-        sprintf(section_name, "%s%d",
-                SERVER_SECTION_PREFIX_STR,
-                sp->cs->server->id);
-        sp->status = iniGetIntValue(section_name,
-                SERVER_GROUP_INFO_ITEM_STATUS, ini_context,
-                FS_SERVER_STATUS_INIT);
+    sprintf(section_name, "%s%d", DATA_GROUP_SECTION_PREFIX_STR,
+            group->data_group_id);
+    if ((items=iniGetValuesEx(section_name, SERVER_GROUP_INFO_ITEM_SERVER,
+            ini_context, &item_count)) == NULL)
+    {
+        return 0;
+    }
 
-        if (sp->status == FS_SERVER_STATUS_SYNCING ||
-                sp->status == FS_SERVER_STATUS_ACTIVE)
+    sp_end = group->server_ptr_array.servers + group->server_ptr_array.count;
+    it_end = items + item_count;
+    for (it=items; it<it_end; it++) {
+        FC_SET_STRING(value, it->value);
+        field_count = split_string_ex(&value, ',', fields,
+                MAX_FIELD_COUNT, false);
+        if (field_count != 3) {
+            logError("file: "__FILE__", line: %d, "
+                    "group filename: %s, section: %s, item: %s, "
+                    "invalid value: %s, field count: %d != 3",
+                    __LINE__, group_filename, section_name,
+                    SERVER_GROUP_INFO_ITEM_SERVER,
+                    it->value, field_count);
+            return EINVAL;
+        }
+
+        server_id = strtol(fields[0].str, NULL, 10);
+        status = strtol(fields[1].str, NULL, 10);
+        last_data_version = strtoll(fields[2].str, NULL, 10);
+        if (status == FS_SERVER_STATUS_SYNCING ||
+                status == FS_SERVER_STATUS_ACTIVE)
         {
-            sp->status = FS_SERVER_STATUS_OFFLINE;
+            status = FS_SERVER_STATUS_OFFLINE;
+        }
+        for (sp=group->server_ptr_array.servers; sp<sp_end; sp++) {
+            if (sp->cs->server->id == server_id) {
+                sp->status = status;
+                sp->last_data_version = last_data_version;
+                break;
+            }
         }
     }
 
     return 0;
 }
 
-static int load_server_group_info_from_file(FSClusterDataGroupInfo *group)
+static int load_server_groups()
 {
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *end;
     char full_filename[PATH_MAX];
     IniContext ini_context;
     int result;
 
-    get_server_group_filename(group, full_filename, sizeof(full_filename));
+    get_server_group_filename(full_filename, sizeof(full_filename));
     if (access(full_filename, F_OK) != 0) {
         if (errno == ENOENT) {
-            return server_group_info_write_to_file(group);
+            return server_group_info_write_to_file(CLUSTER_CURRENT_VERSION);
         }
     }
 
@@ -408,41 +446,31 @@ static int load_server_group_info_from_file(FSClusterDataGroupInfo *group)
         return result;
     }
 
-    result = load_servers_from_ini_ctx(&ini_context, &group->server_ptr_array);
-    iniFreeContext(&ini_context);
-
-    return result;
-}
-
-static int load_server_groups()
-{
-    FSClusterDataGroupInfo *group;
-    FSClusterDataGroupInfo *end;
-    int result;
+    CLUSTER_CURRENT_VERSION = iniGetInt64Value(NULL,
+            SERVER_GROUP_INFO_ITEM_VERSION, &ini_context, 0);
+    logInfo("current version: %"PRId64, CLUSTER_CURRENT_VERSION);
 
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
-        if ((result=load_server_group_info_from_file(group)) != 0) {
-            return result;
+        if ((result=load_group_servers_from_ini(full_filename,
+                        &ini_context, group)) != 0)
+        {
+            break;
         }
     }
 
-    return 0;
+    iniFreeContext(&ini_context);
+    return result;
 }
+
+static FastBuffer file_buffer;
 
 int server_group_info_init(const char *cluster_config_filename)
 {
-    char filepath[PATH_MAX];
     int result;
-    bool create;
 
-    snprintf(filepath, sizeof(filepath), "%s/%s",
-            DATA_PATH_STR, DATA_GROUP_INFO_SUBDIR_NAME);
-    if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
+    if ((result=fast_buffer_init_ex(&file_buffer, 2048)) != 0) {
         return result;
-    }
-    if (create) {
-        SF_CHOWN_RETURN_ON_ERROR(filepath, geteuid(), getegid());
     }
 
     if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
@@ -468,59 +496,77 @@ int server_group_info_init(const char *cluster_config_filename)
     return 0;
 }
 
-static int server_group_info_write_to_file(FSClusterDataGroupInfo *group)
+static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
 {
-    char full_filename[PATH_MAX];
-    char buff[8 * 1024];
-    char *p;
     FSClusterServerPtrEntry *sp;
     FSClusterServerPtrEntry *end;
     int result;
-    int len;
 
-    get_server_group_filename(group, full_filename, sizeof(full_filename));
-    p = buff;
+    if ((result=fast_buffer_append(&file_buffer, "[%s%d]\n",
+                    DATA_GROUP_SECTION_PREFIX_STR,
+                    group->data_group_id)) != 0)
+    {
+        return result;
+    }
+
     end = group->server_ptr_array.servers + group->server_ptr_array.count;
     for (sp=group->server_ptr_array.servers; sp<end; sp++) {
-        p += sprintf(p,
-                "[%s%d]\n"
-                "%s=%d\n\n",
-                SERVER_SECTION_PREFIX_STR, sp->cs->server->id,
-                SERVER_GROUP_INFO_ITEM_STATUS, sp->status
-                );
+        if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
+                        SERVER_GROUP_INFO_ITEM_SERVER, sp->cs->server->id,
+                        sp->status, sp->last_data_version)) != 0)
+        {
+            return result;
+        }
     }
 
-    len = p - buff;
-    if ((result=safeWriteToFile(full_filename, buff, len)) != 0) {
+    return 0;
+}
+
+static int server_group_info_write_to_file(const uint64_t current_version)
+{
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *end;
+    char full_filename[PATH_MAX];
+    int result;
+
+    fast_buffer_reset(&file_buffer);
+    fast_buffer_append(&file_buffer, "%s=%"PRId64"\n",
+            SERVER_GROUP_INFO_ITEM_VERSION, current_version);
+
+    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+        if ((result=server_group_info_to_file_buffer(group)) != 0) {
+            return result;
+        }
+    }
+
+    get_server_group_filename(full_filename, sizeof(full_filename));
+    if ((result=safeWriteToFile(full_filename, file_buffer.data,
+                    file_buffer.length)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
-            "write to file \"%s\" fail, "
-            "errno: %d, error info: %s",
-            __LINE__, full_filename,
-            result, STRERROR(result));
+                "write to file \"%s\" fail, "
+                "errno: %d, error info: %s",
+                __LINE__, full_filename,
+                result, STRERROR(result));
     }
-
     return result;
 }
 
 static int server_group_info_sync_to_file(void *args)
 {
-    FSClusterDataGroupInfo *group;
-    FSClusterDataGroupInfo *end;
+    static uint64_t last_synced_version;
+    uint64_t current_version;
     int result;
 
-    result = 0;
-    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
-        if (group->last_synced_version == group->change_version) {
-            continue;
-        }
-
-        group->last_synced_version = group->change_version;
-        if ((result=server_group_info_write_to_file(group)) != 0) {
-            break;
-        }
+    current_version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
+    if (last_synced_version == current_version) {
+        return 0;
     }
 
+    if ((result=server_group_info_write_to_file(current_version)) == 0) {
+        last_synced_version = current_version;
+    }
     return result;
 }
 
