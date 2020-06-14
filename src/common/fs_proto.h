@@ -8,7 +8,7 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fs_types.h"
 
-#define FS_STATUS_MASTER_INCONSISTENT     9999
+#define FS_STATUS_LEADER_INCONSISTENT     9999
 
 #define FS_PROTO_ACK                      6
 
@@ -40,10 +40,12 @@
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP  62
-#define FS_CLUSTER_PROTO_PING_MASTER_REQ         65
-#define FS_CLUSTER_PROTO_PING_MASTER_RESP        66
-#define FS_CLUSTER_PROTO_PRE_SET_NEXT_MASTER     67  //notify next leader to other servers
-#define FS_CLUSTER_PROTO_COMMIT_NEXT_MASTER      68  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         63
+#define FS_CLUSTER_PROTO_JOIN_LEADER_RESP        64
+#define FS_CLUSTER_PROTO_PING_LEADER_REQ         65
+#define FS_CLUSTER_PROTO_PING_LEADER_RESP        66
+#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     67  //notify next leader to other servers
+#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      68  //commit next leader to other servers
 
 //replication commands, master -> slave
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
@@ -93,7 +95,7 @@ typedef struct fs_proto_header {
 
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
-    char is_master;
+    char is_leader;
     char status;
 
     struct {
@@ -155,6 +157,23 @@ typedef struct fs_proto_slice_read_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceReadReqHeader;
 
+typedef struct {
+    unsigned char servers[16];
+    unsigned char cluster[16];
+} FSProtoConfigSigns;
+
+typedef struct fs_proto_get_server_status_req {
+    char server_id[4];
+    FSProtoConfigSigns config_signs;
+} FSProtoGetServerStatusReq;
+
+typedef struct fs_proto_get_server_status_resp {
+    char is_leader;
+    char server_id[4];
+    char up_time[4];
+    char version[8];
+} FSProtoGetServerStatusResp;
+
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];
 } FSProtoClusterStatRespBodyHeader;
@@ -179,34 +198,30 @@ typedef struct fs_proto_get_slaves_resp_body_part {
     char status;
 } FSProtoGetSlavesRespBodyPart;
 
-typedef struct fs_proto_join_master_req {
-    char cluster_id[4];    //the cluster id
+typedef struct fs_proto_join_leader_req {
     char server_id[4];     //the slave server id
-    char key[FS_REPLICA_KEY_SIZE];   //the slave key used on JOIN_SLAVE
-} FSProtoJoinMasterReq;
+    FSProtoConfigSigns config_signs;
+} FSProtoJoinLeaderReq;
 
 typedef struct fs_proto_join_server_req {
     char server_id[4];   //the server id
     char buffer_size[4]; //the task size
     char replica_channels_between_two_servers[4];
-    struct {
-        unsigned char servers[16];
-        unsigned char cluster[16];
-    } config_signs;
+    FSProtoConfigSigns config_signs;
 } FSProtoJoinServerReq;
 
 typedef struct fs_proto_join_server_resp {
 } FSProtoJoinServerResp;
 
-typedef struct fs_proto_ping_master_resp_header {
-    char oid_sn[8];  //current oid sn of master
+typedef struct fs_proto_ping_leader_resp_header {
+    char oid_sn[8];  //current oid sn of leader
     char server_count[4];
-} FSProtoPingMasterRespHeader;
+} FSProtoPingLeaderRespHeader;
 
-typedef struct fs_proto_ping_master_resp_body_part {
+typedef struct fs_proto_ping_leader_resp_body_part {
     char server_id[4];
     char status;
-} FSProtoPingMasterRespBodyPart;
+} FSProtoPingLeaderRespBodyPart;
 
 typedef struct fs_proto_push_binlog_req_body_header {
     char binlog_length[4];
@@ -293,6 +308,26 @@ int fs_active_test(ConnectionInfo *conn, FSResponseInfo *response,
 const char *fs_get_server_status_caption(const int status);
 
 const char *fs_get_cmd_caption(const int cmd);
+
+static inline void fs_log_network_error_ex(FSResponseInfo *response,
+        const ConnectionInfo *conn, const int result, const int line)
+{
+    if (response->error.length > 0) {
+        logError("file: "__FILE__", line: %d, "
+                "server %s:%d, %s", line,
+                conn->ip_addr, conn->port,
+                response->error.message);
+    } else {
+        logError("file: "__FILE__", line: %d, "
+                "communicate with server %s:%d fail, "
+                "errno: %d, error info: %s", line,
+                conn->ip_addr, conn->port,
+                result, STRERROR(result));
+    }
+}
+
+#define fs_log_network_error(response, conn, result)  \
+    fs_log_network_error_ex(response, conn, result, __LINE__)
 
 #ifdef __cplusplus
 }

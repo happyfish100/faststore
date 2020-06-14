@@ -97,6 +97,61 @@ static int cluster_check_config_sign(struct fast_task_info *task,
     return 0;
 }
 
+static int cluster_check_config_signs(struct fast_task_info *task,
+        const int server_id, FSProtoConfigSigns *config_signs)
+{
+    int result;
+    if ((result=cluster_check_config_sign(task, server_id,
+                    config_signs->servers, SERVERS_CONFIG_SIGN_BUF,
+                    SERVERS_CONFIG_SIGN_LEN, "servers")) != 0)
+    {
+        return result;
+    }
+
+    if ((result=cluster_check_config_sign(task, server_id,
+                    config_signs->cluster, CLUSTER_CONFIG_SIGN_BUF,
+                    CLUSTER_CONFIG_SIGN_LEN, "cluster")) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
+static int cluster_deal_get_server_status(struct fast_task_info *task)
+{
+    int result;
+    int server_id;
+    FSProtoGetServerStatusReq *req;
+    FSProtoGetServerStatusResp *resp;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoGetServerStatusReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoGetServerStatusReq *)REQUEST.body;
+    server_id = buff2int(req->server_id);
+    if ((result=cluster_check_config_signs(task, server_id,
+                    &req->config_signs)) != 0)
+    {
+        return result;
+    }
+
+    resp = (FSProtoGetServerStatusResp *)REQUEST.body;
+
+    resp->is_leader = MYSELF_IS_LEADER;
+    int2buff(CLUSTER_MY_SERVER_ID, resp->server_id);
+    int2buff(g_sf_global_vars.up_time, resp->up_time);
+    long2buff(CLUSTER_CURRENT_VERSION, resp->version);
+
+    RESPONSE.header.body_len = sizeof(FSProtoGetServerStatusResp);
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static int cluster_deal_join_server_req(struct fast_task_info *task)
 {
     int result;
@@ -135,16 +190,8 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
         return EINVAL;
     }
 
-    if ((result=cluster_check_config_sign(task, server_id,
-                    req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
-                    SERVERS_CONFIG_SIGN_LEN, "servers")) != 0)
-    {
-        return result;
-    }
-
-    if ((result=cluster_check_config_sign(task, server_id,
-                    req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
-                    CLUSTER_CONFIG_SIGN_LEN, "cluster")) != 0)
+    if ((result=cluster_check_config_signs(task, server_id,
+                    &req->config_signs)) != 0)
     {
         return result;
     }
@@ -290,7 +337,7 @@ static int deal_task_done(struct fast_task_info *task)
                 RESPONSE.header.body_len);
     }
 
-    if (REQUEST.header.cmd != FS_CLUSTER_PROTO_PING_MASTER_REQ) {
+    if (REQUEST.header.cmd != FS_CLUSTER_PROTO_PING_LEADER_REQ) {
     logInfo("file: "__FILE__", line: %d, "
             "client ip: %s, req cmd: %d (%s), req body_len: %d, "
             "resp cmd: %d (%s), status: %d, resp body_len: %d, "
@@ -338,6 +385,9 @@ int cluster_deal_task(struct fast_task_info *task)
             case FS_PROTO_ACK:
                 result = cluster_deal_ack(task);
                 TASK_ARG->context.need_response = false;
+                break;
+            case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
+                result = cluster_deal_get_server_status(task);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
                 result = cluster_deal_join_server_req(task);

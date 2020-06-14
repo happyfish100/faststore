@@ -534,7 +534,6 @@ static int deal_task_done(struct fast_task_info *task)
                 REQUEST.header.body_len, RESPONSE.header.body_len);
     }
 
-    if (REQUEST.header.cmd != FS_CLUSTER_PROTO_PING_MASTER_REQ) {
     logInfo("file: "__FILE__", line: %d, "
             "client ip: %s, req cmd: %d (%s), req body_len: %d, "
             "resp cmd: %d (%s), status: %d, resp body_len: %d, "
@@ -545,7 +544,6 @@ static int deal_task_done(struct fast_task_info *task)
             fs_get_cmd_caption(RESPONSE.header.cmd),
             RESPONSE_STATUS, RESPONSE.header.body_len,
             long_to_comma_str(time_used, time_buff));
-    }
 
     return r == 0 ? RESPONSE_STATUS : r;
 }

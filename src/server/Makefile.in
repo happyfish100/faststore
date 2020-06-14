@@ -18,8 +18,7 @@ ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o \
            binlog/binlog_read_thread.o binlog/binlog_loader.o \
            storage/slice_binlog.o replication/binlog_replication.o \
            replication/push_result_ring.o replication/binlog_local_consumer.o \
-           server_binlog.o
-#           server_binlog.o cluster_relationship.o
+           server_binlog.o cluster_relationship.o
 
 ALL_PRGS = fs_serverd
 

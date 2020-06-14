@@ -94,13 +94,14 @@ typedef struct fs_replication_ptr_array {
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
     FSReplicationPtrArray repl_ptr_array;
+    bool is_leader;
     int link_index;      //current binlog file
-    char key[FS_REPLICA_KEY_SIZE];  //for slave server
 } FSClusterServerInfo;
 
 typedef struct fs_cluster_server_array {
     FSClusterServerInfo *servers;
     int count;
+    volatile int change_version;
 } FSClusterServerArray;
 
 typedef struct fs_cluster_server_pp_array {
