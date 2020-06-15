@@ -171,6 +171,7 @@ typedef struct fs_proto_get_server_status_resp {
     char is_leader;
     char server_id[4];
     char up_time[4];
+    char last_shutdown_time[4];
     char version[8];
 } FSProtoGetServerStatusResp;
 

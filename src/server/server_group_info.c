@@ -28,9 +28,12 @@ typedef struct {
 
 #define DATA_GROUP_SECTION_PREFIX_STR      "data-group-"
 #define SERVER_GROUP_INFO_ITEM_VERSION     "version"
+#define SERVER_GROUP_INFO_ITEM_IS_LEADER   "is_leader"
 #define SERVER_GROUP_INFO_ITEM_SERVER      "server"
 
 static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
+static time_t last_shutdown_time = 0;
+static int last_refresh_file_time = 0;
 
 static int server_group_info_write_to_file(const uint64_t current_version);
 
@@ -424,6 +427,23 @@ static int load_group_servers_from_ini(const char *group_filename,
     return 0;
 }
 
+static int get_server_group_info_file_mtime(time_t *mtime)
+{
+    char full_filename[PATH_MAX];
+    struct stat buf;
+
+    get_server_group_filename(full_filename, sizeof(full_filename));
+    if (stat(full_filename, &buf) < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "stat file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, full_filename, errno, STRERROR(errno));
+        return errno != 0 ? errno : EPERM;
+    }
+
+    *mtime = buf.st_mtime;
+    return 0;
+}
+
 static int load_server_groups()
 {
     FSClusterDataGroupInfo *group;
@@ -439,6 +459,10 @@ static int load_server_groups()
         }
     }
 
+    if ((result=get_server_group_info_file_mtime(&last_shutdown_time)) != 0) {
+        return result;
+    }
+
     if ((result=iniLoadFromFile(full_filename, &ini_context)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "load from file \"%s\" fail, error code: %d",
@@ -446,6 +470,8 @@ static int load_server_groups()
         return result;
     }
 
+    CLUSTER_MYSELF_PTR->is_leader = iniGetBoolValue(NULL,
+            SERVER_GROUP_INFO_ITEM_IS_LEADER, &ini_context, false);
     CLUSTER_CURRENT_VERSION = iniGetInt64Value(NULL,
             SERVER_GROUP_INFO_ITEM_VERSION, &ini_context, 0);
     logInfo("current version: %"PRId64, CLUSTER_CURRENT_VERSION);
@@ -468,6 +494,8 @@ static FastBuffer file_buffer;
 int server_group_info_init(const char *cluster_config_filename)
 {
     int result;
+    time_t t;
+    struct tm tm_current;
 
     if ((result=fast_buffer_init_ex(&file_buffer, 2048)) != 0) {
         return result;
@@ -492,6 +520,11 @@ int server_group_info_init(const char *cluster_config_filename)
     if ((result=load_server_groups()) != 0) {
         return result;
     }
+
+    t = g_current_time + 89;
+    localtime_r(&t, &tm_current);
+    tm_current.tm_sec = 0;
+    last_refresh_file_time = mktime(&tm_current);
 
     return 0;
 }
@@ -530,7 +563,11 @@ static int server_group_info_write_to_file(const uint64_t current_version)
     int result;
 
     fast_buffer_reset(&file_buffer);
-    fast_buffer_append(&file_buffer, "%s=%"PRId64"\n",
+    fast_buffer_append(&file_buffer,
+            "%s=%d\n"
+            "%s=%"PRId64"\n",
+            SERVER_GROUP_INFO_ITEM_IS_LEADER,
+            CLUSTER_MYSELF_PTR->is_leader,
             SERVER_GROUP_INFO_ITEM_VERSION, current_version);
 
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
@@ -553,20 +590,53 @@ static int server_group_info_write_to_file(const uint64_t current_version)
     return result;
 }
 
+time_t fs_get_last_shutdown_time()
+{
+    return last_shutdown_time;
+}
+
+static int server_group_info_set_file_mtime()
+{
+    char full_filename[PATH_MAX];
+    struct timeval times[2];
+
+    times[0].tv_sec = g_current_time;
+    times[0].tv_usec = 0;
+    times[1].tv_sec = g_current_time;
+    times[1].tv_usec = 0;
+
+    get_server_group_filename(full_filename, sizeof(full_filename));
+    if (utimes(full_filename, times) < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "utimes file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, full_filename, errno, STRERROR(errno));
+        return errno != 0 ? errno : EPERM;
+    }
+
+    logInfo("=====file: "__FILE__", line: %d, "
+            "utimes file: %s", __LINE__, full_filename);
+    return 0;
+}
+
 static int server_group_info_sync_to_file(void *args)
 {
-    static uint64_t last_synced_version;
+    static uint64_t last_synced_version = 0;
     uint64_t current_version;
     int result;
 
     current_version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
     if (last_synced_version == current_version) {
+        if (g_current_time - last_refresh_file_time > 60) {
+            last_refresh_file_time = g_current_time;
+            return server_group_info_set_file_mtime();
+        }
         return 0;
     }
 
     if ((result=server_group_info_write_to_file(current_version)) == 0) {
         last_synced_version = current_version;
     }
+    last_refresh_file_time = g_current_time;
     return result;
 }
 

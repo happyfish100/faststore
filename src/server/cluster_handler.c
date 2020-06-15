@@ -28,6 +28,7 @@
 #include "server_group_info.h"
 #include "replication/binlog_replication.h"
 #include "replication/binlog_local_consumer.h"
+#include "cluster_relationship.h"
 #include "cluster_handler.h"
 
 int cluster_handler_init()
@@ -144,12 +145,146 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     resp->is_leader = MYSELF_IS_LEADER;
     int2buff(CLUSTER_MY_SERVER_ID, resp->server_id);
     int2buff(g_sf_global_vars.up_time, resp->up_time);
+    int2buff(fs_get_last_shutdown_time(), resp->last_shutdown_time);
     long2buff(CLUSTER_CURRENT_VERSION, resp->version);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerStatusResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP;
     TASK_ARG->context.response_done = true;
     return 0;
+}
+
+static int cluster_deal_join_leader(struct fast_task_info *task)
+{
+    int result;
+    int server_id;
+    FSProtoJoinLeaderReq *req;
+    FSClusterServerInfo *peer;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoJoinLeaderReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoJoinLeaderReq *)REQUEST.body;
+    server_id = buff2int(req->server_id);
+    peer = fs_get_server_by_id(server_id);
+    if (peer == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "peer server id: %d not exist", server_id);
+        return ENOENT;
+    }
+
+    if ((result=cluster_check_config_signs(task, server_id,
+                    &req->config_signs)) != 0)
+    {
+        return result;
+    }
+
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    if (CLUSTER_PEER != NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "peer server id: %d already joined", server_id);
+        return EEXIST;
+    }
+
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
+    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_RELATIONSHIP;
+    CLUSTER_PEER = peer;
+    return 0;
+}
+
+static int cluster_deal_ping_leader(struct fast_task_info *task)
+{
+    int result;
+    FSProtoPingLeaderRespHeader *resp_header;
+    FSProtoPingLeaderRespBodyPart *body_part;
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+
+    if ((result=server_expect_body_length(task, 0)) != 0) {
+        return result;
+    }
+
+    if (CLUSTER_PEER == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "please join first");
+        return EINVAL;
+    }
+
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    resp_header = (FSProtoPingLeaderRespHeader *)REQUEST.body;
+    body_part = (FSProtoPingLeaderRespBodyPart *)(REQUEST.body +
+            sizeof(FSProtoPingLeaderRespHeader));
+    /*
+    if (CLUSTER_PEER->last_change_version < CLUSTER_SERVER_ARRAY.change_version) {
+        CLUSTER_PEER->last_change_version = CLUSTER_SERVER_ARRAY.change_version;
+        int2buff(CLUSTER_SERVER_ARRAY.count, resp_header->server_count);
+
+        end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+        for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++, body_part++) {
+            int2buff(cs->server->id, body_part->server_id);
+            body_part->status = cs->status;
+        }
+    } else {
+        int2buff(0, resp_header->server_count);
+    }
+    */
+    int2buff(0, resp_header->server_count);
+
+    TASK_ARG->context.response_done = true;
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;
+    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    return 0;
+}
+
+static int cluster_deal_next_leader(struct fast_task_info *task)
+{
+    int result;
+    int leader_id;
+    FSClusterServerInfo *leader;
+
+    if ((result=server_expect_body_length(task, 4)) != 0) {
+        return result;
+    }
+
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am already leader");
+        return EEXIST;
+    }
+
+    leader_id = buff2int(REQUEST.body);
+    leader = fs_get_server_by_id(leader_id);
+    if (leader == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "leader server id: %d not exist", leader_id);
+        return ENOENT;
+    }
+
+    if (REQUEST.header.cmd == FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER) {
+        return cluster_relationship_pre_set_leader(leader);
+    } else {
+        return cluster_relationship_commit_leader(leader);
+    }
 }
 
 static int cluster_deal_join_server_req(struct fast_task_info *task)
@@ -388,6 +523,16 @@ int cluster_deal_task(struct fast_task_info *task)
                 break;
             case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
                 result = cluster_deal_get_server_status(task);
+                break;
+            case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
+            case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:
+                result = cluster_deal_next_leader(task);
+                break;
+            case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
+                result = cluster_deal_join_leader(task);
+                break;
+            case FS_CLUSTER_PROTO_PING_LEADER_REQ:
+                result = cluster_deal_ping_leader(task);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
                 result = cluster_deal_join_server_req(task);

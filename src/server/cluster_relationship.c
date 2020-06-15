@@ -18,6 +18,7 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
+#include "server_group_info.h"
 #include "cluster_relationship.h"
 
 FSClusterServerInfo *g_next_leader = NULL;
@@ -27,6 +28,7 @@ typedef struct fs_cluster_server_status {
     bool is_leader;
     int server_id;
     int up_time;
+    int last_shutdown_time;
     int64_t version;
 } FSClusterServerStatus;
 
@@ -64,6 +66,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
     server_status->is_leader = resp->is_leader;
     server_status->server_id = buff2int(resp->server_id);
     server_status->up_time = buff2int(resp->up_time);
+    server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
     server_status->version = buff2long(resp->version);
     return 0;
 }
@@ -190,6 +193,11 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 		return sub;
 	}
 
+	sub = status1->last_shutdown_time - status2->last_shutdown_time;
+    if (sub != 0) {
+        return sub;
+    }
+
 	sub = status1->up_time - status2->up_time;
     if (sub != 0) {
         return sub;
@@ -207,6 +215,7 @@ static int cluster_get_server_status(FSClusterServerStatus *server_status)
         server_status->up_time = g_sf_global_vars.up_time;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
         server_status->version = CLUSTER_CURRENT_VERSION;
+        server_status->last_shutdown_time = fs_get_last_shutdown_time();
         return 0;
     } else {
         if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
@@ -277,12 +286,12 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 	for (i=0; i<*active_count; i++) {
         logInfo("file: "__FILE__", line: %d, "
                 "server_id: %d, ip addr %s:%d, is_leader: %d, "
-                "up_time: %d, version: %"PRId64, __LINE__,
-                cs_status[i].server_id,
+                "up_time: %d, last_shutdown_time: %d, version: %"PRId64,
+                __LINE__, cs_status[i].server_id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
                 cs_status[i].is_leader, cs_status[i].up_time,
-                cs_status[i].version);
+                cs_status[i].last_shutdown_time, cs_status[i].version);
     }
 
 	memcpy(server_status, cs_status + (*active_count - 1),
@@ -361,11 +370,11 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
     leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == leader) {
         //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_STRICT;
-        __sync_add_and_fetch(&CLUSTER_SERVER_ARRAY.change_version, 1);
+        __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
     } else {
         if (MYSELF_IS_LEADER) {
             MYSELF_IS_LEADER = false;
-            __sync_add_and_fetch(&CLUSTER_SERVER_ARRAY.change_version, 1);
+            __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
         }
 
         logInfo("file: "__FILE__", line: %d, "
@@ -405,7 +414,6 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
 void cluster_relationship_trigger_reselect_leader()
 {
     cluster_unset_leader();
-    __sync_add_and_fetch(&CLUSTER_SERVER_ARRAY.change_version, 1);
     //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_LOOSE;
 }
 
@@ -491,6 +499,7 @@ static int cluster_select_leader()
     int active_count;
     int i;
     int sleep_secs;
+    char prompt[512];
 	FSClusterServerStatus server_status;
     FSClusterServerInfo *next_leader;
 
@@ -510,15 +519,26 @@ static int cluster_select_leader()
         }
 
         ++i;
-        if (i == 3) {
-            break;
+        if (g_current_time - server_status.last_shutdown_time > 300) {
+            sprintf(prompt, "the candidate leader server id: %d, "
+                    "does not match the selection rule because it's "
+                    "restart interval: %d exceeds 300, "
+                    "you must start ALL servers in the first time, "
+                    "or remove the deprecated server(s) from the config file. ",
+                    server_status.cs->server->id, (int)(g_current_time -
+                        server_status.last_shutdown_time));
+        } else {
+            *prompt = '\0';
+            if (i == 5) {
+                break;
+            }
         }
 
         logInfo("file: "__FILE__", line: %d, "
                 "round %dth select leader, alive server count: %d "
-                "< server count: %d, try again after %d seconds.",
+                "< server count: %d, %stry again after %d seconds.",
                 __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
-                sleep_secs);
+                prompt, sleep_secs);
         sleep(sleep_secs);
         if (sleep_secs < 32) {
             sleep_secs *= 2;

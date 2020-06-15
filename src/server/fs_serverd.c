@@ -29,6 +29,7 @@
 #include "server_func.h"
 #include "service_handler.h"
 #include "cluster_handler.h"
+#include "cluster_relationship.h"
 #include "server_storage.h"
 #include "server_binlog.h"
 #include "dio/trunk_io_thread.h"
@@ -94,6 +95,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=server_group_info_setup_sync_to_file_task()) != 0) {
+            break;
+        }
+
         //sched_print_all_entries();
 
         if ((result=sf_socket_server()) != 0) {
@@ -126,6 +131,10 @@ int main(int argc, char *argv[])
 
         fs_proto_init();
         //sched_print_all_entries();
+
+        if ((result=cluster_relationship_init()) != 0) {
+            break;
+        }
 
         result = sf_service_init_ex(&CLUSTER_SF_CTX,
                 cluster_alloc_thread_extra_data,
