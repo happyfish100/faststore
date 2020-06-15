@@ -214,6 +214,15 @@ typedef struct fs_proto_join_server_req {
 typedef struct fs_proto_join_server_resp {
 } FSProtoJoinServerResp;
 
+typedef struct fs_proto_ping_leader_req_header  {
+    char data_group_count[2];
+} FSProtoPingLeaderReqHeader;
+
+typedef struct fs_proto_ping_leader_req_body_part {
+    char data_group_id[4];
+    char data_version[8];
+} FSProtoPingLeaderReqBodyPart;
+
 typedef struct fs_proto_ping_leader_resp_header {
     char oid_sn[8];  //current oid sn of leader
     char server_count[4];

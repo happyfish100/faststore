@@ -110,9 +110,9 @@ typedef struct fs_cluster_server_pp_array {
 
 typedef struct fs_cluster_server_ptr_entry {
     FSClusterServerInfo *cs;
-    char status;                //the server status
-    int64_t last_data_version;  //for replication
-    int last_change_version;    //for push server status to the slave
+    char status;                 //the server status
+    int64_t last_data_version;   //for replication
+    int64_t last_report_version; //for report last data version to the leader
 } FSClusterServerPtrEntry;
 
 typedef struct fs_cluster_server_ptr_array {

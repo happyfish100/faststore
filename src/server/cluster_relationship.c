@@ -21,8 +21,6 @@
 #include "server_group_info.h"
 #include "cluster_relationship.h"
 
-FSClusterServerInfo *g_next_leader = NULL;
-
 typedef struct fs_cluster_server_status {
     FSClusterServerInfo *cs;
     bool is_leader;
@@ -31,6 +29,19 @@ typedef struct fs_cluster_server_status {
     int last_shutdown_time;
     int64_t version;
 } FSClusterServerStatus;
+
+typedef struct fs_my_data_group_info {
+    int data_group_id;
+    FSClusterServerPtrEntry *sp;
+} FSMyDataGroupInfo;
+
+typedef struct fs_my_data_group_array {
+    int count;
+    FSMyDataGroupInfo *groups;
+} FSMyDataGroupArray;
+
+FSClusterServerInfo *g_next_leader = NULL;
+static FSMyDataGroupArray my_data_group_array = {0, NULL};
 
 static int proto_get_server_status(ConnectionInfo *conn,
         FSClusterServerStatus *server_status)
@@ -99,23 +110,63 @@ static int proto_join_leader(ConnectionInfo *conn)
     return result;
 }
 
+static void pack_changed_data_versions(char *buff, int *length, int *count)
+{
+    FSMyDataGroupInfo *group;
+    FSMyDataGroupInfo *end;
+    FSProtoPingLeaderReqBodyPart *body_part;
+    int64_t last_data_version;
+
+    *count = 0;
+    body_part = (FSProtoPingLeaderReqBodyPart *)buff;
+    end = my_data_group_array.groups + my_data_group_array.count;
+    for (group=my_data_group_array.groups; group<end; group++) {
+        last_data_version = group->sp->last_data_version;
+        if (group->sp->last_report_version == last_data_version) {
+            continue;
+        }
+
+        group->sp->last_report_version = last_data_version;
+        int2buff(group->data_group_id, body_part->data_group_id);
+        long2buff(last_data_version, body_part->data_version);
+        body_part++;
+        ++(*count);
+    }
+
+    *length = (char *)body_part - buff;
+}
+
 static int proto_ping_leader(ConnectionInfo *conn)
 {
-    FSProtoHeader header;
+    FSProtoHeader *header;
     FSResponseInfo response;
+    char out_buff[8 * 1024];
     char in_buff[8 * 1024];
+    FSProtoPingLeaderReqHeader *req_header;
     FSProtoPingLeaderRespHeader *body_header;
     FSProtoPingLeaderRespBodyPart *body_part;
     FSProtoPingLeaderRespBodyPart *body_end;
     //FSClusterServerInfo *cs;
+    int out_bytes;
+    int length;
+    int data_group_count;
     int server_count;
     //int server_id;
     int result;
 
-    FS_PROTO_SET_HEADER(&header, FS_CLUSTER_PROTO_PING_LEADER_REQ, 0);
+    header = (FSProtoHeader *)out_buff;
+    req_header = (FSProtoPingLeaderReqHeader *)(header + 1);
+    out_bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader);
+    pack_changed_data_versions(out_buff + out_bytes,
+            &length, &data_group_count);
+    out_bytes += length;
 
-    if ((result=fs_send_and_check_response_header(conn, (char *)&header,
-                    sizeof(header), &response, SF_G_NETWORK_TIMEOUT,
+    short2buff(data_group_count, req_header->data_group_count);
+    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PING_LEADER_REQ,
+            out_bytes - sizeof(FSProtoHeader));
+
+    if ((result=fs_send_and_check_response_header(conn, out_buff,
+                    out_bytes, &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_PING_LEADER_RESP)) == 0)
     {
         if (response.header.body_len > sizeof(in_buff)) {
@@ -592,8 +643,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
 
     if (conn->sock < 0) {
         if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            leader->server), conn,
-                        SF_G_CONNECT_TIMEOUT)) != 0)
+                            leader->server), conn, SF_G_CONNECT_TIMEOUT)) != 0)
         {
             return result;
         }
@@ -662,9 +712,59 @@ static void *cluster_thread_entrance(void* arg)
     return NULL;
 }
 
+static int init_my_data_group_array()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *data_group;
+    FSClusterServerPtrEntry *sp;
+    FSClusterServerPtrEntry *end;
+    int bytes;
+    int data_group_id;
+    int i;
+
+    id_array = fs_cluster_cfg_get_server_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id);
+
+    bytes = sizeof(FSMyDataGroupInfo) * id_array->count;
+    my_data_group_array.groups = (FSMyDataGroupInfo *)malloc(bytes);
+    if (my_data_group_array.groups == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - 1);
+        end = data_group->server_ptr_array.servers +
+            data_group->server_ptr_array.count;
+        for (sp=data_group->server_ptr_array.servers; sp<end; sp++) {
+            if (sp->cs == CLUSTER_MYSELF_PTR) {
+                my_data_group_array.groups[i].data_group_id = data_group_id;
+                my_data_group_array.groups[i].sp = sp;
+                break;
+            }
+        }
+        if (sp == end) {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, NOT found me, my server id: %d",
+                    __LINE__, data_group_id, CLUSTER_MYSELF_PTR->server->id);
+            return ENOENT;
+        }
+    }
+    my_data_group_array.count = id_array->count;
+
+    return 0;
+}
+
 int cluster_relationship_init()
 {
 	pthread_t tid;
+    int result;
+
+    if ((result=init_my_data_group_array()) != 0) {
+        return result;
+    }
 
 	return fc_create_thread(&tid, cluster_thread_entrance, NULL,
             SF_G_THREAD_STACK_SIZE);

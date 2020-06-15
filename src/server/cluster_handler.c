@@ -203,6 +203,42 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     return 0;
 }
 
+static int process_ping_leader_req(struct fast_task_info *task)
+{
+    FSProtoPingLeaderReqHeader *req_header;
+    FSProtoPingLeaderReqBodyPart *body_part;
+    int data_group_count;
+    int expect_body_length;
+    int data_group_id;
+    int64_t data_version;
+    int i;
+
+    req_header = (FSProtoPingLeaderReqHeader *)REQUEST.body;
+    data_group_count = buff2short(req_header->data_group_count);
+    expect_body_length = sizeof(FSProtoPingLeaderReqHeader) +
+        sizeof(FSProtoPingLeaderReqBodyPart) * data_group_count;
+    if (REQUEST.header.body_len != expect_body_length) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "request body length: %d != %d",
+                REQUEST.header.body_len, expect_body_length);
+        return EINVAL;
+    }
+
+    if (data_group_count == 0) {
+        return 0;
+    }
+
+    body_part = (FSProtoPingLeaderReqBodyPart *)(req_header + 1);
+    for (i=0; i<data_group_count; i++, body_part++) {
+        data_group_id = buff2int(body_part->data_group_id);
+        data_version = buff2long(body_part->data_version);
+
+        //TODO
+    }
+
+    return 0;
+}
+
 static int cluster_deal_ping_leader(struct fast_task_info *task)
 {
     int result;
@@ -211,7 +247,9 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_check_min_body_length(task,
+                    sizeof(FSProtoPingLeaderReqHeader))) != 0)
+    {
         return result;
     }
 
@@ -227,6 +265,10 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
                 RESPONSE.error.message,
                 "i am not leader");
         return EINVAL;
+    }
+
+    if ((result=process_ping_leader_req(task)) != 0) {
+        return result;
     }
 
     resp_header = (FSProtoPingLeaderRespHeader *)REQUEST.body;
