@@ -89,6 +89,9 @@ extern "C" {
     FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
             const int server_id);
 
+    int fs_cluster_cfg_get_server_min_group_id(FSClusterConfig *cluster_cfg,
+            const int server_id);
+
     int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
             const int server_id);
 

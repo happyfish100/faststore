@@ -11,6 +11,7 @@
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/local_ip_func.h"
 #include "server_global.h"
+#include "cluster_topology.h"
 #include "server_group_info.h"
 
 typedef struct {
@@ -37,12 +38,12 @@ static int last_refresh_file_time = 0;
 
 static int server_group_info_write_to_file(const uint64_t current_version);
 
-static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
+static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
 {
     FSServerGroup *server_group;
     FCServerInfo **pp;
     FCServerInfo **end;
-    FSClusterServerPtrEntry *sp;
+    FSClusterDataServerInfo *sp;
     int bytes;
 
     if ((server_group=fs_cluster_cfg_get_server_group(&CLUSTER_CONFIG_CTX,
@@ -51,16 +52,15 @@ static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
         return ENOENT;
     }
 
-
-    bytes = sizeof(FSClusterServerPtrEntry) * server_group->server_array.count;
-    group->server_ptr_array.servers = (FSClusterServerPtrEntry *)malloc(bytes);
-    if (group->server_ptr_array.servers == NULL) {
+    bytes = sizeof(FSClusterDataServerInfo) * server_group->server_array.count;
+    group->data_server_array.servers = (FSClusterDataServerInfo *)malloc(bytes);
+    if (group->data_server_array.servers == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
-    memset(group->server_ptr_array.servers, 0, bytes);
-    group->server_ptr_array.count = server_group->server_array.count;
+    memset(group->data_server_array.servers, 0, bytes);
+    group->data_server_array.count = server_group->server_array.count;
 
     bytes = sizeof(FSClusterServerInfo *) * server_group->server_array.count;
     group->active_slaves.servers = (FSClusterServerInfo **)malloc(bytes);
@@ -73,10 +73,11 @@ static int init_cluster_server_ptr_array(FSClusterDataGroupInfo *group)
 
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
-            sp=group->server_ptr_array.servers;
+            sp=group->data_server_array.servers;
             pp < end; pp++, sp++)
     {
         sp->cs = fs_get_server_by_id((*pp)->id);
+        sp->index = sp - group->data_server_array.servers;
     }
 
     return 0;
@@ -86,10 +87,11 @@ static int init_cluster_data_group_array(const char *filename)
 {
     FSIdArray *id_array;
     FSClusterDataGroupInfo *group;
-    FSClusterDataGroupInfo *end;
     int result;
     int bytes;
     int count;
+    int min_id;
+    int max_id;
     int data_group_id;
     int i;
 
@@ -102,8 +104,16 @@ static int init_cluster_data_group_array(const char *filename)
         return ENOENT;
     }
 
-    if ((count=fs_cluster_cfg_get_server_max_group_id(&CLUSTER_CONFIG_CTX,
-            CLUSTER_MYSELF_PTR->server->id)) <= 0)
+    if ((min_id=fs_cluster_cfg_get_server_min_group_id(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MYSELF_PTR->server->id)) <= 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, no data group",
+                __LINE__, filename);
+        return ENOENT;
+    }
+    if ((max_id=fs_cluster_cfg_get_server_max_group_id(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MYSELF_PTR->server->id)) <= 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "cluster config file: %s, no data group",
@@ -111,6 +121,7 @@ static int init_cluster_data_group_array(const char *filename)
         return ENOENT;
     }
 
+    count = (max_id - min_id) + 1;
     bytes = sizeof(FSClusterDataGroupInfo) * count;
     CLUSTER_DATA_RGOUP_ARRAY.groups = (FSClusterDataGroupInfo *)malloc(bytes);
     if (CLUSTER_DATA_RGOUP_ARRAY.groups == NULL) {
@@ -120,22 +131,17 @@ static int init_cluster_data_group_array(const char *filename)
     }
     memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
 
-    end = CLUSTER_DATA_RGOUP_ARRAY.groups + count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
-        group->data_group_id = (group - CLUSTER_DATA_RGOUP_ARRAY.groups) + 1;
-    }
-
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        if ((result=init_cluster_server_ptr_array(
-                        CLUSTER_DATA_RGOUP_ARRAY.groups +
-                        (data_group_id - 1))) != 0)
-        {
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
+        group->data_group_id = data_group_id;
+        if ((result=init_cluster_data_server_array(group)) != 0) {
             return result;
         }
     }
 
     CLUSTER_DATA_RGOUP_ARRAY.count = count;
+    CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;
     return 0;
 }
 
@@ -247,6 +253,22 @@ static int init_cluster_server_array(const char *filename)
     }
 
     CLUSTER_SERVER_ARRAY.count = count;
+    return 0;
+}
+
+static int init_cluster_notify_contexts()
+{
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+    int result;
+
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if ((result=cluster_topology_init_notify_ctx(&cs->notify_ctx)) != 0) {
+            return result;
+        }
+    }
+
     return 0;
 }
 
@@ -369,8 +391,8 @@ static int load_group_servers_from_ini(const char *group_filename,
         IniContext *ini_context, FSClusterDataGroupInfo *group)
 {
 #define MAX_FIELD_COUNT 4
-    FSClusterServerPtrEntry *sp;
-    FSClusterServerPtrEntry *sp_end;
+    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *sp_end;
     IniItem *items;
     IniItem *it_end;
     IniItem *it;
@@ -391,7 +413,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         return 0;
     }
 
-    sp_end = group->server_ptr_array.servers + group->server_ptr_array.count;
+    sp_end = group->data_server_array.servers + group->data_server_array.count;
     it_end = items + item_count;
     for (it=items; it<it_end; it++) {
         FC_SET_STRING(value, it->value);
@@ -415,7 +437,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         {
             status = FS_SERVER_STATUS_OFFLINE;
         }
-        for (sp=group->server_ptr_array.servers; sp<sp_end; sp++) {
+        for (sp=group->data_server_array.servers; sp<sp_end; sp++) {
             if (sp->cs->server->id == server_id) {
                 sp->status = status;
                 sp->last_data_version = last_data_version;
@@ -526,13 +548,13 @@ int server_group_info_init(const char *cluster_config_filename)
     tm_current.tm_sec = 0;
     last_refresh_file_time = mktime(&tm_current);
 
-    return 0;
+    return init_cluster_notify_contexts();
 }
 
 static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
 {
-    FSClusterServerPtrEntry *sp;
-    FSClusterServerPtrEntry *end;
+    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *end;
     int result;
 
     if ((result=fast_buffer_append(&file_buffer, "[%s%d]\n",
@@ -542,8 +564,8 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
         return result;
     }
 
-    end = group->server_ptr_array.servers + group->server_ptr_array.count;
-    for (sp=group->server_ptr_array.servers; sp<end; sp++) {
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (sp=group->data_server_array.servers; sp<end; sp++) {
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
                         SERVER_GROUP_INFO_ITEM_SERVER, sp->cs->server->id,
                         sp->status, sp->last_data_version)) != 0)

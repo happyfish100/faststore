@@ -18,7 +18,6 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
-#include "server_group_info.h"
 #include "cluster_relationship.h"
 
 typedef struct fs_cluster_server_status {
@@ -32,7 +31,7 @@ typedef struct fs_cluster_server_status {
 
 typedef struct fs_my_data_group_info {
     int data_group_id;
-    FSClusterServerPtrEntry *sp;
+    FSClusterDataServerInfo *sp;
 } FSMyDataGroupInfo;
 
 typedef struct fs_my_data_group_array {
@@ -716,8 +715,8 @@ static int init_my_data_group_array()
 {
     FSIdArray *id_array;
     FSClusterDataGroupInfo *data_group;
-    FSClusterServerPtrEntry *sp;
-    FSClusterServerPtrEntry *end;
+    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *end;
     int bytes;
     int data_group_id;
     int i;
@@ -736,9 +735,9 @@ static int init_my_data_group_array()
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
         data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - 1);
-        end = data_group->server_ptr_array.servers +
-            data_group->server_ptr_array.count;
-        for (sp=data_group->server_ptr_array.servers; sp<end; sp++) {
+        end = data_group->data_server_array.servers +
+            data_group->data_server_array.count;
+        for (sp=data_group->data_server_array.servers; sp<end; sp++) {
             if (sp->cs == CLUSTER_MYSELF_PTR) {
                 my_data_group_array.groups[i].data_group_id = data_group_id;
                 my_data_group_array.groups[i].sp = sp;

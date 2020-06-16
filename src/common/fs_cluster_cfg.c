@@ -1081,6 +1081,25 @@ FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
     return (mapping != NULL) ?  &mapping->data_group : NULL;
 }
 
+int fs_cluster_cfg_get_server_min_group_id(FSClusterConfig *cluster_cfg,
+        const int server_id)
+{
+    FSServerDataMapping target;
+    FSServerDataMapping *mapping;
+
+    target.server_id = server_id;
+    mapping = (FSServerDataMapping *)bsearch(&target,
+            cluster_cfg->server_data_mappings.mappings,
+            cluster_cfg->server_data_mappings.count,
+            sizeof(FSServerDataMapping),
+            compare_server_data_mapping);
+    if (mapping != NULL && mapping->data_group.count > 0) {
+        return mapping->data_group.ids[0];
+    } else {
+        return -1;
+    }
+}
+
 int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
         const int server_id)
 {

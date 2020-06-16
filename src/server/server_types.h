@@ -91,11 +91,25 @@ typedef struct fs_replication_ptr_array {
     struct fs_replication **replications;
 } FSReplicationPtrArray;
 
+typedef struct fs_data_server_change_event {
+    int data_group_index;
+    int server_ptr_index;
+    bool in_queue;
+    struct fs_data_server_change_event *next;  //for queue
+} FSDataServerChangeEvent;
+
+typedef struct fs_cluster_topology_notify_context {
+    pthread_mutex_t lock;  //for lock FSDataServerChangeEvent
+    struct fc_queue queue; //push data_server changes to the follower
+    struct fs_data_server_change_event *events; //event array
+} FSClusterTopologyNotifyContext;
+
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
     FSReplicationPtrArray repl_ptr_array;
+    FSClusterTopologyNotifyContext notify_ctx;
     bool is_leader;
-    int link_index;      //current binlog file
+    int link_index;      //for next links
 } FSClusterServerInfo;
 
 typedef struct fs_cluster_server_array {
@@ -108,27 +122,31 @@ typedef struct fs_cluster_server_pp_array {
     int count;
 } FSClusterServerPPArray;
 
-typedef struct fs_cluster_server_ptr_entry {
+typedef struct fs_cluster_data_server_info {
     FSClusterServerInfo *cs;
-    char status;                 //the server status
+    bool is_master;
+    char status;                 //the data server status
+    int index;
     int64_t last_data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
-} FSClusterServerPtrEntry;
+    //int64_t change_version;    //for notify to the follower
+} FSClusterDataServerInfo;
 
-typedef struct fs_cluster_server_ptr_array {
-    FSClusterServerPtrEntry *servers;
+typedef struct fs_cluster_data_server_array {
+    FSClusterDataServerInfo *servers;
     int count;
-} FSClusterServerPtrArray;
+} FSClusterDataServerArray;
 
 typedef struct fs_cluster_data_group_info {
     int data_group_id;
-    FSClusterServerPtrArray server_ptr_array;
+    FSClusterDataServerArray data_server_array;
     FSClusterServerPPArray active_slaves;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {
     FSClusterDataGroupInfo *groups;
     int count;
+    int base_id;
 } FSClusterDataGroupArray;
 
 typedef struct fdir_binlog_push_result_entry {
