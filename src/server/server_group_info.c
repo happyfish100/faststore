@@ -83,7 +83,8 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     return 0;
 }
 
-static int init_cluster_data_group_array(const char *filename)
+static int init_cluster_data_group_array(const char *filename,
+        const int server_id, FSIdArray *assoc_gid_array)
 {
     FSIdArray *id_array;
     FSClusterDataGroupInfo *group;
@@ -95,26 +96,13 @@ static int init_cluster_data_group_array(const char *filename)
     int data_group_id;
     int i;
 
-    if ((id_array=fs_cluster_cfg_get_server_group_ids(&CLUSTER_CONFIG_CTX,
-            CLUSTER_MYSELF_PTR->server->id)) == NULL)
-    {
+    if ((min_id=fs_cluster_cfg_get_min_data_group_id(assoc_gid_array)) <= 0) {
         logError("file: "__FILE__", line: %d, "
                 "cluster config file: %s, no data group",
                 __LINE__, filename);
         return ENOENT;
     }
-
-    if ((min_id=fs_cluster_cfg_get_server_min_group_id(&CLUSTER_CONFIG_CTX,
-                    CLUSTER_MYSELF_PTR->server->id)) <= 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "cluster config file: %s, no data group",
-                __LINE__, filename);
-        return ENOENT;
-    }
-    if ((max_id=fs_cluster_cfg_get_server_max_group_id(&CLUSTER_CONFIG_CTX,
-                    CLUSTER_MYSELF_PTR->server->id)) <= 0)
-    {
+    if ((max_id=fs_cluster_cfg_get_max_data_group_id(assoc_gid_array)) <= 0) {
         logError("file: "__FILE__", line: %d, "
                 "cluster config file: %s, no data group",
                 __LINE__, filename);
@@ -131,17 +119,32 @@ static int init_cluster_data_group_array(const char *filename)
     }
     memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
 
-    for (i=0; i<id_array->count; i++) {
-        data_group_id = id_array->ids[i];
+    for (i=0; i<assoc_gid_array->count; i++) {
+        data_group_id = assoc_gid_array->ids[i];
         group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
         group->data_group_id = data_group_id;
         if ((result=init_cluster_data_server_array(group)) != 0) {
             return result;
         }
     }
-
     CLUSTER_DATA_RGOUP_ARRAY.count = count;
     CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+            server_id)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, no data group",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
+        group->include_myself = true;
+    }
+
     return 0;
 }
 
@@ -211,13 +214,13 @@ static int compare_server_ptr(const void *p1, const void *p2)
 
 static int init_cluster_server_array(const char *filename)
 {
-#define MAX_GROUP_SERVERS 64
     int bytes;
     int result;
     int count;
     FCServerInfo *svr;
     FSClusterServerInfo *cs;
-    FCServerInfo *servers[MAX_GROUP_SERVERS];
+    FSIdArray *assoc_gid_array;
+    FCServerInfo *servers[FS_MAX_GROUP_SERVERS];
     FCServerInfo **server;
     FCServerInfo **end;
 
@@ -225,14 +228,12 @@ static int init_cluster_server_array(const char *filename)
         return result;
     }
 
-    if ((result=fs_cluster_cfg_get_group_servers(&CLUSTER_CONFIG_CTX,
-                    svr->id, servers, MAX_GROUP_SERVERS, &count)) != 0)
+    if ((result=fs_cluster_cfg_get_assoc_group_info(&CLUSTER_CONFIG_CTX,
+            svr->id, &assoc_gid_array, servers, FS_MAX_GROUP_SERVERS,
+            &count)) != 0)
     {
-        logError("file: "__FILE__", line: %d, "
-                "get group servers fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
     }
+
     qsort(servers, count, sizeof(FCServerInfo *), compare_server_ptr);
 
     bytes = sizeof(FSClusterServerInfo) * count;
@@ -244,16 +245,31 @@ static int init_cluster_server_array(const char *filename)
     }
     memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
 
+    logInfo("=====cluster server count: %d", count);
+
     end = servers + count;
     for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
             server<end; server++, cs++)
     {
-        logInfo("%d. id = %d", (int)(server - servers) + 1, (*server)->id);
+        cs->server_index = server - servers;
         cs->server = *server;
-    }
 
+        logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
+    }
     CLUSTER_SERVER_ARRAY.count = count;
-    return 0;
+
+    /*
+    if ((result=fs_cluster_cfg_get_my_group_servers(&CLUSTER_CONFIG_CTX,
+                    svr->id, servers, FS_MAX_GROUP_SERVERS, &count)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "get group servers fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+    */
+
+    return init_cluster_data_group_array(filename, svr->id, assoc_gid_array);
 }
 
 static int init_cluster_notify_contexts()
@@ -532,10 +548,6 @@ int server_group_info_init(const char *cluster_config_filename)
     }
 
     if ((result=init_server_pair_index_array()) != 0) {
-        return result;
-    }
-
-    if ((result=init_cluster_data_group_array(cluster_config_filename)) != 0) {
         return result;
     }
 

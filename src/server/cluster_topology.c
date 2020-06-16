@@ -48,6 +48,11 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
     }
     memset(notify_ctx->events, 0, bytes);
 
+    /*
+    CLUSTER_DATA_RGOUP_ARRAY.
+    for (
+    */
+
     return 0;
 }
 

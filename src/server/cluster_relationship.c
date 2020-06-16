@@ -721,7 +721,7 @@ static int init_my_data_group_array()
     int data_group_id;
     int i;
 
-    id_array = fs_cluster_cfg_get_server_group_ids(&CLUSTER_CONFIG_CTX,
+    id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
             CLUSTER_MYSELF_PTR->server->id);
 
     bytes = sizeof(FSMyDataGroupInfo) * id_array->count;

@@ -93,7 +93,7 @@ typedef struct fs_replication_ptr_array {
 
 typedef struct fs_data_server_change_event {
     int data_group_index;
-    int server_ptr_index;
+    int data_server_index;
     bool in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
@@ -109,6 +109,7 @@ typedef struct fs_cluster_server_info {
     FSReplicationPtrArray repl_ptr_array;
     FSClusterTopologyNotifyContext notify_ctx;
     bool is_leader;
+    int server_index;
     int link_index;      //for next links
 } FSClusterServerInfo;
 
@@ -139,6 +140,7 @@ typedef struct fs_cluster_data_server_array {
 
 typedef struct fs_cluster_data_group_info {
     int data_group_id;
+    bool include_myself;
     FSClusterDataServerArray data_server_array;
     FSClusterServerPPArray active_slaves;
 } FSClusterDataGroupInfo;

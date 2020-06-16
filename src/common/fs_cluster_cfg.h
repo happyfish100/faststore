@@ -82,18 +82,39 @@ extern "C" {
         return cluster_cfg->data_groups.mappings[data_group_index].server_group;
     }
 
-    int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
+    int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,
             const int server_id, FCServerInfo **servers,
             const int size, int *count);
 
-    FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
+    FSIdArray *fs_cluster_cfg_get_my_data_group_ids(FSClusterConfig *cluster_cfg,
             const int server_id);
 
-    int fs_cluster_cfg_get_server_min_group_id(FSClusterConfig *cluster_cfg,
-            const int server_id);
+    FSIdArray *fs_cluster_cfg_get_assoc_data_group_ids(
+            FSClusterConfig *cluster_cfg, const int server_id);
 
-    int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
-            const int server_id);
+    int fs_cluster_cfg_get_assoc_group_info(FSClusterConfig *cluster_cfg,
+            const int server_id, FSIdArray **data_group_id_array,
+            FCServerInfo **servers, const int size, int *count);
+
+    static inline int fs_cluster_cfg_get_min_data_group_id(
+            const FSIdArray *data_group)
+    {
+        if (data_group->count > 0) {
+            return data_group->ids[0];
+        } else {
+            return -1;
+        }
+    }
+
+    static inline int fs_cluster_cfg_get_max_data_group_id(
+            const FSIdArray *data_group)
+    {
+        if (data_group->count > 0) {
+            return data_group->ids[data_group->count - 1];
+        } else {
+            return -1;
+        }
+    }
 
     void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 

@@ -1011,42 +1011,21 @@ int fs_cluster_cfg_add_servers(FSServerGroup *server_group,
     return 0;
 }
 
-int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
-        const int server_id, FCServerInfo **servers,
+static int get_unique_servers(FSServerGroup **server_groups,
+        const int sgroup_count, FCServerInfo **servers,
         const int size, int *count)
 {
-    FSServerDataMapping target;
-    FSServerDataMapping *mapping;
-    FSServerGroup *server_groups[FS_MAX_DATA_GROUPS_PER_SERVER];
     int result;
     int i;
-    int data_group_index;
-    int sgroup_count;
 
     *count = 0;
-    target.server_id = server_id;
-    mapping = (FSServerDataMapping *)bsearch(&target,
-            cluster_cfg->server_data_mappings.mappings,
-            cluster_cfg->server_data_mappings.count,
-            sizeof(FSServerDataMapping),
-            compare_server_data_mapping);
-    if (mapping == NULL) {
-        return ENOENT;
-    }
-
-    sgroup_count = 0;
-    for (i=0; i<mapping->data_group.count; i++) {
-        data_group_index = mapping->data_group.ids[i] - 1;
-
-        server_groups[sgroup_count++] = cluster_cfg->data_groups.
-            mappings[data_group_index].server_group;
-    }
     if (sgroup_count == 0) {
         return ENOENT;
     }
-
-    qsort(server_groups, sgroup_count, sizeof(FSServerGroup *),
-            compare_server_group);
+    if (sgroup_count > 1) {
+        qsort(server_groups, sgroup_count, sizeof(FSServerGroup *),
+                compare_server_group);
+    }
 
     if ((result=fs_cluster_cfg_add_servers(server_groups[0],
                     servers, size, count)) != 0)
@@ -1054,7 +1033,7 @@ int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
         return result;
     }
     for (i=1; i<sgroup_count; i++) {
-        if (server_groups[i] != server_groups[i -1]) {
+        if (server_groups[i] != server_groups[i - 1]) {
             if ((result=fs_cluster_cfg_add_servers(server_groups[i],
                             servers, size, count)) != 0)
             {
@@ -1066,7 +1045,41 @@ int fs_cluster_cfg_get_group_servers(FSClusterConfig *cluster_cfg,
     return 0;
 }
 
-FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
+int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,
+        const int server_id, FCServerInfo **servers,
+        const int size, int *count)
+{
+    FSServerDataMapping target;
+    FSServerDataMapping *mapping;
+    FSServerGroup *server_groups[FS_MAX_DATA_GROUPS_PER_SERVER];
+    int i;
+    int data_group_index;
+    int sgroup_count;
+
+    target.server_id = server_id;
+    mapping = (FSServerDataMapping *)bsearch(&target,
+            cluster_cfg->server_data_mappings.mappings,
+            cluster_cfg->server_data_mappings.count,
+            sizeof(FSServerDataMapping),
+            compare_server_data_mapping);
+    if (mapping == NULL) {
+        *count = 0;
+        return ENOENT;
+    }
+
+    sgroup_count = 0;
+    for (i=0; i<mapping->data_group.count; i++) {
+        data_group_index = mapping->data_group.ids[i] - 1;
+
+        server_groups[sgroup_count++] = cluster_cfg->data_groups.
+            mappings[data_group_index].server_group;
+    }
+
+    return get_unique_servers(server_groups, sgroup_count,
+            servers, size, count);
+}
+
+FSIdArray *fs_cluster_cfg_get_my_data_group_ids(FSClusterConfig *cluster_cfg,
         const int server_id)
 {
     FSServerDataMapping target;
@@ -1081,42 +1094,71 @@ FSIdArray *fs_cluster_cfg_get_server_group_ids(FSClusterConfig *cluster_cfg,
     return (mapping != NULL) ?  &mapping->data_group : NULL;
 }
 
-int fs_cluster_cfg_get_server_min_group_id(FSClusterConfig *cluster_cfg,
-        const int server_id)
+FSIdArray *fs_cluster_cfg_get_assoc_data_group_ids(
+        FSClusterConfig *cluster_cfg, const int server_id)
 {
-    FSServerDataMapping target;
-    FSServerDataMapping *mapping;
+    int result;
+    int count;
+    int i;
+    FCServerInfo *servers[FS_MAX_GROUP_SERVERS];
+    FSIdArray *max_gid_array;
+    FSIdArray *id_array;
 
-    target.server_id = server_id;
-    mapping = (FSServerDataMapping *)bsearch(&target,
-            cluster_cfg->server_data_mappings.mappings,
-            cluster_cfg->server_data_mappings.count,
-            sizeof(FSServerDataMapping),
-            compare_server_data_mapping);
-    if (mapping != NULL && mapping->data_group.count > 0) {
-        return mapping->data_group.ids[0];
-    } else {
-        return -1;
+    if ((result=fs_cluster_cfg_get_my_group_servers(cluster_cfg, server_id,
+                    servers, FS_MAX_GROUP_SERVERS, &count)) != 0)
+    {
+        return NULL;
     }
+
+    max_gid_array = NULL;
+    for (i=0; i<count; i++) {
+        id_array = fs_cluster_cfg_get_my_data_group_ids(cluster_cfg,
+                servers[i]->id);
+        if (max_gid_array == NULL) {
+            max_gid_array = id_array;
+        } else if (id_array->count > (max_gid_array)->count) {
+            max_gid_array = id_array;
+        }
+    }
+
+    return max_gid_array;
 }
 
-int fs_cluster_cfg_get_server_max_group_id(FSClusterConfig *cluster_cfg,
-        const int server_id)
+int fs_cluster_cfg_get_assoc_group_info(FSClusterConfig *cluster_cfg,
+        const int server_id, FSIdArray **data_group_id_array,
+        FCServerInfo **servers, const int size, int *count)
 {
-    FSServerDataMapping target;
-    FSServerDataMapping *mapping;
+    int i;
+    FSServerGroup *server_groups[FS_MAX_DATA_GROUPS_PER_SERVER];
+    int data_group_index;
+    int sgroup_count;
 
-    target.server_id = server_id;
-    mapping = (FSServerDataMapping *)bsearch(&target,
-            cluster_cfg->server_data_mappings.mappings,
-            cluster_cfg->server_data_mappings.count,
-            sizeof(FSServerDataMapping),
-            compare_server_data_mapping);
-    if (mapping != NULL && mapping->data_group.count > 0) {
-        return mapping->data_group.ids[mapping->data_group.count - 1];
-    } else {
-        return -1;
+    *data_group_id_array = fs_cluster_cfg_get_assoc_data_group_ids(
+            cluster_cfg, server_id);
+    if (*data_group_id_array == NULL) {
+        *count = 0;
+        return ENOENT;
     }
+
+    if ((*data_group_id_array)->count > FS_MAX_DATA_GROUPS_PER_SERVER) {
+        logError("file: "__FILE__", line: %d, "
+                "too many server groups: %d exceeds %d",
+                __LINE__, (*data_group_id_array)->count,
+                FS_MAX_DATA_GROUPS_PER_SERVER);
+        *data_group_id_array = NULL;
+        *count = 0;
+        return ENOSPC;
+    }
+
+    sgroup_count = 0;
+    for (i=0; i<(*data_group_id_array)->count; i++) {
+        data_group_index = (*data_group_id_array)->ids[i] - 1;
+        server_groups[sgroup_count++] = cluster_cfg->data_groups.
+            mappings[data_group_index].server_group;
+    }
+
+    return get_unique_servers(server_groups, sgroup_count,
+            servers, size, count);
 }
 
 int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
