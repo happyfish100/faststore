@@ -91,17 +91,18 @@ typedef struct fs_replication_ptr_array {
     struct fs_replication **replications;
 } FSReplicationPtrArray;
 
+struct fs_cluster_data_server_info;
 typedef struct fs_data_server_change_event {
-    int data_group_index;
-    int data_server_index;
-    bool in_queue;
+    struct fs_cluster_data_server_info *data_server;
+    volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
 
 typedef struct fs_cluster_topology_notify_context {
-    pthread_mutex_t lock;  //for lock FSDataServerChangeEvent
+    //pthread_mutex_t lock;  //for lock FSDataServerChangeEvent
+    volatile struct nio_thread_data *thread_data;
     struct fc_queue queue; //push data_server changes to the follower
-    struct fs_data_server_change_event *events; //event array
+    FSDataServerChangeEvent *events; //event array
 } FSClusterTopologyNotifyContext;
 
 typedef struct fs_cluster_server_info {
@@ -109,6 +110,8 @@ typedef struct fs_cluster_server_info {
     FSReplicationPtrArray repl_ptr_array;
     FSClusterTopologyNotifyContext notify_ctx;
     bool is_leader;
+    bool is_partner;      //if my partner
+    volatile int active;  //for push topology change notify
     int server_index;
     int link_index;      //for next links
 } FSClusterServerInfo;
@@ -123,11 +126,13 @@ typedef struct fs_cluster_server_pp_array {
     int count;
 } FSClusterServerPPArray;
 
+struct fs_cluster_data_group_info;
 typedef struct fs_cluster_data_server_info {
+    struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
     bool is_master;
     char status;                 //the data server status
-    int index;
+    //int index;
     int64_t last_data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
     //int64_t change_version;    //for notify to the follower
@@ -139,8 +144,9 @@ typedef struct fs_cluster_data_server_array {
 } FSClusterDataServerArray;
 
 typedef struct fs_cluster_data_group_info {
-    int data_group_id;
-    bool include_myself;
+    int id;
+    int index;
+    bool belong_to_me;
     FSClusterDataServerArray data_server_array;
     FSClusterServerPPArray active_slaves;
 } FSClusterDataGroupInfo;

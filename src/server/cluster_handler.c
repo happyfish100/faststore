@@ -28,6 +28,7 @@
 #include "server_group_info.h"
 #include "replication/binlog_replication.h"
 #include "replication/binlog_local_consumer.h"
+#include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "cluster_handler.h"
 
@@ -52,6 +53,9 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
     switch (CLUSTER_TASK_TYPE) {
         case FS_CLUSTER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
+                cluster_topology_deactivate_server(CLUSTER_PEER);
+                __sync_bool_compare_and_swap(&CLUSTER_PEER->notify_ctx.
+                        thread_data, task->thread_data, NULL);
                 CLUSTER_PEER = NULL;
             }
             CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
@@ -176,6 +180,11 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
+    if (peer == CLUSTER_MYSELF_PTR) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "can't join self");
+        return EINVAL;
+    }
 
     if ((result=cluster_check_config_signs(task, server_id,
                     &req->config_signs)) != 0)
@@ -184,15 +193,21 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_PTR) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "i am not leader");
         return EINVAL;
     }
 
     if (CLUSTER_PEER != NULL) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "peer server id: %d already joined", server_id);
+        return EEXIST;
+    }
+
+    if (!__sync_bool_compare_and_swap(&peer->notify_ctx.thread_data,
+                NULL, task->thread_data))
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d already joined", server_id);
         return EEXIST;
     }
@@ -200,6 +215,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
     CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
+    cluster_topology_activate_server(peer);
     return 0;
 }
 
@@ -244,8 +260,10 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     int result;
     FSProtoPingLeaderRespHeader *resp_header;
     FSProtoPingLeaderRespBodyPart *body_part;
+    /*
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
+    */
 
     if ((result=server_check_min_body_length(task,
                     sizeof(FSProtoPingLeaderReqHeader))) != 0)

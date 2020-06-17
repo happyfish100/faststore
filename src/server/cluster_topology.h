@@ -14,8 +14,18 @@ extern "C" {
 
 int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx);
 
-int cluster_topology_data_server_chg_notify(const int data_group_id,
-        const int server_index);
+static inline void cluster_topology_activate_server(FSClusterServerInfo *cs)
+{
+    __sync_bool_compare_and_swap(&cs->active, 0, 1);
+}
+
+static inline void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
+{
+    __sync_bool_compare_and_swap(&cs->active, 1, 0);
+}
+
+int cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
+        data_server, const bool notify_self);
 
 #ifdef __cplusplus
 }

@@ -1056,6 +1056,9 @@ int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,
     int data_group_index;
     int sgroup_count;
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "server_id: %d", __LINE__, __FUNCTION__, server_id);
+
     target.server_id = server_id;
     mapping = (FSServerDataMapping *)bsearch(&target,
             cluster_cfg->server_data_mappings.mappings,
@@ -1067,6 +1070,10 @@ int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,
         return ENOENT;
     }
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "server_id: %d, data_group.count: %d", __LINE__,
+            __FUNCTION__, server_id, mapping->data_group.count);
+
     sgroup_count = 0;
     for (i=0; i<mapping->data_group.count; i++) {
         data_group_index = mapping->data_group.ids[i] - 1;
@@ -1074,6 +1081,10 @@ int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,
         server_groups[sgroup_count++] = cluster_cfg->data_groups.
             mappings[data_group_index].server_group;
     }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "server_id: %d, sgroup_count: %d", __LINE__,
+            __FUNCTION__, server_id, sgroup_count);
 
     return get_unique_servers(server_groups, sgroup_count,
             servers, size, count);

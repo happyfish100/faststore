@@ -47,7 +47,7 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     int bytes;
 
     if ((server_group=fs_cluster_cfg_get_server_group(&CLUSTER_CONFIG_CTX,
-                    group->data_group_id - 1)) == NULL)
+                    group->id - 1)) == NULL)
     {
         return ENOENT;
     }
@@ -76,8 +76,9 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
             sp=group->data_server_array.servers;
             pp < end; pp++, sp++)
     {
+        sp->dg = group;
         sp->cs = fs_get_server_by_id((*pp)->id);
-        sp->index = sp - group->data_server_array.servers;
+        //sp->index = sp - group->data_server_array.servers;
     }
 
     return 0;
@@ -94,6 +95,7 @@ static int init_cluster_data_group_array(const char *filename,
     int min_id;
     int max_id;
     int data_group_id;
+    int data_group_index;
     int i;
 
     if ((min_id=fs_cluster_cfg_get_min_data_group_id(assoc_gid_array)) <= 0) {
@@ -121,8 +123,10 @@ static int init_cluster_data_group_array(const char *filename,
 
     for (i=0; i<assoc_gid_array->count; i++) {
         data_group_id = assoc_gid_array->ids[i];
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
-        group->data_group_id = data_group_id;
+        data_group_index = data_group_id - min_id;
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + data_group_index;
+        group->id = data_group_id;
+        group->index = data_group_index;
         if ((result=init_cluster_data_server_array(group)) != 0) {
             return result;
         }
@@ -142,7 +146,13 @@ static int init_cluster_data_group_array(const char *filename,
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
         group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
-        group->include_myself = true;
+        group->belong_to_me = true;
+
+        /*
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "%d. data_group_id = %d", __LINE__, __FUNCTION__,
+                i + 1, data_group_id);
+                */
     }
 
     return 0;
@@ -212,6 +222,46 @@ static int compare_server_ptr(const void *p1, const void *p2)
     return (*((FCServerInfo **)p1))->id - (*((FCServerInfo **)p2))->id;
 }
 
+static int set_server_partner_attribute(const int server_id)
+{
+    int result;
+    int count;
+    FSClusterServerInfo *cs;
+    FCServerInfo *servers[FS_MAX_GROUP_SERVERS];
+    FCServerInfo **server;
+    FCServerInfo **end;
+
+    if ((result=fs_cluster_cfg_get_my_group_servers(&CLUSTER_CONFIG_CTX,
+                    server_id, servers, FS_MAX_GROUP_SERVERS, &count)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "get group servers fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    end = servers + count;
+    for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
+            server<end; server++, cs++)
+    {
+        if ((cs=fs_get_server_by_id((*server)->id)) == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "can't find server id: %d",
+                    __LINE__, (*server)->id);
+            return ENOENT;
+        }
+
+        cs->is_partner = true;
+        /*
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "%d. id = %d", __LINE__, __FUNCTION__,
+                cs->server_index + 1, cs->server->id);
+                */
+    }
+
+    return 0;
+}
+
 static int init_cluster_server_array(const char *filename)
 {
     int bytes;
@@ -233,7 +283,6 @@ static int init_cluster_server_array(const char *filename)
             &count)) != 0)
     {
     }
-
     qsort(servers, count, sizeof(FCServerInfo *), compare_server_ptr);
 
     bytes = sizeof(FSClusterServerInfo) * count;
@@ -258,16 +307,9 @@ static int init_cluster_server_array(const char *filename)
     }
     CLUSTER_SERVER_ARRAY.count = count;
 
-    /*
-    if ((result=fs_cluster_cfg_get_my_group_servers(&CLUSTER_CONFIG_CTX,
-                    svr->id, servers, FS_MAX_GROUP_SERVERS, &count)) != 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "get group servers fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
+    if ((result=set_server_partner_attribute(svr->id)) != 0) {
         return result;
     }
-    */
 
     return init_cluster_data_group_array(filename, svr->id, assoc_gid_array);
 }
@@ -422,7 +464,7 @@ static int load_group_servers_from_ini(const char *group_filename,
     char section_name[64];
 
     sprintf(section_name, "%s%d", DATA_GROUP_SECTION_PREFIX_STR,
-            group->data_group_id);
+            group->id);
     if ((items=iniGetValuesEx(section_name, SERVER_GROUP_INFO_ITEM_SERVER,
             ini_context, &item_count)) == NULL)
     {
@@ -571,7 +613,7 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
 
     if ((result=fast_buffer_append(&file_buffer, "[%s%d]\n",
                     DATA_GROUP_SECTION_PREFIX_STR,
-                    group->data_group_id)) != 0)
+                    group->id)) != 0)
     {
         return result;
     }
