@@ -114,20 +114,20 @@ static void pack_changed_data_versions(char *buff, int *length, int *count)
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
     FSProtoPingLeaderReqBodyPart *body_part;
-    int64_t last_data_version;
+    int64_t data_version;
 
     *count = 0;
     body_part = (FSProtoPingLeaderReqBodyPart *)buff;
     end = my_data_group_array.groups + my_data_group_array.count;
     for (group=my_data_group_array.groups; group<end; group++) {
-        last_data_version = group->sp->last_data_version;
-        if (group->sp->last_report_version == last_data_version) {
+        data_version = group->sp->data_version;
+        if (group->sp->last_report_version == data_version) {
             continue;
         }
 
-        group->sp->last_report_version = last_data_version;
+        group->sp->last_report_version = data_version;
         int2buff(group->data_group_id, body_part->data_group_id);
-        long2buff(last_data_version, body_part->data_version);
+        long2buff(data_version, body_part->data_version);
         body_part++;
         ++(*count);
     }

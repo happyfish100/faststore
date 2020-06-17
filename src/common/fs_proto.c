@@ -285,6 +285,8 @@ const char *fs_get_cmd_caption(const int cmd)
             return "PRE_SET_NEXT_LEADER";
         case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:
             return "COMMIT_NEXT_LEADER";
+        case FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS:
+            return "PUSH_DATA_SERVER_STATUS";
         case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
             return "JOIN_SERVER_REQ";
         case FS_REPLICA_PROTO_JOIN_SERVER_RESP:

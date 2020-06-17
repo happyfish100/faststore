@@ -44,9 +44,10 @@ int cluster_handler_destroy()
 
 void cluster_task_finish_cleanup(struct fast_task_info *task)
 {
+    FSServerContext *server_ctx;
+
     /*
     FSServerTaskArg *task_arg;
-
     task_arg = (FSServerTaskArg *)task->arg;
     */
 
@@ -55,7 +56,11 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
             if (CLUSTER_PEER != NULL) {
                 cluster_topology_deactivate_server(CLUSTER_PEER);
                 __sync_bool_compare_and_swap(&CLUSTER_PEER->notify_ctx.
-                        thread_data, task->thread_data, NULL);
+                        task, task, NULL);
+
+                server_ctx = (FSServerContext *)task->thread_data->arg;
+                cluster_topology_remove_notify_ctx(&server_ctx->cluster.
+                        notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
                 CLUSTER_PEER = NULL;
             }
             CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
@@ -164,6 +169,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     int server_id;
     FSProtoJoinLeaderReq *req;
     FSClusterServerInfo *peer;
+    FSServerContext *server_ctx;
 
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoJoinLeaderReq))) != 0)
@@ -204,12 +210,18 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return EEXIST;
     }
 
-    if (!__sync_bool_compare_and_swap(&peer->notify_ctx.thread_data,
-                NULL, task->thread_data))
-    {
+    if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d already joined", server_id);
         return EEXIST;
+    }
+
+    server_ctx = (FSServerContext *)task->thread_data->arg;
+    if ((result=cluster_topology_add_notify_ctx(&server_ctx->cluster.
+                    notify_ctx_ptr_array, &peer->notify_ctx)) != 0)
+    {
+        __sync_bool_compare_and_swap(&peer->notify_ctx.task, task, NULL);
+        return result;
     }
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
@@ -632,6 +644,23 @@ static int alloc_replication_ptr_array(FSReplicationPtrArray *array)
     return 0;
 }
 
+static int alloc_notify_ctx_ptr_array(FSClusterNotifyContextPtrArray *array)
+{
+    int bytes;
+
+    bytes = sizeof(FSClusterTopologyNotifyContext *) *
+        CLUSTER_SERVER_ARRAY.count;
+    array->contexts = (FSClusterTopologyNotifyContext **)malloc(bytes);
+    if (array->contexts == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(array->contexts, 0, bytes);
+    array->alloc = CLUSTER_SERVER_ARRAY.count;
+    return 0;
+}
+
 void *cluster_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
@@ -657,6 +686,12 @@ void *cluster_alloc_thread_extra_data(const int thread_index)
         return NULL;
     }
 
+    if (alloc_notify_ctx_ptr_array(&server_context->
+                cluster.notify_ctx_ptr_array) != 0)
+    {
+        return NULL;
+    }
+
     return server_context;
 }
 
@@ -668,12 +703,24 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
     server_ctx = (FSServerContext *)thread_data->arg;
 
     if (count++ % 1000 == 0) {
-        logInfo("thread index: %d, connectings.count: %d, connected.count: %d",
+        logInfo("thread index: %d, connectings.count: %d, "
+                "connected.count: %d",
                 SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
                 server_ctx->cluster.connectings.count,
                 server_ctx->cluster.connected.count);
     }
 
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
+        static int lcount = 0;
+        if (lcount++ % 100 == 0) {
+            logInfo("thread index: %d, notify context count: %d",
+                    SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
+                    server_ctx->cluster.notify_ctx_ptr_array.count);
+        }
+
+        cluster_topology_process_notify_events(
+                &server_ctx->cluster.notify_ctx_ptr_array);
+    }
     binlog_replication_process(server_ctx);
     return 0;
 }

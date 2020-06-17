@@ -46,6 +46,7 @@
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        66
 #define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     67  //notify next leader to other servers
 #define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      68  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 69
 
 //replication commands, master -> slave
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
@@ -213,6 +214,18 @@ typedef struct fs_proto_join_server_req {
 
 typedef struct fs_proto_join_server_resp {
 } FSProtoJoinServerResp;
+
+typedef struct fs_proto_push_data_server_status_req_header  {
+    char data_server_count[2];
+} FSProtoPushDataServerStatusReqHeader;
+
+typedef struct fs_proto_push_data_server_status_req_body_part {
+    char data_group_id[4];
+    char server_id[4];
+    char is_master;
+    char status;
+    char data_version[8];
+} FSProtoPushDataServerStatusReqBodyPart;
 
 typedef struct fs_proto_ping_leader_req_header  {
     char data_group_count[2];

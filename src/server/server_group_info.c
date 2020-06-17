@@ -460,7 +460,7 @@ static int load_group_servers_from_ini(const char *group_filename,
     int field_count;
     int server_id;
     int status;
-    int64_t last_data_version;
+    int64_t data_version;
     char section_name[64];
 
     sprintf(section_name, "%s%d", DATA_GROUP_SECTION_PREFIX_STR,
@@ -489,7 +489,7 @@ static int load_group_servers_from_ini(const char *group_filename,
 
         server_id = strtol(fields[0].str, NULL, 10);
         status = strtol(fields[1].str, NULL, 10);
-        last_data_version = strtoll(fields[2].str, NULL, 10);
+        data_version = strtoll(fields[2].str, NULL, 10);
         if (status == FS_SERVER_STATUS_SYNCING ||
                 status == FS_SERVER_STATUS_ACTIVE)
         {
@@ -498,7 +498,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         for (sp=group->data_server_array.servers; sp<sp_end; sp++) {
             if (sp->cs->server->id == server_id) {
                 sp->status = status;
-                sp->last_data_version = last_data_version;
+                sp->data_version = data_version;
                 break;
             }
         }
@@ -622,7 +622,7 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
     for (sp=group->data_server_array.servers; sp<end; sp++) {
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
                         SERVER_GROUP_INFO_ITEM_SERVER, sp->cs->server->id,
-                        sp->status, sp->last_data_version)) != 0)
+                        sp->status, sp->data_version)) != 0)
         {
             return result;
         }

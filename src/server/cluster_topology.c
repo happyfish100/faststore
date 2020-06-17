@@ -17,6 +17,7 @@
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/ioevent_loop.h"
 #include "sf/sf_global.h"
+#include "sf/sf_nio.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "cluster_topology.h"
@@ -49,15 +50,6 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
     int i;
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
-
-    /*
-    if ((result=init_pthread_lock(&notify_ctx->lock)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "init_pthread_lock fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-    */
 
     if ((result=fc_queue_init(&notify_ctx->queue, (long)
                     (&((FSDataServerChangeEvent *)NULL)->next))) != 0)
@@ -93,13 +85,12 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
 int cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
         data_server, const bool notify_self)
 {
-    int data_group_index;
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
     FSDataServerChangeEvent *event;
+    struct fast_task_info *task;
     bool notify;
 
-    data_group_index = data_server->dg->index;
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
         if (cs->is_leader || (!notify_self && data_server->cs == cs) ||
@@ -107,18 +98,78 @@ int cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
         {
             continue;
         }
+        task = (struct fast_task_info *)cs->notify_ctx.task;
+        if (task == NULL) {
+            continue;
+        }
 
-        event = cs->notify_ctx.events + (data_group_index *
+        event = cs->notify_ctx.events + (data_server->dg->index *
                 CLUSTER_SERVER_ARRAY.count + data_server->cs->server_index);
         assert(event->data_server == data_server);
 
-        if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) {
+        if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
             fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
             if (notify) {
-                iovent_notify_thread((struct nio_thread_data *)
-                        cs->notify_ctx.thread_data);
+                iovent_notify_thread(task->thread_data);
             }
         }
+    }
+
+    return 0;
+}
+
+static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
+{
+    FSDataServerChangeEvent *event;
+    FSProtoHeader *header;
+    FSProtoPushDataServerStatusReqHeader *req_header;
+    FSProtoPushDataServerStatusReqBodyPart *bp_start;
+    FSProtoPushDataServerStatusReqBodyPart *body_part;
+    int body_len;
+
+    if (!(ctx->task->offset == 0 && ctx->task->length == 0)) {
+        return EBUSY;
+    }
+
+    event = (FSDataServerChangeEvent *)fc_queue_try_pop_all(&ctx->queue);
+    if (event == NULL) {
+        return 0;
+    }
+
+    header = (FSProtoHeader *)ctx->task->data;
+    req_header = (FSProtoPushDataServerStatusReqHeader *)(header + 1);
+    bp_start = (FSProtoPushDataServerStatusReqBodyPart *)(req_header + 1);
+    body_part = bp_start;
+    while (event != NULL) {
+        int2buff(event->data_server->dg->id, body_part->data_group_id);
+        int2buff(event->data_server->cs->server->id, body_part->server_id);
+        body_part->is_master = event->data_server->is_master;
+        body_part->status = event->data_server->status;
+        int2buff(event->data_server->data_version, body_part->data_version);
+
+        __sync_bool_compare_and_swap(&event->in_queue, 1, 0);  //release event
+
+        ++body_part;
+        event = event->next;
+    }
+
+    int2buff(body_part - bp_start, req_header->data_server_count);
+    body_len = (char *)body_part - (char *)req_header;
+    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
+            body_len);
+    ctx->task->length = sizeof(FSProtoHeader) + body_len;
+    return sf_send_add_event((struct fast_task_info *)ctx->task);
+}
+
+int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
+        notify_ctx_ptr_array)
+{
+    FSClusterTopologyNotifyContext **ctx;
+    FSClusterTopologyNotifyContext **end;
+
+    end = notify_ctx_ptr_array->contexts + notify_ctx_ptr_array->count;
+    for (ctx=notify_ctx_ptr_array->contexts; ctx<end; ctx++) {
+        process_notify_events(*ctx);
     }
 
     return 0;

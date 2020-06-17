@@ -99,11 +99,16 @@ typedef struct fs_data_server_change_event {
 } FSDataServerChangeEvent;
 
 typedef struct fs_cluster_topology_notify_context {
-    //pthread_mutex_t lock;  //for lock FSDataServerChangeEvent
-    volatile struct nio_thread_data *thread_data;
+    volatile struct fast_task_info *task;
     struct fc_queue queue; //push data_server changes to the follower
     FSDataServerChangeEvent *events; //event array
 } FSClusterTopologyNotifyContext;
+
+typedef struct fs_cluster_notify_context_ptr_array {
+    FSClusterTopologyNotifyContext **contexts;
+    int count;
+    int alloc;
+} FSClusterNotifyContextPtrArray;
 
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
@@ -133,7 +138,7 @@ typedef struct fs_cluster_data_server_info {
     bool is_master;
     char status;                 //the data server status
     //int index;
-    int64_t last_data_version;   //for replication
+    int64_t data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
     //int64_t change_version;    //for notify to the follower
 } FSClusterDataServerInfo;
@@ -248,8 +253,9 @@ typedef struct fs_server_context {
         } service;
 
         struct {
-            FSReplicationPtrArray connectings;  //master side
-            FSReplicationPtrArray connected;    //master side
+            FSReplicationPtrArray connectings;
+            FSReplicationPtrArray connected;
+            FSClusterNotifyContextPtrArray notify_ctx_ptr_array;
         } cluster;
     };
 
