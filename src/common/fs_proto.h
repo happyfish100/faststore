@@ -215,17 +215,18 @@ typedef struct fs_proto_join_server_req {
 typedef struct fs_proto_join_server_resp {
 } FSProtoJoinServerResp;
 
-typedef struct fs_proto_push_data_server_status_req_header  {
+typedef struct fs_proto_push_data_server_status_header  {
+    char current_version[8];
     char data_server_count[2];
-} FSProtoPushDataServerStatusReqHeader;
+} FSProtoPushDataServerStatusHeader;
 
-typedef struct fs_proto_push_data_server_status_req_body_part {
+typedef struct fs_proto_push_data_server_status_body_part {
     char data_group_id[4];
     char server_id[4];
     char is_master;
     char status;
     char data_version[8];
-} FSProtoPushDataServerStatusReqBodyPart;
+} FSProtoPushDataServerStatusBodyPart;
 
 typedef struct fs_proto_ping_leader_req_header  {
     char data_group_count[2];
@@ -235,16 +236,6 @@ typedef struct fs_proto_ping_leader_req_body_part {
     char data_group_id[4];
     char data_version[8];
 } FSProtoPingLeaderReqBodyPart;
-
-typedef struct fs_proto_ping_leader_resp_header {
-    char oid_sn[8];  //current oid sn of leader
-    char server_count[4];
-} FSProtoPingLeaderRespHeader;
-
-typedef struct fs_proto_ping_leader_resp_body_part {
-    char server_id[4];
-    char status;
-} FSProtoPingLeaderRespBodyPart;
 
 typedef struct fs_proto_push_binlog_req_body_header {
     char binlog_length[4];

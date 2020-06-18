@@ -122,9 +122,9 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 {
     FSDataServerChangeEvent *event;
     FSProtoHeader *header;
-    FSProtoPushDataServerStatusReqHeader *req_header;
-    FSProtoPushDataServerStatusReqBodyPart *bp_start;
-    FSProtoPushDataServerStatusReqBodyPart *body_part;
+    FSProtoPushDataServerStatusHeader *req_header;
+    FSProtoPushDataServerStatusBodyPart *bp_start;
+    FSProtoPushDataServerStatusBodyPart *body_part;
     int body_len;
 
     if (!(ctx->task->offset == 0 && ctx->task->length == 0)) {
@@ -137,8 +137,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     header = (FSProtoHeader *)ctx->task->data;
-    req_header = (FSProtoPushDataServerStatusReqHeader *)(header + 1);
-    bp_start = (FSProtoPushDataServerStatusReqBodyPart *)(req_header + 1);
+    req_header = (FSProtoPushDataServerStatusHeader *)(header + 1);
+    bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
     while (event != NULL) {
         int2buff(event->data_server->dg->id, body_part->data_group_id);
@@ -153,6 +153,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         event = event->next;
     }
 
+    long2buff(CLUSTER_CURRENT_VERSION, req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;
     FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
