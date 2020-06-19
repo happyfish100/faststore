@@ -228,6 +228,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
     cluster_topology_activate_server(peer);
+    cluster_topology_sync_all_data_servers(peer);
     return 0;
 }
 
@@ -235,14 +236,17 @@ static int process_ping_leader_req(struct fast_task_info *task)
 {
     FSProtoPingLeaderReqHeader *req_header;
     FSProtoPingLeaderReqBodyPart *body_part;
+    FSClusterDataServerInfo *ds;
     int data_group_count;
     int expect_body_length;
     int data_group_id;
     int64_t data_version;
     int i;
+    int change_count;
+    bool changed;
 
     req_header = (FSProtoPingLeaderReqHeader *)REQUEST.body;
-    data_group_count = buff2short(req_header->data_group_count);
+    data_group_count = buff2int(req_header->data_group_count);
     expect_body_length = sizeof(FSProtoPingLeaderReqHeader) +
         sizeof(FSProtoPingLeaderReqBodyPart) * data_group_count;
     if (REQUEST.header.body_len != expect_body_length) {
@@ -256,12 +260,38 @@ static int process_ping_leader_req(struct fast_task_info *task)
         return 0;
     }
 
+    change_count = 0;
     body_part = (FSProtoPingLeaderReqBodyPart *)(req_header + 1);
     for (i=0; i<data_group_count; i++, body_part++) {
         data_group_id = buff2int(body_part->data_group_id);
-        data_version = buff2long(body_part->data_version);
+        if ((ds=fs_get_data_server(data_group_id,
+                        CLUSTER_PEER->server->id)) != NULL)
+        {
+            changed = false;
+            data_version = buff2long(body_part->data_version);
+            if (ds->status != body_part->status) {
+                cluster_topology_change_data_server_status(ds,
+                        body_part->status);
+                changed = true;
+            }
+            if (ds->data_version != data_version) {
+                ds->data_version = data_version;
+                changed = true;
+            }
 
-        //TODO
+            if (changed) {
+                ++change_count;
+                cluster_topology_data_server_chg_notify(ds, false);
+            }
+        }
+    }
+
+    if (change_count > 0) {
+        __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
+
+        logInfo("peer id: %d, data_group_count: %d, current_version: %"PRId64,
+                CLUSTER_PEER->server->id, data_group_count,
+                __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
     }
 
     return 0;
@@ -292,11 +322,7 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         return EINVAL;
     }
 
-    if ((result=process_ping_leader_req(task)) != 0) {
-        return result;
-    }
-
-    return 0;
+    return process_ping_leader_req(task);
 }
 
 static int cluster_deal_next_leader(struct fast_task_info *task)
@@ -340,7 +366,7 @@ static int cluster_deal_join_server_req(struct fast_task_info *task)
     int replica_channels_between_two_servers;
     FSProtoJoinServerReq *req;
     FSClusterServerInfo *peer;
-    FSProtoJoinServerResp *resp;
+    //FSProtoJoinServerResp *resp;
     FSReplication *replication;
 
     if ((result=server_expect_body_length(task,

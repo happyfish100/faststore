@@ -217,7 +217,7 @@ typedef struct fs_proto_join_server_resp {
 
 typedef struct fs_proto_push_data_server_status_header  {
     char current_version[8];
-    char data_server_count[2];
+    char data_server_count[4];
 } FSProtoPushDataServerStatusHeader;
 
 typedef struct fs_proto_push_data_server_status_body_part {
@@ -229,11 +229,12 @@ typedef struct fs_proto_push_data_server_status_body_part {
 } FSProtoPushDataServerStatusBodyPart;
 
 typedef struct fs_proto_ping_leader_req_header  {
-    char data_group_count[2];
+    char data_group_count[4];
 } FSProtoPingLeaderReqHeader;
 
 typedef struct fs_proto_ping_leader_req_body_part {
     char data_group_id[4];
+    char status;
     char data_version[8];
 } FSProtoPingLeaderReqBodyPart;
 

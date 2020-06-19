@@ -31,6 +31,10 @@
 #define FS_REPLICATION_STAGE_WAITING_JOIN_RESP  3
 #define FS_REPLICATION_STAGE_SYNCING            4
 
+#define FS_CLUSTER_DELAY_DECISION_NO_OP         0
+#define FS_CLUSTER_DELAY_DECISION_CHECK_MASTER  1
+#define FS_CLUSTER_DELAY_DECISION_SELECT_MASTER 2
+
 #define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  2
 #define FS_DEFAULT_TRUNK_FILE_SIZE  (  1 * 1024 * 1024 * 1024LL)
 #define FS_TRUNK_FILE_MIN_SIZE      (256 * 1024 * 1024LL)
@@ -135,9 +139,9 @@ struct fs_cluster_data_group_info;
 typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
+    bool is_preseted;
     bool is_master;
-    char status;                 //the data server status
-    //int index;
+    char status;            //the data server status
     int64_t data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
     //int64_t change_version;    //for notify to the follower
@@ -152,14 +156,20 @@ typedef struct fs_cluster_data_group_info {
     int id;
     int index;
     bool belong_to_me;
+    struct {
+        int action;
+        int expire_time;
+    } delay_decision;
     FSClusterDataServerArray data_server_array;
     FSClusterServerPPArray active_slaves;
+    FSClusterDataServerInfo *master;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {
     FSClusterDataGroupInfo *groups;
     int count;
     int base_id;
+    volatile int delay_decision_count;
 } FSClusterDataGroupArray;
 
 typedef struct fdir_binlog_push_result_entry {

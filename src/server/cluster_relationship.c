@@ -18,6 +18,7 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
+#include "cluster_topology.h"
 #include "cluster_relationship.h"
 
 typedef struct fs_cluster_server_status {
@@ -111,7 +112,8 @@ static int proto_join_leader(ConnectionInfo *conn)
     return result;
 }
 
-static void pack_changed_data_versions(char *buff, int *length, int *count)
+static void pack_changed_data_versions(char *buff, int *length,
+        int *count, const bool report_all)
 {
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
@@ -123,15 +125,14 @@ static void pack_changed_data_versions(char *buff, int *length, int *count)
     end = my_data_group_array.groups + my_data_group_array.count;
     for (group=my_data_group_array.groups; group<end; group++) {
         data_version = group->sp->data_version;
-        if (group->sp->last_report_version == data_version) {
-            continue;
+        if (report_all || group->sp->last_report_version != data_version) {
+            group->sp->last_report_version = data_version;
+            int2buff(group->data_group_id, body_part->data_group_id);
+            long2buff(data_version, body_part->data_version);
+            body_part->status = group->sp->status;
+            body_part++;
+            ++(*count);
         }
-
-        group->sp->last_report_version = data_version;
-        int2buff(group->data_group_id, body_part->data_group_id);
-        long2buff(data_version, body_part->data_version);
-        body_part++;
-        ++(*count);
     }
 
     *length = (char *)body_part - buff;
@@ -177,7 +178,7 @@ static int cluster_get_server_status(FSClusterServerStatus *server_status)
         server_status->is_leader = MYSELF_IS_LEADER;
         server_status->up_time = g_sf_global_vars.up_time;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
-        server_status->version = CLUSTER_CURRENT_VERSION;
+        server_status->version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
         server_status->last_shutdown_time = fs_get_last_shutdown_time();
         return 0;
     } else {
@@ -334,11 +335,10 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
     leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == leader) {
         //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_STRICT;
-        __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
+        cluster_topology_set_check_master_flags();
     } else {
         if (MYSELF_IS_LEADER) {
             MYSELF_IS_LEADER = false;
-            __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
         }
 
         logInfo("file: "__FILE__", line: %d, "
@@ -564,11 +564,17 @@ static int cluster_process_leader_push(FSResponseInfo *response,
         return EINVAL;
     }
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "recv push from leader, data_server_count: %d",
+            __LINE__, __FUNCTION__, data_server_count);
+
     body_part = (FSProtoPushDataServerStatusBodyPart *)(body_header + 1);
     body_end = body_part + data_server_count;
     for (; body_part < body_end; body_part++) {
         data_group_id = buff2int(body_part->data_group_id);
         server_id = buff2int(body_part->server_id);
+
+        //logInfo("data_group_id: %d, server_id: %d", data_group_id, server_id);
         if ((ds=fs_get_data_server(data_group_id, server_id)) != NULL) {
             ds->is_master = body_part->is_master;
             ds->status = body_part->status;
@@ -655,7 +661,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 }
 
-static int proto_ping_leader(ConnectionInfo *conn)
+static int proto_ping_leader_ex(ConnectionInfo *conn, const bool report_all)
 {
     FSProtoHeader *header;
     FSResponseInfo response;
@@ -670,10 +676,18 @@ static int proto_ping_leader(ConnectionInfo *conn)
     req_header = (FSProtoPingLeaderReqHeader *)(header + 1);
     out_bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader);
     pack_changed_data_versions(out_buff + out_bytes,
-            &length, &data_group_count);
+            &length, &data_group_count, report_all);
     out_bytes += length;
 
-    short2buff(data_group_count, req_header->data_group_count);
+    if (data_group_count > 0) {
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "ping leader %s:%d, report_all: %d, "
+                "report data_group_count: %d", __LINE__,
+                __FUNCTION__, conn->ip_addr, conn->port,
+                report_all, data_group_count);
+    }
+
+    int2buff(data_group_count, req_header->data_group_count);
     FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PING_LEADER_REQ,
             out_bytes - sizeof(FSProtoHeader));
 
@@ -722,6 +736,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
         sleep(1);
+        cluster_topology_check_and_make_delay_decisions();
         return 0;  //do not need ping myself
     }
 
@@ -741,6 +756,11 @@ static int cluster_ping_leader(ConnectionInfo *conn)
             conn_pool_disconnect_server(conn);
             return result;
         }
+
+        if ((result=proto_ping_leader_ex(conn, true)) != 0) {
+            conn_pool_disconnect_server(conn);
+            return result;
+        }
     }
 
     if ((result=cluster_try_recv_push_data(conn)) != 0) {
@@ -748,13 +768,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
         return result;
     }
 
-    /*
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ping leader %s:%d", __LINE__, __FUNCTION__,
-            conn->ip_addr, conn->port);
-            */
-
-    if ((result=proto_ping_leader(conn)) != 0) {
+    if ((result=proto_ping_leader_ex(conn, false)) != 0) {
         conn_pool_disconnect_server(conn);
     }
 

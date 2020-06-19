@@ -45,6 +45,8 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     FCServerInfo **end;
     FSClusterDataServerInfo *sp;
     int bytes;
+    int server_index;
+    int master_index;
 
     if ((server_group=fs_cluster_cfg_get_server_group(&CLUSTER_CONFIG_CTX,
                     group->id - 1)) == NULL)
@@ -71,14 +73,16 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     }
     memset(group->active_slaves.servers, 0, bytes);
 
+    master_index = group->id % server_group->server_array.count;
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
             sp=group->data_server_array.servers;
             pp < end; pp++, sp++)
     {
+        server_index = sp - group->data_server_array.servers;
         sp->dg = group;
         sp->cs = fs_get_server_by_id((*pp)->id);
-        //sp->index = sp - group->data_server_array.servers;
+        sp->is_preseted = (server_index == master_index);
     }
 
     return 0;

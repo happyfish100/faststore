@@ -67,11 +67,20 @@ static inline void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
     __sync_bool_compare_and_swap(&cs->active, 1, 0);
 }
 
-int cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
+void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
         data_server, const bool notify_self);
+
+void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs);
 
 int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
         notify_ctx_ptr_array);
+
+void cluster_topology_change_data_server_status(FSClusterDataServerInfo *
+        data_server, const int new_status);
+
+void cluster_topology_set_check_master_flags();
+
+void cluster_topology_check_and_make_delay_decisions();
 
 #ifdef __cplusplus
 }
