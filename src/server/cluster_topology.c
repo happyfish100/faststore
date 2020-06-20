@@ -33,7 +33,7 @@ static FSClusterDataServerInfo *find_data_group_server(
     end = ds_array->servers + ds_array->count;
     for (ds=ds_array->servers; ds<end; ds++) {
         if (ds->cs == cs) {
-            logInfo("data group index: %d, server id: %d", gindex, cs->server->id);
+            //logInfo("data group index: %d, server id: %d", gindex, cs->server->id);
             return ds;
         }
     }
@@ -206,6 +206,46 @@ void cluster_topology_change_data_server_status(FSClusterDataServerInfo *
 {
     //TODO
     data_server->status = new_status;
+}
+
+static inline void cluster_topology_offline_data_server(
+        FSClusterDataServerInfo *ds)
+{
+    if (ds->status == FS_SERVER_STATUS_SYNCING || 
+            ds->status == FS_SERVER_STATUS_ACTIVE)
+    {
+        ds->status = FS_SERVER_STATUS_OFFLINE;
+        cluster_topology_data_server_chg_notify(ds, false);
+    }
+}
+
+void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
+{
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
+
+    __sync_bool_compare_and_swap(&cs->active, 1, 0);
+
+    end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
+    for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
+        cluster_topology_offline_data_server(*ds);
+    }
+}
+
+void cluster_topology_offline_all_data_servers()
+{
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gend;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *send;
+
+    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+        send = group->data_server_array.servers + group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<send; ds++) {
+            cluster_topology_offline_data_server(ds);
+        }
+    }
 }
 
 void cluster_topology_set_check_master_flags()

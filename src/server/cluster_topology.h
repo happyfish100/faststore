@@ -62,10 +62,9 @@ static inline void cluster_topology_activate_server(FSClusterServerInfo *cs)
     __sync_bool_compare_and_swap(&cs->active, 0, 1);
 }
 
-static inline void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
-{
-    __sync_bool_compare_and_swap(&cs->active, 1, 0);
-}
+void cluster_topology_deactivate_server(FSClusterServerInfo *cs);
+
+void cluster_topology_offline_all_data_servers();
 
 void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
         data_server, const bool notify_self);

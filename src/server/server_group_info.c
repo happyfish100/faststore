@@ -38,12 +38,57 @@ static int last_refresh_file_time = 0;
 
 static int server_group_info_write_to_file(const uint64_t current_version);
 
+static int check_alloc_ds_ptr_array(FSClusterDataServerPtrArray *array)
+{
+    FSClusterDataServerInfo **servers;
+    int new_alloc;
+    int bytes;
+
+    if (array->alloc > array->count) {
+        return 0;
+    }
+
+    new_alloc = (array->alloc > 0) ? 2 * array->alloc : 16;
+    bytes = sizeof(FSClusterDataServerInfo *) * new_alloc;
+    servers = (FSClusterDataServerInfo **)malloc(bytes);
+    if (servers == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+
+    if (array->servers != NULL) {
+        if (array->count > 0) {
+            memcpy(servers, array->servers, array->count *
+                    sizeof(FSClusterDataServerInfo *));
+        }
+        free(array->servers);
+    }
+
+    array->alloc = new_alloc;
+    array->servers = servers;
+    return 0;
+}
+
+static int add_to_ds_ptr_array(FSClusterDataServerPtrArray *ds_ptr_array,
+        FSClusterDataServerInfo *ds)
+{
+    int result;
+    if ((result=check_alloc_ds_ptr_array(ds_ptr_array)) != 0) {
+        return result;
+    }
+
+    ds_ptr_array->servers[ds_ptr_array->count++] = ds;
+    return 0;
+}
+
 static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
 {
     FSServerGroup *server_group;
     FCServerInfo **pp;
     FCServerInfo **end;
-    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *ds;
+    int result;
     int bytes;
     int server_index;
     int master_index;
@@ -76,13 +121,17 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     master_index = group->id % server_group->server_array.count;
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
-            sp=group->data_server_array.servers;
-            pp < end; pp++, sp++)
+            ds=group->data_server_array.servers;
+            pp < end; pp++, ds++)
     {
-        server_index = sp - group->data_server_array.servers;
-        sp->dg = group;
-        sp->cs = fs_get_server_by_id((*pp)->id);
-        sp->is_preseted = (server_index == master_index);
+        server_index = ds - group->data_server_array.servers;
+        ds->dg = group;
+        ds->cs = fs_get_server_by_id((*pp)->id);
+        ds->is_preseted = (server_index == master_index);
+
+        if ((result=add_to_ds_ptr_array(&ds->cs->ds_ptr_array, ds)) != 0) {
+            return result;
+        }
     }
 
     return 0;
@@ -298,8 +347,6 @@ static int init_cluster_server_array(const char *filename)
     }
     memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
 
-    logInfo("=====cluster server count: %d", count);
-
     end = servers + count;
     for (server=servers, cs=CLUSTER_SERVER_ARRAY.servers;
             server<end; server++, cs++)
@@ -315,7 +362,24 @@ static int init_cluster_server_array(const char *filename)
         return result;
     }
 
-    return init_cluster_data_group_array(filename, svr->id, assoc_gid_array);
+    if ((result=init_cluster_data_group_array(filename, svr->id,
+                    assoc_gid_array)) != 0)
+    {
+        return result;
+    }
+
+    logInfo("=====cluster server count: %d", count);
+    {
+        FSClusterServerInfo *cs_end;
+
+        cs_end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+        for (cs=CLUSTER_SERVER_ARRAY.servers; cs<cs_end; cs++) {
+            logInfo("server_id: %d, data group count: %d",
+                    cs->server->id, cs->ds_ptr_array.count);
+        }
+    }
+
+    return 0;
 }
 
 static int init_cluster_notify_contexts()

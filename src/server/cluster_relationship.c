@@ -331,10 +331,10 @@ static inline void cluster_unset_leader()
 
 static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
 {
-    CLUSTER_LEADER_PTR = leader;
     leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == leader) {
         //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_STRICT;
+        cluster_topology_offline_all_data_servers();
         cluster_topology_set_check_master_flags();
     } else {
         if (MYSELF_IS_LEADER) {
@@ -347,6 +347,7 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
     }
+    CLUSTER_LEADER_PTR = leader;
 
     return 0;
 }
@@ -577,8 +578,10 @@ static int cluster_process_leader_push(FSResponseInfo *response,
         //logInfo("data_group_id: %d, server_id: %d", data_group_id, server_id);
         if ((ds=fs_get_data_server(data_group_id, server_id)) != NULL) {
             ds->is_master = body_part->is_master;
-            ds->status = body_part->status;
-            ds->data_version = buff2long(body_part->data_version);
+            if (ds->cs != CLUSTER_MYSELF_PTR) {
+                ds->status = body_part->status;
+                ds->data_version = buff2long(body_part->data_version);
+            }
         }
     }
 

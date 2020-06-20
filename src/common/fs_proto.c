@@ -211,8 +211,6 @@ const char *fs_get_server_status_caption(const int status)
             return "INIT";
         case FS_SERVER_STATUS_BUILDING:
             return "BUILDING";
-        case FS_SERVER_STATUS_DUMPING:
-            return "DUMPING";
         case FS_SERVER_STATUS_OFFLINE:
             return "OFFLINE";
         case FS_SERVER_STATUS_SYNCING:

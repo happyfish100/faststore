@@ -114,10 +114,17 @@ typedef struct fs_cluster_notify_context_ptr_array {
     int alloc;
 } FSClusterNotifyContextPtrArray;
 
+typedef struct fs_cluster_data_server_ptr_array {
+    struct fs_cluster_data_server_info **servers;
+    int count;
+    int alloc;
+} FSClusterDataServerPtrArray;
+
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
     FSReplicationPtrArray repl_ptr_array;
     FSClusterTopologyNotifyContext notify_ctx;
+    FSClusterDataServerPtrArray ds_ptr_array;
     bool is_leader;
     bool is_partner;      //if my partner
     volatile int active;  //for push topology change notify
