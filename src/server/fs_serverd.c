@@ -140,8 +140,8 @@ int main(int argc, char *argv[])
                 cluster_alloc_thread_extra_data,
                 cluster_thread_loop_callback, NULL,
                 fs_proto_set_body_length, cluster_deal_task,
-                cluster_task_finish_cleanup, NULL, 1000,
-                sizeof(FSProtoHeader), sizeof(FSServerTaskArg));
+                cluster_task_finish_cleanup, cluster_recv_timeout_callback,
+                1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg));
         if (result != 0) {
             break;
         }

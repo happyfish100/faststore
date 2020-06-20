@@ -57,10 +57,7 @@ static inline int cluster_topology_remove_notify_ctx(
     return 0;
 }
 
-static inline void cluster_topology_activate_server(FSClusterServerInfo *cs)
-{
-    __sync_bool_compare_and_swap(&cs->active, 0, 1);
-}
+void cluster_topology_activate_server(FSClusterServerInfo *cs);
 
 void cluster_topology_deactivate_server(FSClusterServerInfo *cs);
 

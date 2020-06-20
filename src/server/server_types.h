@@ -137,10 +137,10 @@ typedef struct fs_cluster_server_array {
     int count;
 } FSClusterServerArray;
 
-typedef struct fs_cluster_server_pp_array {
+typedef struct fs_cluster_server_ptr_array {
     FSClusterServerInfo **servers;
     int count;
-} FSClusterServerPPArray;
+} FSClusterServerPtrArray;
 
 struct fs_cluster_data_group_info;
 typedef struct fs_cluster_data_server_info {
@@ -168,7 +168,7 @@ typedef struct fs_cluster_data_group_info {
         int expire_time;
     } delay_decision;
     FSClusterDataServerArray data_server_array;
-    FSClusterServerPPArray active_slaves;
+    FSClusterServerPtrArray active_slaves;
     FSClusterDataServerInfo *master;
 } FSClusterDataGroupInfo;
 

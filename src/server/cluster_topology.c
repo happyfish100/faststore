@@ -20,6 +20,7 @@
 #include "sf/sf_nio.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
+#include "cluster_relationship.h"
 #include "cluster_topology.h"
 
 static FSClusterDataServerInfo *find_data_group_server(
@@ -219,6 +220,12 @@ static inline void cluster_topology_offline_data_server(
     }
 }
 
+void cluster_topology_activate_server(FSClusterServerInfo *cs)
+{
+    __sync_bool_compare_and_swap(&cs->active, 0, 1);
+    cluster_relationship_remove_from_inactive_sarray(cs);
+}
+
 void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
 {
     FSClusterDataServerInfo **ds;
@@ -230,6 +237,7 @@ void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
     for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
         cluster_topology_offline_data_server(*ds);
     }
+    cluster_relationship_add_to_inactive_sarray(cs);
 }
 
 void cluster_topology_offline_all_data_servers()

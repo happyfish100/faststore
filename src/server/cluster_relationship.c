@@ -36,12 +36,31 @@ typedef struct fs_my_data_group_info {
 } FSMyDataGroupInfo;
 
 typedef struct fs_my_data_group_array {
-    int count;
     FSMyDataGroupInfo *groups;
+    int count;
 } FSMyDataGroupArray;
 
+typedef struct fs_cluster_server_detect_entry {
+    FSClusterServerInfo *cs;
+    int next_time;
+} FSClusterServerDetectEntry;
+
+typedef struct fs_cluster_server_detect_array {
+    FSClusterServerDetectEntry *entries;
+    int count;
+    int alloc;
+    pthread_mutex_t lock;
+} FSClusterServerDetectArray;
+
 FSClusterServerInfo *g_next_leader = NULL;
-static FSMyDataGroupArray my_data_group_array = {0, NULL};
+static FSMyDataGroupArray my_data_group_array = {NULL, 0};
+static FSClusterServerDetectArray inactive_server_array = {NULL, 0};
+
+#define SET_SERVER_DETECT_ENTRY(entry, server) \
+    do {  \
+        entry->cs = server;    \
+        entry->next_time = g_current_time + SF_G_NETWORK_TIMEOUT; \
+    } while (0)
 
 static int proto_get_server_status(ConnectionInfo *conn,
         FSClusterServerStatus *server_status)
@@ -169,7 +188,11 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 	return status1->server_id - status2->server_id;
 }
 
-static int cluster_get_server_status(FSClusterServerStatus *server_status)
+#define cluster_get_server_status(server_status) \
+    cluster_get_server_status_ex(server_status, true)
+
+static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
+        const bool log_connect_error)
 {
     ConnectionInfo conn;
     int result;
@@ -182,9 +205,9 @@ static int cluster_get_server_status(FSClusterServerStatus *server_status)
         server_status->last_shutdown_time = fs_get_last_shutdown_time();
         return 0;
     } else {
-        if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+        if ((result=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
                             server_status->cs->server), &conn,
-                        SF_G_CONNECT_TIMEOUT)) != 0)
+                        SF_G_CONNECT_TIMEOUT, NULL, log_connect_error)) != 0)
         {
             return result;
         }
@@ -329,13 +352,83 @@ static inline void cluster_unset_leader()
     }
 }
 
+static int do_check_brainsplit(FSClusterServerInfo *cs)
+{
+    const bool log_connect_error = false;
+    FSClusterServerStatus server_status;
+
+    server_status.cs = cs;
+    if (cluster_get_server_status_ex(&server_status, log_connect_error) != 0) {
+        return 0;
+    }
+
+    logInfo("server id: %d, leader: %d", cs->server->id, server_status.is_leader);
+    if (server_status.is_leader) {
+        logWarning("file: "__FILE__", line: %d, "
+                "two leaders occurs, anonther leader is %s:%d, "
+                "trigger re-select leader ...", __LINE__,
+                CLUSTER_GROUP_ADDRESS_FIRST_IP(cs->server),
+                CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs->server));
+        cluster_unset_leader();
+        return EEXIST;
+    }
+
+    return 0;
+}
+
+static int cluster_check_brainsplit(const int inactive_count)
+{
+    FSClusterServerDetectEntry *entry;
+    FSClusterServerDetectEntry *end;
+    int result;
+
+    end = inactive_server_array.entries + inactive_count;
+    for (entry=inactive_server_array.entries; entry<end; entry++) {
+        if (entry >= inactive_server_array.entries +
+                inactive_server_array.count)
+        {
+            break;
+        }
+        if (entry->next_time > g_current_time) {
+            continue;
+        }
+        if ((result=do_check_brainsplit(entry->cs)) != 0) {
+            return result;
+        }
+
+        entry->next_time = g_current_time + SF_G_NETWORK_TIMEOUT;
+    }
+
+    return 0;
+}
+
+static void init_inactive_server_array()
+{
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+    FSClusterServerDetectEntry *entry;
+
+    entry = inactive_server_array.entries;
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if (cs != CLUSTER_MYSELF_PTR) {
+            SET_SERVER_DETECT_ENTRY(entry, cs);
+            entry++;
+        }
+    }
+
+    inactive_server_array.count = entry - inactive_server_array.entries;
+}
+
 static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
 {
     leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == leader) {
-        //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_STRICT;
-        cluster_topology_offline_all_data_servers();
-        cluster_topology_set_check_master_flags();
+        if (CLUSTER_LEADER_PTR != CLUSTER_MYSELF_PTR) {
+            init_inactive_server_array();
+            cluster_topology_offline_all_data_servers();
+            cluster_topology_set_check_master_flags();
+        }
     } else {
         if (MYSELF_IS_LEADER) {
             MYSELF_IS_LEADER = false;
@@ -735,10 +828,24 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
 static int cluster_ping_leader(ConnectionInfo *conn)
 {
     int result;
+    int inactive_count;
     FSClusterServerInfo *leader;
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
         sleep(1);
+        PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
+        inactive_count = inactive_server_array.count;
+        PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+        if (inactive_count > 0) {
+            static int count = 0;
+            if (count++ % 100 == 0) {
+                logInfo("file: "__FILE__", line: %d, "
+                        "inactive_count: %d", __LINE__, inactive_count);
+            }
+            if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
+                return result;
+            }
+        }
         cluster_topology_check_and_make_delay_decisions();
         return 0;  //do not need ping myself
     }
@@ -880,6 +987,22 @@ int cluster_relationship_init()
 {
 	pthread_t tid;
     int result;
+    int bytes;
+
+    bytes = sizeof(FSClusterServerDetectEntry) * CLUSTER_SERVER_ARRAY.count;
+    inactive_server_array.entries = (FSClusterServerDetectEntry *)malloc(bytes);
+    if (inactive_server_array.entries == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    if ((result=init_pthread_lock(&inactive_server_array.lock)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+            "init_pthread_lock fail, errno: %d, error info: %s",
+            __LINE__, result, STRERROR(result));
+        return result;
+    }
+    inactive_server_array.alloc = CLUSTER_SERVER_ARRAY.count;
 
     if ((result=init_my_data_group_array()) != 0) {
         return result;
@@ -892,4 +1015,40 @@ int cluster_relationship_init()
 int cluster_relationship_destroy()
 {
 	return 0;
+}
+
+void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs)
+{
+    FSClusterServerDetectEntry *entry;
+
+    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
+    if (inactive_server_array.count < inactive_server_array.alloc) {
+        entry = inactive_server_array.entries + inactive_server_array.count;
+        SET_SERVER_DETECT_ENTRY(entry, cs);
+        inactive_server_array.count++;
+    }
+    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+}
+
+void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs)
+{
+    FSClusterServerDetectEntry *entry;
+    FSClusterServerDetectEntry *p;
+    FSClusterServerDetectEntry *end;
+
+    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
+    end = inactive_server_array.entries + inactive_server_array.count;
+    for (entry=inactive_server_array.entries; entry<end; entry++) {
+        if (entry->cs == cs) {
+            break;
+        }
+    }
+
+    if (entry < end) {
+        for (p=entry+1; p<end; p++) {
+            *(p - 1) = *p;
+        }
+        inactive_server_array.count--;
+    }
+    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
 }

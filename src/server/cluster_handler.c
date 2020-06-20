@@ -42,6 +42,20 @@ int cluster_handler_destroy()
     return 0;
 }
 
+int cluster_recv_timeout_callback(struct fast_task_info *task)
+{
+    if (CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_RELATIONSHIP &&
+            CLUSTER_PEER != NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "recv from client %s:%u timeout",
+                __LINE__, task->client_ip, task->port);
+        return ETIMEDOUT;
+    }
+
+    return 0;
+}
+
 void cluster_task_finish_cleanup(struct fast_task_info *task)
 {
     FSServerContext *server_ctx;

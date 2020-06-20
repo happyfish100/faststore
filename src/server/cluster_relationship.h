@@ -23,6 +23,10 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader);
 
 void cluster_relationship_trigger_reselect_leader();
 
+void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs);
+
+void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs);
+
 #ifdef __cplusplus
 }
 #endif
