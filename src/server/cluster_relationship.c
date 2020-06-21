@@ -757,6 +757,19 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 }
 
+//TODO
+static void set_status_for_test()
+{
+    FSMyDataGroupInfo *group;
+    FSMyDataGroupInfo *end;
+
+    end = my_data_group_array.groups + my_data_group_array.count;
+    for (group=my_data_group_array.groups; group<end; group++) {
+        group->sp->status = FS_SERVER_STATUS_ACTIVE;
+        group->sp->last_report_version = -1;
+    }
+}
+
 static int proto_ping_leader_ex(ConnectionInfo *conn, const bool report_all)
 {
     FSProtoHeader *header;
@@ -893,6 +906,9 @@ static void *cluster_thread_entrance(void* arg)
     int sleep_seconds;
     FSClusterServerInfo *leader;
     ConnectionInfo mconn;  //leader connection
+
+    //TODO
+    set_status_for_test();
 
     memset(&mconn, 0, sizeof(mconn));
     mconn.sock = -1;

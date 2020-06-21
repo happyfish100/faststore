@@ -48,8 +48,8 @@ int cluster_recv_timeout_callback(struct fast_task_info *task)
             CLUSTER_PEER != NULL)
     {
         logError("file: "__FILE__", line: %d, "
-                "recv from client %s:%u timeout",
-                __LINE__, task->client_ip, task->port);
+                "client ip: %s, server id: %d, recv timeout",
+                __LINE__, task->client_ip, CLUSTER_PEER->server->id);
         return ETIMEDOUT;
     }
 
@@ -283,7 +283,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
         {
             changed = false;
             data_version = buff2long(body_part->data_version);
-            if (ds->status != body_part->status) {
+            if (__sync_fetch_and_add(&ds->status, 0) != body_part->status) {
                 cluster_topology_change_data_server_status(ds,
                         body_part->status);
                 changed = true;

@@ -71,10 +71,13 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs);
 int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
         notify_ctx_ptr_array);
 
-void cluster_topology_change_data_server_status(FSClusterDataServerInfo *
-        data_server, const int new_status);
+void cluster_topology_change_data_server_status(FSClusterDataServerInfo *ds,
+        const int new_status);
 
 void cluster_topology_set_check_master_flags();
+
+int cluster_topology_select_master(FSClusterDataGroupInfo *group,
+        const bool force);
 
 void cluster_topology_check_and_make_delay_decisions();
 

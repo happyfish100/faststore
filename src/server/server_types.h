@@ -147,8 +147,8 @@ typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
     bool is_preseted;
-    bool is_master;
-    char status;            //the data server status
+    volatile bool is_master;
+    volatile char status;   //the data server status
     int64_t data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
     //int64_t change_version;    //for notify to the follower
@@ -169,7 +169,7 @@ typedef struct fs_cluster_data_group_info {
     } delay_decision;
     FSClusterDataServerArray data_server_array;
     FSClusterServerPtrArray active_slaves;
-    FSClusterDataServerInfo *master;
+    volatile FSClusterDataServerInfo *master;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {
