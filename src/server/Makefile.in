@@ -15,7 +15,7 @@ ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_cluster_cfg.o \
            dio/trunk_io_thread.o storage/slice_op.o dio/trunk_fd_cache.o \
            binlog/binlog_func.o binlog/binlog_writer.o binlog/binlog_reader.o \
            binlog/binlog_read_thread.o binlog/binlog_loader.o \
-           binlog/trunk_binlog.o binlog/slice_binlog.o \
+           binlog/trunk_binlog.o binlog/slice_binlog.o binlog/data_binlog.o \
            replication/binlog_replication.o replication/push_result_ring.o \
            replication/binlog_local_consumer.o server_binlog.o \
            cluster_relationship.o cluster_topology.o
