@@ -267,23 +267,144 @@ static inline int deal_binlog_one_record(BinlogWriterContext *writer,
     return 0;
 }
 
+static void repush_to_queue(BinlogWriterContext *writer, BinlogWriterBuffer *wb)
+{
+    BinlogWriterBuffer *previous;
+    BinlogWriterBuffer *current;
+
+    PTHREAD_MUTEX_LOCK(&writer->queue.lock);
+    if (writer->queue.head == NULL) {
+        wb->next = NULL;
+        writer->queue.head = writer->queue.tail = wb;
+    } else if (wb->version <= ((BinlogWriterBuffer *)
+                writer->queue.head)->version)
+    {
+        wb->next = writer->queue.head;
+        writer->queue.head = wb;
+    } else if (wb->version > ((BinlogWriterBuffer *)
+                writer->queue.tail)->version)
+    {
+        wb->next = NULL;
+        ((BinlogWriterBuffer *)writer->queue.tail)->next = wb;
+        writer->queue.tail = wb;
+    } else {
+        previous = writer->queue.head;
+        current = ((BinlogWriterBuffer *)writer->queue.head)->next;
+        while (current != NULL && wb->version > current->version) {
+            previous = current;
+            current = current->next;
+        }
+
+        wb->next = previous->next;
+        previous->next = wb;
+    }
+    PTHREAD_MUTEX_UNLOCK(&writer->queue.lock);
+}
+
+#define DEAL_CURRENT_VERSION_WBUFFER(writer, wb) \
+    do { \
+        deal_binlog_one_record(writer, wb);  \
+        fast_mblock_free_object(&writer->mblock, wb);  \
+        ++writer->version_ctx.next;  \
+    } while (0)
+
+static void deal_record_by_version(BinlogWriterContext *writer,
+        BinlogWriterBuffer *wb)
+{
+    int64_t distance;
+    int index;
+    bool expand;
+    BinlogWriterBuffer **current;
+
+    distance = wb->version - writer->version_ctx.next;
+    if (distance >= (writer->version_ctx.ring.size - 1)) {
+        logWarning("file: "__FILE__", line: %d, "
+                "current version: %"PRId64" is too large, "
+                "exceeds %"PRId64" + %d", __LINE__,
+                wb->version, writer->version_ctx.next,
+                writer->version_ctx.ring.size - 1);
+        repush_to_queue(writer, wb);
+        return;
+    }
+
+    current = writer->version_ctx.ring.entries + wb->version %
+        writer->version_ctx.ring.size;
+    if (current == writer->version_ctx.ring.start) {
+        DEAL_CURRENT_VERSION_WBUFFER(writer, wb);
+
+        index = writer->version_ctx.ring.start - writer->version_ctx.ring.entries;
+        if (writer->version_ctx.ring.start == writer->version_ctx.ring.end) {
+            writer->version_ctx.ring.start = writer->version_ctx.ring.end =
+                writer->version_ctx.ring.entries +
+                (++index) % writer->version_ctx.ring.size;
+            return;
+        }
+
+        writer->version_ctx.ring.start = writer->version_ctx.ring.entries +
+            (++index) % writer->version_ctx.ring.size;
+        while (writer->version_ctx.ring.start != writer->version_ctx.ring.end &&
+                *(writer->version_ctx.ring.start) != NULL)
+        {
+            DEAL_CURRENT_VERSION_WBUFFER(writer, *(writer->version_ctx.ring.start));
+            *(writer->version_ctx.ring.start) = NULL;
+
+            writer->version_ctx.ring.start = writer->version_ctx.ring.entries +
+                (++index) % writer->version_ctx.ring.size;
+            writer->version_ctx.ring.count--;
+        }
+        return;
+    }
+
+    *current = wb;
+    writer->version_ctx.ring.count++;
+
+    if (writer->version_ctx.ring.count > writer->version_ctx.ring.max_count) {
+        writer->version_ctx.ring.max_count = writer->version_ctx.ring.count;
+        logInfo("%s max ring.count ==== %d", writer->subdir_name,
+                writer->version_ctx.ring.count);
+    }
+
+    if (writer->version_ctx.ring.start == writer->version_ctx.ring.end) { //empty
+        expand = true;
+    } else if (writer->version_ctx.ring.end > writer->version_ctx.ring.start) {
+        expand = !(current > writer->version_ctx.ring.start &&
+                current < writer->version_ctx.ring.end);
+    } else {
+        expand = (current >= writer->version_ctx.ring.end &&
+                current < writer->version_ctx.ring.start);
+    }
+
+    if (expand) {
+        writer->version_ctx.ring.end = writer->version_ctx.ring.entries +
+            (wb->version + 1) % writer->version_ctx.ring.size;
+    }
+}
+
 static int deal_binlog_records(BinlogWriterContext *writer,
         BinlogWriterBuffer *wb_head)
 {
     int result;
     BinlogWriterBuffer *wbuffer;
-    BinlogWriterBuffer *deleted;
+    BinlogWriterBuffer *current;
 
     wbuffer = wb_head;
-    do {
-        if ((result=deal_binlog_one_record(writer, wbuffer)) != 0) {
-            return result;
-        }
+    if (writer->order_by == FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION) {
+        do {
+            current = wbuffer;
+            wbuffer = wbuffer->next;
+            deal_record_by_version(writer, current);
+        } while (wbuffer != NULL);
+    } else {
+        do {
+            if ((result=deal_binlog_one_record(writer, wbuffer)) != 0) {
+                return result;
+            }
 
-        deleted = wbuffer;
-        wbuffer = wbuffer->next;
-        fast_mblock_free_object(&writer->mblock, deleted);
-    } while (wbuffer != NULL);
+            current = wbuffer;
+            wbuffer = wbuffer->next;
+            fast_mblock_free_object(&writer->mblock, current);
+        } while (wbuffer != NULL);
+    }
 
     return binlog_write_to_file(writer);
 }
@@ -356,7 +477,7 @@ static int binlog_wbuffer_alloc_init(void *element, void *args)
     return 0;
 }
 
-int binlog_writer_init(BinlogWriterContext *writer,
+int binlog_writer_init_ex(BinlogWriterContext *writer, const int order_by,
         const char *subdir_name, const int max_record_size)
 {
     int result;
@@ -385,7 +506,6 @@ int binlog_writer_init(BinlogWriterContext *writer,
         return result;
     }
 
-
     path_len = snprintf(filepath, sizeof(filepath), "%s/%s",
             DATA_PATH_STR, subdir_name);
     if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
@@ -413,6 +533,33 @@ int binlog_writer_init(BinlogWriterContext *writer,
         return result;
     }
 
+    writer->order_by = order_by;
     return fc_create_thread(&tid, binlog_writer_func, writer,
             SF_G_THREAD_STACK_SIZE);
+}
+
+int binlog_writer_init_by_version(BinlogWriterContext *writer,
+        const char *subdir_name, const int max_record_size,
+        const int64_t next_version, const int ring_size)
+{
+    int bytes;
+
+    writer->version_ctx.ring.size = ring_size;
+    bytes = sizeof(BinlogWriterBuffer *) * writer->version_ctx.ring.size;
+    writer->version_ctx.ring.entries = (BinlogWriterBuffer **)malloc(bytes);
+    if (writer->version_ctx.ring.entries == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "malloc %d bytes fail", __LINE__, bytes);
+        return ENOMEM;
+    }
+    memset(writer->version_ctx.ring.entries, 0, bytes);
+
+    writer->version_ctx.next = next_version;
+    writer->version_ctx.ring.count = 0;
+    writer->version_ctx.ring.max_count = 0;
+    writer->version_ctx.ring.start = writer->version_ctx.ring.end =
+        writer->version_ctx.ring.entries;
+    return binlog_writer_init_ex(writer,
+            FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
+            subdir_name, max_record_size);
 }

@@ -46,7 +46,7 @@
 #define MAX_BINLOG_FIELD_COUNT  16
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
 
-static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
+static BinlogWriterContext binlog_writer = {NULL, 0, 0, 0};
 
 #define SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
