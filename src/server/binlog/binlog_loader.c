@@ -102,6 +102,9 @@ int binlog_loader_load(const char *subdir_name,
                 "load %s data done. record count: %"PRId64", "
                 "time used: %s ms", __LINE__, subdir_name, total_count,
                 long_to_comma_str(end_time - start_time, time_buff));
+    } else {
+        logError("file: "__FILE__", line: %d, "
+                "result: %d", __LINE__, result);
     }
 
     return result;

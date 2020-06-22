@@ -6,7 +6,7 @@
 #include "fastcommon/fast_mblock.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
-#include "../storage/trunk_binlog.h"
+#include "../binlog/trunk_binlog.h"
 #include "trunk_fd_cache.h"
 #include "trunk_io_thread.h"
 

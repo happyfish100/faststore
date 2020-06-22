@@ -151,7 +151,6 @@ typedef struct fs_cluster_data_server_info {
     volatile char status;   //the data server status
     int64_t data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
-    //int64_t change_version;    //for notify to the follower
 } FSClusterDataServerInfo;
 
 typedef struct fs_cluster_data_server_array {

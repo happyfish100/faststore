@@ -355,11 +355,6 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
             }
             ++active_count;
         }
-        else {
-            logInfo("group id: %d, server id: %d, status: %d",
-                    group->id, ds->cs->server->id,
-                    __sync_fetch_and_add(&ds->status, 0));
-        }
     }
 
     if (active_count == 0) {

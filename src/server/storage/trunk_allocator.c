@@ -164,6 +164,10 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     PTHREAD_MUTEX_UNLOCK(&allocator->lock);
 
     if (result != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "add trunk fail, trunk id: %"PRId64", "
+                "errno: %d, error info: %s", __LINE__,
+                id_info->id, result, STRERROR(result));
         fast_mblock_free_object(&G_TRUNK_ALLOCATOR, trunk_info);
         trunk_info = NULL;
     }

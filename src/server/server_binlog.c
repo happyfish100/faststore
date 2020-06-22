@@ -19,6 +19,10 @@ int server_binlog_init()
 {
     int result;
 
+    if ((result=slice_binlog_init()) != 0) {
+        return result;
+    }
+
     if ((result=binlog_local_consumer_init()) != 0) {
         return result;
     }
@@ -34,6 +38,7 @@ int server_binlog_init()
 
 void server_binlog_destroy()
 {
+    slice_binlog_destroy();
 }
  
 void server_binlog_terminate()

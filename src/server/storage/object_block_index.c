@@ -5,8 +5,8 @@
 #include "fastcommon/uniq_skiplist.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
+#include "../binlog/slice_binlog.h"
 #include "storage_allocator.h"
-#include "slice_binlog.h"
 #include "object_block_index.h"
 
 //TODO fixeme!!!

@@ -2,7 +2,7 @@
 #ifndef _SLICE_BINLOG_H
 #define _SLICE_BINLOG_H
 
-#include "object_block_index.h"
+#include "../storage/object_block_index.h"
 
 #ifdef __cplusplus
 extern "C" {

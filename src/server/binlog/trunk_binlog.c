@@ -9,8 +9,8 @@
 #include "../dio/trunk_io_thread.h"
 #include "../binlog/binlog_writer.h"
 #include "../binlog/binlog_loader.h"
-#include "storage_allocator.h"
-#include "trunk_id_info.h"
+#include "../storage/storage_allocator.h"
+#include "../storage/trunk_id_info.h"
 #include "trunk_binlog.h"
 
 static BinlogWriterContext binlog_writer = {NULL, NULL, 0, 0};
@@ -44,6 +44,7 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     int64_t line_count;
     string_t cols[MAX_FIELD_COUNT];
     char binlog_filename[PATH_MAX];
+    char error_info[256];
     char *endptr;
     char op_type;
     int path_index;
@@ -91,29 +92,35 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     }
 
     if (op_type == FS_IO_TYPE_CREATE_TRUNK) {
-       if ((result=storage_allocator_add_trunk(path_index,
+        if ((result=storage_allocator_add_trunk(path_index,
                        &id_info, trunk_size)) != 0)
-       {
-           return result;
-       }
+        {
+            snprintf(error_info, sizeof(error_info),
+                    "add trunk fail, errno: %d, error info: %s",
+                    result, STRERROR(result));
+        }
     } else if (op_type == FS_IO_TYPE_DELETE_TRUNK) {
         if ((result=storage_allocator_delete_trunk(path_index,
                         &id_info)) != 0)
         {
-            return result;
+            snprintf(error_info, sizeof(error_info),
+                    "delete trunk fail, errno: %d, error info: %s",
+                    result, STRERROR(result));
         }
     } else {
+        sprintf(error_info, "invalid op_type: %c (0x%02x)",
+                op_type, (unsigned char)op_type);
+        result = EINVAL;
+    }
+
+    if (result != 0) {
         TRUNK_GET_FILENAME_LINE_COUNT(r, binlog_filename,
                 line->str, line_count);
         logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "invalid op_type: %c (0x%02x)", __LINE__,
-                binlog_filename, line_count,
-                op_type, (unsigned char)op_type);
-        return EINVAL;
+                "binlog file %s, line no: %"PRId64", %s",
+                __LINE__, binlog_filename, line_count, error_info);
     }
-
-    return 0;
+    return result;
 }
 
 int trunk_binlog_get_current_write_index()

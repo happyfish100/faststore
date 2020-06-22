@@ -8,10 +8,10 @@
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
-#include "storage_allocator.h"
-#include "trunk_id_info.h"
-#include "../binlog/binlog_writer.h"
-#include "../binlog/binlog_loader.h"
+#include "../storage/storage_allocator.h"
+#include "../storage/trunk_id_info.h"
+#include "binlog_writer.h"
+#include "binlog_loader.h"
 #include "slice_binlog.h"
 
 #define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'

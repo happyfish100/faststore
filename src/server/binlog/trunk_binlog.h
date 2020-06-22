@@ -3,7 +3,7 @@
 #define _TRUNK_BINLOG_H
 
 #include "../../common/fs_types.h"
-#include "storage_config.h"
+#include "../storage/storage_config.h"
 
 #ifdef __cplusplus
 extern "C" {
