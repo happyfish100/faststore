@@ -147,7 +147,7 @@ typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
     bool is_preseted;
-    volatile bool is_master;
+    volatile char is_master;
     volatile char status;   //the data server status
     int64_t data_version;   //for replication
     int64_t last_report_version; //for report last data version to the leader
@@ -248,6 +248,9 @@ typedef struct {
         } cluster;
     };
 
+    int data_group_id;
+    int64_t data_version;
+    FSClusterDataServerInfo *myself;
     FSBlockSliceKeyInfo bs_key;
     FSSliceOpNotify slice_notify;
 } FSServerTaskContext;

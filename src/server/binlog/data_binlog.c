@@ -15,11 +15,6 @@
 #include "binlog_loader.h"
 #include "data_binlog.h"
 
-#define DATA_BINLOG_OP_TYPE_WRITE_SLICE  'w'
-#define DATA_BINLOG_OP_TYPE_ALLOC_SLICE  'a'
-#define DATA_BINLOG_OP_TYPE_DEL_SLICE    'd'
-#define DATA_BINLOG_OP_TYPE_DEL_BLOCK    'D'
-
 #define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
 #define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION 1
 #define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      2
@@ -182,48 +177,36 @@ void data_binlog_destroy()
     */
 }
 
-int data_binlog_log_write_slice(const int data_group_id,
-        const int64_t data_version, const OBSliceEntry *slice)
+static BinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
+        const int64_t data_version, BinlogWriterInfo **writer)
 {
-    BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    writer = binlog_writer_array.writers[data_group_id -
+    *writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
-        return ENOMEM;
+    if ((wbuffer=binlog_writer_alloc_buffer((*writer)->thread)) != NULL) {
+        wbuffer->writer = *writer;
+        wbuffer->version = data_version;
     }
 
-    wbuffer->version = data_version;
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %c %"PRId64" %"PRId64" %d %d "
-            "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
-            (int)g_current_time, DATA_BINLOG_OP_TYPE_WRITE_SLICE,
-            slice->type, slice->ob->bkey.oid, slice->ob->bkey.offset,
-            slice->ssize.offset, slice->ssize.length,
-            slice->space.store->index, slice->space.id_info.id,
-            slice->space.id_info.subdir, slice->space.offset,
-            slice->space.size);
-    push_to_binlog_write_queue(writer->thread, wbuffer);
-    return 0;
+    return wbuffer;
 }
 
-int data_binlog_log_del_slice(const int data_group_id,
-        const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
+int data_binlog_log_slice(const int data_group_id, const int64_t data_version,
+        const FSBlockSliceKeyInfo *bs_key, const int op_type)
 {
     BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
-    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
+    if ((wbuffer=alloc_binlog_buffer(data_group_id,
+                    data_version, &writer)) == NULL)
+    {
         return ENOMEM;
     }
 
-    wbuffer->version = data_version;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%d %c %"PRId64" %"PRId64" %d %d\n",
-            (int)g_current_time, DATA_BINLOG_OP_TYPE_DEL_SLICE,
+            (int)g_current_time, op_type,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
     push_to_binlog_write_queue(writer->thread, wbuffer);
@@ -236,13 +219,12 @@ int data_binlog_log_del_block(const int data_group_id,
     BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
-    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
+    if ((wbuffer=alloc_binlog_buffer(data_group_id,
+                    data_version, &writer)) == NULL)
+    {
         return ENOMEM;
     }
 
-    wbuffer->version = data_version;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%d %c %"PRId64" %"PRId64"\n",
             (int)g_current_time, DATA_BINLOG_OP_TYPE_DEL_BLOCK,

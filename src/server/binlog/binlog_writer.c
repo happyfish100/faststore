@@ -242,8 +242,8 @@ static inline int deal_binlog_one_record(BinlogWriterBuffer *wb)
             }
         }
 
-        return check_write_to_file(wb->writer, wb->bf.buff,
-                wb->bf.length);
+        return check_write_to_file(wb->writer,
+                wb->bf.buff, wb->bf.length);
     }
 
     if (wb->writer->file.size + BINLOG_BUFFER_LENGTH(wb->writer->

@@ -4,7 +4,7 @@
 
 #include "fastcommon/fc_list.h"
 #include "fastcommon/uniq_skiplist.h"
-#include "../../common/fs_types.h"
+#include "../server_types.h"
 
 typedef enum ob_slice_type {
     OB_SLICE_TYPE_FILE  = 'F', /* in file slice */

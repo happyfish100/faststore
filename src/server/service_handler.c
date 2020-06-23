@@ -23,8 +23,10 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
+#include "binlog/data_binlog.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "server_group_info.h"
 #include "server_storage.h"
 #include "service_handler.h"
 
@@ -114,8 +116,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
-static int parse_check_block_key(struct fast_task_info *task,
-        const FSProtoBlockKey *bkey)
+static int parse_check_block_key_ex(struct fast_task_info *task,
+        const FSProtoBlockKey *bkey, const bool master_only)
 {
     TASK_CTX.bs_key.block.oid = buff2long(bkey->oid);
     TASK_CTX.bs_key.block.offset = buff2long(bkey->offset);
@@ -127,17 +129,47 @@ static int parse_check_block_key(struct fast_task_info *task,
         return EINVAL;
     }
 
-    //TODO check if belong to my data group
     fs_calc_block_hashcode(&TASK_CTX.bs_key.block);
+    TASK_CTX.data_group_id = FS_BLOCK_HASH_CODE(TASK_CTX.bs_key.block) %
+        FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1;
+
+    TASK_CTX.myself = fs_get_data_server(TASK_CTX.data_group_id,
+            CLUSTER_MYSELF_PTR->server->id);
+    if (TASK_CTX.myself == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d NOT belongs to me",
+                TASK_CTX.data_group_id);
+        return ENOENT;
+    }
+
+    if (master_only) {
+        if (!TASK_CTX.myself->is_master) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, i am NOT master",
+                    TASK_CTX.data_group_id);
+            return EINVAL;
+        }
+    } else {
+        if (TASK_CTX.myself->status != FS_SERVER_STATUS_ACTIVE) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, i am NOT active, my status: %d",
+                    TASK_CTX.data_group_id, TASK_CTX.myself->status);
+            return EINVAL;
+        }
+    }
+
     return 0;
 }
 
+#define parse_check_block_key(task, bkey) \
+    parse_check_block_key_ex(task, bkey, true)
+
 static int parse_check_block_slice(struct fast_task_info *task,
-        const FSProtoBlockSlice *bs)
+        const FSProtoBlockSlice *bs, const bool master_only)
 {
     int result;
 
-    if ((result=parse_check_block_key(task, &bs->bkey)) != 0) {
+    if ((result=parse_check_block_key_ex(task, &bs->bkey, master_only)) != 0) {
         return result;
     }
 
@@ -165,6 +197,12 @@ static int parse_check_block_slice(struct fast_task_info *task,
 
     return 0;
 }
+
+#define parse_check_writable_block_slice(task, bs) \
+    parse_check_block_slice(task, bs, true)
+
+#define parse_check_readable_block_slice(task, bs) \
+    parse_check_block_slice(task, bs, false)
 
 static inline void fill_slice_update_response(struct fast_task_info *task,
         const int inc_alloc)
@@ -198,6 +236,10 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
     } else {
+        //TODO
+        data_binlog_log_write_slice(TASK_CTX.data_group_id,
+            TASK_CTX.data_version, &TASK_CTX.bs_key);
+
         RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
         fill_slice_update_response(task, notify->inc_alloc);
     }
@@ -241,7 +283,7 @@ static int service_deal_slice_write(struct fast_task_info *task)
     }
 
     req_header = (FSProtoSliceWriteReqHeader *)REQUEST.body;
-    if ((result=parse_check_block_slice(task, &req_header->bs)) != 0) {
+    if ((result=parse_check_writable_block_slice(task, &req_header->bs)) != 0) {
         return result;
     }
 
@@ -254,6 +296,10 @@ static int service_deal_slice_write(struct fast_task_info *task)
                 TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
         return EINVAL;
     }
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "data_group_id: %d", __LINE__, __FUNCTION__,
+            TASK_CTX.data_group_id);
 
     buff = REQUEST.body + sizeof(FSProtoSliceWriteReqHeader);
     TASK_CTX.slice_notify.notify.func = slice_write_done_notify;
@@ -304,7 +350,7 @@ static int service_deal_slice_allocate(struct fast_task_info *task)
     }
 
     req = (FSProtoSliceAllocateReq *)REQUEST.body;
-    if ((result=parse_check_block_slice(task, &req->bs)) != 0) {
+    if ((result=parse_check_writable_block_slice(task, &req->bs)) != 0) {
         return result;
     }
 
@@ -334,7 +380,7 @@ static int service_deal_slice_delete(struct fast_task_info *task)
     }
 
     req = (FSProtoSliceDeleteReq *)REQUEST.body;
-    if ((result=parse_check_block_slice(task, &req->bs)) != 0) {
+    if ((result=parse_check_writable_block_slice(task, &req->bs)) != 0) {
         return result;
     }
 
@@ -421,7 +467,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     }
 
     req_header = (FSProtoSliceReadReqHeader *)REQUEST.body;
-    if ((result=parse_check_block_slice(task, &req_header->bs)) != 0) {
+    if ((result=parse_check_readable_block_slice(task, &req_header->bs)) != 0) {
         return result;
     }
 
