@@ -46,7 +46,7 @@
 #define MAX_BINLOG_FIELD_COUNT  16
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
 
-static BinlogWriterContext binlog_writer = {NULL, 0, 0, 0};
+static BinlogWriterContext binlog_writer;
 
 #define SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
@@ -271,7 +271,7 @@ static int init_binlog_writer()
 
 int slice_binlog_get_current_write_index()
 {
-    return binlog_get_current_write_index(&binlog_writer);
+    return binlog_get_current_write_index(&binlog_writer.writer);
 }
 
 int slice_binlog_init()
@@ -289,14 +289,14 @@ int slice_binlog_init()
 
 void slice_binlog_destroy()
 {
-    binlog_writer_finish(&binlog_writer);
+    binlog_writer_finish(&binlog_writer.writer);
 }
 
 int slice_binlog_log_add_slice(const OBSliceEntry *slice)
 {
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
         return ENOMEM;
     }
 
@@ -309,7 +309,7 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice)
             slice->space.store->index, slice->space.id_info.id,
             slice->space.id_info.subdir, slice->space.offset,
             slice->space.size);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }
 
@@ -317,7 +317,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key)
 {
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
         return ENOMEM;
     }
 
@@ -326,7 +326,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key)
             (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_SLICE,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }
 
@@ -334,7 +334,7 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey)
 {
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
         return ENOMEM;
     }
 
@@ -342,6 +342,6 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey)
             "%d %c %"PRId64" %"PRId64"\n",
             (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }

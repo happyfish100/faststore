@@ -50,23 +50,21 @@
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
 
 typedef struct {
-    BinlogWriterContext **writers;
-    BinlogWriterContext *holders;
+    BinlogWriterInfo **writers;
+    BinlogWriterInfo *holders;
     int count;
     int base_id;
 } BinlogWriterArray;
 
-//TODO
-static BinlogWriterContext binlog_writer = {NULL, 0, 0};
-
 static BinlogWriterArray binlog_writer_array = {NULL, 0};
+static BinlogWriterThread binlog_writer_thread;
 
 static int alloc_binlog_writer_array(const int my_data_group_count)
 {
     int bytes;
 
-    bytes = sizeof(BinlogWriterContext) * my_data_group_count;
-    binlog_writer_array.holders = (BinlogWriterContext *)malloc(bytes);
+    bytes = sizeof(BinlogWriterInfo) * my_data_group_count;
+    binlog_writer_array.holders = (BinlogWriterInfo *)malloc(bytes);
     if (binlog_writer_array.holders == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -74,8 +72,8 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     }
     memset(binlog_writer_array.holders, 0, bytes);
 
-    bytes = sizeof(BinlogWriterContext *) * CLUSTER_DATA_RGOUP_ARRAY.count;
-    binlog_writer_array.writers = (BinlogWriterContext **)malloc(bytes);
+    bytes = sizeof(BinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
+    binlog_writer_array.writers = (BinlogWriterInfo **)malloc(bytes);
     if (binlog_writer_array.writers == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -91,7 +89,7 @@ int data_binlog_init()
 {
     FSIdArray *id_array;
     FSClusterDataServerInfo *cs;
-    BinlogWriterContext *writer;
+    BinlogWriterInfo *writer;
     int data_group_id;
     int min_id;
     char filepath[PATH_MAX];
@@ -129,6 +127,13 @@ int data_binlog_init()
 
     binlog_writer_array.base_id = min_id;
     writer = binlog_writer_array.holders;
+    if ((result=binlog_writer_init_thread_ex(&binlog_writer_thread,
+                    writer, FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
+                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count)) != 0)
+    {
+        return result;
+    }
+
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
         if ((cs=fs_get_data_server(data_group_id, CLUSTER_MYSELF_PTR->
@@ -141,11 +146,11 @@ int data_binlog_init()
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
         if ((result=binlog_writer_init_by_version(writer,
-                        subdir_name, FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
-                        cs->data_version, 1024)) != 0)
+                        subdir_name, cs->data_version, 1024)) != 0)
         {
             return result;
         }
+        writer->thread = &binlog_writer_thread;
         writer++;
     }
 
@@ -155,18 +160,20 @@ int data_binlog_init()
 int data_binlog_get_current_write_index()
 {
     /*
-    BinlogWriterContext *writer;
-    BinlogWriterContext *end;
+    BinlogWriterInfo *writer;
+    BinlogWriterInfo *end;
     */
     
-    return binlog_get_current_write_index(&binlog_writer);
+    //TODO
+    //return binlog_get_current_write_index(&binlog_writer);
+    return 0;
 }
 
 void data_binlog_destroy()
 {
     /*
-    BinlogWriterContext *writer;
-    BinlogWriterContext *end;
+    BinlogWriterInfo *writer;
+    BinlogWriterInfo *end;
 
     end = binlog_writer_array.writers + binlog_writer_array.count;
     for (writer=binlog_writer_array.writers; writer<end; writer++) {
@@ -175,15 +182,19 @@ void data_binlog_destroy()
     */
 }
 
-int data_binlog_log_write_slice(const int64_t data_version,
-        const OBSliceEntry *slice)
+int data_binlog_log_write_slice(const int data_group_id,
+        const int64_t data_version, const OBSliceEntry *slice)
 {
+    BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
         return ENOMEM;
     }
 
+    wbuffer->version = data_version;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%d %c %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
@@ -193,41 +204,49 @@ int data_binlog_log_write_slice(const int64_t data_version,
             slice->space.store->index, slice->space.id_info.id,
             slice->space.id_info.subdir, slice->space.offset,
             slice->space.size);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }
 
-int data_binlog_log_del_slice(const int64_t data_version,
-        const FSBlockSliceKeyInfo *bs_key)
+int data_binlog_log_del_slice(const int data_group_id,
+        const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
 {
+    BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
         return ENOMEM;
     }
 
+    wbuffer->version = data_version;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%d %c %"PRId64" %"PRId64" %d %d\n",
             (int)g_current_time, DATA_BINLOG_OP_TYPE_DEL_SLICE,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }
 
-int data_binlog_log_del_block(const int64_t data_version,
-        const FSBlockKey *bkey)
+int data_binlog_log_del_block(const int data_group_id,
+        const int64_t data_version, const FSBlockKey *bkey)
 {
+    BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    if ((wbuffer=binlog_writer_alloc_buffer(writer->thread)) == NULL) {
         return ENOMEM;
     }
 
+    wbuffer->version = data_version;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%d %c %"PRId64" %"PRId64"\n",
             (int)g_current_time, DATA_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }

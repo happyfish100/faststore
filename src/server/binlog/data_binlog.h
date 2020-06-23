@@ -13,14 +13,14 @@ extern "C" {
 
     int data_binlog_get_current_write_index();
 
-    int data_binlog_log_write_slice(const int64_t data_version,
-            const OBSliceEntry *slice);
+    int data_binlog_log_write_slice(const int data_group_id,
+            const int64_t data_version, const OBSliceEntry *slice);
 
-    int data_binlog_log_del_slice(const int64_t data_version,
-            const FSBlockSliceKeyInfo *bs_key);
+    int data_binlog_log_del_slice(const int data_group_id,
+            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key);
 
-    int data_binlog_log_del_block(const int64_t data_version,
-            const FSBlockKey *bkey);
+    int data_binlog_log_del_block(const int data_group_id,
+            const int64_t data_version, const FSBlockKey *bkey);
 
 #ifdef __cplusplus
 }

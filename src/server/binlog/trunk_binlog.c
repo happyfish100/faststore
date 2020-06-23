@@ -13,7 +13,7 @@
 #include "../storage/trunk_id_info.h"
 #include "trunk_binlog.h"
 
-static BinlogWriterContext binlog_writer = {NULL, 0, 0, 0};
+static BinlogWriterContext binlog_writer;
 
 #define TRUNK_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
@@ -125,7 +125,7 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
 
 int trunk_binlog_get_current_write_index()
 {
-    return binlog_get_current_write_index(&binlog_writer);
+    return binlog_get_current_write_index(&binlog_writer.writer);
 }
 
 static int init_binlog_writer()
@@ -148,7 +148,7 @@ int trunk_binlog_init()
 
 void trunk_binlog_destroy()
 {
-    binlog_writer_finish(&binlog_writer);
+    binlog_writer_finish(&binlog_writer.writer);
 }
 
 int trunk_binlog_write(const char op_type, const int path_index,
@@ -156,7 +156,7 @@ int trunk_binlog_write(const char op_type, const int path_index,
 {
     BinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer)) == NULL) {
+    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
         return ENOMEM;
     }
 
@@ -164,6 +164,6 @@ int trunk_binlog_write(const char op_type, const int path_index,
             "%d %c %d %"PRId64" %"PRId64" %"PRId64"\n",
             (int)g_current_time, op_type, path_index, id_info->id,
             id_info->subdir, file_size);
-    push_to_binlog_write_queue(&binlog_writer, wbuffer);
+    push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }

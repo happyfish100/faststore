@@ -9,9 +9,18 @@
 #define FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE    0
 #define FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION 1
 
+struct binlog_writer_info;
+
+typedef struct binlog_writer_ptr_array {
+    struct binlog_writer_info **entries;
+    int count;
+    int alloc;
+} BinlogWriterPtrArray;
+
 typedef struct binlog_writer_buffer {
     int64_t version;
     BufferInfo bf;
+    struct binlog_writer_info *writer;
     struct binlog_writer_buffer *next;
 } BinlogWriterBuffer;
 
@@ -24,56 +33,90 @@ typedef struct binlog_writer_buffer_ring {
     int size;
 } BinlogWriterBufferRing;
 
-typedef struct {
-    const char *subdir_name;
+typedef struct binlog_writer_thread {
+    struct fast_mblock_man mblock;
+    struct fc_queue queue;
+    volatile bool running;
     int order_by;
-    int binlog_index;
-    int binlog_compress_index;
-    int fd;
-    int64_t file_size;
-    char *filename;
+    BinlogWriterPtrArray flush_writers;
+} BinlogWriterThread;
+
+typedef struct binlog_writer_info {
+    struct {
+        const char *subdir_name;
+        int max_record_size;
+    } cfg;
+
+    struct {
+        int index;
+        int compress_index;
+    } binlog;
+
+    struct {
+        int fd;
+        int64_t size;
+        char *name;
+    } file;
+
     struct {
         BinlogWriterBufferRing ring;
         int64_t next;
     } version_ctx;
     ServerBinlogBuffer binlog_buffer;
-    struct fast_mblock_man mblock;
-    struct fc_queue queue;
-    volatile bool thread_running;
+    BinlogWriterThread *thread;
+} BinlogWriterInfo;
+
+typedef struct binlog_writer_context {
+    BinlogWriterInfo writer;
+    BinlogWriterThread thread;
 } BinlogWriterContext;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int binlog_writer_init_ex(BinlogWriterContext *writer, const int order_by,
-        const char *subdir_name, const int max_record_size);
+int binlog_writer_init_normal(BinlogWriterInfo *writer,
+        const char *subdir_name);
 
-static inline int binlog_writer_init(BinlogWriterContext *writer,
+int binlog_writer_init_by_version(BinlogWriterInfo *writer,
+        const char *subdir_name, const int64_t next_version,
+        const int ring_size);
+
+int binlog_writer_init_thread_ex(BinlogWriterThread *thread,
+        BinlogWriterInfo *writer, const int order_by,
+        const int max_record_size, const int writer_count);
+
+#define binlog_writer_init_thread(thread, writer, order_by, max_record_size) \
+    binlog_writer_init_thread_ex(thread, writer, order_by, max_record_size, 1)
+
+static inline int binlog_writer_init(BinlogWriterContext *context,
         const char *subdir_name, const int max_record_size)
 {
-    return binlog_writer_init_ex(writer, FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE,
-            subdir_name, max_record_size);
+    int result;
+    if ((result=binlog_writer_init_normal(&context->writer,
+                    subdir_name)) != 0)
+    {
+        return result;
+    }
+
+    return binlog_writer_init_thread(&context->thread, &context->writer,
+            FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE, max_record_size);
 }
 
-int binlog_writer_init_by_version(BinlogWriterContext *writer,
-        const char *subdir_name, const int max_record_size,
-        const int64_t next_version, const int ring_size);
+void binlog_writer_finish(BinlogWriterInfo *writer);
 
-void binlog_writer_finish(BinlogWriterContext *writer);
-
-int binlog_get_current_write_index(BinlogWriterContext *writer);
-void binlog_get_current_write_position(BinlogWriterContext *writer,
+int binlog_get_current_write_index(BinlogWriterInfo *writer);
+void binlog_get_current_write_position(BinlogWriterInfo *writer,
         FSBinlogFilePosition *position);
 
 static inline BinlogWriterBuffer *binlog_writer_alloc_buffer(
-        BinlogWriterContext *writer)
+        BinlogWriterThread *thread)
 {
-    return (BinlogWriterBuffer *)fast_mblock_alloc_object(&writer->mblock);
+    return (BinlogWriterBuffer *)fast_mblock_alloc_object(&thread->mblock);
 }
 
-#define push_to_binlog_write_queue(writer, buffer) \
-    fc_queue_push(&(writer)->queue, buffer)
+#define push_to_binlog_write_queue(thread, buffer) \
+    fc_queue_push(&(thread)->queue, buffer)
 
 #ifdef __cplusplus
 }
