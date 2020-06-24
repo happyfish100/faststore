@@ -347,7 +347,8 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     req = (FSProtoClientJoinReq *)(proto_header + 1);
     int2buff(FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg),
             req->data_group_count);
-    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ, 0);
+    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
+            sizeof(FSProtoClientJoinReq));
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, g_fs_client_vars.network_timeout,
                     FS_SERVICE_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,

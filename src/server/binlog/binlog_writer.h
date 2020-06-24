@@ -115,6 +115,16 @@ static inline BinlogWriterBuffer *binlog_writer_alloc_buffer(
     return (BinlogWriterBuffer *)fast_mblock_alloc_object(&thread->mblock);
 }
 
+
+static inline const char *binlog_writer_get_filename(BinlogWriterInfo *writer,
+        const int binlog_index, char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s/%s"BINLOG_FILE_EXT_FMT,
+            DATA_PATH_STR, writer->cfg.subdir_name,
+            BINLOG_FILE_PREFIX, binlog_index);
+    return filename;
+}
+
 #define push_to_binlog_write_queue(thread, buffer) \
     fc_queue_push(&(thread)->queue, buffer)
 
