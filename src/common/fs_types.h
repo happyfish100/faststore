@@ -18,6 +18,11 @@
 #define FS_MAX_DATA_GROUPS_PER_SERVER   1024
 #define FS_MAX_GROUP_SERVERS             128
 
+//random seed to generate hash code for master election
+#define FS_DATA_GROUP_MASTER_HC_SEED0   2020
+#define FS_DATA_GROUP_MASTER_HC_SEED1    624
+#define FS_DATA_GROUP_MASTER_HC_SEED2    935
+
 #define FS_SERVER_STATUS_INIT       0
 #define FS_SERVER_STATUS_BUILDING  10
 #define FS_SERVER_STATUS_OFFLINE   21
@@ -33,13 +38,12 @@
 #define FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP  0
 #define FS_BLOCK_HASH_CODE_INDEX_SERVER      1
 
-#define FS_BLOCK_HASH_CODE(blk)  \
-    (blk).hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP]
+#define FS_BLOCK_HASH_CODE(blk) (blk).hash_code
 
 typedef struct fs_block_key {
     int64_t oid;    //object id
     int64_t offset; //aligned by block size
-    uint32_t hash_codes[2];
+    uint32_t hash_code;
 } FSBlockKey;
 
 typedef struct fs_slice_size {

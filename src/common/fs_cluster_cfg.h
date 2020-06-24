@@ -20,6 +20,7 @@ typedef struct {
 
 typedef struct {
     int data_group_id;
+    uint32_t hash_code;   //for master election
     FSServerGroup *server_group;
 } FSDataServerMapping;
 
@@ -80,6 +81,18 @@ extern "C" {
         }
 
         return cluster_cfg->data_groups.mappings[data_group_index].server_group;
+    }
+
+    static inline uint32_t fs_cluster_cfg_get_dg_hash_code(
+            FSClusterConfig *cluster_cfg, const int data_group_index)
+    {
+        if (data_group_index < 0 || data_group_index >=
+                cluster_cfg->data_groups.count)
+        {
+            return 0;
+        }
+
+        return cluster_cfg->data_groups.mappings[data_group_index].hash_code;
     }
 
     int fs_cluster_cfg_get_my_group_servers(FSClusterConfig *cluster_cfg,

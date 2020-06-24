@@ -56,23 +56,24 @@ static ConnectionInfo *make_connection(FSClientContext *client_ctx,
 }
 
 static ConnectionInfo *get_connection(FSClientContext *client_ctx,
-        const uint32_t *hash_codes, int *err_no)
+        const uint32_t hash_code, int *err_no)
 {
     FCServerInfoPtrArray *server_ptr_array;
     FCServerInfo *server;
     ConnectionInfo *conn;
     FCAddressPtrArray *addr_array;
     int data_group_index;
+    uint32_t server_hash_code;
     int server_index;
     int i;
 
-    data_group_index = hash_codes[FS_BLOCK_HASH_CODE_INDEX_DATA_GROUP] %
-        FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
-
+    data_group_index = hash_code % FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
     server_ptr_array = &client_ctx->cluster_cfg.data_groups.mappings
         [data_group_index].server_group->server_array;
-    server_index = hash_codes[FS_BLOCK_HASH_CODE_INDEX_SERVER] %
-        server_ptr_array->count;
+
+    server_hash_code = fs_cluster_cfg_get_dg_hash_code(
+            &client_ctx->cluster_cfg, data_group_index);
+    server_index = server_hash_code % server_ptr_array->count;
     server = server_ptr_array->servers[server_index];
 
     addr_array = &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server);

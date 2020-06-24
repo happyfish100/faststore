@@ -391,6 +391,9 @@ static inline void add_to_flush_writer_array(BinlogWriterThread *thread,
         return;
     }
 
+    if (thread->flush_writers.count == thread->flush_writers.alloc) {
+        return;
+    }
     if (thread->flush_writers.entries[0] == writer) {
         return;
     }

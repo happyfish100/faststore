@@ -10,7 +10,11 @@ struct fs_connection_parameters;
 struct fs_client_context;
 
 typedef ConnectionInfo *(*fs_get_connection_func)(
-        struct fs_client_context *client_ctx, const uint32_t *hash_codes,
+        struct fs_client_context *client_ctx, const uint32_t hash_code,
+        int *err_no);
+
+typedef ConnectionInfo *(*fs_get_master_connection_func)(
+        struct fs_client_context *client_ctx, const int data_group_id,
         int *err_no);
 
 typedef ConnectionInfo *(*fs_get_spec_connection_func)(
@@ -35,6 +39,12 @@ typedef struct fs_connection_manager {
 
     /* get one connection of the configured servers */
     fs_get_connection_func get_connection;
+
+    /* get the master connection from the server */
+    fs_get_master_connection_func get_master_connection;
+
+    /* get one readable connection from the server */
+    fs_get_connection_func get_readable_connection;
 
     /* push back to connection pool when use connection pool */
     fs_release_connection_func release_connection;

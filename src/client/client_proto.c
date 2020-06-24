@@ -60,7 +60,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_codes, &result)) == NULL)
+                        bs_key->block.hash_code, &result)) == NULL)
         {
             return result;
         }
@@ -147,7 +147,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_codes, &result)) == NULL)
+                        bs_key->block.hash_code, &result)) == NULL)
         {
             return result;
         }
@@ -244,7 +244,7 @@ static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_codes, &result)) == NULL)
+                        bs_key->block.hash_code, &result)) == NULL)
         {
             return result;
         }
@@ -306,7 +306,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     proto_pack_block_key(bkey, &req->bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bkey->hash_codes, &result)) == NULL)
+                        bkey->hash_code, &result)) == NULL)
         {
             return result;
         }

@@ -6,6 +6,7 @@
 
 typedef struct fs_global_vars {
     Version version;
+    unsigned short rand48_seeds[3];
 } FSGlobalVars;
 
 #ifdef __cplusplus
