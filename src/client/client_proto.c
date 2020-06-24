@@ -333,16 +333,20 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_proto_join_server(ConnectionInfo *conn,
-            FSConnectionParameters *conn_params)
+int fs_client_proto_join_server(FSClientContext *client_ctx,
+        ConnectionInfo *conn, FSConnectionParameters *conn_params)
 {
-    char out_buff[sizeof(FSProtoHeader)];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoClientJoinReq)];
     FSProtoHeader *proto_header;
+    FSProtoClientJoinReq *req;
     FSProtoClientJoinResp join_resp;
     FSResponseInfo response;
     int result;
 
     proto_header = (FSProtoHeader *)out_buff;
+    req = (FSProtoClientJoinReq *)(proto_header + 1);
+    int2buff(FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg),
+            req->data_group_count);
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ, 0);
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, g_fs_client_vars.network_timeout,

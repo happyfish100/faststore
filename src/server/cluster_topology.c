@@ -339,13 +339,11 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
 {
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
-    FSClusterDataServerInfo *master;
     int active_count;
     int master_index;
     int index;
 
     active_count = 0;
-    master = NULL;
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ACTIVE) {
@@ -373,7 +371,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    master_index = group->id % active_count;
+    master_index = group->hash_code % active_count;
     index = 0;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ACTIVE) {

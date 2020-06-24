@@ -115,6 +115,10 @@ typedef struct fs_proto_service_stat_resp {
     } dentry;
 } FSProtoServiceStatResp;
 
+typedef struct fs_proto_client_join_req {
+    char data_group_count[4];
+} FSProtoClientJoinReq;
+
 typedef struct fs_proto_client_join_resp {
     char buffer_size[4];
 } FSProtoClientJoinResp;

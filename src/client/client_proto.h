@@ -26,8 +26,8 @@ extern "C" {
     int fs_client_proto_block_delete(FSClientContext *client_ctx,
             const FSBlockKey *bkey, int *dec_alloc);
 
-    int fs_client_proto_join_server(ConnectionInfo *conn,
-            FSConnectionParameters *conn_params);
+    int fs_client_proto_join_server(FSClientContext *client_ctx,
+            ConnectionInfo *conn, FSConnectionParameters *conn_params);
 
 #ifdef __cplusplus
 }

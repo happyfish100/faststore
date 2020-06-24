@@ -88,7 +88,6 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     FCServerInfo **pp;
     FCServerInfo **end;
     FSClusterDataServerInfo *ds;
-    uint32_t hash_code;
     int result;
     int bytes;
     int server_index;
@@ -119,9 +118,7 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     }
     memset(group->active_slaves.servers, 0, bytes);
 
-    hash_code = fs_cluster_cfg_get_dg_hash_code(
-            &CLUSTER_CONFIG_CTX, group->id - 1);
-    master_index = hash_code % server_group->server_array.count;
+    master_index = group->hash_code % server_group->server_array.count;
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
             ds=group->data_server_array.servers;
@@ -183,6 +180,8 @@ static int init_cluster_data_group_array(const char *filename,
         group = CLUSTER_DATA_RGOUP_ARRAY.groups + data_group_index;
         group->id = data_group_id;
         group->index = data_group_index;
+        group->hash_code = fs_cluster_cfg_get_dg_hash_code(
+            &CLUSTER_CONFIG_CTX, data_group_id - 1);
         if ((result=init_cluster_data_server_array(group)) != 0) {
             return result;
         }

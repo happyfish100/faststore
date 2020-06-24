@@ -161,6 +161,7 @@ typedef struct fs_cluster_data_server_array {
 typedef struct fs_cluster_data_group_info {
     int id;
     int index;
+    uint32_t hash_code;  //for master election
     bool belong_to_me;
     struct {
         int action;

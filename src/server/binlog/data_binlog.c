@@ -141,7 +141,7 @@ int data_binlog_init()
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
         if ((result=binlog_writer_init_by_version(writer,
-                        subdir_name, cs->data_version, 1024)) != 0)
+                        subdir_name, cs->data_version + 1, 1024)) != 0)
         {
             return result;
         }
@@ -205,8 +205,8 @@ int data_binlog_log_slice(const int data_group_id, const int64_t data_version,
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %"PRId64" %"PRId64" %d %d\n",
-            (int)g_current_time, op_type,
+            "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+            (int)g_current_time, data_version, op_type,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
     push_to_binlog_write_queue(writer->thread, wbuffer);
@@ -226,8 +226,9 @@ int data_binlog_log_del_block(const int data_group_id,
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %"PRId64" %"PRId64"\n",
-            (int)g_current_time, DATA_BINLOG_OP_TYPE_DEL_BLOCK,
+            "%d %"PRId64" %c %"PRId64" %"PRId64"\n",
+            (int)g_current_time, data_version,
+            DATA_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;

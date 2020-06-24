@@ -69,10 +69,23 @@ static int service_deal_actvie_test(struct fast_task_info *task)
 static int service_deal_client_join(struct fast_task_info *task)
 {
     int result;
+    int data_group_count;
+    FSProtoClientJoinReq *req;
     FSProtoClientJoinResp *join_resp;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoClientJoinReq))) != 0)
+    {
         return result;
+    }
+
+    req = (FSProtoClientJoinReq *)REQUEST.body;
+    data_group_count = buff2int(req->data_group_count);
+    if (data_group_count != FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "client data group count: %d != mine: %d",
+                data_group_count, FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX));
+        return EINVAL;
     }
 
     join_resp = (FSProtoClientJoinResp *)REQUEST.body;
@@ -141,6 +154,9 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                 TASK_CTX.data_group_id);
         return ENOENT;
     }
+
+    logInfo("data_group_id: %d, master_only: %d",
+            TASK_CTX.data_group_id, master_only);
 
     if (master_only) {
         if (!TASK_CTX.myself->is_master) {
@@ -237,6 +253,12 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
         TASK_ARG->context.log_error = false;
     } else {
         //TODO
+        TASK_CTX.data_version = __sync_add_and_fetch(
+                &TASK_CTX.myself->data_version, 1);
+
+        logInfo("data_group_id: %d, TASK_CTX.data_version: %"PRId64,
+                TASK_CTX.data_group_id, TASK_CTX.data_version);
+
         data_binlog_log_write_slice(TASK_CTX.data_group_id,
             TASK_CTX.data_version, &TASK_CTX.bs_key);
 

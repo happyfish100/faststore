@@ -327,6 +327,8 @@ static void deal_record_by_version(BinlogWriterBuffer *wb)
         return;
     }
 
+    logInfo("wb version===== %"PRId64, wb->version);
+
     current = writer->version_ctx.ring.entries + wb->version %
         writer->version_ctx.ring.size;
     if (current == writer->version_ctx.ring.start) {
@@ -414,12 +416,15 @@ static inline int flush_writer_files(BinlogWriterThread *thread)
     struct binlog_writer_info **end;
     int result;
 
+    logInfo("flush_writers count: %d", thread->flush_writers.count);
     if (thread->flush_writers.count == 1) {
+        //logInfo("flush_writers filename: %s", thread->flush_writers.entries[0]->file.name);
         return binlog_write_to_file(thread->flush_writers.entries[0]);
     }
 
     end = thread->flush_writers.entries + thread->flush_writers.count;
     for (entry=thread->flush_writers.entries; entry<end; entry++) {
+        //logInfo("flush_writers filename: %s", (*entry)->file.name);
         if ((result=binlog_write_to_file(*entry)) != 0) {
             return result;
         }
@@ -584,8 +589,7 @@ int binlog_writer_init_by_version(BinlogWriterInfo *writer,
 {
     int bytes;
 
-    writer->version_ctx.ring.size = ring_size;
-    bytes = sizeof(BinlogWriterBuffer *) * writer->version_ctx.ring.size;
+    bytes = sizeof(BinlogWriterBuffer *) * ring_size;
     writer->version_ctx.ring.entries = (BinlogWriterBuffer **)malloc(bytes);
     if (writer->version_ctx.ring.entries == NULL) {
         logError("file: "__FILE__", line: %d, "
@@ -593,12 +597,14 @@ int binlog_writer_init_by_version(BinlogWriterInfo *writer,
         return ENOMEM;
     }
     memset(writer->version_ctx.ring.entries, 0, bytes);
+    writer->version_ctx.ring.size = ring_size;
 
     writer->version_ctx.next = next_version;
     writer->version_ctx.ring.count = 0;
     writer->version_ctx.ring.max_count = 0;
     writer->version_ctx.ring.start = writer->version_ctx.ring.end =
-        writer->version_ctx.ring.entries;
+        writer->version_ctx.ring.entries + next_version %
+        writer->version_ctx.ring.size;
     return binlog_writer_init_normal(writer, subdir_name);
 }
 

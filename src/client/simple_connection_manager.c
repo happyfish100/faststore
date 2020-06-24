@@ -126,7 +126,7 @@ static const struct fs_connection_parameters *get_connection_params(
 
 static int connect_done_callback(ConnectionInfo *conn, void *args)
 {
-    return fs_client_proto_join_server(conn,
+    return fs_client_proto_join_server((FSClientContext *)args, conn,
             (FSConnectionParameters *)conn->args);
 }
 
@@ -167,7 +167,7 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
     }
     if ((result=conn_pool_init_ex1(cp, g_fs_client_vars.connect_timeout,
                     max_count_per_entry, max_idle_time, socket_domain,
-                    htable_init_capacity, connect_done_callback, NULL,
+                    htable_init_capacity, connect_done_callback, client_ctx,
                     validate_connection_callback, NULL,
                     sizeof(FSConnectionParameters))) != 0)
     {
