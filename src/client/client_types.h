@@ -33,6 +33,12 @@ typedef struct fs_connection_parameters {
     int buffer_size;
 } FSConnectionParameters;
 
+typedef struct fdir_client_server_entry {
+    int server_id;
+    ConnectionInfo conn;
+    char status;
+} FSClientServerEntry;
+
 typedef struct fs_connection_manager {
     /* get the specify connection by ip and port */
     fs_get_spec_connection_func get_spec_connection;

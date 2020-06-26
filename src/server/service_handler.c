@@ -203,10 +203,10 @@ static int parse_check_block_slice(struct fast_task_info *task,
     if (TASK_CTX.bs_key.slice.length <= 0 || TASK_CTX.bs_key.slice.offset +
             TASK_CTX.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
     {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message, "slice offset: %d, length: %d "
-                "is invalid which <= 0, or offset + length exceeds "
-                "the block size %d", TASK_CTX.bs_key.slice.offset,
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "slice offset: %d, length: %d is invalid which <= 0, "
+                "or offset + length exceeds the block size %d",
+                TASK_CTX.bs_key.slice.offset,
                 TASK_CTX.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
@@ -515,6 +515,121 @@ static int service_deal_slice_read(struct fast_task_info *task)
     return TASK_STATUS_CONTINUE;
 }
 
+static int service_deal_get_master(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    FSClusterDataGroupInfo *group;
+    FSProtoGetServerResp *resp;
+    FSClusterDataServerInfo *master;
+    const FCAddressInfo *addr;
+
+    if ((result=server_expect_body_length(task, 4)) != 0) {
+        return result;
+    }
+
+    data_group_id = buff2int(REQUEST.body);
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d not exist", data_group_id);
+        return ENOENT;
+    }
+    master = (FSClusterDataServerInfo *)group->master;
+    if (master == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "the master NOT exist");
+        return ENOENT;
+    }
+
+    resp = (FSProtoGetServerResp *)REQUEST.body;
+    addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
+                master->cs->server), task->client_ip);
+
+    int2buff(master->cs->server->id, resp->server_id);
+    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
+            addr->conn.ip_addr);
+    short2buff(addr->conn.port, resp->port);
+
+    RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_GET_MASTER_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
+static FSClusterDataServerInfo *get_readable_server(
+        FSClusterDataGroupInfo *group)
+{
+    int index;
+    int old_index;
+    int acc_index;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *send;
+
+    index = rand() % group->data_server_array.count;
+    if (group->data_server_array.servers[index].status ==
+            FS_SERVER_STATUS_ACTIVE)
+    {
+        return group->data_server_array.servers + index;
+    }
+
+    acc_index = 0;
+    send = group->data_server_array.servers + group->data_server_array.count;
+    do {
+        old_index = acc_index;
+        for (ds=group->data_server_array.servers; ds<send; ds++) {
+            if (ds->status == FS_SERVER_STATUS_ACTIVE) {
+                if (acc_index++ == index) {
+                    return ds;
+                }
+            }
+        }
+    } while (acc_index - old_index > 0);
+
+    return NULL;
+}
+
+static int service_deal_get_readable_server(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo *ds;
+    FSProtoGetServerResp *resp;
+    const FCAddressInfo *addr;
+
+    if ((result=server_expect_body_length(task, 4)) != 0) {
+        return result;
+    }
+
+    data_group_id = buff2int(REQUEST.body);
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d not exist", data_group_id);
+        return ENOENT;
+    }
+
+    if ((ds=get_readable_server(group)) == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "no active server");
+        return ENOENT;
+    }
+
+    resp = (FSProtoGetServerResp *)REQUEST.body;
+    addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
+                ds->cs->server), task->client_ip);
+
+    int2buff(ds->cs->server->id, resp->server_id);
+    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
+            addr->conn.ip_addr);
+    short2buff(addr->conn.port, resp->port);
+
+    RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static inline void init_task_context(struct fast_task_info *task)
 {
     TASK_ARG->req_start_time = get_current_time_us();
@@ -529,36 +644,6 @@ static inline void init_task_context(struct fast_task_info *task)
     REQUEST.header.cmd = ((FSProtoHeader *)task->data)->cmd;
     REQUEST.header.body_len = task->length - sizeof(FSProtoHeader);
     REQUEST.body = task->data + sizeof(FSProtoHeader);
-}
-
-static inline int service_check_master(struct fast_task_info *task)
-{
-    /*
-    if (CLUSTER_MYSELF_PTR != CLUSTER_MASTER_PTR) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "i am not master");
-        return EINVAL;
-    }
-    */
-
-    return 0;
-}
-
-static inline int service_check_readable(struct fast_task_info *task)
-{
-    /*
-    if (!(CLUSTER_MYSELF_PTR == CLUSTER_MASTER_PTR ||
-                CLUSTER_MYSELF_PTR->status == FS_SERVER_STATUS_ACTIVE))
-    {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "i am not active");
-        return EINVAL;
-    }
-    */
-
-    return 0;
 }
 
 static int deal_task_done(struct fast_task_info *task)
@@ -666,6 +751,12 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_SLICE_READ_REQ:
                 result = service_deal_slice_read(task);
+                break;
+            case FS_SERVICE_PROTO_GET_MASTER_REQ:
+                result = service_deal_get_master(task);
+                break;
+            case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
+                result = service_deal_get_readable_server(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

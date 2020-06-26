@@ -511,30 +511,16 @@ FSClusterServerInfo *fs_get_server_by_id(const int server_id)
 FSClusterDataServerInfo *fs_get_data_server(const int data_group_id,
         const int server_id)
 {
-    int index;
+    FSClusterDataGroupInfo *group;
     FSClusterDataServerArray *ds_array;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
 
-    index = data_group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-    if (index < 0 || index >= CLUSTER_DATA_RGOUP_ARRAY.count) {
-        logError("file: "__FILE__", line: %d, "
-                "data_group_id: %d out of bounds: [%d, %d]",
-                __LINE__, data_group_id, CLUSTER_DATA_RGOUP_ARRAY.base_id,
-                CLUSTER_DATA_RGOUP_ARRAY.base_id +
-                CLUSTER_DATA_RGOUP_ARRAY.count - 1);
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
         return NULL;
     }
 
-    if (CLUSTER_DATA_RGOUP_ARRAY.groups[index].id != data_group_id) {
-        logError("file: "__FILE__", line: %d, "
-                "data_group_id: %d != groups[%d].id: %d",
-                __LINE__, data_group_id, index,
-                CLUSTER_DATA_RGOUP_ARRAY.groups[index].id);
-        return NULL;
-    }
-
-    ds_array = &CLUSTER_DATA_RGOUP_ARRAY.groups[index].data_server_array;
+    ds_array = &group->data_server_array;
     end = ds_array->servers + ds_array->count;
     for (ds=ds_array->servers; ds<end; ds++) {
         if (ds->cs->server->id == server_id) {

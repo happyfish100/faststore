@@ -360,3 +360,75 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     conn_params->buffer_size = buff2int(join_resp.buffer_size);
     return result;
 }
+
+int fs_client_get_master(FSClientContext *client_ctx,
+        const int data_group_id, FSClientServerEntry *master)
+{
+    int result;
+    ConnectionInfo *conn;
+    FSProtoHeader *header;
+    FSResponseInfo response;
+    FSProtoGetServerResp server_resp;
+    char out_buff[sizeof(FSProtoHeader)];
+
+    conn = client_ctx->conn_manager.get_connection(client_ctx,
+            data_group_id - 1, &result);
+    if (conn == NULL) {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_MASTER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+                    &response, g_fs_client_vars.network_timeout,
+                    FS_SERVICE_PROTO_GET_MASTER_RESP,
+                    (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
+    {
+        fs_log_network_error(&response, conn, result);
+    } else {
+        master->server_id = buff2int(server_resp.server_id);
+        memcpy(master->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
+        *(master->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
+        master->conn.port = buff2short(server_resp.port);
+    }
+
+    fs_client_release_connection(client_ctx, conn, result);
+    return result;
+}
+
+int fs_client_get_readable_server(FSClientContext *client_ctx,
+        const int data_group_id, FSClientServerEntry *server)
+{
+    int result;
+    ConnectionInfo *conn;
+    FSProtoHeader *header;
+    FSResponseInfo response;
+    FSProtoGetServerResp server_resp;
+    char out_buff[sizeof(FSProtoHeader)];
+
+    conn = client_ctx->conn_manager.get_connection(client_ctx,
+            data_group_id - 1, &result);
+    if (conn == NULL) {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+                    &response, g_fs_client_vars.network_timeout,
+                    FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP,
+                    (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
+    {
+        fs_log_network_error(&response, conn, result);
+    } else {
+        server->server_id = buff2int(server_resp.server_id);
+        memcpy(server->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
+        *(server->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
+        server->conn.port = buff2short(server_resp.port);
+    }
+
+    fs_client_release_connection(client_ctx, conn, result);
+    return result;
+}

@@ -25,6 +25,31 @@ int server_group_info_setup_sync_to_file_task();
 
 time_t fs_get_last_shutdown_time();
 
+static inline FSClusterDataGroupInfo *fs_get_data_group(const int data_group_id)
+{
+    int index;
+
+    index = data_group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
+    if (index < 0 || index >= CLUSTER_DATA_RGOUP_ARRAY.count) {
+        logError("file: "__FILE__", line: %d, "
+                "data_group_id: %d out of bounds: [%d, %d]",
+                __LINE__, data_group_id, CLUSTER_DATA_RGOUP_ARRAY.base_id,
+                CLUSTER_DATA_RGOUP_ARRAY.base_id +
+                CLUSTER_DATA_RGOUP_ARRAY.count - 1);
+        return NULL;
+    }
+
+    if (CLUSTER_DATA_RGOUP_ARRAY.groups[index].id != data_group_id) {
+        logError("file: "__FILE__", line: %d, "
+                "data_group_id: %d != groups[%d].id: %d",
+                __LINE__, data_group_id, index,
+                CLUSTER_DATA_RGOUP_ARRAY.groups[index].id);
+        return NULL;
+    }
+
+    return CLUSTER_DATA_RGOUP_ARRAY.groups + index;
+}
+
 static inline void server_group_info_set_status(FSClusterServerInfo *cs,
         const int status)
 {

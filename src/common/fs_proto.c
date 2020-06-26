@@ -263,6 +263,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "BLOCK_DELETE_REQ";
         case FS_SERVICE_PROTO_BLOCK_DELETE_RESP:
             return "BLOCK_DELETE_RESP";
+        case FS_SERVICE_PROTO_GET_MASTER_REQ:
+            return "GET_MASTER_REQ";
+        case FS_SERVICE_PROTO_GET_MASTER_RESP:
+            return "GET_MASTER_RESP";
         case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
             return "GET_READABLE_SERVER_REQ";
         case FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP:
