@@ -61,6 +61,10 @@ static inline void fs_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,
 int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
         const int64_t file_size);
 
+int fs_cluster_stat(FSClientContext *client_ctx,
+        const int data_group_id, FSClientClusterStatEntry *stats,
+        const int size, int *count);
+
 #ifdef __cplusplus
 }
 #endif

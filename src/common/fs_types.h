@@ -20,8 +20,8 @@
 
 //random seed to generate hash code for master election
 #define FS_DATA_GROUP_MASTER_HC_SEED0   2020
-#define FS_DATA_GROUP_MASTER_HC_SEED1    624
-#define FS_DATA_GROUP_MASTER_HC_SEED2    935
+#define FS_DATA_GROUP_MASTER_HC_SEED1   6024
+#define FS_DATA_GROUP_MASTER_HC_SEED2   9035
 
 #define FS_SERVER_STATUS_INIT       0
 #define FS_SERVER_STATUS_BUILDING  10

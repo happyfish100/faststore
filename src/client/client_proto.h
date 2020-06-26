@@ -6,6 +6,14 @@
 #include "fs_types.h"
 #include "fs_proto.h"
 
+typedef struct fs_client_cluster_stat_entry {
+    int data_group_id;
+    int server_id;
+    bool is_master;
+    char status;
+    int64_t data_version;
+} FSClientClusterStatEntry;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -28,6 +36,10 @@ extern "C" {
 
     int fs_client_proto_join_server(FSClientContext *client_ctx,
             ConnectionInfo *conn, FSConnectionParameters *conn_params);
+
+    int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
+            const ConnectionInfo *spec_conn, const int data_group_id,
+            FSClientClusterStatEntry *stats, const int size, int *count);
 
 #ifdef __cplusplus
 }

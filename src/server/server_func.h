@@ -57,7 +57,8 @@ static inline int server_check_max_body_length(
 
 static inline int server_check_body_length(
         struct fast_task_info *task,
-        const int min_body_length, const int max_body_length)
+        const int min_body_length,
+        const int max_body_length)
 {
     int result;
     if ((result=server_check_min_body_length(task, min_body_length)) != 0) {

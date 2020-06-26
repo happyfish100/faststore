@@ -19,18 +19,6 @@ static inline void fs_client_release_connection(
     }
 }
 
-/*
-static inline void proto_pack_block_slice_key(const FSBlockSliceKeyInfo *
-        bs_key, FSProtoBlockSlice *proto_bs)
-{
-    long2buff(bs_key->block.oid, proto_bs->bkey.oid);
-    long2buff(bs_key->block.offset, proto_bs->bkey.offset);
-
-    int2buff(bs_key->slice.offset, proto_bs->slice_size.offset);
-    int2buff(bs_key->slice.length, proto_bs->slice_size.length);
-}
-*/
-
 static inline void proto_pack_block_key(const FSBlockKey *
         bkey, FSProtoBlockKey *proto_bkey)
 {
@@ -430,5 +418,107 @@ int fs_client_get_readable_server(FSClientContext *client_ctx,
     }
 
     fs_client_release_connection(client_ctx, conn, result);
+    return result;
+}
+
+int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
+        const ConnectionInfo *spec_conn, const int data_group_id,
+        FSClientClusterStatEntry *stats, const int size, int *count)
+{
+    FSProtoHeader *header;
+    FSProtoClusterStatRespBodyHeader *body_header;
+    FSProtoClusterStatRespBodyPart *body_part;
+    FSProtoClusterStatRespBodyPart *body_end;
+    FSClientClusterStatEntry *stat;
+    ConnectionInfo *conn;
+    char out_buff[sizeof(FSProtoHeader) + 4];
+    char fixed_buff[8 * 1024];
+    char *in_buff;
+    FSResponseInfo response;
+    int result;
+    int out_bytes;
+    int calc_size;
+
+    if ((conn=client_ctx->conn_manager.get_spec_connection(
+                    client_ctx, spec_conn, &result)) == NULL)
+    {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    if (data_group_id > 0) {
+        out_bytes = sizeof(FSProtoHeader) + 4;
+        int2buff(data_group_id, out_buff + sizeof(FSProtoHeader));
+    } else {
+        out_bytes = sizeof(FSProtoHeader);
+    }
+    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_CLUSTER_STAT_REQ,
+            out_bytes - sizeof(FSProtoHeader));
+
+    in_buff = fixed_buff;
+    if ((result=fs_send_and_check_response_header(conn, out_buff,
+                    out_bytes, &response, g_fs_client_vars.
+                    network_timeout, FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
+    {
+        if (response.header.body_len > sizeof(fixed_buff)) {
+            in_buff = (char *)malloc(response.header.body_len);
+            if (in_buff == NULL) {
+                response.error.length = sprintf(response.error.message,
+                        "malloc %d bytes fail", response.header.body_len);
+                result = ENOMEM;
+            }
+        }
+
+        if (result == 0) {
+            result = tcprecvdata_nb(conn->sock, in_buff,
+                    response.header.body_len, g_fs_client_vars.
+                    network_timeout);
+        }
+    }
+
+    body_header = (FSProtoClusterStatRespBodyHeader *)in_buff;
+    body_part = (FSProtoClusterStatRespBodyPart *)(in_buff +
+            sizeof(FSProtoClusterStatRespBodyHeader));
+    if (result == 0) {
+        *count = buff2int(body_header->count);
+
+        calc_size = sizeof(FSProtoClusterStatRespBodyHeader) +
+            (*count) * sizeof(FSProtoClusterStatRespBodyPart);
+        if (calc_size != response.header.body_len) {
+            response.error.length = sprintf(response.error.message,
+                    "response body length: %d != calculate size: %d, "
+                    "server count: %d", response.header.body_len,
+                    calc_size, *count);
+            result = EINVAL;
+        } else if (size < *count) {
+            response.error.length = sprintf(response.error.message,
+                    "entry size %d too small < %d", size, *count);
+            *count = 0;
+            result = ENOSPC;
+        }
+    } else {
+        *count = 0;
+    }
+
+    if (result != 0) {
+        fs_log_network_error(&response, conn, result);
+    } else {
+        body_end = body_part + (*count);
+        for (stat=stats; body_part<body_end; body_part++, stat++) {
+            stat->data_group_id = buff2int(body_part->data_group_id);
+            stat->server_id = buff2int(body_part->server_id);
+            stat->is_master = body_part->is_master;
+            stat->status = body_part->status;
+            stat->data_version = buff2long(body_part->data_version);
+        }
+    }
+
+    fs_client_release_connection(client_ctx, conn, result);
+    if (in_buff != fixed_buff) {
+        if (in_buff != NULL) {
+            free(in_buff);
+        }
+    }
+
     return result;
 }

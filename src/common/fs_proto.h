@@ -96,27 +96,6 @@ typedef struct fs_proto_header {
     char padding[3];
 } FSProtoHeader;
 
-typedef struct fs_proto_service_stat_resp {
-    char server_id[4];
-    char is_leader;
-    char status;
-
-    struct {
-        char current_count[4];
-        char max_count[4];
-    } connection;
-
-    struct {
-        char current_data_version[8];
-        char current_oid_sn[8];
-        struct {
-            char ns[8];
-            char dir[8];
-            char file[8];
-        } counters;
-    } dentry;
-} FSProtoServiceStatResp;
-
 typedef struct fs_proto_client_join_req {
     char data_group_count[4];
 } FSProtoClientJoinReq;
@@ -182,9 +161,37 @@ typedef struct fs_proto_get_server_status_resp {
     char version[8];
 } FSProtoGetServerStatusResp;
 
+typedef struct fs_proto_service_stat_resp {
+    char server_id[4];
+    char is_leader;
+    char status;
+
+    struct {
+        char current_count[4];
+        char max_count[4];
+    } connection;
+
+    struct {
+        char current_data_version[8];
+        struct {
+            char ns[8];
+            char dir[8];
+            char file[8];
+        } counters;
+    } dentry;
+} FSProtoServiceStatResp;
+
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];
 } FSProtoClusterStatRespBodyHeader;
+
+typedef struct fs_proto_cluster_stat_resp_body_part {
+    char data_group_id[4];
+    char server_id[4];
+    char is_master;
+    char status;
+    char data_version[8];
+} FSProtoClusterStatRespBodyPart;
 
 /* for FS_SERVICE_PROTO_GET_MASTER_RESP and
    FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP

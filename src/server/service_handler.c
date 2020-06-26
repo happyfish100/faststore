@@ -630,6 +630,65 @@ static int service_deal_get_readable_server(struct fast_task_info *task)
     return 0;
 }
 
+static int service_deal_cluster_stat(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    FSProtoClusterStatRespBodyHeader *body_header;
+    FSProtoClusterStatRespBodyPart *part_start;
+    FSProtoClusterStatRespBodyPart *body_part;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gend;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *dend;
+
+    if ((result=server_check_max_body_length(task, 4)) != 0) {
+        return result;
+    }
+
+    if (REQUEST.header.body_len == 0) {
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups;
+        gend = CLUSTER_DATA_RGOUP_ARRAY.groups +
+            CLUSTER_DATA_RGOUP_ARRAY.count;
+    } else if (REQUEST.header.body_len == 4) {
+        data_group_id = buff2int(REQUEST.body);
+        if ((group=fs_get_data_group(data_group_id)) == NULL) {
+            return ENOENT;
+        }
+        gend = group + 1;
+    } else {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "invalid request body length: %d != 0 or 4",
+                REQUEST.header.body_len);
+        return EINVAL;
+    }
+
+    body_header = (FSProtoClusterStatRespBodyHeader *)REQUEST.body;
+    part_start = (FSProtoClusterStatRespBodyPart *)(REQUEST.body +
+            sizeof(FSProtoClusterStatRespBodyHeader));
+    body_part = part_start;
+
+    for (; group<gend; group++) {
+        dend = group->data_server_array.servers +
+            group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<dend;
+                ds++, body_part++)
+        {
+            int2buff(ds->dg->id, body_part->data_group_id);
+            int2buff(ds->cs->server->id, body_part->server_id);
+            body_part->is_master = ds->is_master;
+            body_part->status = ds->status;
+            long2buff(ds->data_version, body_part->data_version);
+        }
+    }
+
+    int2buff(body_part - part_start, body_header->count);
+    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static inline void init_task_context(struct fast_task_info *task)
 {
     TASK_ARG->req_start_time = get_current_time_us();
@@ -757,6 +816,9 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
                 result = service_deal_get_readable_server(task);
+                break;
+            case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
+                result = service_deal_cluster_stat(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(
