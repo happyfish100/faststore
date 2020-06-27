@@ -634,6 +634,35 @@ static int cluster_select_leader()
 	return 0;
 }
 
+static void cluster_find_master(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
+    FSClusterDataServerInfo *master;
+
+    master = NULL;
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        if (ds->is_master) {
+            master = ds;
+            break;
+        }
+    }
+
+    if (group->master != master) {
+        group->master = master;
+        /*
+        if (master != NULL) {
+            logInfo("data_group_id: %d, master server_id: %d",
+                    group->id, master->cs->server->id);
+        } else {
+            logInfo("data_group_id: %d, unset master",
+                    group->id);
+        }
+        */
+    }
+}
+
 static int cluster_process_leader_push(FSResponseInfo *response,
         char *body_buff, const int body_len)
 {
@@ -670,10 +699,13 @@ static int cluster_process_leader_push(FSResponseInfo *response,
 
         //logInfo("data_group_id: %d, server_id: %d", data_group_id, server_id);
         if ((ds=fs_get_data_server(data_group_id, server_id)) != NULL) {
-            ds->is_master = body_part->is_master;
             if (ds->cs != CLUSTER_MYSELF_PTR) {
                 ds->status = body_part->status;
                 ds->data_version = buff2long(body_part->data_version);
+            }
+            if (ds->is_master != body_part->is_master) {
+                ds->is_master = body_part->is_master;
+                cluster_find_master(ds->dg);
             }
         }
     }

@@ -21,6 +21,8 @@
 #define FS_REPLICA_BINLOG_MAX_RECORD_SIZE  128
 #define FS_REPLICA_BINLOG_SUBDIR_NAME    "replica"
 
+#define FS_BINLOG_SUBDIR_NAME_SIZE          64
+
 #define FS_CLUSTER_TASK_TYPE_NONE               0
 #define FS_CLUSTER_TASK_TYPE_RELATIONSHIP       1   //slave  -> master
 #define FS_CLUSTER_TASK_TYPE_REPLICATION        2

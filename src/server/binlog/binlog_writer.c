@@ -327,7 +327,7 @@ static void deal_record_by_version(BinlogWriterBuffer *wb)
         return;
     }
 
-    logInfo("wb version===== %"PRId64, wb->version);
+    logInfo("%s wb version===== %"PRId64, writer->cfg.subdir_name, wb->version);
 
     current = writer->version_ctx.ring.entries + wb->version %
         writer->version_ctx.ring.size;
@@ -563,7 +563,9 @@ int binlog_writer_init_normal(BinlogWriterInfo *writer,
     }
 
     writer->file.fd = -1;
-    writer->cfg.subdir_name = subdir_name;
+    snprintf(writer->cfg.subdir_name,
+            sizeof(writer->cfg.subdir_name),
+            "%s", subdir_name);
     writer->file.name = (char *)malloc(path_len + 32);
     if (writer->file.name == NULL) {
         logError("file: "__FILE__", line: %d, "

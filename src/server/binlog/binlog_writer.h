@@ -43,7 +43,7 @@ typedef struct binlog_writer_thread {
 
 typedef struct binlog_writer_info {
     struct {
-        const char *subdir_name;
+        char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
         int max_record_size;
     } cfg;
 
