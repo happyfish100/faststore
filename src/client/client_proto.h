@@ -37,6 +37,12 @@ extern "C" {
     int fs_client_proto_join_server(FSClientContext *client_ctx,
             ConnectionInfo *conn, FSConnectionParameters *conn_params);
 
+    int fs_client_proto_get_master(FSClientContext *client_ctx,
+            const int data_group_index, FSClientServerEntry *master);
+
+    int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
+            const int data_group_index, FSClientServerEntry *server);
+
     int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
             const ConnectionInfo *spec_conn, const int data_group_id,
             FSClientClusterStatEntry *stats, const int size, int *count);

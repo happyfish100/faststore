@@ -23,7 +23,7 @@ int server_binlog_init()
         return result;
     }
 
-    if ((result=data_binlog_init()) != 0) {
+    if ((result=replica_binlog_init()) != 0) {
         return result;
     }
 
@@ -37,7 +37,7 @@ int server_binlog_init()
 void server_binlog_destroy()
 {
     slice_binlog_destroy();
-    data_binlog_destroy();
+    replica_binlog_destroy();
 }
  
 void server_binlog_terminate()

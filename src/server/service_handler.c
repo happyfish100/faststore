@@ -23,7 +23,7 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
-#include "binlog/data_binlog.h"
+#include "binlog/replica_binlog.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -259,7 +259,7 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
         logInfo("data_group_id: %d, TASK_CTX.data_version: %"PRId64,
                 TASK_CTX.data_group_id, TASK_CTX.data_version);
 
-        data_binlog_log_write_slice(TASK_CTX.data_group_id,
+        replica_binlog_log_write_slice(TASK_CTX.data_group_id,
             TASK_CTX.data_version, &TASK_CTX.bs_key);
 
         RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;

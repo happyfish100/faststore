@@ -13,7 +13,7 @@
 #include "../storage/trunk_id_info.h"
 #include "binlog_writer.h"
 #include "binlog_loader.h"
-#include "data_binlog.h"
+#include "replica_binlog.h"
 
 #define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
 #define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION 1
@@ -99,7 +99,7 @@ static int get_last_data_version_from_file(const int data_group_id,
             line.str = buff;
         }
         line.len = (buff + read_bytes) - line.str;
-        if ((result=data_binlog_record_unpack(&line,
+        if ((result=replica_binlog_record_unpack(&line,
                         &record, error_info)) != 0)
         {
             int64_t line_count;
@@ -144,7 +144,7 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     return 0;
 }
 
-int data_binlog_init()
+int replica_binlog_init()
 {
     FSIdArray *id_array;
     FSClusterDataServerInfo *cs;
@@ -228,14 +228,14 @@ int data_binlog_init()
     return 0;
 }
 
-void data_binlog_destroy()
+void replica_binlog_destroy()
 {
     if (binlog_writer_array.count > 0) {
         binlog_writer_finish(binlog_writer_array.writers[0]);
     }
 }
 
-int data_binlog_get_current_write_index(const int data_group_id)
+int replica_binlog_get_current_write_index(const int data_group_id)
 {
     BinlogWriterInfo *writer;
     writer = binlog_writer_array.writers[data_group_id -
@@ -283,7 +283,7 @@ static inline int unpack_block_record(string_t *cols, const int count,
     return 0;
 }
 
-int data_binlog_record_unpack(const string_t *line,
+int replica_binlog_record_unpack(const string_t *line,
         ReplicaBinlogRecord *record, char *error_info)
 {
     int count;
@@ -336,7 +336,7 @@ static BinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
     return wbuffer;
 }
 
-int data_binlog_log_slice(const int data_group_id, const int64_t data_version,
+int replica_binlog_log_slice(const int data_group_id, const int64_t data_version,
         const FSBlockSliceKeyInfo *bs_key, const int op_type)
 {
     BinlogWriterInfo *writer;
@@ -357,7 +357,7 @@ int data_binlog_log_slice(const int data_group_id, const int64_t data_version,
     return 0;
 }
 
-int data_binlog_log_del_block(const int data_group_id,
+int replica_binlog_log_del_block(const int data_group_id,
         const int64_t data_version, const FSBlockKey *bkey)
 {
     BinlogWriterInfo *writer;

@@ -7,7 +7,7 @@
 #include "binlog/binlog_writer.h"
 #include "binlog/trunk_binlog.h"
 #include "binlog/slice_binlog.h"
-#include "binlog/data_binlog.h"
+#include "binlog/replica_binlog.h"
 #include "replication/binlog_replication.h"
 #include "replication/binlog_local_consumer.h"
 

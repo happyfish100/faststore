@@ -26,6 +26,9 @@ static inline void proto_pack_block_key(const FSBlockKey *
     long2buff(bkey->offset, proto_bkey->offset);
 }
 
+#define FS_CLIENT_DATA_GROUP_INDEX(hash_code) \
+    (hash_code % FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg))
+
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc)
@@ -47,16 +50,15 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_code, &result)) == NULL)
+        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
+                        &result)) == NULL)
         {
             return result;
         }
 
         connection_params = client_ctx->conn_manager.get_connection_params(
                 client_ctx, conn);
-        printf("connection_params.buffer_size1: %d\n", connection_params->buffer_size);
-
         response.error.length = 0;
         remain = bs_key->slice.length - *write_bytes;
         while (remain > 0) {
@@ -134,17 +136,15 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
             sizeof(FSProtoSliceReadReqHeader));
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_code, &result)) == NULL)
+        if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
+                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
+                        &result)) == NULL)
         {
             return result;
         }
 
         connection_params = client_ctx->conn_manager.get_connection_params(
                 client_ctx, conn);
-
-        printf("connection_params.buffer_size2: %d\n", connection_params->buffer_size);
-
         response.error.length = 0;
         remain = bs_key->slice.length - *read_bytes;
         while (remain > 0) {
@@ -231,8 +231,9 @@ static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
     req = (FSProtoSliceAllocateReq *)(proto_header + 1);
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
     for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bs_key->block.hash_code, &result)) == NULL)
+        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
+                        &result)) == NULL)
         {
             return result;
         }
@@ -293,8 +294,9 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     req = (FSProtoBlockDeleteReq *)(proto_header + 1);
     proto_pack_block_key(bkey, &req->bkey);
     for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_connection(client_ctx,
-                        bkey->hash_code, &result)) == NULL)
+        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+                        FS_CLIENT_DATA_GROUP_INDEX(bkey->hash_code),
+                        &result)) == NULL)
         {
             return result;
         }
@@ -349,23 +351,24 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_get_master(FSClientContext *client_ctx,
-        const int data_group_id, FSClientServerEntry *master)
+int fs_client_proto_get_master(FSClientContext *client_ctx,
+        const int data_group_index, FSClientServerEntry *master)
 {
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
     FSResponseInfo response;
     FSProtoGetServerResp server_resp;
-    char out_buff[sizeof(FSProtoHeader)];
+    char out_buff[sizeof(FSProtoHeader) + 4];
 
     conn = client_ctx->conn_manager.get_connection(client_ctx,
-            data_group_id - 1, &result);
+            data_group_index, &result);
     if (conn == NULL) {
         return result;
     }
 
     header = (FSProtoHeader *)out_buff;
+    int2buff(data_group_index + 1, (char *)(header + 1));
     FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_MASTER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
@@ -385,23 +388,24 @@ int fs_client_get_master(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_get_readable_server(FSClientContext *client_ctx,
-        const int data_group_id, FSClientServerEntry *server)
+int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
+        const int data_group_index, FSClientServerEntry *server)
 {
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
     FSResponseInfo response;
     FSProtoGetServerResp server_resp;
-    char out_buff[sizeof(FSProtoHeader)];
+    char out_buff[sizeof(FSProtoHeader) + 4];
 
     conn = client_ctx->conn_manager.get_connection(client_ctx,
-            data_group_id - 1, &result);
+            data_group_index, &result);
     if (conn == NULL) {
         return result;
     }
 
     header = (FSProtoHeader *)out_buff;
+    int2buff(data_group_index + 1, (char *)(header + 1));
     FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),

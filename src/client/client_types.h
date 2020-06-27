@@ -10,12 +10,8 @@ struct fs_connection_parameters;
 struct fs_client_context;
 
 typedef ConnectionInfo *(*fs_get_connection_func)(
-        struct fs_client_context *client_ctx, const uint32_t hash_code,
-        int *err_no);
-
-typedef ConnectionInfo *(*fs_get_master_connection_func)(
-        struct fs_client_context *client_ctx, const int data_group_id,
-        int *err_no);
+        struct fs_client_context *client_ctx,
+        const int data_group_index, int *err_no);
 
 typedef ConnectionInfo *(*fs_get_spec_connection_func)(
         struct fs_client_context *client_ctx,
@@ -31,13 +27,27 @@ typedef const struct fs_connection_parameters * (*fs_get_connection_parameters)(
 
 typedef struct fs_connection_parameters {
     int buffer_size;
+    int data_group_id;  //for master cache
 } FSConnectionParameters;
 
-typedef struct fdir_client_server_entry {
+typedef struct fs_client_server_entry {
     int server_id;
     ConnectionInfo conn;
     char status;
 } FSClientServerEntry;
+
+typedef struct fs_client_data_group_entry {
+    /* master connection cache */
+    struct {
+        ConnectionInfo *conn;
+        ConnectionInfo holder;
+    } master_cache;
+} FSClientDataGroupEntry;
+
+typedef struct fs_client_data_group_array {
+    FSClientDataGroupEntry *entries;
+    int count;
+} FSClientDataGroupArray;
 
 typedef struct fs_connection_manager {
     /* get the specify connection by ip and port */
@@ -47,7 +57,7 @@ typedef struct fs_connection_manager {
     fs_get_connection_func get_connection;
 
     /* get the master connection from the server */
-    fs_get_master_connection_func get_master_connection;
+    fs_get_connection_func get_master_connection;
 
     /* get one readable connection from the server */
     fs_get_connection_func get_readable_connection;
@@ -59,6 +69,8 @@ typedef struct fs_connection_manager {
     fs_close_connection_func close_connection;
 
     fs_get_connection_parameters get_connection_params;
+
+    FSClientDataGroupArray data_group_array;
 
     void *args;   //extra data
 } FSConnectionManager;
