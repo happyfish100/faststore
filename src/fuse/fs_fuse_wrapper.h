@@ -3,7 +3,7 @@
 #define _FS_FUSE_WRAPPER_H
 
 #ifndef FUSE_USE_VERSION
-#define FUSE_USE_VERSION 31
+#define FUSE_USE_VERSION 35
 #endif
 
 #include "fastcommon/logger.h"

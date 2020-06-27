@@ -62,11 +62,16 @@ int main(int argc, char *argv[])
 
 	//fuse_daemonize(opts.foreground);
 
+
 	/* Block until ctrl+c or fusermount -u */
-	if (opts.singlethread)
+	if (opts.singlethread) {
 		result = fuse_session_loop(se);
-	else
-		result = fuse_session_loop_mt(se, opts.clone_fd);
+    } else {
+        struct fuse_loop_config fuse_config;
+        fuse_config.clone_fd = opts.clone_fd;
+        fuse_config.max_idle_threads = 10;  //TODO
+        result = fuse_session_loop_mt(se, &fuse_config);
+    }
 
 	fuse_session_unmount(se);
 err_out3:
