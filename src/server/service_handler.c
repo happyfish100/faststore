@@ -641,6 +641,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     FSClusterDataGroupInfo *gend;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *dend;
+    const FCAddressInfo *addr;
 
     if ((result=server_check_max_body_length(task, 4)) != 0) {
         return result;
@@ -674,8 +675,15 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         for (ds=group->data_server_array.servers; ds<dend;
                 ds++, body_part++)
         {
+
+            addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
+                        ds->cs->server), task->client_ip);
+
             int2buff(ds->dg->id, body_part->data_group_id);
             int2buff(ds->cs->server->id, body_part->server_id);
+            snprintf(body_part->ip_addr, sizeof(body_part->ip_addr),
+                    "%s", addr->conn.ip_addr);
+            short2buff(addr->conn.port, body_part->port);
             body_part->is_master = ds->is_master;
             body_part->status = ds->status;
             long2buff(ds->data_version, body_part->data_version);

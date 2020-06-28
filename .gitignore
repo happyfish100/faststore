@@ -35,6 +35,7 @@ src/fuse/Makefile
 # Executables
 *.out
 src/server/fs_serverd
+src/client/tools/fs_cluster_stat
 src/client/tests/test_slice_rw
 src/fsapi/tests/test_file_op
 src/fuse/fs_fused

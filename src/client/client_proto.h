@@ -11,6 +11,8 @@ typedef struct fs_client_cluster_stat_entry {
     int server_id;
     bool is_master;
     char status;
+    short port;
+    char ip_addr[IP_ADDRESS_SIZE];
     int64_t data_version;
 } FSClientClusterStatEntry;
 

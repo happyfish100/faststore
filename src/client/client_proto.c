@@ -513,6 +513,9 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
             stat->server_id = buff2int(body_part->server_id);
             stat->is_master = body_part->is_master;
             stat->status = body_part->status;
+            memcpy(stat->ip_addr, body_part->ip_addr, IP_ADDRESS_SIZE);
+            *(stat->ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
+            stat->port = buff2short(body_part->port);
             stat->data_version = buff2long(body_part->data_version);
         }
     }
