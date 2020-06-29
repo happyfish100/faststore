@@ -50,6 +50,7 @@ typedef struct {
     FSDataGroupArray data_groups;
     FSServerDataMappingArray server_data_mappings;
     int cluster_group_index;
+    int replica_group_index;
     int service_group_index;
 } FSClusterConfig;
 

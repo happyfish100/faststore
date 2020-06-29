@@ -168,8 +168,10 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     while (event != NULL) {
         int2buff(event->data_server->dg->id, body_part->data_group_id);
         int2buff(event->data_server->cs->server->id, body_part->server_id);
-        body_part->is_master = event->data_server->is_master;
-        body_part->status = event->data_server->status;
+        body_part->is_master = __sync_add_and_fetch(
+                &event->data_server->is_master, 0);
+        body_part->status = __sync_add_and_fetch(
+                &event->data_server->status, 0);
         long2buff(event->data_server->data_version, body_part->data_version);
 
         __sync_bool_compare_and_swap(&event->in_queue, 1, 0);  //release event

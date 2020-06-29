@@ -38,6 +38,7 @@ typedef struct server_global_vars {
 
     struct {
         int channels_between_two_servers;
+        SFContext sf_context;  //for replica communication
     } replica;
 
 } FSServerGlobalVars;
@@ -57,6 +58,7 @@ typedef struct server_global_vars {
 #define CLUSTER_CURRENT_VERSION  g_server_global_vars.cluster.current_version
 
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
+#define REPLICA_SF_CTX        g_server_global_vars.replica.sf_context
 
 #define STORAGE_CFG           g_server_global_vars.storage_cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
@@ -70,22 +72,33 @@ typedef struct server_global_vars {
     g_server_global_vars.replica.channels_between_two_servers
 
 #define CLUSTER_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.cluster_group_index
+#define REPLICA_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.replica_group_index
 #define SERVICE_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.service_group_index
 
 #define CLUSTER_GROUP_ADDRESS_ARRAY(server) \
     (server)->group_addrs[CLUSTER_GROUP_INDEX].address_array
+#define REPLICA_GROUP_ADDRESS_ARRAY(server) \
+    (server)->group_addrs[REPLICA_GROUP_INDEX].address_array
 #define SERVICE_GROUP_ADDRESS_ARRAY(server) \
     (server)->group_addrs[SERVICE_GROUP_INDEX].address_array
 
 #define CLUSTER_GROUP_ADDRESS_FIRST_PTR(server) \
     (*(server)->group_addrs[CLUSTER_GROUP_INDEX].address_array.addrs)
+#define REPLICA_GROUP_ADDRESS_FIRST_PTR(server) \
+    (*(server)->group_addrs[REPLICA_GROUP_INDEX].address_array.addrs)
 #define SERVICE_GROUP_ADDRESS_FIRST_PTR(server) \
     (*(server)->group_addrs[SERVICE_GROUP_INDEX].address_array.addrs)
+
 
 #define CLUSTER_GROUP_ADDRESS_FIRST_IP(server) \
     CLUSTER_GROUP_ADDRESS_FIRST_PTR(server)->conn.ip_addr
 #define CLUSTER_GROUP_ADDRESS_FIRST_PORT(server) \
     CLUSTER_GROUP_ADDRESS_FIRST_PTR(server)->conn.port
+
+#define REPLICA_GROUP_ADDRESS_FIRST_IP(server) \
+    REPLICA_GROUP_ADDRESS_FIRST_PTR(server)->conn.ip_addr
+#define REPLICA_GROUP_ADDRESS_FIRST_PORT(server) \
+    REPLICA_GROUP_ADDRESS_FIRST_PTR(server)->conn.port
 
 #define SERVICE_GROUP_ADDRESS_FIRST_IP(server) \
     SERVICE_GROUP_ADDRESS_FIRST_PTR(server)->conn.ip_addr

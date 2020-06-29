@@ -87,10 +87,10 @@ int binlog_replication_bind_thread(FSReplication *replication)
     }
 
     task->canceled = false;
-    task->ctx = &CLUSTER_SF_CTX;
+    task->ctx = &REPLICA_SF_CTX;
     task->event.fd = -1;
-    task->thread_data = CLUSTER_SF_CTX.thread_data +
-        replication->thread_index % CLUSTER_SF_CTX.work_threads;
+    task->thread_data = REPLICA_SF_CTX.thread_data +
+        replication->thread_index % REPLICA_SF_CTX.work_threads;
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
 
@@ -216,7 +216,7 @@ static int check_and_make_replica_connection(FSReplication *replication)
         }
 
 
-        addr_array = &CLUSTER_GROUP_ADDRESS_ARRAY(replication->peer->server);
+        addr_array = &REPLICA_GROUP_ADDRESS_ARRAY(replication->peer->server);
         addr = addr_array->addrs[replication->conn_index++];
         if (replication->conn_index >= addr_array->count) {
             replication->conn_index = 0;

@@ -94,6 +94,15 @@ static int find_group_indexes_in_cluster_config(const char *filename)
         return ENOENT;
     }
 
+    REPLICA_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
+            "replica");
+    if (REPLICA_GROUP_INDEX < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, replica group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
     SERVICE_GROUP_INDEX = fc_server_get_group_index(&SERVER_CONFIG_CTX,
             "service");
     if (SERVICE_GROUP_INDEX < 0) {
@@ -205,12 +214,15 @@ static void server_log_configs()
     char sz_global_config[512];
     char sz_service_config[128];
     char sz_cluster_config[128];
+    char sz_replica_config[128];
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
     sf_context_config_to_string(&g_sf_context,
             sz_service_config, sizeof(sz_service_config));
     sf_context_config_to_string(&CLUSTER_SF_CTX,
             sz_cluster_config, sizeof(sz_cluster_config));
+    sf_context_config_to_string(&REPLICA_SF_CTX,
+            sz_replica_config, sizeof(sz_replica_config));
 
     snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, data_path = %s, "
@@ -222,9 +234,9 @@ static void server_log_configs()
             BINLOG_BUFFER_SIZE / 1024,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
 
-    logInfo("%s, service: {%s}, cluster: {%s}, %s",
-            sz_global_config, sz_service_config,
-            sz_cluster_config, sz_server_config);
+    logInfo("%s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
+            sz_global_config, sz_service_config, sz_cluster_config,
+            sz_replica_config, sz_server_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -296,6 +308,14 @@ int server_load_config(const char *filename)
                     filename, &ini_context, "cluster",
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
                     FS_SERVER_DEFAULT_CLUSTER_PORT)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=sf_load_context_from_config(&REPLICA_SF_CTX,
+                    filename, &ini_context, "replica",
+                    FS_SERVER_DEFAULT_REPLICA_PORT,
+                    FS_SERVER_DEFAULT_REPLICA_PORT)) != 0)
     {
         return result;
     }

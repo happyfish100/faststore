@@ -634,6 +634,7 @@ static int cluster_select_leader()
 	return 0;
 }
 
+/*
 static void cluster_find_master(FSClusterDataGroupInfo *group)
 {
     FSClusterDataServerInfo *ds;
@@ -651,7 +652,6 @@ static void cluster_find_master(FSClusterDataGroupInfo *group)
 
     if (group->master != master) {
         group->master = master;
-        /*
         if (master != NULL) {
             logInfo("data_group_id: %d, master server_id: %d",
                     group->id, master->cs->server->id);
@@ -659,9 +659,9 @@ static void cluster_find_master(FSClusterDataGroupInfo *group)
             logInfo("data_group_id: %d, unset master",
                     group->id);
         }
-        */
     }
 }
+*/
 
 static int cluster_process_leader_push(FSResponseInfo *response,
         char *body_buff, const int body_len)
@@ -688,8 +688,9 @@ static int cluster_process_leader_push(FSResponseInfo *response,
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "recv push from leader, data_server_count: %d",
-            __LINE__, __FUNCTION__, data_server_count);
+            "recv push from leader: %d, data_server_count: %d",
+            __LINE__, __FUNCTION__, CLUSTER_LEADER_PTR->server->id,
+            data_server_count);
 
     body_part = (FSProtoPushDataServerStatusBodyPart *)(body_header + 1);
     body_end = body_part + data_server_count;
@@ -705,7 +706,19 @@ static int cluster_process_leader_push(FSResponseInfo *response,
             }
             if (ds->is_master != body_part->is_master) {
                 ds->is_master = body_part->is_master;
-                cluster_find_master(ds->dg);
+                if (ds->is_master) {
+                    if (ds->dg->master != NULL && ds->dg->master != ds) {
+                        ds->dg->master->is_master = false;
+                    }
+                    ds->dg->master = ds;
+                    logInfo("data_group_id: %d, set master server_id: %d",
+                            data_group_id, ds->cs->server->id);
+                } else if (ds->dg->master == ds) {
+                    ds->dg->master = NULL;
+
+                    logInfo("data_group_id: %d, unset master server_id: %d",
+                            data_group_id, ds->cs->server->id);
+                }
             }
         }
     }
