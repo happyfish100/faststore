@@ -50,6 +50,17 @@ static inline FSClusterDataGroupInfo *fs_get_data_group(const int data_group_id)
     return CLUSTER_DATA_RGOUP_ARRAY.groups + index;
 }
 
+static inline FSClusterDataServerInfo *fs_get_my_data_server(
+        const int data_group_id)
+{
+    FSClusterDataGroupInfo *group;
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        return NULL;
+    }
+
+    return group->myself;
+}
+
 static inline void server_group_info_set_status(FSClusterServerInfo *cs,
         const int status)
 {

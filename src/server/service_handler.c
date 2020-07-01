@@ -146,8 +146,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     TASK_CTX.data_group_id = FS_BLOCK_HASH_CODE(TASK_CTX.bs_key.block) %
         FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1;
 
-    TASK_CTX.myself = fs_get_data_server(TASK_CTX.data_group_id,
-            CLUSTER_MYSELF_PTR->server->id);
+    TASK_CTX.myself = fs_get_my_data_server(TASK_CTX.data_group_id);
     if (TASK_CTX.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d NOT belongs to me",

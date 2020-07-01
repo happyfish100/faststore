@@ -25,6 +25,7 @@
 typedef struct {
     FSReplicationArray repl_array;
     pthread_mutex_t lock;
+    struct fast_mblock_man rb_allocator;
 } BinlogReplicationContext;
 
 static BinlogReplicationContext repl_ctx;
@@ -68,6 +69,7 @@ static int init_replication_processor(FSReplication *replication)
     {
         return result;
     }
+
 
     logInfo("file: "__FILE__", line: %d, "
             "replication: %d, thread_index: %d",
@@ -153,17 +155,27 @@ static int init_replication_producer_array()
         ++cs;
     }
 
-    repl_ctx.repl_array.count = replication -
-        repl_ctx.repl_array.replications;
+    repl_ctx.repl_array.count = replication - repl_ctx.repl_array.replications;
     return 0;
 }
 
 int replication_producer_init()
 {
     int result;
+    int element_size;
 
     set_server_link_index_for_replication();
     if ((result=init_replication_producer_array()) != 0) {
+        return result;
+    }
+
+    element_size = sizeof(ServerBinlogRecordBuffer) +
+        sizeof(struct server_binlog_record_buffer *) *
+        CLUSTER_SERVER_ARRAY.count;
+    if ((result=fast_mblock_init_ex2(&repl_ctx.rb_allocator,
+                    "record_buffer", element_size, 1024,
+                    NULL, NULL, true, NULL, NULL, NULL)) != 0)
+    {
         return result;
     }
 
@@ -239,31 +251,57 @@ static inline void push_to_slave_replica_queues(FSReplication *replication,
     }
 }
 
-int replication_producer_push_to_queues(const int data_group_index,
+int replication_producer_push_to_queues(const int data_group_id,
         const uint32_t hash_code, ServerBinlogRecordBuffer *rbuffer)
 {
+    FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
     FSReplication *replication;
-    FSReplication *end;
-    //int result;
+    int inactive_count;
 
-    //TODO
-    if (repl_ctx.repl_array.count == 0) {
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        return ENOENT;
+    }
+
+    if (group->slave_ds_array.count == 0) {
         return 0;
     }
 
     __sync_add_and_fetch(&rbuffer->reffer_count,
-            repl_ctx.repl_array.count + 1);
+            group->slave_ds_array.count);
 
     __sync_add_and_fetch(&((FSServerTaskArg *)rbuffer->task->arg)->context.
-            service.waiting_rpc_count, repl_ctx.repl_array.count);
+            service.waiting_rpc_count, group->slave_ds_array.count);
 
-    end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
-    for (replication=repl_ctx.repl_array.replications; replication<end;
-            replication++) {
+    inactive_count = 0;
+    end = group->slave_ds_array.servers + group->slave_ds_array.count;
+    for (ds=group->slave_ds_array.servers; ds<end; ds++) {
+        if (__sync_fetch_and_add(&(*ds)->status, 0) != FS_SERVER_STATUS_ACTIVE) {
+            inactive_count++;
+            continue;
+        }
+
+        replication = (*ds)->cs->repl_ptr_array.replications[hash_code %
+            (*ds)->cs->repl_ptr_array.count];
         push_to_slave_replica_queues(replication, rbuffer);
     }
 
-    return 0;
+    if (inactive_count > 0) {
+        __sync_sub_and_fetch(&rbuffer->reffer_count, inactive_count);
+        if (__sync_sub_and_fetch(&((FSServerTaskArg *)rbuffer->task->arg)->
+                    context.service.waiting_rpc_count, inactive_count) == 0)
+        {
+            return 0;
+        }
+        return EAGAIN;
+    }
+
+    if (group->slave_ds_array.count - inactive_count == 0) {
+        return 0;
+    } else {
+        return EAGAIN;
+    }
 }
 
 int fs_get_replication_count()
@@ -291,4 +329,33 @@ FSReplication *fs_get_idle_replication_by_peer(const int peer_id)
     PTHREAD_MUTEX_UNLOCK(&repl_ctx.lock);
 
     return (replication < end) ? replication : NULL;
+}
+
+ServerBinlogRecordBuffer *replication_producer_alloc_rbuffer()
+{
+    ServerBinlogRecordBuffer *rbuffer;
+
+    rbuffer = (ServerBinlogRecordBuffer *)fast_mblock_alloc_object(
+            &repl_ctx.rb_allocator);
+    if (rbuffer == NULL) {
+        return NULL;
+    }
+
+    return rbuffer;
+}
+
+static void replication_producer_release_rbuffer(ServerBinlogRecordBuffer *rbuffer)
+{
+    if (__sync_sub_and_fetch(&rbuffer->reffer_count, 1) == 0) {
+        /*
+        logInfo("file: "__FILE__", line: %d, "
+                "free record buffer: %p", __LINE__, rbuffer);
+                */
+        fast_mblock_free_object(&repl_ctx.rb_allocator, rbuffer);
+    }
+}
+
+void replication_producer_free_rbuffer(ServerBinlogRecordBuffer *rbuffer)
+{
+    fast_mblock_free_object(&repl_ctx.rb_allocator, rbuffer);
 }

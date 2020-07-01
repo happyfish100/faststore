@@ -326,7 +326,8 @@ static void discard_queue(FSReplication *replication,
         head = head->nexts[replication->peer->link_index];
 
         decrease_task_waiting_rpc_count(rb);
-        rb->release_func(rb);
+        //TODO
+        //rb->release_func(rb);
     }
 }
 
@@ -526,7 +527,8 @@ static int sync_binlog_from_queue(FSReplication *replication)
         }
 
         head = head->nexts[replication->peer->link_index];
-        rb->release_func(rb);
+        //TODO
+        //rb->release_func(rb);
     }
 
     body_header = (FSProtoPushBinlogReqBodyHeader *)

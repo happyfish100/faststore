@@ -128,9 +128,9 @@ typedef struct fs_cluster_server_info {
     FSClusterTopologyNotifyContext notify_ctx;
     FSClusterDataServerPtrArray ds_ptr_array;
     bool is_leader;
-    bool is_partner;      //if my partner
-    volatile int active;  //for push topology change notify
-    int server_index;
+    bool is_partner;     //if my partner
+    volatile int active; //for push topology change notify
+    int server_index;    //for offset
     int link_index;      //for next links
 } FSClusterServerInfo;
 
@@ -169,7 +169,7 @@ typedef struct fs_cluster_data_group_info {
         int expire_time;
     } delay_decision;
     FSClusterDataServerArray data_server_array;
-    FSClusterServerPtrArray active_slaves;
+    FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
 } FSClusterDataGroupInfo;

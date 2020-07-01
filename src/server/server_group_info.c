@@ -109,15 +109,6 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     memset(group->data_server_array.servers, 0, bytes);
     group->data_server_array.count = server_group->server_array.count;
 
-    bytes = sizeof(FSClusterServerInfo *) * server_group->server_array.count;
-    group->active_slaves.servers = (FSClusterServerInfo **)malloc(bytes);
-    if (group->active_slaves.servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
-        return ENOMEM;
-    }
-    memset(group->active_slaves.servers, 0, bytes);
-
     master_index = group->hash_code % server_group->server_array.count;
     end = server_group->server_array.servers + server_group->server_array.count;
     for (pp=server_group->server_array.servers,
@@ -126,11 +117,49 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     {
         server_index = ds - group->data_server_array.servers;
         ds->dg = group;
-        ds->cs = fs_get_server_by_id((*pp)->id);
+        if ((ds->cs=fs_get_server_by_id((*pp)->id)) == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "server id: %d not exist", __LINE__, (*pp)->id);
+            return ENOENT;
+        }
         ds->is_preseted = (server_index == master_index);
 
         if ((result=add_to_ds_ptr_array(&ds->cs->ds_ptr_array, ds)) != 0) {
             return result;
+        }
+    }
+
+    return 0;
+}
+
+static int init_slave_ds_array(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
+    int count;
+    int bytes;
+
+    count = group->data_server_array.count - 1;
+    if (count > 0) {
+        bytes = sizeof(FSClusterDataServerInfo *) * count;
+        group->slave_ds_array.servers = (FSClusterDataServerInfo **)malloc(bytes);
+        if (group->slave_ds_array.servers == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "malloc %d bytes fail", __LINE__, bytes);
+            return ENOMEM;
+        }
+        memset(group->slave_ds_array.servers, 0, bytes);
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, data server count: %d",
+            __LINE__, group->id, group->data_server_array.count);
+
+    group->slave_ds_array.count = 0;
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        if (ds->cs != CLUSTER_MYSELF_PTR) {
+            group->slave_ds_array.servers[group->slave_ds_array.count++] = ds;
         }
     }
 
@@ -207,11 +236,15 @@ static int init_cluster_data_group_array(const char *filename,
             return ENOENT;
         }
 
+        if ((result=init_slave_ds_array(group)) != 0) {
+            return result;
+        }
+
         /*
            logInfo("file: "__FILE__", line: %d, func: %s, "
            "%d. data_group_id = %d", __LINE__, __FUNCTION__,
            i + 1, data_group_id);
-         */
+           */
     }
 
     return 0;
