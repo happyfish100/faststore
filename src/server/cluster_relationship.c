@@ -634,35 +634,6 @@ static int cluster_select_leader()
 	return 0;
 }
 
-/*
-static void cluster_find_master(FSClusterDataGroupInfo *group)
-{
-    FSClusterDataServerInfo *ds;
-    FSClusterDataServerInfo *end;
-    FSClusterDataServerInfo *master;
-
-    master = NULL;
-    end = group->data_server_array.servers + group->data_server_array.count;
-    for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if (ds->is_master) {
-            master = ds;
-            break;
-        }
-    }
-
-    if (group->master != master) {
-        group->master = master;
-        if (master != NULL) {
-            logInfo("data_group_id: %d, master server_id: %d",
-                    group->id, master->cs->server->id);
-        } else {
-            logInfo("data_group_id: %d, unset master",
-                    group->id);
-        }
-    }
-}
-*/
-
 static int cluster_process_leader_push(FSResponseInfo *response,
         char *body_buff, const int body_len)
 {

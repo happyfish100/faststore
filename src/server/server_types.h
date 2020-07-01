@@ -166,7 +166,7 @@ typedef struct fs_cluster_data_group_info {
     uint32_t hash_code;  //for master election
     bool belong_to_me;
     struct {
-        int action;
+        volatile int action;
         int expire_time;
     } delay_decision;
     FSClusterDataServerArray data_server_array;
