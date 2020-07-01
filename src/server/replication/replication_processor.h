@@ -1,7 +1,7 @@
-//binlog_replication.h
+//replication_processor.h
 
-#ifndef _BINLOG_REPLICATION_H_
-#define _BINLOG_REPLICATION_H_
+#ifndef _REPLICATION_PROCESSOR_H_
+#define _REPLICATION_PROCESSOR_H_
 
 #include "replication_types.h"
 
@@ -10,20 +10,20 @@ extern "C" {
 #endif
 
 //replication server side
-void binlog_replication_bind_task(FSReplication *replication,
+void replication_processor_bind_task(FSReplication *replication,
         struct fast_task_info *task);
 
 //replication client side
-int binlog_replication_bind_thread(FSReplication *replication);
+int replication_processor_bind_thread(FSReplication *replication);
 
 //replication server and client
-int binlog_replication_unbind(FSReplication *replication);
+int replication_processor_unbind(FSReplication *replication);
 
-int binlog_replication_process(FSServerContext *server_ctx);
+int replication_processor_process(FSServerContext *server_ctx);
 
 void clean_connected_replications(FSServerContext *server_ctx);
 
-int binlog_replications_check_response_data_version(
+int replication_processors_check_response_data_version(
         FSReplication *replication,
         const int64_t data_version);
 

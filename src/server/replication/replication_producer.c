@@ -18,9 +18,9 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
-#include "binlog_replication.h"
+#include "replication_processor.h"
 #include "push_result_ring.h"
-#include "binlog_local_consumer.h"
+#include "replication_producer.h"
 
 typedef struct {
     FSReplicationArray repl_array;
@@ -48,7 +48,7 @@ static void set_server_link_index_for_replication()
     }
 }
 
-static int init_binlog_replication(FSReplication *replication)
+static int init_replication_processor(FSReplication *replication)
 {
     int result;
     int alloc_size;
@@ -77,7 +77,7 @@ static int init_binlog_replication(FSReplication *replication)
     return 0;
 }
 
-static int init_binlog_local_consumer_array()
+static int init_replication_producer_array()
 {
     int result;
     int repl_server_count;
@@ -141,7 +141,7 @@ static int init_binlog_local_consumer_array()
         for (i=0; i<REPLICA_CHANNELS_BETWEEN_TWO_SERVERS; i++) {
             replication->peer = cs;
             replication->thread_index = offset + i;
-            if ((result=init_binlog_replication(replication)) != 0) {
+            if ((result=init_replication_processor(replication)) != 0) {
                 return result;
             }
 
@@ -158,12 +158,12 @@ static int init_binlog_local_consumer_array()
     return 0;
 }
 
-int binlog_local_consumer_init()
+int replication_producer_init()
 {
     int result;
 
     set_server_link_index_for_replication();
-    if ((result=init_binlog_local_consumer_array()) != 0) {
+    if ((result=init_replication_producer_array()) != 0) {
         return result;
     }
 
@@ -177,7 +177,7 @@ int binlog_local_consumer_init()
     return 0;
 }
 
-int binlog_local_consumer_start()
+int replication_producer_start()
 {
     int result;
     FSReplication *replication;
@@ -189,7 +189,7 @@ int binlog_local_consumer_start()
     {
         if (CLUSTER_MYSELF_PTR->server->id < replication->peer->server->id) {
             replication->is_client = true;
-            if ((result=binlog_replication_bind_thread(replication)) != 0) {
+            if ((result=replication_processor_bind_thread(replication)) != 0) {
                 return result;
             }
         }
@@ -198,7 +198,7 @@ int binlog_local_consumer_start()
     return 0;
 }
 
-void binlog_local_consumer_destroy()
+void replication_producer_destroy()
 {
     FSReplication *replication;
     FSReplication *end;
@@ -216,7 +216,7 @@ void binlog_local_consumer_destroy()
     repl_ctx.repl_array.replications = NULL;
 }
 
-void binlog_local_consumer_terminate()
+void replication_producer_terminate()
 {
     FSReplication *replication;
     FSReplication *end;
@@ -239,13 +239,14 @@ static inline void push_to_slave_replica_queues(FSReplication *replication,
     }
 }
 
-int binlog_local_consumer_push_to_queues(const int data_group_index,
-        ServerBinlogRecordBuffer *rbuffer)
+int replication_producer_push_to_queues(const int data_group_index,
+        const uint32_t hash_code, ServerBinlogRecordBuffer *rbuffer)
 {
     FSReplication *replication;
     FSReplication *end;
     //int result;
 
+    //TODO
     if (repl_ctx.repl_array.count == 0) {
         return 0;
     }

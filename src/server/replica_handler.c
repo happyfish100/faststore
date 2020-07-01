@@ -26,8 +26,8 @@
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
-#include "replication/binlog_replication.h"
-#include "replication/binlog_local_consumer.h"
+#include "replication/replication_processor.h"
+#include "replication/replication_producer.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "common_handler.h"
@@ -53,7 +53,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
     switch (CLUSTER_TASK_TYPE) {
         case  FS_CLUSTER_TASK_TYPE_REPLICATION:
             if (CLUSTER_REPLICA != NULL) {
-                binlog_replication_unbind(CLUSTER_REPLICA);
+                replication_processor_unbind(CLUSTER_REPLICA);
                 CLUSTER_REPLICA = NULL;
             }
             CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
@@ -128,7 +128,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
         return ENOENT;
     }
 
-    binlog_replication_bind_task(replication, task);
+    replication_processor_bind_task(replication, task);
     RESPONSE.header.cmd = FS_REPLICA_PROTO_JOIN_SERVER_RESP;
     return 0;
 }
@@ -262,6 +262,6 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
                 server_ctx->cluster.connected.count);
     }
 
-    binlog_replication_process(server_ctx);
+    replication_processor_process(server_ctx);
     return 0;
 }

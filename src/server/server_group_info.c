@@ -201,13 +201,17 @@ static int init_cluster_data_group_array(const char *filename,
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
         group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
-        group->belong_to_me = true;
+        if ((group->myself=fs_get_data_server(data_group_id,
+                        CLUSTER_MYSELF_PTR->server->id)) == NULL)
+        {
+            return ENOENT;
+        }
 
         /*
-        logInfo("file: "__FILE__", line: %d, func: %s, "
-                "%d. data_group_id = %d", __LINE__, __FUNCTION__,
-                i + 1, data_group_id);
-                */
+           logInfo("file: "__FILE__", line: %d, func: %s, "
+           "%d. data_group_id = %d", __LINE__, __FUNCTION__,
+           i + 1, data_group_id);
+         */
     }
 
     return 0;
@@ -275,6 +279,25 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
 static int compare_server_ptr(const void *p1, const void *p2)
 {
     return (*((FCServerInfo **)p1))->id - (*((FCServerInfo **)p2))->id;
+}
+
+static int find_myself_in_cluster_config(const char *filename)
+{
+    FCServerInfo *server;
+    int result;
+
+    if ((server=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
+        return result;
+    }
+
+    CLUSTER_MYSELF_PTR = fs_get_server_by_id(server->id);
+    if (CLUSTER_MYSELF_PTR == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, can't find myself "
+                "by my server id: %d", __LINE__, filename, server->id);
+        return ENOENT;
+    }
+    return 0;
 }
 
 static int set_server_partner_attribute(const int server_id)
@@ -359,6 +382,10 @@ static int init_cluster_server_array(const char *filename)
         logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
     }
     CLUSTER_SERVER_ARRAY.count = count;
+
+    if ((result=find_myself_in_cluster_config(filename)) != 0) {
+        return result;
+    }
 
     if ((result=set_server_partner_attribute(svr->id)) != 0) {
         return result;
@@ -472,25 +499,6 @@ int fs_get_server_pair_base_offset(const int server_id1, const int server_id2)
         return found->offset;
     }
     return -1;
-}
-
-static int find_myself_in_cluster_config(const char *filename)
-{
-    FCServerInfo *server;
-    int result;
-
-    if ((server=get_myself_in_cluster_cfg(filename, &result)) == NULL) {
-        return result;
-    }
-
-    CLUSTER_MYSELF_PTR = fs_get_server_by_id(server->id);
-    if (CLUSTER_MYSELF_PTR == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "cluster config file: %s, can't find myself "
-                "by my server id: %d", __LINE__, filename, server->id);
-        return ENOENT;
-    }
-    return 0;
 }
 
 FSClusterServerInfo *fs_get_server_by_id(const int server_id)
@@ -678,10 +686,6 @@ int server_group_info_init(const char *cluster_config_filename)
     }
 
     if ((result=init_cluster_server_array(cluster_config_filename)) != 0) {
-        return result;
-    }
-
-    if ((result=find_myself_in_cluster_config(cluster_config_filename)) != 0) {
         return result;
     }
 

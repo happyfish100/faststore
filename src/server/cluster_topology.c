@@ -302,7 +302,7 @@ void cluster_topology_set_check_master_flags()
                         old_action, FS_CLUSTER_DELAY_DECISION_NO_OP);
             }
 
-            if (group->belong_to_me) {
+            if (group->myself != NULL) {
                 cluster_topology_select_master(group, false);
             }
             continue;

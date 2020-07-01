@@ -23,7 +23,7 @@
 #include "../server_group_info.h"
 #include "../binlog/binlog_reader.h"
 #include "push_result_ring.h"
-#include "binlog_replication.h"
+#include "replication_processor.h"
 
 static void replication_queue_discard_all(FSReplication *replication);
 
@@ -58,7 +58,7 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
     return 0;
 }
 
-void binlog_replication_bind_task(FSReplication *replication,
+void replication_processor_bind_task(FSReplication *replication,
         struct fast_task_info *task)
 {
     FSServerContext *server_ctx;
@@ -72,7 +72,7 @@ void binlog_replication_bind_task(FSReplication *replication,
             cluster.connected, replication);
 }
 
-int binlog_replication_bind_thread(FSReplication *replication)
+int replication_processor_bind_thread(FSReplication *replication)
 {
     struct fast_task_info *task;
     FSServerContext *server_ctx;
@@ -105,7 +105,7 @@ int binlog_replication_bind_thread(FSReplication *replication)
     return 0;
 }
 
-int binlog_replication_unbind(FSReplication *replication)
+int replication_processor_unbind(FSReplication *replication)
 {
     int result;
     FSServerContext *server_ctx;
@@ -117,7 +117,7 @@ int binlog_replication_unbind(FSReplication *replication)
         replication_queue_discard_all(replication);
         push_result_ring_clear_all(&replication->context.push_result_ctx);
         if (replication->is_client) {
-            result = binlog_replication_bind_thread(replication);
+            result = replication_processor_bind_thread(replication);
         } else {
             set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
         }
@@ -546,7 +546,7 @@ static int sync_binlog_from_queue(FSReplication *replication)
     return 0;
 }
 
-int binlog_replications_check_response_data_version(
+int replication_processors_check_response_data_version(
         FSReplication *replication,
         const int64_t data_version)
 {
@@ -608,7 +608,7 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     return 0;
 }
 
-int binlog_replication_process(FSServerContext *server_ctx)
+int replication_processor_process(FSServerContext *server_ctx)
 {
     int result;
 

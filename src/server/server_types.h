@@ -164,13 +164,13 @@ typedef struct fs_cluster_data_group_info {
     int id;
     int index;
     uint32_t hash_code;  //for master election
-    bool belong_to_me;
     struct {
         volatile int action;
         int expire_time;
     } delay_decision;
     FSClusterDataServerArray data_server_array;
     FSClusterServerPtrArray active_slaves;
+    FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
 } FSClusterDataGroupInfo;
 
@@ -246,7 +246,6 @@ typedef struct {
             int task_type;
 
             FSClusterServerInfo *peer;   //the peer server in the cluster
-
             FSReplication *replica;
         } cluster;
     };

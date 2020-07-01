@@ -27,7 +27,7 @@ int server_binlog_init()
         return result;
     }
 
-    if ((result=binlog_local_consumer_init()) != 0) {
+    if ((result=replication_producer_init()) != 0) {
         return result;
     }
 
