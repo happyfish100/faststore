@@ -15,12 +15,9 @@ void replication_producer_terminate();
 
 int replication_producer_start();
 
-ServerBinlogRecordBuffer *replication_producer_alloc_rbuffer();
+void replication_producer_release_rbuffer(ServerBinlogRecordBuffer *rbuffer);
 
-void replication_producer_free_rbuffer(ServerBinlogRecordBuffer *rbuffer);
-
-int replication_producer_push_to_queues(const int data_group_id,
-        const uint32_t hash_code, ServerBinlogRecordBuffer *rbuffer);
+int replication_producer_push_to_slave_queues(struct fast_task_info *task);
 
 int fs_get_replication_count();
 FSReplication *fs_get_idle_replication_by_peer(const int peer_id);

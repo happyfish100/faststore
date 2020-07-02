@@ -9,7 +9,6 @@
 #include "../server_types.h"
 
 typedef struct server_binlog_record_buffer {
-    uint64_t data_version; //for idempotency (slave only)
     int64_t task_version;
     struct fast_task_info *task;
     volatile int reffer_count;

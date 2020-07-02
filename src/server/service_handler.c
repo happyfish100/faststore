@@ -24,6 +24,7 @@
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
+#include "replication/replication_producer.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -230,9 +231,18 @@ static inline void fill_slice_update_response(struct fast_task_info *task,
     TASK_ARG->context.response_done = true;
 }
 
+static int handle_slice_write_done(struct fast_task_info *task)
+{
+    TASK_ARG->context.deal_func = NULL;
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
+    fill_slice_update_response(task, TASK_CTX.slice_notify.inc_alloc);
+    return RESPONSE_STATUS;
+}
+
 static void slice_write_done_notify(FSSliceOpNotify *notify)
 {
     struct fast_task_info *task;
+    int result;
 
     task = (struct fast_task_info *)notify->notify.args;
     if (notify->result != 0) {
@@ -250,6 +260,7 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
+        result = notify->result;
     } else {
         //TODO
         TASK_CTX.data_version = __sync_add_and_fetch(
@@ -259,14 +270,22 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 TASK_CTX.data_group_id, TASK_CTX.data_version);
 
         replica_binlog_log_write_slice(TASK_CTX.data_group_id,
-            TASK_CTX.data_version, &TASK_CTX.bs_key);
+                TASK_CTX.data_version, &TASK_CTX.bs_key);
 
-        RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
-        fill_slice_update_response(task, notify->inc_alloc);
+        if ((result=replication_producer_push_to_slave_queues(task)) ==
+                TASK_STATUS_CONTINUE)
+        {
+            TASK_ARG->context.deal_func = handle_slice_write_done;
+        } else {
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
+            fill_slice_update_response(task, notify->inc_alloc);
+        }
     }
 
     RESPONSE_STATUS = notify->result;
-    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    if (result != TASK_STATUS_CONTINUE) {
+        sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    }
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,

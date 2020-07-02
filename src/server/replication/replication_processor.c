@@ -519,7 +519,8 @@ static int sync_binlog_from_queue(FSReplication *replication)
 
             //logInfo("call push_result_ring_add data_version: %"PRId64, rb->data_version);
             if ((result=push_result_ring_add(&replication->context.
-                            push_result_ctx, rb->data_version,
+                            push_result_ctx, ((FSServerTaskArg *)
+                                rb->task->arg)->context.data_version,
                             rb->task, rb->task_version)) != 0)
             {
                 return result;

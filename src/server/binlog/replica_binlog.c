@@ -53,7 +53,7 @@ static BinlogWriterArray binlog_writer_array = {NULL, 0};
 static BinlogWriterThread binlog_writer_thread;   //only one write thread
 
 static int get_last_data_version_from_file(const int data_group_id,
-        int64_t *data_version)
+        uint64_t *data_version)
 {
     BinlogWriterInfo *writer;
     char filename[PATH_MAX];
