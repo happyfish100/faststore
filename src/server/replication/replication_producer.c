@@ -299,6 +299,11 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
 
         replication = (*ds)->cs->repl_ptr_array.replications[hash_code %
             (*ds)->cs->repl_ptr_array.count];
+        if (replication->task == NULL) {
+            inactive_count++;
+            continue;
+        }
+
         push_to_slave_replica_queue(replication, rbuffer);
     }
 

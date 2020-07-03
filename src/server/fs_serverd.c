@@ -106,6 +106,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
+            break;
+        }
+
         if ((result=sf_socket_server_ex(&CLUSTER_SF_CTX)) != 0) {
             break;
         }
@@ -191,6 +195,7 @@ int main(int argc, char *argv[])
     //sched_print_all_entries();
 
     sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
+    sf_accept_loop_ex(&REPLICA_SF_CTX, false);
     sf_accept_loop();
     if (g_schedule_flag) {
         pthread_kill(schedule_tid, SIGINT);

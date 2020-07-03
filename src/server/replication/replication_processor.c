@@ -215,7 +215,6 @@ static int check_and_make_replica_connection(FSReplication *replication)
             return EAGAIN;
         }
 
-
         addr_array = &REPLICA_GROUP_ADDRESS_ARRAY(replication->peer->server);
         addr = addr_array->addrs[replication->conn_index++];
         if (replication->conn_index >= addr_array->count) {
@@ -256,6 +255,13 @@ static int check_and_make_replica_connection(FSReplication *replication)
             result = errno != 0 ? errno : EACCES;
         }
     }
+
+    /*
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "replication: %p, peer id: %d, sock: %d, result: %d",
+            __LINE__, __FUNCTION__, replication, replication->peer->server->id,
+            replication->connection_info.conn.sock, result);
+            */
 
     if (!(result == 0 || result == EINPROGRESS)) {
         close(replication->connection_info.conn.sock);
@@ -491,6 +497,8 @@ static int sync_binlog_from_queue(FSReplication *replication)
         return 0;
     }
 
+    logInfo("replication head: %p", head);
+
     last_data_version = 0;
     replication->task->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoPushBinlogReqBodyHeader);
@@ -562,7 +570,11 @@ int replication_processors_check_response_data_version(
 
 static int deal_connected_replication(FSReplication *replication)
 {
-    //logInfo("replication stage: %d", replication->stage);
+    /*
+    logInfo("replication stage: %d, task offset: %d, length: %d",
+            replication->stage, replication->task->offset,
+            replication->task->length);
+            */
 
     if (replication->stage != FS_REPLICATION_STAGE_SYNCING) {
         replication_queue_discard_all(replication);
@@ -589,13 +601,11 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     FSReplication *replication;
     int i;
 
-    /*
     static int count = 0;
 
-    if (++count % 10000 == 0) {
+    if (++count % 100 == 0) {
         logInfo("server_ctx %p, connected.count: %d", server_ctx, server_ctx->cluster.connected.count);
     }
-    */
 
     if (server_ctx->cluster.connected.count == 0) {
         return 0;

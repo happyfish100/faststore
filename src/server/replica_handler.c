@@ -152,11 +152,10 @@ int replica_deal_task(struct fast_task_info *task)
 {
     int result;
 
-    /*
     logInfo("file: "__FILE__", line: %d, "
-            "nio_stage: %d, SF_NIO_STAGE_CONTINUE: %d", __LINE__,
+            "cmd: %d, nio_stage: %d, SF_NIO_STAGE_CONTINUE: %d",
+            __LINE__, ((FSProtoHeader *)task->data)->cmd,
             task->nio_stage, SF_NIO_STAGE_CONTINUE);
-            */
 
     if (task->nio_stage == SF_NIO_STAGE_CONTINUE) {
         task->nio_stage = SF_NIO_STAGE_SEND;
@@ -183,7 +182,14 @@ int replica_deal_task(struct fast_task_info *task)
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
+                logInfo("file: "__FILE__", line: %d, "
+                        "client ip: %s, cmd: %d", __LINE__,
+                        task->client_ip, REQUEST.header.cmd);
                 result = replica_deal_join_server_req(task);
+
+                logInfo("file: "__FILE__", line: %d, "
+                        "client ip: %s, cmd: %d, result: %d", __LINE__,
+                        task->client_ip, REQUEST.header.cmd, result);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
                 result = replica_deal_join_server_resp(task);
@@ -271,7 +277,7 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
 
     server_ctx = (FSServerContext *)thread_data->arg;
 
-    if (count++ % 1000 == 0) {
+    if (count++ % 100 == 0) {
         logInfo("thread index: %d, connectings.count: %d, "
                 "connected.count: %d",
                 SF_THREAD_INDEX(REPLICA_SF_CTX, thread_data),

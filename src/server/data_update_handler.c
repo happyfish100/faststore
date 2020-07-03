@@ -123,7 +123,7 @@ static inline void fill_slice_update_response(struct fast_task_info *task,
     TASK_ARG->context.response_done = true;
 }
 
-static int handle_slice_write_done(struct fast_task_info *task)
+static int handle_slice_write_replica_done(struct fast_task_info *task)
 {
     TASK_ARG->context.deal_func = NULL;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
@@ -159,9 +159,6 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                     &TASK_CTX.myself->data_version, 1);
         }
 
-        logInfo("data_group_id: %d, TASK_CTX.data_version: %"PRId64,
-                TASK_CTX.data_group_id, TASK_CTX.data_version);
-
         replica_binlog_log_write_slice(TASK_CTX.data_group_id,
                 TASK_CTX.data_version, &TASK_CTX.bs_key);
 
@@ -169,7 +166,7 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
             if ((result=replication_producer_push_to_slave_queues(task)) ==
                     TASK_STATUS_CONTINUE)
             {
-                TASK_ARG->context.deal_func = handle_slice_write_done;
+                TASK_ARG->context.deal_func = handle_slice_write_replica_done;
             }
             else {
                 RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
@@ -179,6 +176,12 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
             RESPONSE.header.cmd = FS_REPLICA_PROTO_OP_RESP;
             result = 0;
         }
+
+        logInfo("file: "__FILE__", line: %d, "
+                "which_side: %c, data_group_id: %d, "
+                "TASK_CTX.data_version: %"PRId64", result: %d",
+                __LINE__, TASK_CTX.which_side, TASK_CTX.data_group_id,
+                TASK_CTX.data_version, result);
     }
 
     RESPONSE_STATUS = notify->result;
