@@ -48,6 +48,9 @@
 
 #define TASK_STATUS_CONTINUE   12345
 
+#define FS_WHICH_SIDE_MASTER    'M'
+#define FS_WHICH_SIDE_SLAVE     'S'
+
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.request
@@ -251,6 +254,7 @@ typedef struct {
     };
 
     int data_group_id;
+    int which_side;   //master or slave
     uint64_t data_version;
     FSClusterDataServerInfo *myself;
     FSBlockSliceKeyInfo bs_key;

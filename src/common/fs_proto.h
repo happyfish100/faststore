@@ -56,7 +56,14 @@
 #define FS_REPLICA_PROTO_PUSH_BINLOG_REQ         83
 #define FS_REPLICA_PROTO_PUSH_BINLOG_RESP        84
 
-#define FS_PROTO_MAGIC_CHAR        '#'
+#define FS_REPLICA_PROTO_SLICE_WRITE             91
+#define FS_REPLICA_PROTO_SLICE_ALLOCATE          93
+#define FS_REPLICA_PROTO_SLICE_DELETE            95
+#define FS_REPLICA_PROTO_BLOCK_DELETE            97
+#define FS_REPLICA_PROTO_OP_RESP                100
+
+
+#define FS_PROTO_MAGIC_CHAR        '@'
 #define FS_PROTO_SET_MAGIC(m)   \
     m[0] = m[1] = m[2] = m[3] = FS_PROTO_MAGIC_CHAR
 
@@ -142,6 +149,10 @@ typedef struct fs_proto_block_delete_req {
 typedef struct fs_proto_slice_read_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceReadReqHeader;
+
+typedef struct fs_proto_replica_footer {
+    char data_version[8];
+} FSProtoReplicaFooter;
 
 typedef struct {
     unsigned char servers[16];

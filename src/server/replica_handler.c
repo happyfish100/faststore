@@ -31,6 +31,7 @@
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "common_handler.h"
+#include "data_update_handler.h"
 #include "replica_handler.h"
 
 int replica_handler_init()
@@ -187,6 +188,22 @@ int replica_deal_task(struct fast_task_info *task)
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
                 result = replica_deal_join_server_resp(task);
                 TASK_ARG->context.need_response = false;
+                break;
+            case FS_REPLICA_PROTO_SLICE_WRITE:
+                result = du_handler_deal_slice_write(task,
+                        FS_WHICH_SIDE_SLAVE);
+                break;
+            case FS_REPLICA_PROTO_SLICE_ALLOCATE:
+                result = du_handler_deal_slice_allocate(task,
+                        FS_WHICH_SIDE_SLAVE);
+                break;
+            case FS_REPLICA_PROTO_SLICE_DELETE:
+                result = du_handler_deal_slice_delete(task,
+                        FS_WHICH_SIDE_SLAVE);
+                break;
+            case FS_REPLICA_PROTO_BLOCK_DELETE:
+                result = du_handler_deal_block_delete(task,
+                        FS_WHICH_SIDE_SLAVE);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

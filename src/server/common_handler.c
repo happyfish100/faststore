@@ -118,6 +118,7 @@ int handler_deal_task_done(struct fast_task_info *task)
     FSProtoHeader *proto_header;
     int r;
     int time_used;
+    char time_buff[32];
 
     if (TASK_ARG->context.log_error && RESPONSE.error.length > 0) {
         logError("file: "__FILE__", line: %d, "
@@ -153,10 +154,10 @@ int handler_deal_task_done(struct fast_task_info *task)
     r = sf_send_add_event(task);
     time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
     if (time_used > 50 * 1000) {
-        lwarning("process a request timed used: %d us, "
+        lwarning("process a request timed used: %s us, "
                 "cmd: %d (%s), req body len: %d, resp body len: %d",
-                time_used, REQUEST.header.cmd,
-                fs_get_cmd_caption(REQUEST.header.cmd),
+                long_to_comma_str(time_used, time_buff),
+                REQUEST.header.cmd, fs_get_cmd_caption(REQUEST.header.cmd),
                 REQUEST.header.body_len,
                 RESPONSE.header.body_len);
     }
@@ -165,12 +166,13 @@ int handler_deal_task_done(struct fast_task_info *task)
     logInfo("file: "__FILE__", line: %d, "
             "client ip: %s, req cmd: %d (%s), req body_len: %d, "
             "resp cmd: %d (%s), status: %d, resp body_len: %d, "
-            "time used: %d us", __LINE__,
+            "time used: %s us", __LINE__,
             task->client_ip, REQUEST.header.cmd,
             fs_get_cmd_caption(REQUEST.header.cmd),
             REQUEST.header.body_len, RESPONSE.header.cmd,
             fs_get_cmd_caption(RESPONSE.header.cmd),
-            RESPONSE_STATUS, RESPONSE.header.body_len, time_used);
+            RESPONSE_STATUS, RESPONSE.header.body_len,
+            long_to_comma_str(time_used, time_buff));
     }
 
     return r == 0 ? RESPONSE_STATUS : r;
