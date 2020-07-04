@@ -23,6 +23,7 @@
 #include "../server_group_info.h"
 #include "../binlog/binlog_reader.h"
 #include "push_result_ring.h"
+#include "replication_producer.h"
 #include "replication_processor.h"
 
 static void replication_queue_discard_all(FSReplication *replication);
@@ -463,107 +464,87 @@ void clean_connected_replications(FSServerContext *server_ctx)
     }
 }
 
-static void repush_to_replication_queue(FSReplication *replication,
-        ServerBinlogRecordBuffer *head, ServerBinlogRecordBuffer *tail)
+static int replication_rpc_from_queue(FSReplication *replication)
 {
-    PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
-    tail->nexts[replication->peer->link_index] = replication->context.queue.head;
-    replication->context.queue.head = head;
-    if (replication->context.queue.tail == NULL) {
-        replication->context.queue.tail = tail;
-    }
-    PTHREAD_MUTEX_UNLOCK(&replication->context.queue.lock);
-}
-
-static int sync_binlog_from_queue(FSReplication *replication)
-{
+    struct fc_queue_info qinfo;
     ServerBinlogRecordBuffer *rb;
-    ServerBinlogRecordBuffer *head;
-    ServerBinlogRecordBuffer *tail;
-    FSProtoPushBinlogReqBodyHeader *body_header;
-    uint64_t last_data_version;
+    struct fast_task_info *task;
+    FSProtoReplicaRPCReqBodyHeader *body_header;
+    FSProtoReplicaRPCReqBodyPart *body_part;
+    uint64_t data_version;
+    int count;
     int body_len;
-    int result;
+    int blen;
+    int pkg_len;
 
-    PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
-    head = replication->context.queue.head;
-    tail = replication->context.queue.tail;
-    if (replication->context.queue.head != NULL) {
-        replication->context.queue.head = replication->context.queue.tail = NULL;
-    }
-    PTHREAD_MUTEX_UNLOCK(&replication->context.queue.lock);
-
-    if (head == NULL) {
+    fc_queue_pop_to_queue(&replication->context.queue, &qinfo);
+    if (qinfo.head == NULL) {
         return 0;
     }
 
-    logInfo("replication head: %p", head);
+    rb = qinfo.head;
+    count = 0;
+    task = replication->task;
+    task->length = sizeof(FSProtoHeader) +
+        sizeof(FSProtoReplicaRPCReqBodyHeader);
+    do {
+        body_part = (FSProtoReplicaRPCReqBodyPart *)(task->data +
+                task->length);
 
-    last_data_version = 0;
-    replication->task->length = sizeof(FSProtoHeader) +
-        sizeof(FSProtoPushBinlogReqBodyHeader);
-    while (head != NULL) {
-        rb = head;
-        if (rb->task_version != __sync_add_and_fetch(&((FSServerTaskArg *)
-                        rb->task->arg)->task_version, 0))
-        {
-            logWarning("file: "__FILE__", line: %d, "
-                    "task %p already cleanup", __LINE__, rb->task);
-        } else {
+        logInfo("replication rb: %p", rb);
 
-            //TODO
-            /*
-            if (replication->task->length + rb->buffer.length >
-                    replication->task->size)
-            {
-                break;
-            }
+        blen = rb->task->length - sizeof(FSProtoHeader);
+        pkg_len = task->length + sizeof(*body_part) + blen;
+        if (pkg_len > task->size) {
+            bool notify;
 
-            last_data_version = rb->data_version;
-            memcpy(replication->task->data + replication->task->length,
-                    rb->buffer.data, rb->buffer.length);
-            replication->task->length += rb->buffer.length;
-            */
-
-            //logInfo("call push_result_ring_add data_version: %"PRId64, rb->data_version);
-            if ((result=push_result_ring_add(&replication->context.
-                            push_result_ctx, ((FSServerTaskArg *)
-                                rb->task->arg)->context.data_version,
-                            rb->task, rb->task_version)) != 0)
-            {
-                return result;
-            }
+            qinfo.head = rb;
+            fc_queue_push_queue_to_head_ex(&replication->context.queue,
+                    &qinfo, &notify);
+            break;
         }
 
-        head = head->nexts[replication->peer->link_index];
-        //TODO
-        //rb->release_func(rb);
+        body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
+        data_version = ((FSServerTaskArg *)rb->task->arg)->
+            context.data_version;
+        memcpy(body_part->body, rb->task->data + sizeof(FSProtoHeader), blen);
+        if (rb->task_version == __sync_add_and_fetch(&((FSServerTaskArg *)
+                        rb->task->arg)->task_version, 0))
+        {
+            ++count;
+            task->length = pkg_len;
+            long2buff(data_version, body_part->data_version);
+            int2buff(blen, body_part->body_len);
+        } else {
+            logWarning("file: "__FILE__", line: %d, "
+                    "task %p already cleanup", __LINE__, rb->task);
+            decrease_task_waiting_rpc_count(rb);
+        }
+        replication_producer_release_rbuffer(rb);
+
+        rb = rb->nexts[replication->peer->link_index];
+    } while (rb != NULL);
+
+    if (count == 0) {
+        return 0;
     }
 
-    body_header = (FSProtoPushBinlogReqBodyHeader *)
-        (replication->task->data + sizeof(FSProtoHeader));
-    body_len = replication->task->length - sizeof(FSProtoHeader);
-    int2buff(body_len - sizeof(FSProtoPushBinlogReqBodyHeader),
-            body_header->binlog_length);
-    long2buff(last_data_version, body_header->last_data_version);
+    body_header = (FSProtoReplicaRPCReqBodyHeader *)
+        (task->data + sizeof(FSProtoHeader));
+    body_len = task->length - sizeof(FSProtoHeader);
+    int2buff(count, body_header->count);
 
-    FS_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
-            FS_REPLICA_PROTO_PUSH_BINLOG_REQ, body_len);
-    sf_send_add_event(replication->task);
-
-    if (head != NULL) {
-        repush_to_replication_queue(replication, head, tail);
-    }
+    FS_PROTO_SET_HEADER((FSProtoHeader *)task->data,
+            FS_REPLICA_PROTO_RPC_REQ, body_len);
+    sf_send_add_event(task);
     return 0;
 }
 
-int replication_processors_check_response_data_version(
-        FSReplication *replication,
-        const int64_t data_version)
+int replication_processors_deal_rpc_response(FSReplication *replication,
+        const uint64_t data_version)
 {
     if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
-        return push_result_ring_remove(&replication->context.
-                push_result_ctx, data_version);
+        //TODO
     }
     return 0;
 }
@@ -590,7 +571,7 @@ static int deal_connected_replication(FSReplication *replication)
 
     if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
         push_result_ring_clear_timeouts(&replication->context.push_result_ctx);
-        return sync_binlog_from_queue(replication);
+        return replication_rpc_from_queue(replication);
     }
 
     return 0;

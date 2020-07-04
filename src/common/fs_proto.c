@@ -305,8 +305,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "REPLICA_SLICE_DELETE";
         case FS_REPLICA_PROTO_BLOCK_DELETE:
             return "REPLICA_BLOCK_DELETE";
-        case FS_REPLICA_PROTO_OP_RESP:
-            return "REPLICA_OP_RESP";
+        case FS_REPLICA_PROTO_RPC_REQ:
+            return "REPLICA_RPC_REQ";
+        case FS_REPLICA_PROTO_RPC_RESP:
+            return "REPLICA_RPC_RESP";
         default:
             return "UNKOWN";
     }

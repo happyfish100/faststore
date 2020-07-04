@@ -23,9 +23,8 @@ int replication_processor_process(FSServerContext *server_ctx);
 
 void clean_connected_replications(FSServerContext *server_ctx);
 
-int replication_processors_check_response_data_version(
-        FSReplication *replication,
-        const int64_t data_version);
+int replication_processors_deal_rpc_response(FSReplication *replication,
+        const uint64_t data_version);
 
 static inline void set_replication_stage(FSReplication *
         replication, const int stage)

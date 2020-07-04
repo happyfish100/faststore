@@ -148,6 +148,91 @@ static int replica_deal_join_server_resp(struct fast_task_info *task)
     return 0;
 }
 
+static inline int replica_check_replication_task(struct fast_task_info *task)
+{
+    if (CLUSTER_TASK_TYPE != FS_CLUSTER_TASK_TYPE_REPLICATION) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "invalid task type: %d != %d", CLUSTER_TASK_TYPE,
+                FS_CLUSTER_TASK_TYPE_REPLICATION);
+        return EINVAL;
+    }
+
+    if (CLUSTER_REPLICA == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "cluster replication ptr is null");
+        return EINVAL;
+    }
+    return 0;
+}
+
+static int replica_deal_rpc_resp(struct fast_task_info *task)
+{
+    int result;
+    int count;
+    int expect_body_len;
+    short err_no;
+    uint64_t data_version;
+    FSProtoReplicaRPCRespBodyHeader *body_header;
+    FSProtoReplicaRPCRespBodyPart *body_part;
+    FSProtoReplicaRPCRespBodyPart *bp_end;
+
+    if ((result=replica_check_replication_task(task)) != 0) {
+        return result;
+    }
+
+    if ((result=server_check_min_body_length(task,
+                    sizeof(FSProtoReplicaRPCRespBodyHeader) +
+                    sizeof(FSProtoReplicaRPCRespBodyPart))) != 0)
+    {
+        return result;
+    }
+
+    body_header = (FSProtoReplicaRPCRespBodyHeader *)REQUEST.body;
+    count = buff2int(body_header->count);
+
+    expect_body_len = sizeof(FSProtoReplicaRPCRespBodyHeader) +
+        sizeof(FSProtoReplicaRPCRespBodyPart) * count;
+    if (REQUEST.header.body_len != expect_body_len) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "body length: %d != expected: %d, results count: %d",
+                REQUEST.header.body_len, expect_body_len, count);
+        return EINVAL;
+    }
+
+    body_part = (FSProtoReplicaRPCRespBodyPart *)(REQUEST.body +
+            sizeof(FSProtoReplicaRPCRespBodyHeader));
+    bp_end = body_part + count;
+    for (; body_part<bp_end; body_part++) {
+        data_version = buff2long(body_part->data_version);
+        err_no = buff2short(body_part->err_no);
+        if (err_no != 0) {
+            result = err_no;
+            RESPONSE.error.length = sprintf(
+                    RESPONSE.error.message,
+                    "replica fail, data_version: %"PRId64
+                    ", result: %d", data_version, err_no);
+            break;
+        }
+
+        //logInfo("push_binlog_resp data_version: %"PRId64", errno: %d", data_version, err_no);
+
+        if ((result=replication_processors_deal_rpc_response(
+                        CLUSTER_REPLICA, data_version)) != 0)
+        {
+            RESPONSE.error.length = sprintf(
+                    RESPONSE.error.message,
+                    "push_result_ring_remove fail, "
+                    "data_version: %"PRId64", result: %d",
+                    data_version, result);
+            break;
+        }
+    }
+
+    return result;
+}
+
 int replica_deal_task(struct fast_task_info *task)
 {
     int result;
@@ -210,6 +295,10 @@ int replica_deal_task(struct fast_task_info *task)
             case FS_REPLICA_PROTO_BLOCK_DELETE:
                 result = du_handler_deal_block_delete(task,
                         FS_WHICH_SIDE_SLAVE);
+                break;
+            case FS_REPLICA_PROTO_RPC_RESP:
+                result = replica_deal_rpc_resp(task);
+                TASK_ARG->context.need_response = false;
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

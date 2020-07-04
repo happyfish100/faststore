@@ -60,7 +60,8 @@
 #define FS_REPLICA_PROTO_SLICE_ALLOCATE          93
 #define FS_REPLICA_PROTO_SLICE_DELETE            95
 #define FS_REPLICA_PROTO_BLOCK_DELETE            97
-#define FS_REPLICA_PROTO_OP_RESP                100
+#define FS_REPLICA_PROTO_RPC_REQ                 99
+#define FS_REPLICA_PROTO_RPC_RESP               100
 
 
 #define FS_PROTO_MAGIC_CHAR        '@'
@@ -105,10 +106,12 @@ typedef struct fs_proto_header {
 
 typedef struct fs_proto_client_join_req {
     char data_group_count[4];
+    char padding[4];
 } FSProtoClientJoinReq;
 
 typedef struct fs_proto_client_join_resp {
     char buffer_size[4];
+    char padding[4];
 } FSProtoClientJoinResp;
 
 typedef struct fs_proto_block_key {
@@ -132,6 +135,7 @@ typedef struct fs_proto_slice_write_req_header {
 
 typedef struct fs_proto_slice_update_resp {
     char inc_alloc[4];   //increase alloc space in bytes
+    char padding[4];
 } FSProtoSliceUpdateResp;
 
 typedef struct fs_proto_slice_allocate_req {
@@ -150,26 +154,24 @@ typedef struct fs_proto_slice_read_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceReadReqHeader;
 
-typedef struct fs_proto_replica_footer {
-    char data_version[8];
-} FSProtoReplicaFooter;
-
 typedef struct {
     unsigned char servers[16];
     unsigned char cluster[16];
 } FSProtoConfigSigns;
 
 typedef struct fs_proto_get_server_status_req {
-    char server_id[4];
     FSProtoConfigSigns config_signs;
+    char server_id[4];
+    char padding[4];
 } FSProtoGetServerStatusReq;
 
 typedef struct fs_proto_get_server_status_resp {
-    char is_leader;
     char server_id[4];
     char up_time[4];
-    char last_shutdown_time[4];
     char version[8];
+    char last_shutdown_time[4];
+    char is_leader;
+    char padding[3];
 } FSProtoGetServerStatusResp;
 
 typedef struct fs_proto_service_stat_resp {
@@ -199,31 +201,35 @@ typedef struct fs_proto_cluster_stat_resp_body_header {
 typedef struct fs_proto_cluster_stat_resp_body_part {
     char data_group_id[4];
     char server_id[4];
+    char data_version[8];
     char ip_addr[IP_ADDRESS_SIZE];
     char port[2];
     char is_master;
     char status;
-    char data_version[8];
+    char padding[4];
 } FSProtoClusterStatRespBodyPart;
 
 /* for FS_SERVICE_PROTO_GET_MASTER_RESP and
    FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP
    */
 typedef struct fs_proto_get_server_resp {
-    char server_id[4];
     char ip_addr[IP_ADDRESS_SIZE];
+    char server_id[4];
     char port[2];
+    char padding[2];
 } FSProtoGetServerResp;
 
 typedef struct fs_proto_get_slaves_resp_body_header {
     char count[2];
+    char padding[6];
 } FSProtoGetSlavesRespBodyHeader;
 
 typedef struct fs_proto_get_slaves_resp_body_part {
-    char server_id[4];
     char ip_addr[IP_ADDRESS_SIZE];
+    char server_id[4];
     char port[2];
     char status;
+    char padding[1];
 } FSProtoGetSlavesRespBodyPart;
 
 typedef struct fs_proto_join_leader_req {
@@ -244,39 +250,53 @@ typedef struct fs_proto_join_server_resp {
 typedef struct fs_proto_push_data_server_status_header  {
     char current_version[8];
     char data_server_count[4];
+    char padding[4];
 } FSProtoPushDataServerStatusHeader;
 
 typedef struct fs_proto_push_data_server_status_body_part {
     char data_group_id[4];
     char server_id[4];
+    char data_version[8];
     char is_master;
     char status;
-    char data_version[8];
+    char padding[6];
 } FSProtoPushDataServerStatusBodyPart;
 
 typedef struct fs_proto_ping_leader_req_header  {
     char data_group_count[4];
+    char padding[4];
 } FSProtoPingLeaderReqHeader;
 
 typedef struct fs_proto_ping_leader_req_body_part {
+    char data_version[8];
     char data_group_id[4];
     char status;
-    char data_version[8];
+    char padding[3];
 } FSProtoPingLeaderReqBodyPart;
 
-typedef struct fs_proto_push_binlog_req_body_header {
-    char binlog_length[4];
-    char last_data_version[8];
-} FSProtoPushBinlogReqBodyHeader;
-
-typedef struct fs_proto_push_binlog_resp_body_header {
+typedef struct fs_proto_replica_rpc_req_body_header {
     char count[4];
-} FSProtoPushBinlogRespBodyHeader;
+    char padding[4];
+} FSProtoReplicaRPCReqBodyHeader;
 
-typedef struct fs_proto_push_binlog_resp_body_part {
+typedef struct fs_proto_replica_rpc_req_body_part {
+    char data_version[8];
+    char body_len[4];
+    unsigned char cmd;
+    char padding[3];
+    char body[0];
+} FSProtoReplicaRPCReqBodyPart;
+
+typedef struct fs_proto_replica_rpc_resp_body_header {
+    char count[4];
+    char padding[4];
+} FSProtoReplicaRPCRespBodyHeader;
+
+typedef struct fs_proto_replica_rpc_resp_body_part {
     char data_version[8];
     char err_no[2];
-} FSProtoPushBinlogRespBodyPart;
+    char padding[6];
+} FSProtoReplicaRPCRespBodyPart;
 
 #ifdef __cplusplus
 extern "C" {

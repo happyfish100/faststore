@@ -90,7 +90,9 @@ static int service_deal_client_join(struct fast_task_info *task)
 
     join_resp = (FSProtoClientJoinResp *)REQUEST.body;
     int2buff(g_sf_global_vars.min_buff_size - (sizeof(FSProtoHeader) +
-            4 * sizeof(FSProtoSliceWriteReqHeader)), join_resp->buffer_size);
+            4 * sizeof(FSProtoSliceWriteReqHeader) +
+            sizeof(FSProtoReplicaRPCReqBodyPart)),
+            join_resp->buffer_size);
     RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLIENT_JOIN_RESP;
     TASK_ARG->context.response_done = true;

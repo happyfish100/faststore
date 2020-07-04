@@ -256,10 +256,8 @@ static inline ServerBinlogRecordBuffer *replication_producer_alloc_rbuffer()
 void replication_producer_release_rbuffer(ServerBinlogRecordBuffer *rbuffer)
 {
     if (__sync_sub_and_fetch(&rbuffer->reffer_count, 1) == 0) {
-        /*
         logInfo("file: "__FILE__", line: %d, "
                 "free record buffer: %p", __LINE__, rbuffer);
-                */
         fast_mblock_free_object(&repl_ctx.rb_allocator, rbuffer);
     }
 }
