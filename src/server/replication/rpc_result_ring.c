@@ -15,9 +15,9 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
-#include "push_result_ring.h"
+#include "rpc_result_ring.h"
 
-int push_result_ring_check_init(FSBinlogPushResultContext *ctx,
+int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
         const int alloc_size)
 {
     int bytes;
@@ -26,8 +26,8 @@ int push_result_ring_check_init(FSBinlogPushResultContext *ctx,
         return 0;
     }
 
-    bytes = sizeof(FSBinlogPushResultEntry) * alloc_size;
-    ctx->ring.entries = (FSBinlogPushResultEntry *)malloc(bytes);
+    bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
+    ctx->ring.entries = (FSReplicaRPCResultEntry *)malloc(bytes);
     if (ctx->ring.entries == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "malloc %d bytes fail", __LINE__, bytes);
@@ -40,12 +40,12 @@ int push_result_ring_check_init(FSBinlogPushResultContext *ctx,
 
     ctx->queue.head = ctx->queue.tail = NULL;
     return fast_mblock_init_ex2(&ctx->queue.rentry_allocator,
-        "push_result", sizeof(FSBinlogPushResultEntry), 4096,
+        "push_result", sizeof(FSReplicaRPCResultEntry), 4096,
         NULL, NULL, false, NULL, NULL, NULL);
 }
 
 static inline void desc_task_waiting_rpc_count(
-        FSBinlogPushResultEntry *entry)
+        FSReplicaRPCResultEntry *entry)
 {
     FSServerTaskArg *task_arg;
 
@@ -71,10 +71,10 @@ static inline void desc_task_waiting_rpc_count(
     }
 }
 
-static void push_result_ring_clear_queue_all(FSBinlogPushResultContext *ctx)
+static void rpc_result_ring_clear_queue_all(FSReplicaRPCResultContext *ctx)
 {
-    FSBinlogPushResultEntry *current;
-    FSBinlogPushResultEntry *deleted;
+    FSReplicaRPCResultEntry *current;
+    FSReplicaRPCResultEntry *deleted;
 
     if (ctx->queue.head == NULL) {
         return;
@@ -92,12 +92,12 @@ static void push_result_ring_clear_queue_all(FSBinlogPushResultContext *ctx)
     ctx->queue.head = ctx->queue.tail = NULL;
 }
 
-void push_result_ring_clear_all(FSBinlogPushResultContext *ctx)
+void rpc_result_ring_clear_all(FSReplicaRPCResultContext *ctx)
 {
     int index;
 
     if (ctx->ring.start == ctx->ring.end) {
-        push_result_ring_clear_queue_all(ctx);
+        rpc_result_ring_clear_queue_all(ctx);
         return;
     }
 
@@ -111,14 +111,14 @@ void push_result_ring_clear_all(FSBinlogPushResultContext *ctx)
             (++index % ctx->ring.size);
     }
 
-    push_result_ring_clear_queue_all(ctx);
+    rpc_result_ring_clear_queue_all(ctx);
 }
 
-static int  push_result_ring_clear_queue_timeouts(
-        FSBinlogPushResultContext *ctx)
+static int  rpc_result_ring_clear_queue_timeouts(
+        FSReplicaRPCResultContext *ctx)
 {
-    FSBinlogPushResultEntry *current;
-    FSBinlogPushResultEntry *deleted;
+    FSReplicaRPCResultEntry *current;
+    FSReplicaRPCResultEntry *deleted;
     int count;
 
     if (ctx->queue.head == NULL) {
@@ -153,7 +153,7 @@ static int  push_result_ring_clear_queue_timeouts(
     return count;
 }
 
-void push_result_ring_clear_timeouts(FSBinlogPushResultContext *ctx)
+void rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx)
 {
     int index;
     int clear_count;
@@ -185,7 +185,7 @@ void push_result_ring_clear_timeouts(FSBinlogPushResultContext *ctx)
         }
     }
 
-    clear_count += push_result_ring_clear_queue_timeouts(ctx);
+    clear_count += rpc_result_ring_clear_queue_timeouts(ctx);
     if (clear_count > 0) {
         logWarning("file: "__FILE__", line: %d, "
                 "clear timeout push response waiting entries count: %d",
@@ -193,7 +193,7 @@ void push_result_ring_clear_timeouts(FSBinlogPushResultContext *ctx)
     }
 }
 
-void push_result_ring_destroy(FSBinlogPushResultContext *ctx)
+void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx)
 {
     if (ctx->ring.entries != NULL) {
         free(ctx->ring.entries);
@@ -204,15 +204,15 @@ void push_result_ring_destroy(FSBinlogPushResultContext *ctx)
     fast_mblock_destroy(&ctx->queue.rentry_allocator);
 }
 
-static int add_to_queue(FSBinlogPushResultContext *ctx,
+static int add_to_queue(FSReplicaRPCResultContext *ctx,
             const uint64_t data_version, struct fast_task_info *waiting_task,
             const int64_t task_version)
 {
-    FSBinlogPushResultEntry *entry;
-    FSBinlogPushResultEntry *previous;
-    FSBinlogPushResultEntry *current;
+    FSReplicaRPCResultEntry *entry;
+    FSReplicaRPCResultEntry *previous;
+    FSReplicaRPCResultEntry *current;
 
-    entry = (FSBinlogPushResultEntry *)fast_mblock_alloc_object(
+    entry = (FSReplicaRPCResultEntry *)fast_mblock_alloc_object(
             &ctx->queue.rentry_allocator);
     if (entry == NULL) {
         return ENOMEM;
@@ -254,13 +254,13 @@ static int add_to_queue(FSBinlogPushResultContext *ctx,
     return 0;
 }
 
-int push_result_ring_add(FSBinlogPushResultContext *ctx,
+int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
         const uint64_t data_version, struct fast_task_info *waiting_task,
         const int64_t task_version)
 {
-    FSBinlogPushResultEntry *entry;
-    FSBinlogPushResultEntry *previous;
-    FSBinlogPushResultEntry *next;
+    FSReplicaRPCResultEntry *entry;
+    FSReplicaRPCResultEntry *previous;
+    FSReplicaRPCResultEntry *next;
     int index;
     bool matched;
 
@@ -297,12 +297,12 @@ int push_result_ring_add(FSBinlogPushResultContext *ctx,
     return add_to_queue(ctx, data_version, waiting_task, task_version);
 }
 
-static int remove_from_queue(FSBinlogPushResultContext *ctx,
+static int remove_from_queue(FSReplicaRPCResultContext *ctx,
         const uint64_t data_version)
 {
-    FSBinlogPushResultEntry *entry;
-    FSBinlogPushResultEntry *previous;
-    FSBinlogPushResultEntry *current;
+    FSReplicaRPCResultEntry *entry;
+    FSReplicaRPCResultEntry *previous;
+    FSReplicaRPCResultEntry *current;
 
     if (ctx->queue.head == NULL) {  //empty queue
         return ENOENT;
@@ -338,10 +338,10 @@ static int remove_from_queue(FSBinlogPushResultContext *ctx,
     return 0;
 }
 
-int push_result_ring_remove(FSBinlogPushResultContext *ctx,
+int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
         const uint64_t data_version)
 {
-    FSBinlogPushResultEntry *entry;
+    FSReplicaRPCResultEntry *entry;
     int index;
 
     if (ctx->ring.end != ctx->ring.start) {

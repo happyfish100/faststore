@@ -22,7 +22,7 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../binlog/binlog_reader.h"
-#include "push_result_ring.h"
+#include "rpc_result_ring.h"
 #include "replication_producer.h"
 #include "replication_processor.h"
 
@@ -116,7 +116,7 @@ int replication_processor_unbind(FSReplication *replication)
                 cluster.connected, replication)) == 0)
     {
         replication_queue_discard_all(replication);
-        push_result_ring_clear_all(&replication->context.push_result_ctx);
+        rpc_result_ring_clear_all(&replication->context.caller.rpc_result_ctx);
         if (replication->is_client) {
             result = replication_processor_bind_thread(replication);
         } else {
@@ -307,7 +307,7 @@ static int send_join_slave_package(FSReplication *replication)
     return result;
 }
 
-static void decrease_task_waiting_rpc_count(ServerBinlogRecordBuffer *rb)
+static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
 {
     if (rb->task_version != __sync_add_and_fetch(&((FSServerTaskArg *)
                     rb->task->arg)->task_version, 0))
@@ -325,32 +325,25 @@ static void decrease_task_waiting_rpc_count(ServerBinlogRecordBuffer *rb)
 }
 
 static void discard_queue(FSReplication *replication,
-        ServerBinlogRecordBuffer *head, ServerBinlogRecordBuffer *tail)
+        ReplicationRPCEntry *head)
 {
-    ServerBinlogRecordBuffer *rb;
-    while (head != tail) {
+    ReplicationRPCEntry *rb;
+    while (head != NULL) {
         rb = head;
         head = head->nexts[replication->peer->link_index];
 
         decrease_task_waiting_rpc_count(rb);
-        //TODO
-        //rb->release_func(rb);
+        replication_producer_release_rpc_entry(rb);
     }
 }
 
 static void replication_queue_discard_all(FSReplication *replication)
 {
-    ServerBinlogRecordBuffer *head;
+    struct fc_queue_info qinfo;
 
-    PTHREAD_MUTEX_LOCK(&replication->context.queue.lock);
-    head = replication->context.queue.head;
-    if (replication->context.queue.head != NULL) {
-        replication->context.queue.head = replication->context.queue.tail = NULL;
-    }
-    PTHREAD_MUTEX_UNLOCK(&replication->context.queue.lock);
-
-    if (head != NULL) {
-        discard_queue(replication, head, NULL);
+    fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
+    if (qinfo.head != NULL) {
+        discard_queue(replication, (ReplicationRPCEntry *)qinfo.head);
     }
 }
 
@@ -467,7 +460,7 @@ void clean_connected_replications(FSServerContext *server_ctx)
 static int replication_rpc_from_queue(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
-    ServerBinlogRecordBuffer *rb;
+    ReplicationRPCEntry *rb;
     struct fast_task_info *task;
     FSProtoReplicaRPCReqBodyHeader *body_header;
     FSProtoReplicaRPCReqBodyPart *body_part;
@@ -477,7 +470,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int blen;
     int pkg_len;
 
-    fc_queue_pop_to_queue(&replication->context.queue, &qinfo);
+    fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }
@@ -499,7 +492,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
             bool notify;
 
             qinfo.head = rb;
-            fc_queue_push_queue_to_head_ex(&replication->context.queue,
+            fc_queue_push_queue_to_head_ex(&replication->context.caller.rpc_queue,
                     &qinfo, &notify);
             break;
         }
@@ -520,7 +513,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
                     "task %p already cleanup", __LINE__, rb->task);
             decrease_task_waiting_rpc_count(rb);
         }
-        replication_producer_release_rbuffer(rb);
+        replication_producer_release_rpc_entry(rb);
 
         rb = rb->nexts[replication->peer->link_index];
     } while (rb != NULL);
@@ -570,7 +563,7 @@ static int deal_connected_replication(FSReplication *replication)
     }
 
     if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
-        push_result_ring_clear_timeouts(&replication->context.push_result_ctx);
+        rpc_result_ring_clear_timeouts(&replication->context.caller.rpc_result_ctx);
         return replication_rpc_from_queue(replication);
     }
 

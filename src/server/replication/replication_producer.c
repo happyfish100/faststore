@@ -19,13 +19,13 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "replication_processor.h"
-#include "push_result_ring.h"
+#include "rpc_result_ring.h"
 #include "replication_producer.h"
 
 typedef struct {
     FSReplicationArray repl_array;
+    struct fast_mblock_man rpc_allocator;
     pthread_mutex_t lock;
-    struct fast_mblock_man rb_allocator;
 } BinlogReplicationContext;
 
 static BinlogReplicationContext repl_ctx;
@@ -49,23 +49,44 @@ static void set_server_link_index_for_replication()
     }
 }
 
+static int rpc_result_alloc_init_func(void *element, void *args)
+{
+    ((ReplicationRPCResult *)element)->repl = (FSReplication *)args;
+    return 0;
+}
+
 static int init_replication_processor(FSReplication *replication)
 {
     int result;
     int alloc_size;
 
     replication->connection_info.conn.sock = -1;
-    if ((result=fc_queue_init(&replication->context.queue,
-                    (long)(&((ServerBinlogRecordBuffer *)NULL)->nexts) +
+    if ((result=fc_queue_init(&replication->context.caller.rpc_queue,
+                    (long)(&((ReplicationRPCEntry *)NULL)->nexts) +
                     sizeof(void *) * replication->peer->link_index)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fc_queue_init(&replication->context.callee.done_queue,
+                    (long)(&((ReplicationRPCResult*)NULL)->next))) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex2(&replication->context.callee.
+                    result_allocator, "rpc_result",
+                    sizeof(ReplicationRPCResult), 256,
+                    rpc_result_alloc_init_func, replication,
+                    true, NULL, NULL, NULL)) != 0)
     {
         return result;
     }
 
     alloc_size = 4 * g_sf_global_vars.min_buff_size /
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
-    if ((result=push_result_ring_check_init(&replication->
-                    context.push_result_ctx, alloc_size)) != 0)
+    if ((result=rpc_result_ring_check_init(&replication->
+                    context.caller.rpc_result_ctx, alloc_size)) != 0)
     {
         return result;
     }
@@ -169,12 +190,11 @@ int replication_producer_init()
         return result;
     }
 
-    element_size = sizeof(ServerBinlogRecordBuffer) +
-        sizeof(struct server_binlog_record_buffer *) *
-        CLUSTER_SERVER_ARRAY.count;
-    if ((result=fast_mblock_init_ex2(&repl_ctx.rb_allocator,
-                    "record_buffer", element_size, 1024,
-                    NULL, NULL, true, NULL, NULL, NULL)) != 0)
+    element_size = sizeof(ReplicationRPCEntry) +
+        sizeof(ReplicationRPCEntry *) * CLUSTER_SERVER_ARRAY.count;
+    if ((result=fast_mblock_init_ex2(&repl_ctx.rpc_allocator,
+                    "rpc_entry", element_size, 1024, NULL, NULL,
+                    true, NULL, NULL, NULL)) != 0)
     {
         return result;
     }
@@ -222,7 +242,7 @@ void replication_producer_destroy()
     for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++)
     {
-        fc_queue_destroy(&replication->context.queue);
+        fc_queue_destroy(&replication->context.caller.rpc_queue);
     }
     free(repl_ctx.repl_array.replications);
     repl_ctx.repl_array.replications = NULL;
@@ -240,51 +260,51 @@ void replication_producer_terminate()
     }
 }
 
-static inline ServerBinlogRecordBuffer *replication_producer_alloc_rbuffer()
+static inline ReplicationRPCEntry *replication_producer_alloc_rpc_entry()
 {
-    ServerBinlogRecordBuffer *rbuffer;
+    ReplicationRPCEntry *rpc;
 
-    rbuffer = (ServerBinlogRecordBuffer *)fast_mblock_alloc_object(
-            &repl_ctx.rb_allocator);
-    if (rbuffer == NULL) {
+    rpc = (ReplicationRPCEntry *)fast_mblock_alloc_object(
+            &repl_ctx.rpc_allocator);
+    if (rpc == NULL) {
         return NULL;
     }
 
-    return rbuffer;
+    return rpc;
 }
 
-void replication_producer_release_rbuffer(ServerBinlogRecordBuffer *rbuffer)
+void replication_producer_release_rpc_entry(ReplicationRPCEntry *rpc)
 {
-    if (__sync_sub_and_fetch(&rbuffer->reffer_count, 1) == 0) {
+    if (__sync_sub_and_fetch(&rpc->reffer_count, 1) == 0) {
         logInfo("file: "__FILE__", line: %d, "
-                "free record buffer: %p", __LINE__, rbuffer);
-        fast_mblock_free_object(&repl_ctx.rb_allocator, rbuffer);
+                "free record buffer: %p", __LINE__, rpc);
+        fast_mblock_free_object(&repl_ctx.rpc_allocator, rpc);
     }
 }
 
 static inline void push_to_slave_replica_queue(FSReplication *replication,
-        ServerBinlogRecordBuffer *rbuffer)
+        ReplicationRPCEntry *rpc)
 {
     bool notify;
 
-    fc_queue_push_ex(&replication->context.queue, rbuffer, &notify);
+    fc_queue_push_ex(&replication->context.caller.rpc_queue, rpc, &notify);
     if (notify) {
         iovent_notify_thread(replication->task->thread_data);
     }
 }
 
 static int push_to_slave_queues(FSClusterDataGroupInfo *group,
-        const uint32_t hash_code, ServerBinlogRecordBuffer *rbuffer)
+        const uint32_t hash_code, ReplicationRPCEntry *rpc)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
     FSReplication *replication;
     int inactive_count;
 
-    __sync_add_and_fetch(&rbuffer->reffer_count,
+    __sync_add_and_fetch(&rpc->reffer_count,
             group->slave_ds_array.count);
 
-    __sync_add_and_fetch(&((FSServerTaskArg *)rbuffer->task->arg)->context.
+    __sync_add_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->context.
             service.waiting_rpc_count, group->slave_ds_array.count);
 
     inactive_count = 0;
@@ -302,14 +322,14 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
             continue;
         }
 
-        push_to_slave_replica_queue(replication, rbuffer);
+        push_to_slave_replica_queue(replication, rpc);
     }
 
     if (inactive_count > 0) {
-        __sync_sub_and_fetch(&rbuffer->reffer_count, inactive_count);
+        __sync_sub_and_fetch(&rpc->reffer_count, inactive_count);
     }
 
-    if (__sync_sub_and_fetch(&((FSServerTaskArg *)rbuffer->task->arg)->
+    if (__sync_sub_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->
                 context.service.waiting_rpc_count, inactive_count) == 0)
     {
         return 0;
@@ -321,7 +341,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
 int replication_producer_push_to_slave_queues(struct fast_task_info *task)
 {
     FSClusterDataGroupInfo *group;
-    ServerBinlogRecordBuffer *rbuffer;
+    ReplicationRPCEntry *rpc;
     int result;
 
     if ((group=fs_get_data_group(TASK_CTX.data_group_id)) == NULL) {
@@ -332,17 +352,17 @@ int replication_producer_push_to_slave_queues(struct fast_task_info *task)
         return 0;
     }
 
-    if ((rbuffer=replication_producer_alloc_rbuffer()) == NULL) {
+    if ((rpc=replication_producer_alloc_rpc_entry()) == NULL) {
         return ENOMEM;
     }
 
-    rbuffer->task = task;
-    rbuffer->task_version = __sync_add_and_fetch(&((FSServerTaskArg *)
+    rpc->task = task;
+    rpc->task_version = __sync_add_and_fetch(&((FSServerTaskArg *)
                 task->arg)->task_version, 0);
     if ((result=push_to_slave_queues(group, TASK_CTX.bs_key.block.hash_code,
-                    rbuffer)) != TASK_STATUS_CONTINUE)
+                    rpc)) != TASK_STATUS_CONTINUE)
     {
-        fast_mblock_free_object(&repl_ctx.rb_allocator, rbuffer);
+        fast_mblock_free_object(&repl_ctx.rpc_allocator, rpc);
     }
     return result;
 }

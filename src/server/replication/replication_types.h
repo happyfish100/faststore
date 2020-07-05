@@ -8,11 +8,18 @@
 #include <pthread.h>
 #include "../server_types.h"
 
-typedef struct server_binlog_record_buffer {
-    int64_t task_version;
+typedef struct replication_rpc_entry {
+    uint64_t task_version;
     struct fast_task_info *task;
     volatile int reffer_count;
-    struct server_binlog_record_buffer *nexts[0];  //for slave replications
-} ServerBinlogRecordBuffer;
+    struct replication_rpc_entry *nexts[0];  //for slave replications
+} ReplicationRPCEntry;
+
+typedef struct replication_rpc_result {
+    FSReplication *repl;  //for mblock allocator
+    short err_no;
+    uint64_t data_version;
+    struct replication_rpc_result *next;
+} ReplicationRPCResult;
 
 #endif

@@ -15,7 +15,7 @@ void replication_producer_terminate();
 
 int replication_producer_start();
 
-void replication_producer_release_rbuffer(ServerBinlogRecordBuffer *rbuffer);
+void replication_producer_release_rpc_entry(ReplicationRPCEntry *rpc);
 
 int replication_producer_push_to_slave_queues(struct fast_task_info *task);
 

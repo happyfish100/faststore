@@ -184,34 +184,41 @@ typedef struct fs_cluster_data_group_array {
     volatile int delay_decision_count;
 } FSClusterDataGroupArray;
 
-typedef struct fdir_binlog_push_result_entry {
+typedef struct fs_rpc_result_entry {
     uint64_t data_version;
     int64_t task_version;
     time_t expires;
     struct fast_task_info *waiting_task;
-    struct fdir_binlog_push_result_entry *next;
-} FSBinlogPushResultEntry;
+    struct fs_rpc_result_entry *next;
+} FSReplicaRPCResultEntry;
 
-typedef struct fdir_binlog_push_result_context {
+typedef struct fs_rpc_result_context {
     struct {
-        FSBinlogPushResultEntry *entries;
-        FSBinlogPushResultEntry *start; //for consumer
-        FSBinlogPushResultEntry *end;   //for producer
+        FSReplicaRPCResultEntry *entries;
+        FSReplicaRPCResultEntry *start; //for consumer
+        FSReplicaRPCResultEntry *end;   //for producer
         int size;
     } ring;
 
     struct {
-        FSBinlogPushResultEntry *head;
-        FSBinlogPushResultEntry *tail;
+        FSReplicaRPCResultEntry *head;
+        FSReplicaRPCResultEntry *tail;
         struct fast_mblock_man rentry_allocator;
     } queue;   //for overflow exceptions
 
     time_t last_check_timeout_time;
-} FSBinlogPushResultContext;
+} FSReplicaRPCResultContext;
 
 typedef struct fs_replication_context {
-    struct fc_queue queue;  //push to peer
-    FSBinlogPushResultContext push_result_ctx;   //push result recv from peer
+    struct {
+        struct fc_queue rpc_queue;
+        FSReplicaRPCResultContext rpc_result_ctx;   //push result recv from peer
+    } caller;  //master side
+
+    struct {
+        struct fc_queue done_queue;
+        struct fast_mblock_man result_allocator;
+    } callee;  //slave side
 } FSReplicationContext;
 
 typedef struct fs_replication {

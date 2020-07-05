@@ -264,6 +264,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
                 return EINVAL;
         }
         if (result != TASK_STATUS_CONTINUE) {
+            //add to complete queue
             //TODO
         }
     }
@@ -328,7 +329,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
         {
             RESPONSE.error.length = sprintf(
                     RESPONSE.error.message,
-                    "push_result_ring_remove fail, "
+                    "rpc_result_ring_remove fail, "
                     "data_version: %"PRId64", result: %d",
                     data_version, result);
             break;
