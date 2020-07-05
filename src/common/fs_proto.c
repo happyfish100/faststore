@@ -293,18 +293,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "JOIN_SERVER_REQ";
         case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
             return "JOIN_SERVER_RESP";
-        case FS_REPLICA_PROTO_PUSH_BINLOG_REQ:
-            return "PUSH_BINLOG_REQ";
-        case FS_REPLICA_PROTO_PUSH_BINLOG_RESP:
-            return "PUSH_BINLOG_RESP";
-        case FS_REPLICA_PROTO_SLICE_WRITE:
-            return "REPLICA_SLICE_WRITE";
-        case FS_REPLICA_PROTO_SLICE_ALLOCATE:
-            return "REPLICA_SLICE_ALLOCATE";
-        case FS_REPLICA_PROTO_SLICE_DELETE:
-            return "REPLICA_SLICE_DELETE";
-        case FS_REPLICA_PROTO_BLOCK_DELETE:
-            return "REPLICA_BLOCK_DELETE";
+        case FS_REPLICA_PROTO_GET_BINLOG_REQ:
+            return "GET_BINLOG_REQ";
+        case FS_REPLICA_PROTO_GET_BINLOG_RESP:
+            return "GET_BINLOG_RESP";
         case FS_REPLICA_PROTO_RPC_REQ:
             return "REPLICA_RPC_REQ";
         case FS_REPLICA_PROTO_RPC_RESP:

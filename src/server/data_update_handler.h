@@ -19,17 +19,13 @@ extern "C" {
 int du_handler_parse_check_block_slice(struct fast_task_info *task,
         const FSProtoBlockSlice *bs, const bool master_only);
 
-int du_handler_deal_slice_write(struct fast_task_info *task,
-        const int which_side);
+int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body);
 
-int du_handler_deal_slice_allocate(struct fast_task_info *task,
-        const int which_side);
+int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body);
 
-int du_handler_deal_slice_delete(struct fast_task_info *task,
-        const int which_side);
+int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body);
 
-int du_handler_deal_block_delete(struct fast_task_info *task,
-        const int which_side);
+int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body);
 
 static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
         task, const char *caption, const int result)

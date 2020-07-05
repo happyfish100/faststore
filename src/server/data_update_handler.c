@@ -173,7 +173,7 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 fill_slice_update_response(task, notify->inc_alloc);
             }
         } else {
-            RESPONSE.header.cmd = FS_REPLICA_PROTO_OP_RESP;
+            RESPONSE.header.cmd = FS_REPLICA_PROTO_RPC_RESP;
             result = 0;
         }
 
@@ -200,59 +200,32 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
             TASK_CTX.bs_key.block.offset);
 }
 
-#define DH_SET_EXTRA_PKG_LENGTH(which) \
-    int footer_len;  \
-    TASK_CTX.which_side = which;  \
-    footer_len = which == FS_WHICH_SIDE_MASTER ? \
-    0 : sizeof(FSProtoReplicaFooter)
-
-#define DH_SET_DATA_VERSION(task, which) \
-    do { \
-        if (which == FS_WHICH_SIDE_MASTER) {   \
-            TASK_CTX.data_version = 0;  \
-        } else {  \
-            FSProtoReplicaFooter *footer;  \
-            footer = (FSProtoReplicaFooter *)(REQUEST.body + (REQUEST.header. \
-                        body_len - sizeof(FSProtoReplicaFooter)));   \
-            TASK_CTX.data_version = buff2long(footer->data_version); \
-            if (TASK_CTX.data_version <= 0) {  \
-                RESPONSE.error.length = sprintf(RESPONSE.error.message, \
-                        "invalid data version: %"PRId64, \
-                        TASK_CTX.data_version);  \
-                return EINVAL; \
-            }  \
-        }  \
-    } while (0)
-
-
-int du_handler_deal_slice_write(struct fast_task_info *task,
-        const int which_side)
+int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
 {
     FSProtoSliceWriteReqHeader *req_header;
     char *buff;
     int result;
 
-    DH_SET_EXTRA_PKG_LENGTH(which_side);
     if ((result=server_check_min_body_length(task,
-                    sizeof(FSProtoSliceWriteReqHeader) + footer_len)) != 0)
+                    sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
         return result;
     }
 
-    req_header = (FSProtoSliceWriteReqHeader *)REQUEST.body;
-    if ((result=du_handler_parse_check_block_slice(task,&req_header->bs,
-                    which_side == FS_WHICH_SIDE_MASTER)) != 0)
+    req_header = (FSProtoSliceWriteReqHeader *)body;
+    if ((result=du_handler_parse_check_block_slice(task, &req_header->bs,
+                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
     if (sizeof(FSProtoSliceWriteReqHeader) + TASK_CTX.bs_key.slice.length
-            + footer_len != REQUEST.header.body_len)
+        != REQUEST.header.body_len)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "body header length: %d + slice length: %d + footer length: %d"
+                "body header length: %d + slice length: %d"
                 " != body length: %d", (int)sizeof(FSProtoSliceWriteReqHeader),
-                TASK_CTX.bs_key.slice.length, footer_len, REQUEST.header.body_len);
+                TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
         return EINVAL;
     }
 
@@ -260,7 +233,7 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
             "data_group_id: %d", __LINE__, __FUNCTION__,
             TASK_CTX.data_group_id);
 
-    buff = REQUEST.body + sizeof(FSProtoSliceWriteReqHeader);
+    buff = body + sizeof(FSProtoSliceWriteReqHeader);
     TASK_CTX.slice_notify.notify.func = slice_write_done_notify;
     TASK_CTX.slice_notify.notify.args = task;
 
@@ -286,7 +259,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     }
     */
 
-    DH_SET_DATA_VERSION(task, which_side);
     if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
                     &TASK_CTX.slice_notify)) != 0)
     {
@@ -297,28 +269,25 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     return TASK_STATUS_CONTINUE;
 }
 
-int du_handler_deal_slice_allocate(struct fast_task_info *task,
-        const int which_side)
+int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
 {
     int result;
     int inc_alloc;
     FSProtoSliceAllocateReq *req;
 
-    DH_SET_EXTRA_PKG_LENGTH(which_side);
     if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoSliceAllocateReq) + footer_len)) != 0)
+                    sizeof(FSProtoSliceAllocateReq))) != 0)
     {
         return result;
     }
 
-    req = (FSProtoSliceAllocateReq *)REQUEST.body;
+    req = (FSProtoSliceAllocateReq *)body;
     if ((result=du_handler_parse_check_block_slice(task, &req->bs,
-                    which_side == FS_WHICH_SIDE_MASTER)) != 0)
+                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    DH_SET_DATA_VERSION(task, which_side);
     if ((result=fs_slice_allocate_ex(&TASK_CTX.bs_key, ((FSServerContext *)
                         task->thread_data->arg)->service.slice_ptr_array,
                     &inc_alloc)) != 0)
@@ -332,28 +301,25 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     return 0;
 }
 
-int du_handler_deal_slice_delete(struct fast_task_info *task,
-        const int which_side)
+int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
 {
     int result;
     int dec_alloc;
     FSProtoSliceDeleteReq *req;
 
-    DH_SET_EXTRA_PKG_LENGTH(which_side);
     if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoSliceDeleteReq) + footer_len)) != 0)
+                    sizeof(FSProtoSliceDeleteReq))) != 0)
     {
         return result;
     }
 
-    req = (FSProtoSliceDeleteReq *)REQUEST.body;
+    req = (FSProtoSliceDeleteReq *)body;
     if ((result=du_handler_parse_check_block_slice(task, &req->bs,
-                    which_side == FS_WHICH_SIDE_MASTER)) != 0)
+                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    DH_SET_DATA_VERSION(task, which_side);
     if ((result=ob_index_delete_slices(&TASK_CTX.bs_key, &dec_alloc)) != 0) {
         du_handler_set_slice_op_error_msg(task, "delete", result);
         return result;
@@ -364,28 +330,25 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     return 0;
 }
 
-int du_handler_deal_block_delete(struct fast_task_info *task,
-        const int which_side)
+int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body)
 {
     int result;
     int dec_alloc;
     FSProtoBlockDeleteReq *req;
 
-    DH_SET_EXTRA_PKG_LENGTH(which_side);
     if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoBlockDeleteReq) + footer_len)) != 0)
+                    sizeof(FSProtoBlockDeleteReq))) != 0)
     {
         return result;
     }
 
-    req = (FSProtoBlockDeleteReq *)REQUEST.body;
+    req = (FSProtoBlockDeleteReq *)body;
     if ((result=parse_check_block_key_ex(task, &req->bkey,
-                    which_side == FS_WHICH_SIDE_MASTER)) != 0)
+                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    DH_SET_DATA_VERSION(task, which_side);
     if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block,
                     &dec_alloc)) != 0)
     {

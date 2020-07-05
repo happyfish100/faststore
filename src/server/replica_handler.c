@@ -166,6 +166,111 @@ static inline int replica_check_replication_task(struct fast_task_info *task)
     return 0;
 }
 
+static int replica_deal_rpc_req(struct fast_task_info *task)
+{
+    FSProtoReplicaRPCReqBodyHeader *body_header;
+    FSProtoReplicaRPCReqBodyPart *body_part;
+    int result;
+    int min_body_len;
+    int count;
+    int blen;
+    int current_len;
+    int last_index;
+    int i;
+
+    if ((result=replica_check_replication_task(task)) != 0) {
+        return result;
+    }
+
+    if ((result=server_check_min_body_length(task,
+                    sizeof(FSProtoReplicaRPCReqBodyHeader) +
+                    sizeof(FSProtoReplicaRPCReqBodyPart))) != 0)
+    {
+        return result;
+    }
+
+    body_header = (FSProtoReplicaRPCReqBodyHeader *)REQUEST.body;
+    count = buff2int(body_header->count);
+    if (count <= 0) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "rpc count: %d <= 0", count);
+        return EINVAL;
+    }
+
+    min_body_len = sizeof(FSProtoReplicaRPCReqBodyHeader) +
+        sizeof(FSProtoReplicaRPCReqBodyPart) * count;
+    if (REQUEST.header.body_len < min_body_len) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "body length: %d < min length: %d, rpc count: %d",
+                REQUEST.header.body_len, min_body_len, count);
+        return EINVAL;
+    }
+
+    TASK_CTX.which_side = FS_WHICH_SIDE_SLAVE;
+    last_index = count - 1;
+    current_len = sizeof(FSProtoReplicaRPCReqBodyHeader);
+    for (i=0; i<count; i++) {
+        body_part = (FSProtoReplicaRPCReqBodyPart *)
+            (REQUEST.body + current_len);
+        blen = buff2int(body_part->body_len);
+        if (blen <= 0) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "rpc body length: %d <= 0", blen);
+            return EINVAL;
+        }
+        current_len += sizeof(*body_part) + blen;
+        if (i < last_index) {
+            if (REQUEST.header.body_len < current_len) {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "body length: %d < %d, rpc count: %d, current: %d",
+                        REQUEST.header.body_len, current_len, count, i + 1);
+                return EINVAL;
+            }
+        } else {
+            if (REQUEST.header.body_len != current_len) {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "body length: %d != %d, rpc count: %d",
+                        REQUEST.header.body_len, current_len, count);
+                return EINVAL;
+            }
+        }
+
+        TASK_CTX.data_version = buff2long(body_part->data_version);
+        if (TASK_CTX.data_version <= 0) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "invalid data version: %"PRId64, TASK_CTX.data_version);
+            return EINVAL;
+        }
+        switch (body_part->cmd) {
+            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+                result = du_handler_deal_slice_write_ex(task,
+                        (char *)(body_part + 1));
+                break;
+            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+                result = du_handler_deal_slice_allocate_ex(task,
+                        (char *)(body_part + 1));
+                break;
+            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+                result = du_handler_deal_slice_delete_ex(task,
+                        (char *)(body_part + 1));
+                break;
+            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+                result = du_handler_deal_block_delete_ex(task,
+                        (char *)(body_part + 1));
+                break;
+            default:
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "unkown cmd: %d", body_part->cmd);
+                return EINVAL;
+        }
+        if (result != TASK_STATUS_CONTINUE) {
+            //TODO
+        }
+    }
+
+    return 0;
+}
+
 static int replica_deal_rpc_resp(struct fast_task_info *task)
 {
     int result;
@@ -280,21 +385,8 @@ int replica_deal_task(struct fast_task_info *task)
                 result = replica_deal_join_server_resp(task);
                 TASK_ARG->context.need_response = false;
                 break;
-            case FS_REPLICA_PROTO_SLICE_WRITE:
-                result = du_handler_deal_slice_write(task,
-                        FS_WHICH_SIDE_SLAVE);
-                break;
-            case FS_REPLICA_PROTO_SLICE_ALLOCATE:
-                result = du_handler_deal_slice_allocate(task,
-                        FS_WHICH_SIDE_SLAVE);
-                break;
-            case FS_REPLICA_PROTO_SLICE_DELETE:
-                result = du_handler_deal_slice_delete(task,
-                        FS_WHICH_SIDE_SLAVE);
-                break;
-            case FS_REPLICA_PROTO_BLOCK_DELETE:
-                result = du_handler_deal_block_delete(task,
-                        FS_WHICH_SIDE_SLAVE);
+            case FS_REPLICA_PROTO_RPC_REQ:
+                result = replica_deal_rpc_req(task);
                 break;
             case FS_REPLICA_PROTO_RPC_RESP:
                 result = replica_deal_rpc_resp(task);

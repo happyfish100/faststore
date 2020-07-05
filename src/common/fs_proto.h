@@ -53,13 +53,9 @@
 //replication commands, master -> slave
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
 #define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
-#define FS_REPLICA_PROTO_PUSH_BINLOG_REQ         83
-#define FS_REPLICA_PROTO_PUSH_BINLOG_RESP        84
+#define FS_REPLICA_PROTO_GET_BINLOG_REQ          83
+#define FS_REPLICA_PROTO_GET_BINLOG_RESP         84
 
-#define FS_REPLICA_PROTO_SLICE_WRITE             91
-#define FS_REPLICA_PROTO_SLICE_ALLOCATE          93
-#define FS_REPLICA_PROTO_SLICE_DELETE            95
-#define FS_REPLICA_PROTO_BLOCK_DELETE            97
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
 

@@ -385,6 +385,34 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     return 0;
 }
 
+static inline int service_deal_slice_write(struct fast_task_info *task)
+{
+    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    TASK_CTX.data_version = 0;
+    return du_handler_deal_slice_write_ex(task, REQUEST.body);
+}
+
+static inline int service_deal_slice_allocate(struct fast_task_info *task)
+{
+    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    TASK_CTX.data_version = 0;
+    return du_handler_deal_slice_allocate_ex(task, REQUEST.body);
+}
+
+static inline int service_deal_slice_delete(struct fast_task_info *task)
+{
+    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    TASK_CTX.data_version = 0;
+    return du_handler_deal_slice_delete_ex(task, REQUEST.body);
+}
+
+static inline int service_deal_block_delete(struct fast_task_info *task)
+{
+    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    TASK_CTX.data_version = 0;
+    return du_handler_deal_block_delete_ex(task, REQUEST.body);
+}
+
 int service_deal_task(struct fast_task_info *task)
 {
     int result;
@@ -422,20 +450,16 @@ int service_deal_task(struct fast_task_info *task)
                 result = service_deal_service_stat(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-                result = du_handler_deal_slice_write(task,
-                        FS_WHICH_SIDE_MASTER);
+                result = service_deal_slice_write(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-                result = du_handler_deal_slice_allocate(task,
-                        FS_WHICH_SIDE_MASTER);
+                result = service_deal_slice_allocate(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-                result = du_handler_deal_slice_delete(task,
-                        FS_WHICH_SIDE_MASTER);
+                result = service_deal_slice_delete(task);
                 break;
             case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-                result = du_handler_deal_block_delete(task,
-                        FS_WHICH_SIDE_MASTER);
+                result = service_deal_block_delete(task);
                 break;
             case FS_SERVICE_PROTO_SLICE_READ_REQ:
                 result = service_deal_slice_read(task);
