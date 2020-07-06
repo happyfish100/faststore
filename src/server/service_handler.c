@@ -131,7 +131,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
-static void slice_read_done_notify(FSSliceOpNotify *notify)
+static void slice_read_done_notify(FSSliceOpContext *notify)
 {
     struct fast_task_info *task;
 
@@ -147,8 +147,8 @@ static void slice_read_done_notify(FSSliceOpNotify *notify)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                TASK_CTX.bs_key.block.oid, TASK_CTX.bs_key.block.offset,
-                TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
+                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
+                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
     } else {
@@ -181,21 +181,20 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return result;
     }
 
-    if (TASK_CTX.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
+    if (OP_CTX_INFO.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "read slice length: %d > task buffer size: %d",
-                TASK_CTX.bs_key.slice.length, (int)(
+                OP_CTX_INFO.bs_key.slice.length, (int)(
                     task->size - sizeof(FSProtoHeader)));
         return EOVERFLOW;
     }
 
     buff = REQUEST.body;
-    TASK_CTX.slice_notify.notify.func = slice_read_done_notify;
-    TASK_CTX.slice_notify.notify.args = task;
-    if ((result=fs_slice_read_ex(&TASK_CTX.bs_key, buff,
-                    &TASK_CTX.slice_notify, ((FSServerContext *)task->
-                        thread_data->arg)->service.slice_ptr_array)) != 0)
-    {
+    OP_CTX_NOTIFY.func = slice_read_done_notify;
+    OP_CTX_NOTIFY.args = task;
+    result = fs_slice_read_ex(&SLICE_OP_CTX, buff, ((FSServerContext *)
+                task->thread_data->arg)->service.slice_ptr_array);
+    if (result != 0) {
         du_handler_set_slice_op_error_msg(task, "read", result);
         return result;
     }
@@ -388,28 +387,28 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 static inline int service_deal_slice_write(struct fast_task_info *task)
 {
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    TASK_CTX.data_version = 0;
+    OP_CTX_INFO.data_version = 0;
     return du_handler_deal_slice_write_ex(task, REQUEST.body);
 }
 
 static inline int service_deal_slice_allocate(struct fast_task_info *task)
 {
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    TASK_CTX.data_version = 0;
+    OP_CTX_INFO.data_version = 0;
     return du_handler_deal_slice_allocate_ex(task, REQUEST.body);
 }
 
 static inline int service_deal_slice_delete(struct fast_task_info *task)
 {
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    TASK_CTX.data_version = 0;
+    OP_CTX_INFO.data_version = 0;
     return du_handler_deal_slice_delete_ex(task, REQUEST.body);
 }
 
 static inline int service_deal_block_delete(struct fast_task_info *task)
 {
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    TASK_CTX.data_version = 0;
+    OP_CTX_INFO.data_version = 0;
     return du_handler_deal_block_delete_ex(task, REQUEST.body);
 }
 

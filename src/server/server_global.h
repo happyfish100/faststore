@@ -32,6 +32,7 @@ typedef struct server_global_vars {
     struct {
         string_t path;   //data path
         int binlog_buffer_size;
+        volatile uint64_t slice_binlog_sn;  //slice binlog sn
     } data;
 
     FSStorageConfig storage_cfg;
@@ -56,6 +57,7 @@ typedef struct server_global_vars {
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 
 #define CLUSTER_CURRENT_VERSION  g_server_global_vars.cluster.current_version
+#define SLICE_BINLOG_SN          g_server_global_vars.data.slice_binlog_sn
 
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars.replica.sf_context

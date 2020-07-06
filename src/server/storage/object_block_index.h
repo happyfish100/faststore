@@ -47,26 +47,13 @@ extern "C" {
     int ob_index_init();
     void ob_index_destroy();
 
-    int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc);
+    int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc);
 
-    int ob_index_delete_slices_ex(const FSBlockSliceKeyInfo *bs_key,
-            int *dec_alloc, const bool write_to_binlog);
+    int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
+            uint64_t *sn, int *dec_alloc);
 
-    static inline int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
-            int *dec_alloc)
-    {
-        const bool write_to_binlog = true;
-        return ob_index_delete_slices_ex(bs_key, dec_alloc, write_to_binlog);
-    }
-
-    int ob_index_delete_block_ex(const FSBlockKey *bkey, int *dec_alloc,
-            const bool write_to_binlog);
-
-    static inline int ob_index_delete_block(const FSBlockKey *bkey, int *dec_alloc)
-    {
-        const bool write_to_binlog = true;
-        return ob_index_delete_block_ex(bkey, dec_alloc, write_to_binlog);
-    }
+    int ob_index_delete_block(const FSBlockKey *bkey,
+            uint64_t *sn, int *dec_alloc);
 
     OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
 
@@ -96,16 +83,14 @@ extern "C" {
             const FSBlockSliceKeyInfo *bs_key)
     {
         int dec_alloc;
-        const bool write_to_binlog = false;
-        return ob_index_delete_slices_ex(bs_key, &dec_alloc, write_to_binlog);
+        return ob_index_delete_slices(bs_key, NULL, &dec_alloc);
     }
 
     static inline int ob_index_delete_block_by_binlog(
             const FSBlockKey *bkey)
     {
         int dec_alloc;
-        const bool write_to_binlog = false;
-        return ob_index_delete_block_ex(bkey, &dec_alloc, write_to_binlog);
+        return ob_index_delete_block(bkey, NULL, &dec_alloc);
     }
 
 #ifdef __cplusplus

@@ -502,11 +502,9 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob,
     return do_add_slice(ob, slice);
 }
 
-int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc)
+int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc)
 {
     int result;
-
-    __sync_add_and_fetch(&slice->ref_count, 1);
 
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
@@ -516,12 +514,10 @@ int ob_index_add_slice(OBSliceEntry *slice, int *inc_alloc)
     OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&ctx->lock);
     result = add_slice(ctx, slice->ob, slice, inc_alloc);
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
-
     if (result == 0) {
-        result = slice_binlog_log_add_slice(slice);
+        *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
     }
-    ob_index_free_slice(slice);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return result;
 }
@@ -647,8 +643,8 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
     return 0;
 }
 
-int ob_index_delete_slices_ex(const FSBlockSliceKeyInfo *bs_key,
-        int *dec_alloc, const bool write_to_binlog)
+int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
+        uint64_t *sn, int *dec_alloc)
 {
     OBEntry *ob;
     int result;
@@ -661,22 +657,22 @@ int ob_index_delete_slices_ex(const FSBlockSliceKeyInfo *bs_key,
         result = ENOENT;
     } else {
         result = delete_slices(ctx, ob, bs_key, &count, dec_alloc);
+        if (result == 0 && sn != NULL) {
+            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        }
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    if (write_to_binlog && (result == 0)) {
-        result = slice_binlog_log_del_slice(bs_key);
-    }
     return result;
 }
 
-int ob_index_delete_block_ex(const FSBlockKey *bkey, int *dec_alloc,
-        const bool write_to_binlog)
+int ob_index_delete_block(const FSBlockKey *bkey, uint64_t *sn, int *dec_alloc)
 {
     OBEntry *ob;
     OBEntry *previous;
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
+    int result;
 
     OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
 
@@ -697,19 +693,17 @@ int ob_index_delete_block_ex(const FSBlockKey *bkey, int *dec_alloc,
             previous->next = ob->next;
         }
 
+        if (sn != NULL) {
+            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        }
         fast_mblock_delay_free_object(&ctx->ob_allocator, ob, 3600);
+        result = 0;
+    } else {
+        result = ENOENT;
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    if (ob != NULL) {
-        if (write_to_binlog) {
-            return slice_binlog_log_del_block(bkey);
-        } else {
-            return 0;
-        }
-    } else {
-        return ENOENT;
-    }
+    return result;
 }
 
 static int add_to_slice_ptr_array(OBSlicePtrArray *array,

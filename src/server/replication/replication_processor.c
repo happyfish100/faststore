@@ -499,7 +499,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
         body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
         data_version = ((FSServerTaskArg *)rb->task->arg)->
-            context.data_version;
+            context.slice_op_ctx.info.data_version;
         memcpy(body_part->body, rb->task->data + sizeof(FSProtoHeader), blen);
         if (rb->task_version == __sync_add_and_fetch(&((FSServerTaskArg *)
                         rb->task->arg)->task_version, 0))

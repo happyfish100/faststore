@@ -16,7 +16,7 @@ typedef struct replication_rpc_entry {
 } ReplicationRPCEntry;
 
 typedef struct replication_rpc_result {
-    FSReplication *repl;  //for mblock allocator
+    FSReplication *replication;
     short err_no;
     uint64_t data_version;
     struct replication_rpc_result *next;

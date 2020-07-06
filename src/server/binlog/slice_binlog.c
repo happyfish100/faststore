@@ -19,29 +19,30 @@
 #define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
 
 #define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
-#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      1
+#define BINLOG_COMMON_FIELD_DATA_VERSION       1
+#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      2
 
-#define ADD_SLICE_FIELD_INDEX_SLICE_TYPE       2
-#define ADD_SLICE_FIELD_INDEX_BLOCK_OID        3
-#define ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET     4
-#define ADD_SLICE_FIELD_INDEX_SLICE_OFFSET     5
-#define ADD_SLICE_FIELD_INDEX_SLICE_LENGTH     6
-#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 7
-#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   8
-#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR     9
-#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    10
-#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      11
-#define ADD_SLICE_EXPECT_FIELD_COUNT          12
+#define ADD_SLICE_FIELD_INDEX_SLICE_TYPE       3
+#define ADD_SLICE_FIELD_INDEX_BLOCK_OID        4
+#define ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET     5
+#define ADD_SLICE_FIELD_INDEX_SLICE_OFFSET     6
+#define ADD_SLICE_FIELD_INDEX_SLICE_LENGTH     7
+#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 8
+#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   9
+#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR    10 
+#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    11
+#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      12
+#define ADD_SLICE_EXPECT_FIELD_COUNT          13
 
-#define DEL_SLICE_FIELD_INDEX_BLOCK_OID        2
-#define DEL_SLICE_FIELD_INDEX_BLOCK_OFFSET     3
-#define DEL_SLICE_FIELD_INDEX_SLICE_OFFSET     4
-#define DEL_SLICE_FIELD_INDEX_SLICE_LENGTH     5
-#define DEL_SLICE_EXPECT_FIELD_COUNT           6
+#define DEL_SLICE_FIELD_INDEX_BLOCK_OID        3
+#define DEL_SLICE_FIELD_INDEX_BLOCK_OFFSET     4
+#define DEL_SLICE_FIELD_INDEX_SLICE_OFFSET     5
+#define DEL_SLICE_FIELD_INDEX_SLICE_LENGTH     6
+#define DEL_SLICE_EXPECT_FIELD_COUNT           7
 
-#define DEL_BLOCK_FIELD_INDEX_BLOCK_OID        2
-#define DEL_BLOCK_FIELD_INDEX_BLOCK_OFFSET     3
-#define DEL_BLOCK_EXPECT_FIELD_COUNT           4
+#define DEL_BLOCK_FIELD_INDEX_BLOCK_OID        3
+#define DEL_BLOCK_FIELD_INDEX_BLOCK_OFFSET     4
+#define DEL_BLOCK_EXPECT_FIELD_COUNT           5
 
 #define MAX_BINLOG_FIELD_COUNT  16
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
@@ -265,7 +266,17 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
 
 static int init_binlog_writer()
 {
-    return binlog_writer_init(&binlog_writer, FS_SLICE_BINLOG_SUBDIR_NAME,
+    int result;
+
+    if ((result=binlog_writer_init_by_version(&binlog_writer.writer,
+                    FS_SLICE_BINLOG_SUBDIR_NAME, SLICE_BINLOG_SN + 1,
+                    4096)) != 0)
+    {
+        return result;
+    }
+
+    return binlog_writer_init_thread(&binlog_writer.thread,
+            &binlog_writer.writer, FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
             FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
@@ -292,7 +303,8 @@ void slice_binlog_destroy()
     binlog_writer_finish(&binlog_writer.writer);
 }
 
-int slice_binlog_log_add_slice(const OBSliceEntry *slice)
+int slice_binlog_log_add_slice(const OBSliceEntry *slice,
+        const uint64_t sn, const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -300,11 +312,13 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice)
         return ENOMEM;
     }
 
+    wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %c %"PRId64" %"PRId64" %d %d "
+            "%d %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
-            (int)g_current_time, SLICE_BINLOG_OP_TYPE_ADD_SLICE,
-            slice->type, slice->ob->bkey.oid, slice->ob->bkey.offset,
+            (int)g_current_time, data_version,
+            SLICE_BINLOG_OP_TYPE_ADD_SLICE, slice->type,
+            slice->ob->bkey.oid, slice->ob->bkey.offset,
             slice->ssize.offset, slice->ssize.length,
             slice->space.store->index, slice->space.id_info.id,
             slice->space.id_info.subdir, slice->space.offset,
@@ -313,7 +327,8 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice)
     return 0;
 }
 
-int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key)
+int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
+        const uint64_t sn, const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -321,16 +336,19 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key)
         return ENOMEM;
     }
 
+    wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %"PRId64" %"PRId64" %d %d\n",
-            (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_SLICE,
-            bs_key->block.oid, bs_key->block.offset,
-            bs_key->slice.offset, bs_key->slice.length);
+            "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+            (int)g_current_time, data_version,
+            SLICE_BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
+            bs_key->block.offset, bs_key->slice.offset,
+            bs_key->slice.length);
     push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }
 
-int slice_binlog_log_del_block(const FSBlockKey *bkey)
+int slice_binlog_log_del_block(const FSBlockKey *bkey,
+        const uint64_t sn, const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -338,9 +356,11 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey)
         return ENOMEM;
     }
 
+    wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %"PRId64" %"PRId64"\n",
-            (int)g_current_time, SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
+            "%d %"PRId64" %c %"PRId64" %"PRId64"\n",
+            (int)g_current_time, data_version,
+            SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
     push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;

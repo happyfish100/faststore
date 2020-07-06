@@ -5,36 +5,68 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
+#include "../binlog/slice_binlog.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
 
-static void slice_write_done(struct trunk_io_buffer *record, const int result)
+static void slice_write_finish(FSSliceOpContext *op_ctx)
 {
-    FSSliceOpNotify *notify;
+    uint64_t sns[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
+    uint64_t data_version;
     int inc_alloc;
     int r;
+    int i;
 
-    notify = (FSSliceOpNotify *)record->notify.args;
-    if (result == 0) {
-        notify->done_bytes += record->slice->ssize.length;
-        if ((r=ob_index_add_slice(record->slice, &inc_alloc)) == 0) {
-            notify->inc_alloc += inc_alloc;
+    if (op_ctx->result == 0) {
+        for (i=0; i<op_ctx->write.sarray.count; i++) {
+            if ((r=ob_index_add_slice(op_ctx->write.sarray.slices[i],
+                            sns + i, &inc_alloc)) != 0)
+            {
+                op_ctx->result = r;
+                return;
+            }
+            op_ctx->write.inc_alloc += inc_alloc;
+        }
+
+        //data_version = __sync_add_and_fetch(&OP_CTX_INFO.myself->data_version, 1);
+
+        data_version = 0;
+
+        for (i=0; i<op_ctx->write.sarray.count; i++) {
+            if ((r=slice_binlog_log_add_slice(op_ctx->write.sarray.slices[i],
+                            sns[i], data_version)) != 0) {
+                op_ctx->result = r;
+                return;
+            }
         }
     } else {
-        r = result;
+        for (i=0; i<op_ctx->write.sarray.count; i++) {
+        }
     }
-    if (r != 0) {
-        notify->result = r;
-        ob_index_free_slice(record->slice);
+
+    //TODO
+    //ob_index_free_slice(record->slice);
+}
+
+static void slice_write_done(struct trunk_io_buffer *record, const int result)
+{
+    FSSliceOpContext *op_ctx;
+
+    op_ctx = (FSSliceOpContext *)record->notify.args;
+    if (result == 0) {
+        op_ctx->done_bytes += record->slice->ssize.length;
+    } else {
+        op_ctx->result = result;
     }
 
     logInfo("slice_write_done result: %d, offset: %d, length: %d, "
             "done_bytes: %d", result, record->slice->ssize.offset,
-            record->slice->ssize.length, notify->done_bytes);
+            record->slice->ssize.length, op_ctx->done_bytes);
 
-    if (__sync_sub_and_fetch(&notify->counter, 1) == 0) {
-        if (notify->notify.func != NULL) {
-            notify->notify.func(notify);
+    if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
+        slice_write_finish(op_ctx);
+        if (op_ctx->notify.func != NULL) {
+            op_ctx->notify.func(op_ctx);
         }
     }
 }
@@ -119,38 +151,37 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-int fs_slice_write_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
-        FSSliceOpNotify *notify, const bool reclaim_alloc)
+int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
+        const bool reclaim_alloc)
 {
     int result;
-    int slice_count;
     int i;
-    OBSliceEntry *slices[2];
 
-    if ((result=fs_slice_alloc(bs_key, OB_SLICE_TYPE_FILE,
-                    reclaim_alloc, slices, &slice_count)) != 0)
+    if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
+                    reclaim_alloc, op_ctx->write.sarray.slices,
+                    &op_ctx->write.sarray.count)) != 0)
     {
         return result;
     }
 
-    notify->result = 0;
-    notify->done_bytes = 0;
-    notify->inc_alloc = 0;
-    notify->counter = slice_count;
-    if (slice_count == 1) {
+    op_ctx->result = 0;
+    op_ctx->done_bytes = 0;
+    op_ctx->write.inc_alloc = 0;
+    op_ctx->counter = op_ctx->write.sarray.count;
+    if (op_ctx->write.sarray.count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            slices[0], buff, slice_write_done,
-                            notify);
+                            op_ctx->write.sarray.slices[0], buff,
+                            slice_write_done, op_ctx);
     } else {
         int length;
         char *ps;
 
         ps = buff;
-        for (i=0; i<slice_count; i++) {
-            length = slices[i]->ssize.length;
+        for (i=0; i<op_ctx->write.sarray.count; i++) {
+            length = op_ctx->write.sarray.slices[i]->ssize.length;
             if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            slices[i], ps, slice_write_done,
-                            notify)) != 0)
+                            op_ctx->write.sarray.slices[i], ps,
+                            slice_write_done, op_ctx)) != 0)
             {
                 break;
             }
@@ -221,7 +252,7 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
     return 0;
 }
 
-int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
+int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
         OBSlicePtrArray *sarray, int *inc_alloc)
 {
 #define SLICE_MAX_HOLES  256
@@ -229,6 +260,7 @@ int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
     int r;
     FSSliceSize ssizes[SLICE_MAX_HOLES];
     FSBlockSliceKeyInfo new_bskey;
+    uint64_t sn;
     int count;
     int slice_count;
     int inc;
@@ -237,13 +269,13 @@ int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
     OBSliceEntry *slices[2];
 
     *inc_alloc = 0;
-    if ((result=get_slice_index_holes(bs_key, sarray, ssizes,
+    if ((result=get_slice_index_holes(&op_ctx->info.bs_key, sarray, ssizes,
                     SLICE_MAX_HOLES, &count)) != 0)
     {
         return result;
     }
 
-    new_bskey.block = bs_key->block;
+    new_bskey.block = op_ctx->info.bs_key.block;
     for (k=0; k<count; k++) {
         new_bskey.slice = ssizes[k];
         if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
@@ -252,11 +284,13 @@ int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
             return result;
         }
 
+        //TODO
         for (i=0; i<slice_count; i++) {
-            if ((r=ob_index_add_slice(slices[i], &inc)) == 0) {
+            if ((r=ob_index_add_slice(slices[i], &sn, &inc)) == 0) {
                 *inc_alloc += inc;
             } else {
                 result = r;
+                ob_index_free_slice(slices[i]);
             }
         }
     }
@@ -269,36 +303,36 @@ int fs_slice_allocate_ex(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-static void do_read_done(OBSliceEntry *slice, FSSliceOpNotify *notify,
+static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
         const int result)
 {
     if (result == 0) {
-        notify->done_bytes += slice->ssize.length;
+        op_ctx->done_bytes += slice->ssize.length;
     } else {
-        notify->result = result;
+        op_ctx->result = result;
     }
 
     /*
     logInfo("slice_read_done result: %d, offset: %d, length: %d, "
             "done_bytes: %d", result, slice->ssize.offset,
-            slice->ssize.length, notify->done_bytes);
+            slice->ssize.length, op_ctx->done_bytes);
             */
 
     ob_index_free_slice(slice);
-    if (__sync_sub_and_fetch(&notify->counter, 1) == 0) {
-        if (notify->notify.func != NULL) {
-            notify->notify.func(notify);
+    if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
+        if (op_ctx->notify.func != NULL) {
+            op_ctx->notify.func(op_ctx);
         }
     }
 }
 
 static void slice_read_done(struct trunk_io_buffer *record, const int result)
 {
-    do_read_done(record->slice, (FSSliceOpNotify *)record->notify.args, result);
+    do_read_done(record->slice, (FSSliceOpContext *)record->notify.args, result);
 }
 
-int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
-        FSSliceOpNotify *notify, OBSlicePtrArray *sarray)
+int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
+        OBSlicePtrArray *sarray)
 {
     int result;
     int offset;
@@ -308,24 +342,25 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     OBSliceEntry **pp;
     OBSliceEntry **end;
 
-    if ((result=ob_index_get_slices(bs_key, sarray)) != 0) {
+    if ((result=ob_index_get_slices(&op_ctx->info.bs_key, sarray)) != 0) {
         return result;
     }
 
     logInfo("read sarray->count: %d, target slice offset: %d, length: %d",
-            sarray->count, bs_key->slice.offset, bs_key->slice.length);
+            sarray->count, op_ctx->info.bs_key.slice.offset,
+            op_ctx->info.bs_key.slice.length);
 
-    notify->done_bytes = 0;
-    notify->counter = sarray->count;
+    op_ctx->done_bytes = 0;
+    op_ctx->counter = sarray->count;
     ps = buff;
-    offset = bs_key->slice.offset;
+    offset = op_ctx->info.bs_key.slice.offset;
     end = sarray->slices + sarray->count;
     for (pp=sarray->slices; pp<end; pp++) {
         hole_len = (*pp)->ssize.offset - offset;
         if (hole_len > 0) {
             memset(ps, 0, hole_len);
             ps += hole_len;
-            notify->done_bytes += hole_len;
+            op_ctx->done_bytes += hole_len;
         }
 
         logInfo("slice %d. type: %c (0x%02x), offset: %d, length: %d, "
@@ -335,9 +370,9 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
         ssize = (*pp)->ssize;
         if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {
             memset(ps, 0, (*pp)->ssize.length);
-            do_read_done(*pp, notify, 0);
+            do_read_done(*pp, op_ctx, 0);
         } else if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,
-                        *pp, ps, slice_read_done, notify)) != 0)
+                        *pp, ps, slice_read_done, op_ctx)) != 0)
         {
             ob_index_free_slice(*pp);
             break;
@@ -348,4 +383,32 @@ int fs_slice_read_ex(const FSBlockSliceKeyInfo *bs_key, char *buff,
     }
 
     return result;
+}
+
+int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
+{
+    uint64_t sn;
+    int result;
+    if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
+                    &sn, dec_alloc)) != 0)
+    {
+        return result;
+    }
+
+    //TODO
+    return 0;
+}
+
+int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc)
+{
+    uint64_t sn;
+    int result;
+    if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
+                    &sn, dec_alloc)) != 0)
+    {
+        return result;
+    }
+
+    //TODO
+    return 0;
 }

@@ -2,11 +2,22 @@
 #ifndef _STORAGE_TYPES_H
 #define _STORAGE_TYPES_H
 
-struct fs_slice_op_notify;
+#include "../../common/fs_types.h"
 
-typedef void (*fs_slice_op_notify_func)(struct fs_slice_op_notify *notify);
+#define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC  2
 
-typedef struct fs_slice_op_notify {
+struct fs_slice_op_context;
+
+typedef void (*fs_slice_op_notify_func)(struct fs_slice_op_context *ctx);
+
+struct ob_slice_entry;
+typedef struct {
+    int count;
+    struct ob_slice_entry *slices[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
+} FSSliceFixedArray;
+
+struct fs_cluster_data_server_info;
+typedef struct fs_slice_op_context {
     struct {
         fs_slice_op_notify_func func;
         void *args;
@@ -15,7 +26,20 @@ typedef struct fs_slice_op_notify {
     volatile int counter;
     int result;
     int done_bytes;
-    int inc_alloc;   //increase alloc space in bytes for slice write
-} FSSliceOpNotify;
+
+    struct {
+        bool write_data_binlog;
+        int data_group_id;
+        uint64_t data_version;
+        FSBlockSliceKeyInfo bs_key;
+        struct fs_cluster_data_server_info *myself;
+    } info;
+
+    struct {
+        int inc_alloc;  //increase alloc space in bytes for slice write
+        FSSliceFixedArray sarray;
+    } write;  //for slice write
+
+} FSSliceOpContext;
 
 #endif

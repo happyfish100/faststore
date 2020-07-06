@@ -63,6 +63,9 @@
 #define CLUSTER_REPLICA   TASK_CTX.cluster.replica
 #define CLUSTER_CONSUMER_CTX  TASK_CTX.cluster.consumer_ctx
 #define CLUSTER_TASK_TYPE TASK_CTX.cluster.task_type
+#define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
+#define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
+#define OP_CTX_NOTIFY       TASK_CTX.slice_op_ctx.notify
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -260,12 +263,8 @@ typedef struct {
         } cluster;
     };
 
-    int data_group_id;
     int which_side;   //master or slave
-    uint64_t data_version;
-    FSClusterDataServerInfo *myself;
-    FSBlockSliceKeyInfo bs_key;
-    FSSliceOpNotify slice_notify;
+    FSSliceOpContext slice_op_ctx;
 } FSServerTaskContext;
 
 typedef struct server_task_arg {

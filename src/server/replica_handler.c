@@ -235,10 +235,10 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
             }
         }
 
-        TASK_CTX.data_version = buff2long(body_part->data_version);
-        if (TASK_CTX.data_version <= 0) {
+        OP_CTX_INFO.data_version = buff2long(body_part->data_version);
+        if (OP_CTX_INFO.data_version <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "invalid data version: %"PRId64, TASK_CTX.data_version);
+                    "invalid data version: %"PRId64, OP_CTX_INFO.data_version);
             return EINVAL;
         }
         switch (body_part->cmd) {
@@ -264,8 +264,12 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
                 return EINVAL;
         }
         if (result != TASK_STATUS_CONTINUE) {
-            //add to complete queue
-            //TODO
+            int r;
+            r = replication_producer_push_to_rpc_result_queue(
+                    CLUSTER_REPLICA, OP_CTX_INFO.data_version, result);
+            if (r != 0) {
+                return r;
+            }
         }
     }
 

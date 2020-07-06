@@ -33,10 +33,10 @@ static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
             "slice %s fail, result: %d, block {oid: %"PRId64", "
             "offset: %"PRId64"}, slice {offset: %d, length: %d}",
-            caption, result, TASK_CTX.bs_key.block.oid,
-            TASK_CTX.bs_key.block.offset,
-            TASK_CTX.bs_key.slice.offset,
-            TASK_CTX.bs_key.slice.length);
+            caption, result, OP_CTX_INFO.bs_key.block.oid,
+            OP_CTX_INFO.bs_key.block.offset,
+            OP_CTX_INFO.bs_key.slice.offset,
+            OP_CTX_INFO.bs_key.slice.length);
 }
 
 #ifdef __cplusplus

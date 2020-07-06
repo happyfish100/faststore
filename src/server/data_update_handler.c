@@ -34,43 +34,43 @@
 static int parse_check_block_key_ex(struct fast_task_info *task,
         const FSProtoBlockKey *bkey, const bool master_only)
 {
-    TASK_CTX.bs_key.block.oid = buff2long(bkey->oid);
-    TASK_CTX.bs_key.block.offset = buff2long(bkey->offset);
-    if (TASK_CTX.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
+    OP_CTX_INFO.bs_key.block.oid = buff2long(bkey->oid);
+    OP_CTX_INFO.bs_key.block.offset = buff2long(bkey->offset);
+    if (OP_CTX_INFO.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "block offset: %"PRId64" "
                 "NOT the multiple of the block size %d",
-                TASK_CTX.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
+                OP_CTX_INFO.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
-    fs_calc_block_hashcode(&TASK_CTX.bs_key.block);
-    TASK_CTX.data_group_id = FS_BLOCK_HASH_CODE(TASK_CTX.bs_key.block) %
+    fs_calc_block_hashcode(&OP_CTX_INFO.bs_key.block);
+    OP_CTX_INFO.data_group_id = FS_BLOCK_HASH_CODE(OP_CTX_INFO.bs_key.block) %
         FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1;
 
-    TASK_CTX.myself = fs_get_my_data_server(TASK_CTX.data_group_id);
-    if (TASK_CTX.myself == NULL) {
+    OP_CTX_INFO.myself = fs_get_my_data_server(OP_CTX_INFO.data_group_id);
+    if (OP_CTX_INFO.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d NOT belongs to me",
-                TASK_CTX.data_group_id);
+                OP_CTX_INFO.data_group_id);
         return ENOENT;
     }
 
     logInfo("data_group_id: %d, master_only: %d",
-            TASK_CTX.data_group_id, master_only);
+            OP_CTX_INFO.data_group_id, master_only);
 
     if (master_only) {
-        if (!TASK_CTX.myself->is_master) {
+        if (!OP_CTX_INFO.myself->is_master) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
-                    TASK_CTX.data_group_id);
+                    OP_CTX_INFO.data_group_id);
             return EINVAL;
         }
     } else {
-        if (TASK_CTX.myself->status != FS_SERVER_STATUS_ACTIVE) {
+        if (OP_CTX_INFO.myself->status != FS_SERVER_STATUS_ACTIVE) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT active, my status: %d",
-                    TASK_CTX.data_group_id, TASK_CTX.myself->status);
+                    OP_CTX_INFO.data_group_id, OP_CTX_INFO.myself->status);
             return EINVAL;
         }
     }
@@ -87,25 +87,25 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
         return result;
     }
 
-    TASK_CTX.bs_key.slice.offset = buff2int(bs->slice_size.offset);
-    TASK_CTX.bs_key.slice.length = buff2int(bs->slice_size.length);
-    if (TASK_CTX.bs_key.slice.offset < 0 || TASK_CTX.bs_key.slice.offset >=
+    OP_CTX_INFO.bs_key.slice.offset = buff2int(bs->slice_size.offset);
+    OP_CTX_INFO.bs_key.slice.length = buff2int(bs->slice_size.length);
+    if (OP_CTX_INFO.bs_key.slice.offset < 0 || OP_CTX_INFO.bs_key.slice.offset >=
             FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice offset: %d "
                 "is invalid which < 0 or exceeds the block size %d",
-                TASK_CTX.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
+                OP_CTX_INFO.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
-    if (TASK_CTX.bs_key.slice.length <= 0 || TASK_CTX.bs_key.slice.offset +
-            TASK_CTX.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
+    if (OP_CTX_INFO.bs_key.slice.length <= 0 || OP_CTX_INFO.bs_key.slice.offset +
+            OP_CTX_INFO.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "slice offset: %d, length: %d is invalid which <= 0, "
                 "or offset + length exceeds the block size %d",
-                TASK_CTX.bs_key.slice.offset,
-                TASK_CTX.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
+                OP_CTX_INFO.bs_key.slice.offset,
+                OP_CTX_INFO.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
@@ -127,11 +127,11 @@ static int handle_slice_write_replica_done(struct fast_task_info *task)
 {
     TASK_ARG->context.deal_func = NULL;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
-    fill_slice_update_response(task, TASK_CTX.slice_notify.inc_alloc);
+    fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
     return RESPONSE_STATUS;
 }
 
-static void slice_write_done_notify(FSSliceOpNotify *notify)
+static void master_slice_write_done_notify(FSSliceOpContext *notify)
 {
     struct fast_task_info *task;
     int result;
@@ -148,40 +148,33 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                TASK_CTX.bs_key.block.oid, TASK_CTX.bs_key.block.offset,
-                TASK_CTX.bs_key.slice.offset, TASK_CTX.bs_key.slice.length,
+                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
+                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
         TASK_ARG->context.log_error = false;
         result = notify->result;
     } else {
-        if (TASK_CTX.data_version == 0) {
-            TASK_CTX.data_version = __sync_add_and_fetch(
-                    &TASK_CTX.myself->data_version, 1);
+        OP_CTX_INFO.data_version = __sync_add_and_fetch(
+                &OP_CTX_INFO.myself->data_version, 1);
+
+        replica_binlog_log_write_slice(OP_CTX_INFO.data_group_id,
+                OP_CTX_INFO.data_version, &OP_CTX_INFO.bs_key);
+
+        if ((result=replication_producer_push_to_slave_queues(task)) ==
+                TASK_STATUS_CONTINUE)
+        {
+            TASK_ARG->context.deal_func = handle_slice_write_replica_done;
         }
-
-        replica_binlog_log_write_slice(TASK_CTX.data_group_id,
-                TASK_CTX.data_version, &TASK_CTX.bs_key);
-
-        if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
-            if ((result=replication_producer_push_to_slave_queues(task)) ==
-                    TASK_STATUS_CONTINUE)
-            {
-                TASK_ARG->context.deal_func = handle_slice_write_replica_done;
-            }
-            else {
-                RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
-                fill_slice_update_response(task, notify->inc_alloc);
-            }
-        } else {
-            RESPONSE.header.cmd = FS_REPLICA_PROTO_RPC_RESP;
-            result = 0;
+        else {
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
+            fill_slice_update_response(task, notify->write.inc_alloc);
         }
 
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
-                "TASK_CTX.data_version: %"PRId64", result: %d",
-                __LINE__, TASK_CTX.which_side, TASK_CTX.data_group_id,
-                TASK_CTX.data_version, result);
+                "OP_CTX_INFO.data_version: %"PRId64", result: %d",
+                __LINE__, TASK_CTX.which_side, OP_CTX_INFO.data_group_id,
+                OP_CTX_INFO.data_version, result);
     }
 
     RESPONSE_STATUS = notify->result;
@@ -190,14 +183,53 @@ static void slice_write_done_notify(FSSliceOpNotify *notify)
     }
 }
 
+static void slave_slice_write_done_notify(FSSliceOpContext *notify)
+{
+    ReplicationRPCResult *r;
+    struct fast_task_info *task;
+    int result;
+
+    r = (ReplicationRPCResult *)notify->notify.args;
+    task = r->replication->task;
+    if (task == NULL) {
+        //TODO
+        return;
+    }
+
+    if (notify->result != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "client ip: %s, write slice fail, "
+                "oid: %"PRId64", block offset: %"PRId64", "
+                "slice offset: %d, length: %d, "
+                "errno: %d, error info: %s",
+                __LINE__, task->client_ip,
+                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
+                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
+                notify->result, STRERROR(notify->result));
+        result = notify->result;
+    } else {
+        //TODO
+        replica_binlog_log_write_slice(OP_CTX_INFO.data_group_id,
+                OP_CTX_INFO.data_version, &OP_CTX_INFO.bs_key);
+
+        logInfo("file: "__FILE__", line: %d, "
+                "which_side: %c, data_group_id: %d, "
+                "OP_CTX_INFO.data_version: %"PRId64", result: %d",
+                __LINE__, TASK_CTX.which_side, OP_CTX_INFO.data_group_id,
+                OP_CTX_INFO.data_version, result);
+    }
+
+    //TODO
+}
+
 static inline void set_block_op_error_msg(struct fast_task_info *task,
         const char *caption, const int result)
 {
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
             "block %s fail, result: %d, block {oid: %"PRId64", "
             "offset: %"PRId64"}", caption, result,
-            TASK_CTX.bs_key.block.oid,
-            TASK_CTX.bs_key.block.offset);
+            OP_CTX_INFO.bs_key.block.oid,
+            OP_CTX_INFO.bs_key.block.offset);
 }
 
 int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
@@ -219,29 +251,33 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    if (sizeof(FSProtoSliceWriteReqHeader) + TASK_CTX.bs_key.slice.length
+    if (sizeof(FSProtoSliceWriteReqHeader) + OP_CTX_INFO.bs_key.slice.length
         != REQUEST.header.body_len)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "body header length: %d + slice length: %d"
                 " != body length: %d", (int)sizeof(FSProtoSliceWriteReqHeader),
-                TASK_CTX.bs_key.slice.length, REQUEST.header.body_len);
+                OP_CTX_INFO.bs_key.slice.length, REQUEST.header.body_len);
         return EINVAL;
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "data_group_id: %d", __LINE__, __FUNCTION__,
-            TASK_CTX.data_group_id);
+            OP_CTX_INFO.data_group_id);
 
     buff = body + sizeof(FSProtoSliceWriteReqHeader);
-    TASK_CTX.slice_notify.notify.func = slice_write_done_notify;
-    TASK_CTX.slice_notify.notify.args = task;
+    if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        OP_CTX_NOTIFY.func = master_slice_write_done_notify;
+        OP_CTX_NOTIFY.args = task;
+    } else {
+        //TODO
+    }
 
     //TODO
     /*
     {
-        int64_t offset = TASK_CTX.bs_key.block.offset + TASK_CTX.bs_key.slice.offset;
-        int size = TASK_CTX.bs_key.slice.length;
+        int64_t offset = OP_CTX_INFO.bs_key.block.offset + OP_CTX_INFO.bs_key.slice.offset;
+        int size = OP_CTX_INFO.bs_key.slice.length;
         if (lseek(write_fd, 0, SEEK_CUR) != offset) {
             logError("file: "__FILE__", line: %d, func: %s, "
                     "lseek file offset: %"PRId64" != %"PRId64,
@@ -259,9 +295,7 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
     }
     */
 
-    if ((result=fs_slice_write(&TASK_CTX.bs_key, buff,
-                    &TASK_CTX.slice_notify)) != 0)
-    {
+    if ((result=fs_slice_write(&SLICE_OP_CTX, buff)) != 0) {
         du_handler_set_slice_op_error_msg(task, "write", result);
         return result;
     }
@@ -288,7 +322,7 @@ int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    if ((result=fs_slice_allocate_ex(&TASK_CTX.bs_key, ((FSServerContext *)
+    if ((result=fs_slice_allocate_ex(&SLICE_OP_CTX, ((FSServerContext *)
                         task->thread_data->arg)->service.slice_ptr_array,
                     &inc_alloc)) != 0)
     {
@@ -320,7 +354,7 @@ int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    if ((result=ob_index_delete_slices(&TASK_CTX.bs_key, &dec_alloc)) != 0) {
+    if ((result=fs_delete_slices(&SLICE_OP_CTX, &dec_alloc)) != 0) {
         du_handler_set_slice_op_error_msg(task, "delete", result);
         return result;
     }
@@ -349,9 +383,7 @@ int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    if ((result=ob_index_delete_block(&TASK_CTX.bs_key.block,
-                    &dec_alloc)) != 0)
-    {
+    if ((result=fs_delete_block(&SLICE_OP_CTX, &dec_alloc)) != 0) {
         set_block_op_error_msg(task, "delete", result);
         return result;
     }

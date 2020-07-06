@@ -51,7 +51,7 @@ static void set_server_link_index_for_replication()
 
 static int rpc_result_alloc_init_func(void *element, void *args)
 {
-    ((ReplicationRPCResult *)element)->repl = (FSReplication *)args;
+    ((ReplicationRPCResult *)element)->replication = (FSReplication *)args;
     return 0;
 }
 
@@ -344,7 +344,7 @@ int replication_producer_push_to_slave_queues(struct fast_task_info *task)
     ReplicationRPCEntry *rpc;
     int result;
 
-    if ((group=fs_get_data_group(TASK_CTX.data_group_id)) == NULL) {
+    if ((group=fs_get_data_group(OP_CTX_INFO.data_group_id)) == NULL) {
         return ENOENT;
     }
 
@@ -359,12 +359,38 @@ int replication_producer_push_to_slave_queues(struct fast_task_info *task)
     rpc->task = task;
     rpc->task_version = __sync_add_and_fetch(&((FSServerTaskArg *)
                 task->arg)->task_version, 0);
-    if ((result=push_to_slave_queues(group, TASK_CTX.bs_key.block.hash_code,
+    if ((result=push_to_slave_queues(group, OP_CTX_INFO.bs_key.block.hash_code,
                     rpc)) != TASK_STATUS_CONTINUE)
     {
         fast_mblock_free_object(&repl_ctx.rpc_allocator, rpc);
     }
     return result;
+}
+
+int replication_producer_push_to_rpc_result_queue(FSReplication *replication,
+        const uint64_t data_version, const int err_no)
+{
+    ReplicationRPCResult *r;
+    bool notify;
+
+    if (replication == NULL) {
+        return ENOENT;
+    }
+
+    r = (ReplicationRPCResult *)fast_mblock_alloc_object(
+            &replication->context.callee.result_allocator);
+    if (r == NULL) {
+        return ENOMEM;
+    }
+
+    r->data_version = data_version;
+    r->err_no = err_no;
+    fc_queue_push_ex(&replication->context.callee.done_queue, r, &notify);
+    if (notify) {
+        iovent_notify_thread(replication->task->thread_data);
+    }
+
+    return 0;
 }
 
 int fs_get_replication_count()
