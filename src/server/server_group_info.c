@@ -50,10 +50,8 @@ static int check_alloc_ds_ptr_array(FSClusterDataServerPtrArray *array)
 
     new_alloc = (array->alloc > 0) ? 2 * array->alloc : 16;
     bytes = sizeof(FSClusterDataServerInfo *) * new_alloc;
-    servers = (FSClusterDataServerInfo **)malloc(bytes);
+    servers = (FSClusterDataServerInfo **)fc_malloc(bytes);
     if (servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -100,10 +98,8 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     }
 
     bytes = sizeof(FSClusterDataServerInfo) * server_group->server_array.count;
-    group->data_server_array.servers = (FSClusterDataServerInfo *)malloc(bytes);
+    group->data_server_array.servers = (FSClusterDataServerInfo *)fc_malloc(bytes);
     if (group->data_server_array.servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(group->data_server_array.servers, 0, bytes);
@@ -142,10 +138,8 @@ static int init_slave_ds_array(FSClusterDataGroupInfo *group)
     count = group->data_server_array.count - 1;
     if (count > 0) {
         bytes = sizeof(FSClusterDataServerInfo *) * count;
-        group->slave_ds_array.servers = (FSClusterDataServerInfo **)malloc(bytes);
+        group->slave_ds_array.servers = (FSClusterDataServerInfo **)fc_malloc(bytes);
         if (group->slave_ds_array.servers == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
         memset(group->slave_ds_array.servers, 0, bytes);
@@ -195,10 +189,8 @@ static int init_cluster_data_group_array(const char *filename,
 
     count = (max_id - min_id) + 1;
     bytes = sizeof(FSClusterDataGroupInfo) * count;
-    CLUSTER_DATA_RGOUP_ARRAY.groups = (FSClusterDataGroupInfo *)malloc(bytes);
+    CLUSTER_DATA_RGOUP_ARRAY.groups = (FSClusterDataGroupInfo *)fc_malloc(bytes);
     if (CLUSTER_DATA_RGOUP_ARRAY.groups == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
@@ -397,10 +389,8 @@ static int init_cluster_server_array(const char *filename)
     qsort(servers, count, sizeof(FCServerInfo *), compare_server_ptr);
 
     bytes = sizeof(FSClusterServerInfo) * count;
-    CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)malloc(bytes);
+    CLUSTER_SERVER_ARRAY.servers = (FSClusterServerInfo *)fc_malloc(bytes);
     if (CLUSTER_SERVER_ARRAY.servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(CLUSTER_SERVER_ARRAY.servers, 0, bytes);
@@ -489,10 +479,8 @@ static int init_server_pair_index_array()
 
     count = CLUSTER_SERVER_ARRAY.count * (CLUSTER_SERVER_ARRAY.count - 1) / 2;
     bytes = sizeof(ServerPairBaseIndexEntry) * count;
-    server_pair_index_array.entries = (ServerPairBaseIndexEntry *)malloc(bytes);
+    server_pair_index_array.entries = (ServerPairBaseIndexEntry *)fc_malloc(bytes);
     if (server_pair_index_array.entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 

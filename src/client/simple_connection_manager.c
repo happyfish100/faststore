@@ -235,10 +235,8 @@ static int init_data_group_array(FSClientContext *client_ctx,
 
     data_group_array->count = FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
     bytes = sizeof(FSClientDataGroupEntry) * data_group_array->count;
-    data_group_array->entries = (FSClientDataGroupEntry *)malloc(bytes);
+    data_group_array->entries = (FSClientDataGroupEntry *)fc_malloc(bytes);
     if (data_group_array->entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(data_group_array->entries, 0, bytes);
@@ -266,11 +264,8 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
-    cp = (ConnectionPool *)malloc(sizeof(ConnectionPool));
+    cp = (ConnectionPool *)fc_malloc(sizeof(ConnectionPool));
     if (cp == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__,
-                (int)sizeof(ConnectionPool));
         return ENOMEM;
     }
 

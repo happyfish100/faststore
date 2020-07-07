@@ -51,10 +51,8 @@ static int alloc_path_contexts()
 
     io_path_context_array.count = STORAGE_CFG.max_store_path_index + 1;
     bytes = sizeof(TrunkIOPathContext) * io_path_context_array.count;
-    io_path_context_array.paths = (TrunkIOPathContext *)malloc(bytes);
+    io_path_context_array.paths = (TrunkIOPathContext *)fc_malloc(bytes);
     if (io_path_context_array.paths == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(io_path_context_array.paths, 0, bytes);
@@ -67,10 +65,8 @@ static TrunkIOThreadContext *alloc_thread_contexts(const int count)
     int bytes;
 
     bytes = sizeof(TrunkIOThreadContext) * count;
-    contexts = (TrunkIOThreadContext *)malloc(bytes);
+    contexts = (TrunkIOThreadContext *)fc_malloc(bytes);
     if (contexts == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return NULL;
     }
     memset(contexts, 0, bytes);

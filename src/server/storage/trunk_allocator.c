@@ -119,10 +119,8 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
     }
 
     bytes = sizeof(FSTrunkFreelistPair) * path_info->write_thread_count;
-    allocator->freelists = (FSTrunkFreelistPair *)malloc(bytes);
+    allocator->freelists = (FSTrunkFreelistPair *)fc_malloc(bytes);
     if (allocator->freelists == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(allocator->freelists, 0, bytes);
@@ -424,10 +422,8 @@ static int check_alloc_trunk_ptr_array(FSTrunkInfoPtrArray *parray,
     }
 
     bytes = sizeof(FSTrunkFileInfo *) * alloc;
-    trunks = (FSTrunkFileInfo **)malloc(bytes);
+    trunks = (FSTrunkFileInfo **)fc_malloc(bytes);
     if (trunks == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 

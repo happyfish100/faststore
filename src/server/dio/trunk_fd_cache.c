@@ -22,10 +22,8 @@ int trunk_fd_cache_init(TrunkFDCacheContext *cache_ctx, const int capacity)
     }
 
     bytes = sizeof(TrunkFDCacheEntry *) * cache_ctx->htable.size;
-    cache_ctx->htable.buckets = (TrunkFDCacheEntry **)malloc(bytes);
+    cache_ctx->htable.buckets = (TrunkFDCacheEntry **)fc_malloc(bytes);
     if (cache_ctx->htable.buckets == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(cache_ctx->htable.buckets, 0, bytes);

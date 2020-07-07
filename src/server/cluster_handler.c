@@ -385,10 +385,8 @@ static int alloc_notify_ctx_ptr_array(FSClusterNotifyContextPtrArray *array)
 
     bytes = sizeof(FSClusterTopologyNotifyContext *) *
         CLUSTER_SERVER_ARRAY.count;
-    array->contexts = (FSClusterTopologyNotifyContext **)malloc(bytes);
+    array->contexts = (FSClusterTopologyNotifyContext **)fc_malloc(bytes);
     if (array->contexts == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(array->contexts, 0, bytes);
@@ -400,12 +398,8 @@ void *cluster_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
 
-    server_context = (FSServerContext *)malloc(sizeof(FSServerContext));
+    server_context = (FSServerContext *)fc_malloc(sizeof(FSServerContext));
     if (server_context == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail, errno: %d, error info: %s",
-                __LINE__, (int)sizeof(FSServerContext),
-                errno, strerror(errno));
         return NULL;
     }
     memset(server_context, 0, sizeof(FSServerContext));

@@ -295,6 +295,7 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
     }
     */
 
+    OP_CTX_INFO.write_data_binlog = true;
     if ((result=fs_slice_write(&SLICE_OP_CTX, buff)) != 0) {
         du_handler_set_slice_op_error_msg(task, "write", result);
         return result;
@@ -322,6 +323,7 @@ int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
+    OP_CTX_INFO.write_data_binlog = true;
     if ((result=fs_slice_allocate_ex(&SLICE_OP_CTX, ((FSServerContext *)
                         task->thread_data->arg)->service.slice_ptr_array,
                     &inc_alloc)) != 0)
@@ -354,6 +356,7 @@ int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
+    OP_CTX_INFO.write_data_binlog = true;
     if ((result=fs_delete_slices(&SLICE_OP_CTX, &dec_alloc)) != 0) {
         du_handler_set_slice_op_error_msg(task, "delete", result);
         return result;
@@ -383,6 +386,7 @@ int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
+    OP_CTX_INFO.write_data_binlog = true;
     if ((result=fs_delete_block(&SLICE_OP_CTX, &dec_alloc)) != 0) {
         set_block_op_error_msg(task, "delete", result);
         return result;

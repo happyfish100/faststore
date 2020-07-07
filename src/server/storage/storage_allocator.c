@@ -2,6 +2,7 @@
 #include <sys/stat.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fastcommon/fc_memory.h"
 #include "sf/sf_global.h"
 #include "../server_types.h"
 #include "../server_global.h"
@@ -25,18 +26,14 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
     }
 
     bytes = sizeof(FSTrunkAllocator) * parray->count;
-    allocator_ctx->all.allocators = (FSTrunkAllocator *)malloc(bytes);
+    allocator_ctx->all.allocators = (FSTrunkAllocator *)fc_malloc(bytes);
     if (allocator_ctx->all.allocators == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
     bytes = sizeof(FSTrunkAllocator *) * parray->count;
-    allocator_ctx->avail.allocators = (FSTrunkAllocator **)malloc(bytes);
+    allocator_ctx->avail.allocators = (FSTrunkAllocator **)fc_malloc(bytes);
     if (allocator_ctx->avail.allocators == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -66,13 +63,9 @@ int storage_allocator_init()
     g_allocator_mgr->allocator_ptr_array.count = STORAGE_CFG.
         max_store_path_index + 1;
     g_allocator_mgr->allocator_ptr_array.allocators = (FSTrunkAllocator **)
-        calloc(g_allocator_mgr->allocator_ptr_array.count,
+        fc_calloc(g_allocator_mgr->allocator_ptr_array.count,
                 sizeof(FSTrunkAllocator *));
     if (g_allocator_mgr->allocator_ptr_array.allocators == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__,
-                (int)(sizeof(FSTrunkAllocator *) * g_allocator_mgr->
-                    allocator_ptr_array.count));
         return ENOMEM;
     }
 

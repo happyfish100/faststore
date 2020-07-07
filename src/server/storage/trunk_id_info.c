@@ -60,10 +60,8 @@ static int alloc_sorted_subdirs()
 
     id_info_context.subdir_array.count = STORAGE_CFG.max_store_path_index + 1;
     bytes = sizeof(SortedSubdirs) * id_info_context.subdir_array.count;
-    id_info_context.subdir_array.subdirs = (SortedSubdirs *)malloc(bytes);
+    id_info_context.subdir_array.subdirs = (SortedSubdirs *)fc_malloc(bytes);
     if (id_info_context.subdir_array.subdirs == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(id_info_context.subdir_array.subdirs, 0, bytes);

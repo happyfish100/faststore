@@ -59,10 +59,8 @@ static int check_alloc_store_paths(const int inc_count)
     }
 
     bytes = sizeof(StorePathEntry) * alloc;
-    entries = (StorePathEntry *)malloc(bytes);
+    entries = (StorePathEntry *)fc_malloc(bytes);
     if (entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -143,10 +141,8 @@ static int load_store_path_index(IniContext *ini_context, char *full_filename)
         do {
             alloc_size *= 2;
             bytes = sizeof(IniSectionInfo) * alloc_size;
-            sections = (IniSectionInfo *)realloc(sections, bytes);
+            sections = (IniSectionInfo *)fc_realloc(sections, bytes);
             if (sections == NULL) {
-                logError("file: "__FILE__", line: %d, "
-                        "malloc %d bytes fail", __LINE__, bytes);
                 return ENOMEM;
             }
             result = iniGetSectionNamesByPrefix(ini_context,

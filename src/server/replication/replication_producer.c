@@ -120,10 +120,8 @@ static int init_replication_producer_array()
     bytes = sizeof(FSReplication) * (repl_server_count *
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
     repl_ctx.repl_array.replications = (FSReplication *)
-        malloc(bytes);
+        fc_malloc(bytes);
     if (repl_ctx.repl_array.replications == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(repl_ctx.repl_array.replications, 0, bytes);
@@ -148,10 +146,8 @@ static int init_replication_producer_array()
         }
 
         bytes = sizeof(FSReplication *) * REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
-        cs->repl_ptr_array.replications = (FSReplication **)malloc(bytes);
+        cs->repl_ptr_array.replications = (FSReplication **)fc_malloc(bytes);
         if (cs->repl_ptr_array.replications == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
 

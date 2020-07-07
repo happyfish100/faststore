@@ -60,10 +60,8 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
 
     count = CLUSTER_DATA_RGOUP_ARRAY.count * CLUSTER_SERVER_ARRAY.count;
     bytes = sizeof(FSDataServerChangeEvent) * count;
-    notify_ctx->events = (FSDataServerChangeEvent *)malloc(bytes);
+    notify_ctx->events = (FSDataServerChangeEvent *)fc_malloc(bytes);
     if (notify_ctx->events == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(notify_ctx->events, 0, bytes);

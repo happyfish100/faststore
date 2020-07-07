@@ -100,10 +100,8 @@ int main(int argc, char *argv[])
         stats = fixed_stats;
     } else {
         bytes = sizeof(FSClientClusterStatEntry) * alloc_size;
-        stats = (FSClientClusterStatEntry *)malloc(bytes);
+        stats = (FSClientClusterStatEntry *)fc_malloc(bytes);
         if (stats == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
     }

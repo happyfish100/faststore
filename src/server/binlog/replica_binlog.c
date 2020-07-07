@@ -123,19 +123,15 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     int bytes;
 
     bytes = sizeof(BinlogWriterInfo) * my_data_group_count;
-    binlog_writer_array.holders = (BinlogWriterInfo *)malloc(bytes);
+    binlog_writer_array.holders = (BinlogWriterInfo *)fc_malloc(bytes);
     if (binlog_writer_array.holders == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(binlog_writer_array.holders, 0, bytes);
 
     bytes = sizeof(BinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
-    binlog_writer_array.writers = (BinlogWriterInfo **)malloc(bytes);
+    binlog_writer_array.writers = (BinlogWriterInfo **)fc_malloc(bytes);
     if (binlog_writer_array.writers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(binlog_writer_array.writers, 0, bytes);

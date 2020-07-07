@@ -26,10 +26,8 @@ static int alloc_server_data_mappings(FSClusterConfig *cluster_cfg)
     bytes = sizeof(FSServerDataMapping) * FC_SID_SERVER_COUNT(
             cluster_cfg->server_cfg);
     cluster_cfg->server_data_mappings.mappings =
-        (FSServerDataMapping *)malloc(bytes);
+        (FSServerDataMapping *)fc_malloc(bytes);
     if (cluster_cfg->server_data_mappings.mappings == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(cluster_cfg->server_data_mappings.mappings, 0, bytes);
@@ -67,10 +65,8 @@ static int load_server_group_count(FSClusterConfig *cluster_cfg,
     }
 
     bytes = sizeof(FSServerGroup) * server_group_count;
-    cluster_cfg->server_groups.groups = (FSServerGroup *)malloc(bytes);
+    cluster_cfg->server_groups.groups = (FSServerGroup *)fc_malloc(bytes);
     if (cluster_cfg->server_groups.groups == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(cluster_cfg->server_groups.groups, 0, bytes);
@@ -96,10 +92,8 @@ static int load_data_group_count(FSClusterConfig *cluster_cfg,
     }
 
     bytes = sizeof(FSDataServerMapping) * data_group_count;
-    cluster_cfg->data_groups.mappings = (FSDataServerMapping *)malloc(bytes);
+    cluster_cfg->data_groups.mappings = (FSDataServerMapping *)fc_malloc(bytes);
     if (cluster_cfg->data_groups.mappings == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(cluster_cfg->data_groups.mappings, 0, bytes);
@@ -139,10 +133,8 @@ static int check_realloc_id_array(FSIdArray *id_array, const int inc)
     }
 
     bytes = sizeof(int) * alloc_count;
-    ids = (int *)malloc(bytes);
+    ids = (int *)fc_malloc(bytes);
     if (ids == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -505,10 +497,8 @@ static int set_server_group(FSClusterConfig *cluster_cfg,
     FCServerInfo **pp;
 
     bytes = sizeof(FCServerInfo *) * server_ids->count;
-    server_group->server_array.servers = (FCServerInfo **)malloc(bytes);
+    server_group->server_array.servers = (FCServerInfo **)fc_malloc(bytes);
     if (server_group->server_array.servers == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 

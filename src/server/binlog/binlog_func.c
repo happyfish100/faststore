@@ -17,10 +17,8 @@
 
 int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
 {
-    buffer->buff = (char *)malloc(size);
+    buffer->buff = (char *)fc_malloc(size);
     if (buffer->buff == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, size);
         return ENOMEM;
     }
 

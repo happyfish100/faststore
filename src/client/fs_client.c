@@ -108,10 +108,8 @@ int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
         ids = fixed_ids;
     } else {
         bytes = sizeof(int) * data_group_count;
-        ids = (int *)malloc(bytes);
+        ids = (int *)fc_malloc(bytes);
         if (ids == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
     }

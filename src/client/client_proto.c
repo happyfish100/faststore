@@ -465,7 +465,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
                     network_timeout, FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
         if (response.header.body_len > sizeof(fixed_buff)) {
-            in_buff = (char *)malloc(response.header.body_len);
+            in_buff = (char *)fc_malloc(response.header.body_len);
             if (in_buff == NULL) {
                 response.error.length = sprintf(response.error.message,
                         "malloc %d bytes fail", response.header.body_len);

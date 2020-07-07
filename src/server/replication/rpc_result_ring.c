@@ -27,10 +27,8 @@ int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
     }
 
     bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
-    ctx->ring.entries = (FSReplicaRPCResultEntry *)malloc(bytes);
+    ctx->ring.entries = (FSReplicaRPCResultEntry *)fc_malloc(bytes);
     if (ctx->ring.entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(ctx->ring.entries, 0, bytes);

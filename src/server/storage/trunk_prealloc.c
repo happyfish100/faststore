@@ -173,10 +173,8 @@ int trunk_prealloc_init()
 
     prealloc_thread_count = STORAGE_CFG.prealloc_trunk_threads;
     bytes = sizeof(TrunkPreallocThreadContext) * prealloc_thread_count;
-    thread_contexts = (TrunkPreallocThreadContext *)malloc(bytes);
+    thread_contexts = (TrunkPreallocThreadContext *)fc_malloc(bytes);
     if (thread_contexts == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(thread_contexts, 0, bytes);

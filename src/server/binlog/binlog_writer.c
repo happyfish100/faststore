@@ -566,11 +566,8 @@ int binlog_writer_init_normal(BinlogWriterInfo *writer,
     snprintf(writer->cfg.subdir_name,
             sizeof(writer->cfg.subdir_name),
             "%s", subdir_name);
-    writer->file.name = (char *)malloc(path_len + 32);
+    writer->file.name = (char *)fc_malloc(path_len + 32);
     if (writer->file.name == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__,
-                path_len + 32);
         return ENOMEM;
     }
 
@@ -592,10 +589,8 @@ int binlog_writer_init_by_version(BinlogWriterInfo *writer,
     int bytes;
 
     bytes = sizeof(BinlogWriterBuffer *) * ring_size;
-    writer->version_ctx.ring.entries = (BinlogWriterBuffer **)malloc(bytes);
+    writer->version_ctx.ring.entries = (BinlogWriterBuffer **)fc_malloc(bytes);
     if (writer->version_ctx.ring.entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(writer->version_ctx.ring.entries, 0, bytes);
@@ -637,10 +632,8 @@ int binlog_writer_init_thread_ex(BinlogWriterThread *thread,
     }
 
     bytes = sizeof(struct binlog_writer_info *) * writer_count;
-    thread->flush_writers.entries = (struct binlog_writer_info **)malloc(bytes);
+    thread->flush_writers.entries = (struct binlog_writer_info **)fc_malloc(bytes);
     if (thread->flush_writers.entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     thread->flush_writers.alloc = writer_count;

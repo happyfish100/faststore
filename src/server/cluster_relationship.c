@@ -237,10 +237,8 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
     } else {
         int bytes;
         bytes = sizeof(FSClusterServerStatus) * CLUSTER_SERVER_ARRAY.count;
-        cs_status = (FSClusterServerStatus *)malloc(bytes);
+        cs_status = (FSClusterServerStatus *)fc_malloc(bytes);
         if (cs_status == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
     }
@@ -984,10 +982,8 @@ static int init_my_data_group_array()
             CLUSTER_MYSELF_PTR->server->id);
 
     bytes = sizeof(FSMyDataGroupInfo) * id_array->count;
-    my_data_group_array.groups = (FSMyDataGroupInfo *)malloc(bytes);
+    my_data_group_array.groups = (FSMyDataGroupInfo *)fc_malloc(bytes);
     if (my_data_group_array.groups == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -1022,10 +1018,8 @@ int cluster_relationship_init()
     int bytes;
 
     bytes = sizeof(FSClusterServerDetectEntry) * CLUSTER_SERVER_ARRAY.count;
-    inactive_server_array.entries = (FSClusterServerDetectEntry *)malloc(bytes);
+    inactive_server_array.entries = (FSClusterServerDetectEntry *)fc_malloc(bytes);
     if (inactive_server_array.entries == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     if ((result=init_pthread_lock(&inactive_server_array.lock)) != 0) {

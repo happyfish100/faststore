@@ -6,13 +6,36 @@
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
 #include "../binlog/slice_binlog.h"
+#include "../binlog/replica_binlog.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
+
+static void set_data_version(FSSliceOpContext *op_ctx)
+{
+    uint64_t old_version;
+
+    if (op_ctx->info.data_version <= 0) {
+        op_ctx->info.data_version = __sync_add_and_fetch(
+                &op_ctx->info.myself->data_version, 1);
+    } else {
+        while (1) {
+            old_version = __sync_add_and_fetch(&op_ctx->info.
+                    myself->data_version, 0);
+            if (op_ctx->info.data_version <= old_version) {
+                break;
+            }
+            if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
+                        data_version, old_version, op_ctx->info.data_version))
+            {
+                break;
+            }
+        }
+    }
+}
 
 static void slice_write_finish(FSSliceOpContext *op_ctx)
 {
     uint64_t sns[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
-    uint64_t data_version;
     int inc_alloc;
     int r;
     int i;
@@ -28,24 +51,30 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
             op_ctx->write.inc_alloc += inc_alloc;
         }
 
-        //data_version = __sync_add_and_fetch(&OP_CTX_INFO.myself->data_version, 1);
-
-        data_version = 0;
-
+        set_data_version(op_ctx);
         for (i=0; i<op_ctx->write.sarray.count; i++) {
             if ((r=slice_binlog_log_add_slice(op_ctx->write.sarray.slices[i],
-                            sns[i], data_version)) != 0) {
+                            sns[i], op_ctx->info.data_version)) != 0)
+            {
                 op_ctx->result = r;
                 return;
             }
         }
-    } else {
-        for (i=0; i<op_ctx->write.sarray.count; i++) {
+
+        if (op_ctx->info.write_data_binlog) {
+            if ((r=replica_binlog_log_write_slice(op_ctx->info.
+                            data_group_id, op_ctx->info.data_version,
+                            &op_ctx->info.bs_key)) != 0)
+            {
+                op_ctx->result = r;
+                return;
+            }
         }
     }
 
-    //TODO
-    //ob_index_free_slice(record->slice);
+    for (i=0; i<op_ctx->write.sarray.count; i++) {
+        ob_index_free_slice(op_ctx->write.sarray.slices[i]);
+    }
 }
 
 static void slice_write_done(struct trunk_io_buffer *record, const int result)
@@ -95,7 +124,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         OBSliceEntry **slices, int *slice_count)
 {
     int result;
-    FSTrunkSpaceInfo spaces[2];
+    FSTrunkSpaceInfo spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
 
     if (reclaim_alloc) {
         result = storage_allocator_reclaim_alloc(
@@ -260,13 +289,14 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     int r;
     FSSliceSize ssizes[SLICE_MAX_HOLES];
     FSBlockSliceKeyInfo new_bskey;
-    uint64_t sn;
     int count;
     int slice_count;
     int inc;
+    int n;
     int i;
     int k;
-    OBSliceEntry *slices[2];
+    OBSliceEntry *slices[2 * SLICE_MAX_HOLES];
+    uint64_t sns[2 * SLICE_MAX_HOLES];
 
     *inc_alloc = 0;
     if ((result=get_slice_index_holes(&op_ctx->info.bs_key, sarray, ssizes,
@@ -275,32 +305,51 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
         return result;
     }
 
+    slice_count = 0;
     new_bskey.block = op_ctx->info.bs_key.block;
     for (k=0; k<count; k++) {
         new_bskey.slice = ssizes[k];
         if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
-                        false, slices, &slice_count)) != 0)
+                        false, slices + slice_count, &n)) != 0)
         {
             return result;
         }
 
-        //TODO
-        for (i=0; i<slice_count; i++) {
-            if ((r=ob_index_add_slice(slices[i], &sn, &inc)) == 0) {
-                *inc_alloc += inc;
-            } else {
-                result = r;
-                ob_index_free_slice(slices[i]);
-            }
-        }
+        slice_count += n;
     }
 
+    for (i=0; i<slice_count; i++) {
+        if ((r=ob_index_add_slice(slices[i], sns + i, &inc)) != 0) {
+            return r;
+        }
+        *inc_alloc += inc;
+    }
+
+    set_data_version(op_ctx);
+    for (i=0; i<slice_count; i++) {
+        if ((r=slice_binlog_log_add_slice(slices[i], sns[i],
+                        op_ctx->info.data_version)) != 0)
+        {
+            return r;
+        }
+
+        ob_index_free_slice(slices[i]);
+    }
+
+    if (op_ctx->info.write_data_binlog) {
+        if ((r=replica_binlog_log_alloc_slice(op_ctx->info.
+                        data_group_id, op_ctx->info.data_version,
+                        &op_ctx->info.bs_key)) != 0)
+        {
+            return r;
+        }
+    }
 
     logInfo("file: "__FILE__", line: %d, "
             "slice hole count: %d, inc_alloc: %d",
             __LINE__, count, *inc_alloc);
 
-    return result;
+    return 0;
 }
 
 static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
@@ -389,13 +438,24 @@ int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
 {
     uint64_t sn;
     int result;
+
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
                     &sn, dec_alloc)) != 0)
     {
         return result;
     }
 
-    //TODO
+    set_data_version(op_ctx);
+    if ((result=slice_binlog_log_del_slice(&op_ctx->info.bs_key,
+                    sn, op_ctx->info.data_version)) != 0)
+    {
+        return result;
+    }
+
+    if (op_ctx->info.write_data_binlog) {
+        return replica_binlog_log_del_slice(op_ctx->info.data_group_id,
+                op_ctx->info.data_version, &op_ctx->info.bs_key);
+    }
     return 0;
 }
 
@@ -403,12 +463,23 @@ int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc)
 {
     uint64_t sn;
     int result;
+
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
                     &sn, dec_alloc)) != 0)
     {
         return result;
     }
 
-    //TODO
+    set_data_version(op_ctx);
+    if ((result=slice_binlog_log_del_block(&op_ctx->info.bs_key.block,
+                    sn, op_ctx->info.data_version)) != 0)
+    {
+        return result;
+    }
+
+    if (op_ctx->info.write_data_binlog) {
+        return replica_binlog_log_del_block(op_ctx->info.data_group_id,
+                op_ctx->info.data_version, &op_ctx->info.bs_key.block);
+    }
     return 0;
 }

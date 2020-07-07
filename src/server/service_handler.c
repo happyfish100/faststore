@@ -495,11 +495,8 @@ void *service_alloc_thread_extra_data(const int thread_index)
     FSServerContext *server_context;
 
     bytes = sizeof(FSServerContext) + sizeof(struct ob_slice_ptr_array);
-    server_context = (FSServerContext *)malloc(bytes);
+    server_context = (FSServerContext *)fc_malloc(bytes);
     if (server_context == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail, errno: %d, error info: %s",
-                __LINE__, bytes, errno, strerror(errno));
         return NULL;
     }
     memset(server_context, 0, bytes);

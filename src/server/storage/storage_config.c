@@ -95,10 +95,8 @@ static int load_one_path(FSStorageConfig *storage_cfg,
 
     chopPath(path_str);
     path->len = strlen(path_str);
-    path->str = (char *)malloc(path->len + 1);
+    path->str = (char *)fc_malloc(path->len + 1);
     if (path->str == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, path->len + 1);
         return ENOMEM;
     }
 
@@ -151,10 +149,8 @@ static int load_paths(FSStorageConfig *storage_cfg,
     }
 
     bytes = sizeof(FSStoragePathInfo) * count;
-    parray->paths = (FSStoragePathInfo *)malloc(bytes);
+    parray->paths = (FSStoragePathInfo *)fc_malloc(bytes);
     if (parray->paths == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(parray->paths, 0, bytes);
@@ -433,10 +429,8 @@ static int set_paths_by_index(FSStorageConfig *storage_cfg)
 
     storage_cfg->paths_by_index.count = storage_cfg->max_store_path_index + 1;
     bytes = sizeof(FSStoragePathInfo *) * storage_cfg->paths_by_index.count;
-    storage_cfg->paths_by_index.paths = (FSStoragePathInfo **)malloc(bytes);
+    storage_cfg->paths_by_index.paths = (FSStoragePathInfo **)fc_malloc(bytes);
     if (storage_cfg->paths_by_index.paths == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(storage_cfg->paths_by_index.paths, 0, bytes);

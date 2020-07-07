@@ -418,10 +418,8 @@ static int alloc_replication_ptr_array(FSReplicationPtrArray *array)
     int bytes;
 
     bytes = sizeof(FSReplication *) * fs_get_replication_count();
-    array->replications = (FSReplication **)malloc(bytes);
+    array->replications = (FSReplication **)fc_malloc(bytes);
     if (array->replications == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(array->replications, 0, bytes);
@@ -432,12 +430,8 @@ void *replica_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
 
-    server_context = (FSServerContext *)malloc(sizeof(FSServerContext));
+    server_context = (FSServerContext *)fc_malloc(sizeof(FSServerContext));
     if (server_context == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail, errno: %d, error info: %s",
-                __LINE__, (int)sizeof(FSServerContext),
-                errno, strerror(errno));
         return NULL;
     }
     memset(server_context, 0, sizeof(FSServerContext));

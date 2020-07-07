@@ -105,10 +105,8 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    in_buff = (char *)malloc(bs_key.slice.length);
+    in_buff = (char *)fc_malloc(bs_key.slice.length);
     if (in_buff == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bs_key.slice.length);
         return ENOMEM;
     }
 

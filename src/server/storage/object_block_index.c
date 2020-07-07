@@ -215,10 +215,8 @@ static int init_ob_shared_ctx_array()
 
     ob_shared_ctx_array.count = STORAGE_CFG.object_block.shared_locks_count;
     bytes = sizeof(OBSharedContext) * ob_shared_ctx_array.count;
-    ob_shared_ctx_array.contexts = (OBSharedContext *)malloc(bytes);
+    ob_shared_ctx_array.contexts = (OBSharedContext *)fc_malloc(bytes);
     if (ob_shared_ctx_array.contexts == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %d bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
 
@@ -263,10 +261,8 @@ static int init_ob_hashtable()
 
     ob_hashtable.capacity = STORAGE_CFG.object_block.hashtable_capacity;
     bytes = sizeof(OBEntry *) * ob_hashtable.capacity;
-    ob_hashtable.buckets = (OBEntry **)malloc(bytes);
+    ob_hashtable.buckets = (OBEntry **)fc_malloc(bytes);
     if (ob_hashtable.buckets == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc %"PRId64" bytes fail", __LINE__, bytes);
         return ENOMEM;
     }
     memset(ob_hashtable.buckets, 0, bytes);
@@ -343,10 +339,8 @@ static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
 
         alloc = array->alloc * 2;
         bytes = sizeof(OBSliceEntry *) * alloc;
-        slices = (OBSliceEntry **)malloc(bytes);
+        slices = (OBSliceEntry **)fc_malloc(bytes);
         if (slices == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
 
@@ -515,6 +509,7 @@ int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc)
     PTHREAD_MUTEX_LOCK(&ctx->lock);
     result = add_slice(ctx, slice->ob, slice, inc_alloc);
     if (result == 0) {
+        __sync_add_and_fetch(&slice->ref_count, 1);
         *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
@@ -720,10 +715,8 @@ static int add_to_slice_ptr_array(OBSlicePtrArray *array,
             alloc = array->alloc * 2;
         }
         bytes = sizeof(OBSliceEntry *) * alloc;
-        slices = (OBSliceEntry **)malloc(bytes);
+        slices = (OBSliceEntry **)fc_malloc(bytes);
         if (slices == NULL) {
-            logError("file: "__FILE__", line: %d, "
-                    "malloc %d bytes fail", __LINE__, bytes);
             return ENOMEM;
         }
 

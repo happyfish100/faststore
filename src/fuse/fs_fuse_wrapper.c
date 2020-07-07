@@ -773,9 +773,7 @@ static void fs_do_read(fuse_req_t req, fuse_ino_t ino, size_t size,
     
     if (size < sizeof(fixed_buff)) {
         buff = fixed_buff;
-    } else if ((buff=(char *)malloc(size)) == NULL) {
-        logError("file: "__FILE__", line: %d, func: %s, "
-                "malloc %d bytes fail", __LINE__, __FUNCTION__, (int)size);
+    } else if ((buff=(char *)fc_malloc(size)) == NULL) {
         fuse_reply_err(req, ENOMEM);
         return;
     }
