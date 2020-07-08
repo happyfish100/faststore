@@ -99,21 +99,23 @@ static int open_writable_binlog(BinlogWriterInfo *writer)
     writer->file.fd = open(writer->file.name,
             O_WRONLY | O_CREAT | O_APPEND, 0644);
     if (writer->file.fd < 0) {
-        logError("file: "__FILE__", line: %d, "
+        logCrit("file: "__FILE__", line: %d, "
                 "open file \"%s\" fail, "
-                "errno: %d, error info: %s",
+                "errno: %d, error info: %s, exiting ...",
                 __LINE__, writer->file.name,
                 errno, STRERROR(errno));
+        SF_G_CONTINUE_FLAG = false;
         return errno != 0 ? errno : EACCES;
     }
 
     writer->file.size = lseek(writer->file.fd, 0, SEEK_END);
     if (writer->file.size < 0) {
-        logError("file: "__FILE__", line: %d, "
+        logCrit("file: "__FILE__", line: %d, "
                 "lseek file \"%s\" fail, "
-                "errno: %d, error info: %s",
+                "errno: %d, error info: %s, exiting ...",
                 __LINE__, writer->file.name,
                 errno, STRERROR(errno));
+        SF_G_CONTINUE_FLAG = false;
         return errno != 0 ? errno : EIO;
     }
 
@@ -135,11 +137,12 @@ static int open_next_binlog(BinlogWriterInfo *writer)
                     "binlog file %s exist, rename to %s",
                     __LINE__, writer->file.name, bak_filename);
         } else {
-            logError("file: "__FILE__", line: %d, "
+            logCrit("file: "__FILE__", line: %d, "
                     "rename binlog %s to backup %s fail, "
-                    "errno: %d, error info: %s",
+                    "errno: %d, error info: %s, exiting ...",
                     __LINE__, writer->file.name, bak_filename,
                     errno, STRERROR(errno));
+            SF_G_CONTINUE_FLAG = false;
             return errno != 0 ? errno : EPERM;
         }
     }
@@ -154,21 +157,23 @@ static int do_write_to_file(BinlogWriterInfo *writer,
 
     if (fc_safe_write(writer->file.fd, buff, len) != len) {
         result = errno != 0 ? errno : EIO;
-        logError("file: "__FILE__", line: %d, "
+        logCrit("file: "__FILE__", line: %d, "
                 "write to binlog file \"%s\" fail, fd: %d, "
-                "errno: %d, error info: %s",
+                "errno: %d, error info: %s, exiting ...",
                 __LINE__, writer->file.name,
                 writer->file.fd, result, STRERROR(result));
+        SF_G_CONTINUE_FLAG = false;
         return result;
     }
 
     if (fsync(writer->file.fd) != 0) {
         result = errno != 0 ? errno : EIO;
-        logError("file: "__FILE__", line: %d, "
+        logCrit("file: "__FILE__", line: %d, "
                 "fsync to binlog file \"%s\" fail, "
-                "errno: %d, error info: %s",
+                "errno: %d, error info: %s, exiting ...",
                 __LINE__, writer->file.name,
                 result, STRERROR(result));
+        SF_G_CONTINUE_FLAG = false;
         return result;
     }
 
@@ -327,7 +332,9 @@ static void deal_record_by_version(BinlogWriterBuffer *wb)
         return;
     }
 
-    logInfo("%s wb version===== %"PRId64, writer->cfg.subdir_name, wb->version);
+    logInfo("%s wb version===== %"PRId64", next: %"PRId64", writer: %p",
+            writer->cfg.subdir_name, wb->version,
+            writer->version_ctx.next, writer);
 
     current = writer->version_ctx.ring.entries + wb->version %
         writer->version_ctx.ring.size;

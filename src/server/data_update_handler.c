@@ -131,16 +131,16 @@ static int handle_slice_write_replica_done(struct fast_task_info *task)
     return RESPONSE_STATUS;
 }
 
-static void master_slice_write_done_notify(FSSliceOpContext *notify)
+static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
 {
     struct fast_task_info *task;
     int result;
 
-    task = (struct fast_task_info *)notify->notify.args;
-    if (notify->result != 0) {
+    task = (struct fast_task_info *)op_ctx->notify.args;
+    if (op_ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
-                "%s", STRERROR(notify->result));
+                "%s", STRERROR(op_ctx->result));
 
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
@@ -150,26 +150,24 @@ static void master_slice_write_done_notify(FSSliceOpContext *notify)
                 __LINE__, task->client_ip,
                 OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
                 OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
-                notify->result, STRERROR(notify->result));
+                op_ctx->result, STRERROR(op_ctx->result));
         TASK_ARG->context.log_error = false;
-        result = notify->result;
+        result = op_ctx->result;
     } else {
-        OP_CTX_INFO.data_version = __sync_add_and_fetch(
-                &OP_CTX_INFO.myself->data_version, 1);
-
-        replica_binlog_log_write_slice(OP_CTX_INFO.data_group_id,
-                OP_CTX_INFO.data_version, &OP_CTX_INFO.bs_key);
-
+        /*
         if ((result=replication_producer_push_to_slave_queues(task)) ==
                 TASK_STATUS_CONTINUE)
         {
             TASK_ARG->context.deal_func = handle_slice_write_replica_done;
+        } else {
         }
-        else {
+        */
+        {
             RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
-            fill_slice_update_response(task, notify->write.inc_alloc);
+            fill_slice_update_response(task, op_ctx->write.inc_alloc);
         }
 
+        result = 0;
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "OP_CTX_INFO.data_version: %"PRId64", result: %d",
@@ -177,26 +175,25 @@ static void master_slice_write_done_notify(FSSliceOpContext *notify)
                 OP_CTX_INFO.data_version, result);
     }
 
-    RESPONSE_STATUS = notify->result;
+    RESPONSE_STATUS = op_ctx->result;
     if (result != TASK_STATUS_CONTINUE) {
         sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
     }
 }
 
-static void slave_slice_write_done_notify(FSSliceOpContext *notify)
+static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
 {
     ReplicationRPCResult *r;
     struct fast_task_info *task;
     int result;
 
-    r = (ReplicationRPCResult *)notify->notify.args;
+    r = (ReplicationRPCResult *)op_ctx->notify.args;
     task = r->replication->task;
     if (task == NULL) {
-        //TODO
         return;
     }
 
-    if (notify->result != 0) {
+    if (op_ctx->result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
                 "oid: %"PRId64", block offset: %"PRId64", "
@@ -205,13 +202,10 @@ static void slave_slice_write_done_notify(FSSliceOpContext *notify)
                 __LINE__, task->client_ip,
                 OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
                 OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
-                notify->result, STRERROR(notify->result));
-        result = notify->result;
+                op_ctx->result, STRERROR(op_ctx->result));
+        result = op_ctx->result;
     } else {
-        //TODO
-        replica_binlog_log_write_slice(OP_CTX_INFO.data_group_id,
-                OP_CTX_INFO.data_version, &OP_CTX_INFO.bs_key);
-
+        result = 0;
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "OP_CTX_INFO.data_version: %"PRId64", result: %d",
@@ -219,7 +213,10 @@ static void slave_slice_write_done_notify(FSSliceOpContext *notify)
                 OP_CTX_INFO.data_version, result);
     }
 
-    //TODO
+    /*
+    int replication_producer_push_to_rpc_result_queue(FSReplication *replication,
+        const uint64_t data_version, const int err_no);
+        */
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,
@@ -270,6 +267,8 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
         OP_CTX_NOTIFY.func = master_slice_write_done_notify;
         OP_CTX_NOTIFY.args = task;
     } else {
+        OP_CTX_NOTIFY.func = slave_slice_write_done_notify;
+        //OP_CTX_NOTIFY.args = task;
         //TODO
     }
 

@@ -279,15 +279,18 @@ struct ob_slice_ptr_array;
 typedef struct fs_server_context {
     union {
         struct {
-            struct fast_mblock_man record_allocator;
             struct ob_slice_ptr_array *slice_ptr_array;
         } service;
 
         struct {
-            FSReplicationPtrArray connectings;
-            FSReplicationPtrArray connected;
             FSClusterNotifyContextPtrArray notify_ctx_ptr_array;
         } cluster;
+
+        struct {
+            FSReplicationPtrArray connectings;
+            FSReplicationPtrArray connected;
+            struct fast_mblock_man op_ctx_allocator; //for slice op buffer context
+        } replica;
     };
 
 } FSServerContext;

@@ -437,12 +437,12 @@ void *replica_alloc_thread_extra_data(const int thread_index)
     memset(server_context, 0, sizeof(FSServerContext));
 
     if (alloc_replication_ptr_array(&server_context->
-                cluster.connectings) != 0)
+                replica.connectings) != 0)
     {
         return NULL;
     }
     if (alloc_replication_ptr_array(&server_context->
-                cluster.connected) != 0)
+                replica.connected) != 0)
     {
         return NULL;
     }
@@ -461,8 +461,8 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
         logInfo("thread index: %d, connectings.count: %d, "
                 "connected.count: %d",
                 SF_THREAD_INDEX(REPLICA_SF_CTX, thread_data),
-                server_ctx->cluster.connectings.count,
-                server_ctx->cluster.connected.count);
+                server_ctx->replica.connectings.count,
+                server_ctx->replica.connected.count);
     }
 
     replication_processor_process(server_ctx);

@@ -70,7 +70,7 @@ void replication_processor_bind_task(FSReplication *replication,
     CLUSTER_REPLICA = replication;
     server_ctx = (FSServerContext *)task->thread_data->arg;
     add_to_replication_ptr_array(&server_ctx->
-            cluster.connected, replication);
+            replica.connected, replication);
 }
 
 int replication_processor_bind_thread(FSReplication *replication)
@@ -102,7 +102,7 @@ int replication_processor_bind_thread(FSReplication *replication)
 
     server_ctx = (FSServerContext *)task->thread_data->arg;
     add_to_replication_ptr_array(&server_ctx->
-            cluster.connectings, replication);
+            replica.connectings, replication);
     return 0;
 }
 
@@ -113,7 +113,7 @@ int replication_processor_unbind(FSReplication *replication)
 
     server_ctx = (FSServerContext *)replication->task->thread_data->arg;
     if ((result=remove_from_replication_ptr_array(&server_ctx->
-                cluster.connected, replication)) == 0)
+                replica.connected, replication)) == 0)
     {
         replication_queue_discard_all(replication);
         rpc_result_ring_clear_all(&replication->context.caller.rpc_result_ctx);
@@ -372,13 +372,13 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
     } success_array;
     FSReplication *replication;
 
-    if (server_ctx->cluster.connectings.count == 0) {
+    if (server_ctx->replica.connectings.count == 0) {
         return 0;
     }
 
     success_array.count = 0;
-    for (i=0; i<server_ctx->cluster.connectings.count; i++) {
-        replication = server_ctx->cluster.connectings.replications[i];
+    for (i=0; i<server_ctx->replica.connectings.count; i++) {
+        replication = server_ctx->replica.connectings.replications[i];
         result = deal_connecting_replication(replication);
         if (result == 0) {
             if (success_array.count < SUCCESS_ARRAY_ELEMENT_MAX) {
@@ -422,7 +422,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
                 replication->connection_info.conn.port, prompt);
 
         if (remove_from_replication_ptr_array(&server_ctx->
-                    cluster.connectings, replication) == 0)
+                    replica.connectings, replication) == 0)
         {
             /*
             replication->peer->last_data_version = -1;
@@ -431,7 +431,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             */
 
             add_to_replication_ptr_array(&server_ctx->
-                    cluster.connected, replication);
+                    replica.connected, replication);
         }
 
         replication->connection_info.fail_count = 0;
@@ -451,8 +451,8 @@ void clean_connected_replications(FSServerContext *server_ctx)
     FSReplication *replication;
     int i;
 
-    for (i=0; i<server_ctx->cluster.connected.count; i++) {
-        replication = server_ctx->cluster.connected.replications[i];
+    for (i=0; i<server_ctx->replica.connected.count; i++) {
+        replication = server_ctx->replica.connected.replications[i];
         iovent_add_to_deleted_list(replication->task);
     }
 }
@@ -578,15 +578,15 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     static int count = 0;
 
     if (++count % 100 == 0) {
-        logInfo("server_ctx %p, connected.count: %d", server_ctx, server_ctx->cluster.connected.count);
+        logInfo("server_ctx %p, connected.count: %d", server_ctx, server_ctx->replica.connected.count);
     }
 
-    if (server_ctx->cluster.connected.count == 0) {
+    if (server_ctx->replica.connected.count == 0) {
         return 0;
     }
 
-    for (i=0; i<server_ctx->cluster.connected.count; i++) {
-        replication = server_ctx->cluster.connected.replications[i];
+    for (i=0; i<server_ctx->replica.connected.count; i++) {
+        replication = server_ctx->replica.connected.replications[i];
         if (deal_connected_replication(replication) != 0) {
             iovent_add_to_deleted_list(replication->task);
         }

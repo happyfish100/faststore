@@ -424,8 +424,8 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
         logInfo("thread index: %d, connectings.count: %d, "
                 "connected.count: %d",
                 SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
-                server_ctx->cluster.connectings.count,
-                server_ctx->cluster.connected.count);
+                server_ctx->replica.connectings.count,
+                server_ctx->replica.connected.count);
     }
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {

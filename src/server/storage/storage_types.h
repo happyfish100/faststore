@@ -42,4 +42,13 @@ typedef struct fs_slice_op_context {
 
 } FSSliceOpContext;
 
+typedef struct fs_slice_op_buffer_context {
+    FSSliceOpContext *op_ctx;
+    struct {
+        char *buff;
+        int capacity;
+    } buffer;
+    struct fast_task_info *task;
+} FSSliceOpBufferContext;
+
 #endif
