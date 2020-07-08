@@ -11,31 +11,34 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include "fastcommon/logger.h"
-#include "fastcommon/sockopt.h"
 #include "server_global.h"
-#include "server_binlog.h"
+#include "server_replication.h"
 
-int server_binlog_init()
+int server_replication_init()
 {
     int result;
 
-    if ((result=slice_binlog_init()) != 0) {
+    if ((result=replication_common_init()) != 0) {
         return result;
     }
 
-    if ((result=replica_binlog_init()) != 0) {
+    if ((result=replication_caller_init()) != 0) {
+        return result;
+    }
+
+    if ((result=replication_callee_init()) != 0) {
         return result;
     }
 
 	return 0;
 }
 
-void server_binlog_destroy()
+void server_replication_destroy()
 {
-    slice_binlog_destroy();
-    replica_binlog_destroy();
+    replication_common_destroy();
+    replication_caller_destroy();
 }
  
-void server_binlog_terminate()
+void server_replication_terminate()
 {
 }

@@ -8,8 +8,6 @@
 #include "binlog/trunk_binlog.h"
 #include "binlog/slice_binlog.h"
 #include "binlog/replica_binlog.h"
-#include "replication/replication_processor.h"
-#include "replication/replication_producer.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -27,7 +27,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "replication/replication_processor.h"
-#include "replication/replication_producer.h"
+#include "replication/replication_common.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "common_handler.h"

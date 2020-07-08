@@ -23,7 +23,8 @@
 #include "../server_group_info.h"
 #include "../binlog/binlog_reader.h"
 #include "rpc_result_ring.h"
-#include "replication_producer.h"
+#include "replication_common.h"
+#include "replication_caller.h"
 #include "replication_processor.h"
 
 static void replication_queue_discard_all(FSReplication *replication);
@@ -333,7 +334,7 @@ static void discard_queue(FSReplication *replication,
         head = head->nexts[replication->peer->link_index];
 
         decrease_task_waiting_rpc_count(rb);
-        replication_producer_release_rpc_entry(rb);
+        replication_caller_release_rpc_entry(rb);
     }
 }
 
@@ -513,7 +514,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
                     "task %p already cleanup", __LINE__, rb->task);
             decrease_task_waiting_rpc_count(rb);
         }
-        replication_producer_release_rpc_entry(rb);
+        replication_caller_release_rpc_entry(rb);
 
         rb = rb->nexts[replication->peer->link_index];
     } while (rb != NULL);

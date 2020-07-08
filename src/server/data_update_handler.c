@@ -24,7 +24,7 @@
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
-#include "replication/replication_producer.h"
+#include "replication/replication_common.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -155,7 +155,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
         result = op_ctx->result;
     } else {
         /*
-        if ((result=replication_producer_push_to_slave_queues(task)) ==
+        if ((result=replication_caller_push_to_slave_queues(task)) ==
                 TASK_STATUS_CONTINUE)
         {
             TASK_ARG->context.deal_func = handle_slice_write_replica_done;
@@ -214,7 +214,7 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
     }
 
     /*
-    int replication_producer_push_to_rpc_result_queue(FSReplication *replication,
+    int replication_common_push_to_rpc_result_queue(FSReplication *replication,
         const uint64_t data_version, const int err_no);
         */
 }

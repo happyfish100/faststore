@@ -34,6 +34,7 @@
 #include "cluster_relationship.h"
 #include "server_storage.h"
 #include "server_binlog.h"
+#include "server_replication.h"
 #include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
@@ -144,6 +145,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=server_replication_init()) != 0) {
+            break;
+        }
+
         fs_proto_init();
         //sched_print_all_entries();
 
@@ -184,7 +189,7 @@ int main(int argc, char *argv[])
         }
         sf_set_remove_from_ready_list(false);
 
-        result = replication_producer_start();
+        result = replication_common_start();
     } while (0);
 
     if (result != 0) {

@@ -27,7 +27,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "replication/replication_processor.h"
-#include "replication/replication_producer.h"
+#include "replication/replication_common.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "common_handler.h"
@@ -265,7 +265,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
         }
         if (result != TASK_STATUS_CONTINUE) {
             int r;
-            r = replication_producer_push_to_rpc_result_queue(
+            r = replication_common_push_to_rpc_result_queue(
                     CLUSTER_REPLICA, OP_CTX_INFO.data_version, result);
             if (r != 0) {
                 return r;

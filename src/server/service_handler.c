@@ -24,7 +24,7 @@
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
-#include "replication/replication_producer.h"
+#include "replication/replication_common.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
