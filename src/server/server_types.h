@@ -9,6 +9,7 @@
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/fast_allocator.h"
 #include "fastcommon/server_id_func.h"
+#include "fastcommon/shared_buffer.h"
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
 
@@ -65,7 +66,9 @@
 #define CLUSTER_TASK_TYPE TASK_CTX.cluster.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
-#define OP_CTX_NOTIFY       TASK_CTX.slice_op_ctx.notify
+#define OP_CTX_NOTIFY     TASK_CTX.slice_op_ctx.notify
+
+#define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -290,6 +293,7 @@ typedef struct fs_server_context {
             FSReplicationPtrArray connectings;
             FSReplicationPtrArray connected;
             struct fast_mblock_man op_ctx_allocator; //for slice op buffer context
+            SharedBufferContext shared_buffer_ctx;
         } replica;
     };
 

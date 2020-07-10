@@ -9,6 +9,8 @@
 extern "C" {
 #endif
 
+int replication_alloc_connection_ptr_arrays(FSServerContext *server_context);
+
 //replication server side
 void replication_processor_bind_task(FSReplication *replication,
         struct fast_task_info *task);

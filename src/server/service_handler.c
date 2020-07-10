@@ -192,10 +192,10 @@ static int service_deal_slice_read(struct fast_task_info *task)
     buff = REQUEST.body;
     OP_CTX_NOTIFY.func = slice_read_done_notify;
     OP_CTX_NOTIFY.args = task;
-    result = fs_slice_read_ex(&SLICE_OP_CTX, buff, ((FSServerContext *)
-                task->thread_data->arg)->service.slice_ptr_array);
+    result = fs_slice_read_ex(&SLICE_OP_CTX, buff,
+            SERVER_CTX->service.slice_ptr_array);
     if (result != 0) {
-        du_handler_set_slice_op_error_msg(task, "read", result);
+        du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX, "read", result);
         return result;
     }
     
@@ -384,32 +384,35 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     return 0;
 }
 
+#define  SERVICE_SET_TASK_CTX() \
+    do {  \
+        TASK_CTX.which_side = FS_WHICH_SIDE_MASTER; \
+        OP_CTX_INFO.data_version = 0;     \
+        OP_CTX_INFO.body = REQUEST.body;  \
+    } while (0)
+
 static inline int service_deal_slice_write(struct fast_task_info *task)
 {
-    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    OP_CTX_INFO.data_version = 0;
-    return du_handler_deal_slice_write_ex(task, REQUEST.body);
+    SERVICE_SET_TASK_CTX();
+    return du_handler_deal_slice_write(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_slice_allocate(struct fast_task_info *task)
 {
-    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    OP_CTX_INFO.data_version = 0;
-    return du_handler_deal_slice_allocate_ex(task, REQUEST.body);
+    SERVICE_SET_TASK_CTX();
+    return du_handler_deal_slice_allocate(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_slice_delete(struct fast_task_info *task)
 {
-    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    OP_CTX_INFO.data_version = 0;
-    return du_handler_deal_slice_delete_ex(task, REQUEST.body);
+    SERVICE_SET_TASK_CTX();
+    return du_handler_deal_slice_delete(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_block_delete(struct fast_task_info *task)
 {
-    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    OP_CTX_INFO.data_version = 0;
-    return du_handler_deal_block_delete_ex(task, REQUEST.body);
+    SERVICE_SET_TASK_CTX();
+    return du_handler_deal_block_delete(task, &SLICE_OP_CTX);
 }
 
 int service_deal_task(struct fast_task_info *task)

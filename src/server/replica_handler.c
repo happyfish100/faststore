@@ -26,8 +26,7 @@
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
-#include "replication/replication_processor.h"
-#include "replication/replication_common.h"
+#include "server_replication.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 #include "common_handler.h"
@@ -166,17 +165,107 @@ static inline int replica_check_replication_task(struct fast_task_info *task)
     return 0;
 }
 
+static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
+        const int count)
+{
+    FSProtoReplicaRPCReqBodyPart *body_part;
+    FSSliceOpBufferContext *op_buffer_ctx;
+    FSSliceOpContext *op_ctx;
+    int result;
+    int current_len;
+    int last_index;
+    int blen;
+    int i;
+
+    TASK_CTX.which_side = FS_WHICH_SIDE_SLAVE;
+    last_index = count - 1;
+    current_len = sizeof(FSProtoReplicaRPCReqBodyHeader);
+    for (i=0; i<count; i++) {
+        body_part = (FSProtoReplicaRPCReqBodyPart *)
+            (buffer->buff + current_len);
+        blen = buff2int(body_part->body_len);
+        if (blen <= 0) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "rpc body length: %d <= 0", blen);
+            return EINVAL;
+        }
+        current_len += sizeof(*body_part) + blen;
+        if (i < last_index) {
+            if (REQUEST.header.body_len < current_len) {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "body length: %d < %d, rpc count: %d, current: %d",
+                        REQUEST.header.body_len, current_len, count, i + 1);
+                return EINVAL;
+            }
+        } else {
+            if (REQUEST.header.body_len != current_len) {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "body length: %d != %d, rpc count: %d",
+                        REQUEST.header.body_len, current_len, count);
+                return EINVAL;
+            }
+        }
+
+        if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
+            if ((op_buffer_ctx=replication_callee_alloc_op_buffer_ctx(
+                            SERVER_CTX)) == NULL)
+            {
+                return ENOMEM;
+            }
+
+            shared_buffer_hold(buffer);
+            op_buffer_ctx->buffer = buffer;
+            op_ctx = &op_buffer_ctx->op_ctx;
+        } else {
+            op_ctx = &SLICE_OP_CTX;
+        }
+
+        op_ctx->info.data_version = buff2long(body_part->data_version);
+        if (op_ctx->info.data_version <= 0) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "invalid data version: %"PRId64, op_ctx->info.data_version);
+            return EINVAL;
+        }
+        
+        op_ctx->info.body = (char *)(body_part + 1);
+        switch (body_part->cmd) {
+            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+                result = du_handler_deal_slice_write(task, op_ctx);
+                break;
+            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+                result = du_handler_deal_slice_allocate(task, op_ctx);
+                break;
+            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+                result = du_handler_deal_slice_delete(task, op_ctx);
+                break;
+            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+                result = du_handler_deal_block_delete(task, op_ctx);
+                break;
+            default:
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "unkown cmd: %d", body_part->cmd);
+                return EINVAL;
+        }
+        if (result != TASK_STATUS_CONTINUE) {
+            int r;
+            r = replication_callee_push_to_rpc_result_queue(
+                    CLUSTER_REPLICA, op_ctx->info.data_version, result);
+            if (r != 0) {
+                return r;
+            }
+        }
+    }
+
+    return 0;
+}
+
 static int replica_deal_rpc_req(struct fast_task_info *task)
 {
     FSProtoReplicaRPCReqBodyHeader *body_header;
-    FSProtoReplicaRPCReqBodyPart *body_part;
+    SharedBuffer *buffer;
     int result;
     int min_body_len;
     int count;
-    int blen;
-    int current_len;
-    int last_index;
-    int i;
 
     if ((result=replica_check_replication_task(task)) != 0) {
         return result;
@@ -206,74 +295,15 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
         return EINVAL;
     }
 
-    TASK_CTX.which_side = FS_WHICH_SIDE_SLAVE;
-    last_index = count - 1;
-    current_len = sizeof(FSProtoReplicaRPCReqBodyHeader);
-    for (i=0; i<count; i++) {
-        body_part = (FSProtoReplicaRPCReqBodyPart *)
-            (REQUEST.body + current_len);
-        blen = buff2int(body_part->body_len);
-        if (blen <= 0) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "rpc body length: %d <= 0", blen);
-            return EINVAL;
-        }
-        current_len += sizeof(*body_part) + blen;
-        if (i < last_index) {
-            if (REQUEST.header.body_len < current_len) {
-                RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                        "body length: %d < %d, rpc count: %d, current: %d",
-                        REQUEST.header.body_len, current_len, count, i + 1);
-                return EINVAL;
-            }
-        } else {
-            if (REQUEST.header.body_len != current_len) {
-                RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                        "body length: %d != %d, rpc count: %d",
-                        REQUEST.header.body_len, current_len, count);
-                return EINVAL;
-            }
-        }
-
-        OP_CTX_INFO.data_version = buff2long(body_part->data_version);
-        if (OP_CTX_INFO.data_version <= 0) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "invalid data version: %"PRId64, OP_CTX_INFO.data_version);
-            return EINVAL;
-        }
-        switch (body_part->cmd) {
-            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-                result = du_handler_deal_slice_write_ex(task,
-                        (char *)(body_part + 1));
-                break;
-            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-                result = du_handler_deal_slice_allocate_ex(task,
-                        (char *)(body_part + 1));
-                break;
-            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-                result = du_handler_deal_slice_delete_ex(task,
-                        (char *)(body_part + 1));
-                break;
-            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-                result = du_handler_deal_block_delete_ex(task,
-                        (char *)(body_part + 1));
-                break;
-            default:
-                RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                        "unkown cmd: %d", body_part->cmd);
-                return EINVAL;
-        }
-        if (result != TASK_STATUS_CONTINUE) {
-            int r;
-            r = replication_common_push_to_rpc_result_queue(
-                    CLUSTER_REPLICA, OP_CTX_INFO.data_version, result);
-            if (r != 0) {
-                return r;
-            }
-        }
+    if ((buffer=replication_callee_alloc_shared_buffer(SERVER_CTX)) == NULL) {
+        return ENOMEM;
     }
 
-    return 0;
+    memcpy(buffer->buff, REQUEST.body, task->length - sizeof(FSProtoHeader));
+    result = handle_rpc_req(task, buffer, count);
+    shared_buffer_release(buffer);
+
+    return result;
 }
 
 static int replica_deal_rpc_resp(struct fast_task_info *task)
@@ -391,7 +421,9 @@ int replica_deal_task(struct fast_task_info *task)
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_RPC_REQ:
-                result = replica_deal_rpc_req(task);
+                if ((result=replica_deal_rpc_req(task)) == 0) {
+                    TASK_ARG->context.need_response = false;
+                }
                 break;
             case FS_REPLICA_PROTO_RPC_RESP:
                 result = replica_deal_rpc_resp(task);
@@ -413,19 +445,6 @@ int replica_deal_task(struct fast_task_info *task)
     }
 }
 
-static int alloc_replication_ptr_array(FSReplicationPtrArray *array)
-{
-    int bytes;
-
-    bytes = sizeof(FSReplication *) * fs_get_replication_count();
-    array->replications = (FSReplication **)fc_malloc(bytes);
-    if (array->replications == NULL) {
-        return ENOMEM;
-    }
-    memset(array->replications, 0, bytes);
-    return 0;
-}
-
 void *replica_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
@@ -436,14 +455,11 @@ void *replica_alloc_thread_extra_data(const int thread_index)
     }
     memset(server_context, 0, sizeof(FSServerContext));
 
-    if (alloc_replication_ptr_array(&server_context->
-                replica.connectings) != 0)
-    {
+    if (replication_alloc_connection_ptr_arrays(server_context) != 0) {
         return NULL;
     }
-    if (alloc_replication_ptr_array(&server_context->
-                replica.connected) != 0)
-    {
+
+    if (replication_callee_init_allocator(server_context) != 0) {
         return NULL;
     }
 

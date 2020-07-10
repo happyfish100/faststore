@@ -14,29 +14,34 @@ extern "C" {
 #endif
 
 #define du_handler_parse_check_readable_block_slice(task, bs) \
-    du_handler_parse_check_block_slice(task, bs, false)
+    du_handler_parse_check_block_slice(task, &SLICE_OP_CTX, bs, false)
 
 int du_handler_parse_check_block_slice(struct fast_task_info *task,
-        const FSProtoBlockSlice *bs, const bool master_only);
+        FSSliceOpContext *op_ctx, const FSProtoBlockSlice *bs,
+        const bool master_only);
 
-int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body);
+int du_handler_deal_slice_write(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx);
 
-int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body);
+int du_handler_deal_slice_allocate(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx);
 
-int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body);
+int du_handler_deal_slice_delete(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx);
 
-int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body);
+int du_handler_deal_block_delete(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx);
 
 static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
-        task, const char *caption, const int result)
+        task, FSSliceOpContext *op_ctx, const char *caption, const int result)
 {
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
             "slice %s fail, result: %d, block {oid: %"PRId64", "
             "offset: %"PRId64"}, slice {offset: %d, length: %d}",
-            caption, result, OP_CTX_INFO.bs_key.block.oid,
-            OP_CTX_INFO.bs_key.block.offset,
-            OP_CTX_INFO.bs_key.slice.offset,
-            OP_CTX_INFO.bs_key.slice.length);
+            caption, result, op_ctx->info.bs_key.block.oid,
+            op_ctx->info.bs_key.block.offset,
+            op_ctx->info.bs_key.slice.offset,
+            op_ctx->info.bs_key.slice.length);
 }
 
 #ifdef __cplusplus

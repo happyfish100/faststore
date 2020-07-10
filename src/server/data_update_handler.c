@@ -24,7 +24,7 @@
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
-#include "replication/replication_common.h"
+#include "server_replication.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -32,45 +32,46 @@
 #include "data_update_handler.h"
 
 static int parse_check_block_key_ex(struct fast_task_info *task,
-        const FSProtoBlockKey *bkey, const bool master_only)
+        FSSliceOpContext *op_ctx, const FSProtoBlockKey *bkey,
+        const bool master_only)
 {
-    OP_CTX_INFO.bs_key.block.oid = buff2long(bkey->oid);
-    OP_CTX_INFO.bs_key.block.offset = buff2long(bkey->offset);
-    if (OP_CTX_INFO.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
+    op_ctx->info.bs_key.block.oid = buff2long(bkey->oid);
+    op_ctx->info.bs_key.block.offset = buff2long(bkey->offset);
+    if (op_ctx->info.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "block offset: %"PRId64" "
                 "NOT the multiple of the block size %d",
-                OP_CTX_INFO.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
-    fs_calc_block_hashcode(&OP_CTX_INFO.bs_key.block);
-    OP_CTX_INFO.data_group_id = FS_BLOCK_HASH_CODE(OP_CTX_INFO.bs_key.block) %
+    fs_calc_block_hashcode(&op_ctx->info.bs_key.block);
+    op_ctx->info.data_group_id = FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
         FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1;
 
-    OP_CTX_INFO.myself = fs_get_my_data_server(OP_CTX_INFO.data_group_id);
-    if (OP_CTX_INFO.myself == NULL) {
+    op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
+    if (op_ctx->info.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d NOT belongs to me",
-                OP_CTX_INFO.data_group_id);
+                op_ctx->info.data_group_id);
         return ENOENT;
     }
 
     logInfo("data_group_id: %d, master_only: %d",
-            OP_CTX_INFO.data_group_id, master_only);
+            op_ctx->info.data_group_id, master_only);
 
     if (master_only) {
-        if (!OP_CTX_INFO.myself->is_master) {
+        if (!op_ctx->info.myself->is_master) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
-                    OP_CTX_INFO.data_group_id);
+                    op_ctx->info.data_group_id);
             return EINVAL;
         }
     } else {
-        if (OP_CTX_INFO.myself->status != FS_SERVER_STATUS_ACTIVE) {
+        if (op_ctx->info.myself->status != FS_SERVER_STATUS_ACTIVE) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT active, my status: %d",
-                    OP_CTX_INFO.data_group_id, OP_CTX_INFO.myself->status);
+                    op_ctx->info.data_group_id, op_ctx->info.myself->status);
             return EINVAL;
         }
     }
@@ -79,33 +80,36 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
 }
 
 int du_handler_parse_check_block_slice(struct fast_task_info *task,
-        const FSProtoBlockSlice *bs, const bool master_only)
+        FSSliceOpContext *op_ctx, const FSProtoBlockSlice *bs,
+        const bool master_only)
 {
     int result;
 
-    if ((result=parse_check_block_key_ex(task, &bs->bkey, master_only)) != 0) {
+    if ((result=parse_check_block_key_ex(task, op_ctx,
+                    &bs->bkey, master_only)) != 0)
+    {
         return result;
     }
 
-    OP_CTX_INFO.bs_key.slice.offset = buff2int(bs->slice_size.offset);
-    OP_CTX_INFO.bs_key.slice.length = buff2int(bs->slice_size.length);
-    if (OP_CTX_INFO.bs_key.slice.offset < 0 || OP_CTX_INFO.bs_key.slice.offset >=
+    op_ctx->info.bs_key.slice.offset = buff2int(bs->slice_size.offset);
+    op_ctx->info.bs_key.slice.length = buff2int(bs->slice_size.length);
+    if (op_ctx->info.bs_key.slice.offset < 0 || op_ctx->info.bs_key.slice.offset >=
             FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice offset: %d "
                 "is invalid which < 0 or exceeds the block size %d",
-                OP_CTX_INFO.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
-    if (OP_CTX_INFO.bs_key.slice.length <= 0 || OP_CTX_INFO.bs_key.slice.offset +
-            OP_CTX_INFO.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
+    if (op_ctx->info.bs_key.slice.length <= 0 || op_ctx->info.bs_key.slice.offset +
+            op_ctx->info.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "slice offset: %d, length: %d is invalid which <= 0, "
                 "or offset + length exceeds the block size %d",
-                OP_CTX_INFO.bs_key.slice.offset,
-                OP_CTX_INFO.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.slice.offset,
+                op_ctx->info.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
@@ -148,21 +152,17 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
-                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
+                op_ctx->info.bs_key.block.oid, op_ctx->info.bs_key.block.offset,
+                op_ctx->info.bs_key.slice.offset, op_ctx->info.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
         TASK_ARG->context.log_error = false;
         result = op_ctx->result;
     } else {
-        /*
         if ((result=replication_caller_push_to_slave_queues(task)) ==
                 TASK_STATUS_CONTINUE)
         {
             TASK_ARG->context.deal_func = handle_slice_write_replica_done;
         } else {
-        }
-        */
-        {
             RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
             fill_slice_update_response(task, op_ctx->write.inc_alloc);
         }
@@ -170,9 +170,9 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
         result = 0;
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
-                "OP_CTX_INFO.data_version: %"PRId64", result: %d",
-                __LINE__, TASK_CTX.which_side, OP_CTX_INFO.data_group_id,
-                OP_CTX_INFO.data_version, result);
+                "op_ctx->info.data_version: %"PRId64", result: %d",
+                __LINE__, TASK_CTX.which_side, op_ctx->info.data_group_id,
+                op_ctx->info.data_version, result);
     }
 
     RESPONSE_STATUS = op_ctx->result;
@@ -183,16 +183,10 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
 
 static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
 {
-    ReplicationRPCResult *r;
     struct fast_task_info *task;
-    int result;
+    FSSliceOpBufferContext *op_buffer_ctx;
 
-    r = (ReplicationRPCResult *)op_ctx->notify.args;
-    task = r->replication->task;
-    if (task == NULL) {
-        return;
-    }
-
+    task = (struct fast_task_info *)op_ctx->notify.args;
     if (op_ctx->result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
@@ -200,36 +194,40 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
-                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
+                op_ctx->info.bs_key.block.oid, op_ctx->info.bs_key.block.offset,
+                op_ctx->info.bs_key.slice.offset, op_ctx->info.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
-        result = op_ctx->result;
     } else {
-        result = 0;
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
-                "OP_CTX_INFO.data_version: %"PRId64", result: %d",
-                __LINE__, TASK_CTX.which_side, OP_CTX_INFO.data_group_id,
-                OP_CTX_INFO.data_version, result);
+                "op_ctx->info.data_version: %"PRId64", result: %d",
+                __LINE__, TASK_CTX.which_side, op_ctx->info.data_group_id,
+                op_ctx->info.data_version, op_ctx->result);
     }
 
-    /*
-    int replication_common_push_to_rpc_result_queue(FSReplication *replication,
-        const uint64_t data_version, const int err_no);
-        */
+    if (CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_REPLICATION &&
+            CLUSTER_REPLICA != NULL)
+    {
+        replication_callee_push_to_rpc_result_queue(CLUSTER_REPLICA,
+                op_ctx->info.data_version, op_ctx->result);
+    }
+
+    op_buffer_ctx = fc_list_entry(op_ctx, FSSliceOpBufferContext, op_ctx);
+    shared_buffer_release(op_buffer_ctx->buffer);
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,
-        const char *caption, const int result)
+        FSSliceOpContext *op_ctx, const char *caption, const int result)
 {
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
             "block %s fail, result: %d, block {oid: %"PRId64", "
             "offset: %"PRId64"}", caption, result,
-            OP_CTX_INFO.bs_key.block.oid,
-            OP_CTX_INFO.bs_key.block.offset);
+            op_ctx->info.bs_key.block.oid,
+            op_ctx->info.bs_key.block.offset);
 }
 
-int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
+int du_handler_deal_slice_write(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx)
 {
     FSProtoSliceWriteReqHeader *req_header;
     char *buff;
@@ -241,42 +239,41 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    req_header = (FSProtoSliceWriteReqHeader *)body;
-    if ((result=du_handler_parse_check_block_slice(task, &req_header->bs,
-                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
+    req_header = (FSProtoSliceWriteReqHeader *)op_ctx->info.body;
+    if ((result=du_handler_parse_check_block_slice(task, op_ctx,
+                    &req_header->bs, TASK_CTX.which_side ==
+                    FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    if (sizeof(FSProtoSliceWriteReqHeader) + OP_CTX_INFO.bs_key.slice.length
-        != REQUEST.header.body_len)
+    if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.slice.length
+            != REQUEST.header.body_len)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "body header length: %d + slice length: %d"
                 " != body length: %d", (int)sizeof(FSProtoSliceWriteReqHeader),
-                OP_CTX_INFO.bs_key.slice.length, REQUEST.header.body_len);
+                op_ctx->info.bs_key.slice.length, REQUEST.header.body_len);
         return EINVAL;
     }
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "data_group_id: %d", __LINE__, __FUNCTION__,
-            OP_CTX_INFO.data_group_id);
+            op_ctx->info.data_group_id);
 
-    buff = body + sizeof(FSProtoSliceWriteReqHeader);
+    buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
-        OP_CTX_NOTIFY.func = master_slice_write_done_notify;
-        OP_CTX_NOTIFY.args = task;
+        op_ctx->notify.func = master_slice_write_done_notify;
     } else {
-        OP_CTX_NOTIFY.func = slave_slice_write_done_notify;
-        //OP_CTX_NOTIFY.args = task;
-        //TODO
+        op_ctx->notify.func = slave_slice_write_done_notify;
     }
+    op_ctx->notify.args = task;
 
     //TODO
     /*
     {
-        int64_t offset = OP_CTX_INFO.bs_key.block.offset + OP_CTX_INFO.bs_key.slice.offset;
-        int size = OP_CTX_INFO.bs_key.slice.length;
+        int64_t offset = op_ctx->info.bs_key.block.offset + op_ctx->info.bs_key.slice.offset;
+        int size = op_ctx->info.bs_key.slice.length;
         if (lseek(write_fd, 0, SEEK_CUR) != offset) {
             logError("file: "__FILE__", line: %d, func: %s, "
                     "lseek file offset: %"PRId64" != %"PRId64,
@@ -294,16 +291,17 @@ int du_handler_deal_slice_write_ex(struct fast_task_info *task, char *body)
     }
     */
 
-    OP_CTX_INFO.write_data_binlog = true;
-    if ((result=fs_slice_write(&SLICE_OP_CTX, buff)) != 0) {
-        du_handler_set_slice_op_error_msg(task, "write", result);
+    op_ctx->info.write_data_binlog = true;
+    if ((result=fs_slice_write(op_ctx, buff)) != 0) {
+        du_handler_set_slice_op_error_msg(task, op_ctx, "write", result);
         return result;
     }
 
     return TASK_STATUS_CONTINUE;
 }
 
-int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
+int du_handler_deal_slice_allocate(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx)
 {
     int result;
     int inc_alloc;
@@ -315,19 +313,19 @@ int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    req = (FSProtoSliceAllocateReq *)body;
-    if ((result=du_handler_parse_check_block_slice(task, &req->bs,
+    req = (FSProtoSliceAllocateReq *)op_ctx->info.body;
+    if ((result=du_handler_parse_check_block_slice(task, op_ctx, &req->bs,
                     TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    OP_CTX_INFO.write_data_binlog = true;
-    if ((result=fs_slice_allocate_ex(&SLICE_OP_CTX, ((FSServerContext *)
+    op_ctx->info.write_data_binlog = true;
+    if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
                         task->thread_data->arg)->service.slice_ptr_array,
                     &inc_alloc)) != 0)
     {
-        du_handler_set_slice_op_error_msg(task, "allocate", result);
+        du_handler_set_slice_op_error_msg(task, op_ctx, "allocate", result);
         return result;
     }
 
@@ -336,7 +334,8 @@ int du_handler_deal_slice_allocate_ex(struct fast_task_info *task, char *body)
     return 0;
 }
 
-int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
+int du_handler_deal_slice_delete(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx)
 {
     int result;
     int dec_alloc;
@@ -348,16 +347,16 @@ int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    req = (FSProtoSliceDeleteReq *)body;
-    if ((result=du_handler_parse_check_block_slice(task, &req->bs,
+    req = (FSProtoSliceDeleteReq *)op_ctx->info.body;
+    if ((result=du_handler_parse_check_block_slice(task, op_ctx, &req->bs,
                     TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    OP_CTX_INFO.write_data_binlog = true;
-    if ((result=fs_delete_slices(&SLICE_OP_CTX, &dec_alloc)) != 0) {
-        du_handler_set_slice_op_error_msg(task, "delete", result);
+    op_ctx->info.write_data_binlog = true;
+    if ((result=fs_delete_slices(op_ctx, &dec_alloc)) != 0) {
+        du_handler_set_slice_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 
@@ -366,7 +365,8 @@ int du_handler_deal_slice_delete_ex(struct fast_task_info *task, char *body)
     return 0;
 }
 
-int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body)
+int du_handler_deal_block_delete(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx)
 {
     int result;
     int dec_alloc;
@@ -378,16 +378,16 @@ int du_handler_deal_block_delete_ex(struct fast_task_info *task, char *body)
         return result;
     }
 
-    req = (FSProtoBlockDeleteReq *)body;
-    if ((result=parse_check_block_key_ex(task, &req->bkey,
+    req = (FSProtoBlockDeleteReq *)op_ctx->info.body;
+    if ((result=parse_check_block_key_ex(task, op_ctx, &req->bkey,
                     TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
     }
 
-    OP_CTX_INFO.write_data_binlog = true;
-    if ((result=fs_delete_block(&SLICE_OP_CTX, &dec_alloc)) != 0) {
-        set_block_op_error_msg(task, "delete", result);
+    op_ctx->info.write_data_binlog = true;
+    if ((result=fs_delete_block(op_ctx, &dec_alloc)) != 0) {
+        set_block_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 

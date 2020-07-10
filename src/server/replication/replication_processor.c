@@ -25,9 +25,40 @@
 #include "rpc_result_ring.h"
 #include "replication_common.h"
 #include "replication_caller.h"
+#include "replication_callee.h"
 #include "replication_processor.h"
 
 static void replication_queue_discard_all(FSReplication *replication);
+
+static int alloc_replication_ptr_array(FSReplicationPtrArray *array)
+{
+    int bytes;
+
+    bytes = sizeof(FSReplication *) * fs_get_replication_count();
+    array->replications = (FSReplication **)fc_malloc(bytes);
+    if (array->replications == NULL) {
+        return ENOMEM;
+    }
+    memset(array->replications, 0, bytes);
+    return 0;
+}
+
+int replication_alloc_connection_ptr_arrays(FSServerContext *server_context)
+{
+    int result;
+    if ((result=alloc_replication_ptr_array(&server_context->
+                    replica.connectings)) != 0)
+    {
+        return result;
+    }
+    if ((result=alloc_replication_ptr_array(&server_context->
+                    replica.connected)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
 
 static void add_to_replication_ptr_array(FSReplicationPtrArray *
         array, FSReplication *replication)
@@ -574,6 +605,7 @@ static int deal_connected_replication(FSReplication *replication)
 static int deal_replication_connected(FSServerContext *server_ctx)
 {
     FSReplication *replication;
+    int result;
     int i;
 
     static int count = 0;
@@ -588,7 +620,10 @@ static int deal_replication_connected(FSServerContext *server_ctx)
 
     for (i=0; i<server_ctx->replica.connected.count; i++) {
         replication = server_ctx->replica.connected.replications[i];
-        if (deal_connected_replication(replication) != 0) {
+        if ((result=deal_connected_replication(replication)) == 0) {
+            result = replication_callee_deal_rpc_result_queue(replication);
+        }
+        if (result != 0) {
             iovent_add_to_deleted_list(replication->task);
         }
     }

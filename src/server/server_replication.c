@@ -37,6 +37,7 @@ void server_replication_destroy()
 {
     replication_common_destroy();
     replication_caller_destroy();
+    replication_callee_destroy();
 }
  
 void server_replication_terminate()

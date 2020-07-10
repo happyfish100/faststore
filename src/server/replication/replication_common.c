@@ -54,7 +54,7 @@ static int rpc_result_alloc_init_func(void *element, void *args)
     return 0;
 }
 
-static int init_replication_processor(FSReplication *replication)
+static int init_replication_context(FSReplication *replication)
 {
     int result;
     int alloc_size;
@@ -159,7 +159,7 @@ static int init_replication_common_array()
         for (i=0; i<REPLICA_CHANNELS_BETWEEN_TWO_SERVERS; i++) {
             replication->peer = cs;
             replication->thread_index = offset + i;
-            if ((result=init_replication_processor(replication)) != 0) {
+            if ((result=init_replication_context(replication)) != 0) {
                 return result;
             }
 
@@ -243,32 +243,6 @@ void replication_common_terminate()
             replication++) {
         iovent_notify_thread(replication->task->thread_data);
     }
-}
-
-int replication_common_push_to_rpc_result_queue(FSReplication *replication,
-        const uint64_t data_version, const int err_no)
-{
-    ReplicationRPCResult *r;
-    bool notify;
-
-    if (replication == NULL) {
-        return ENOENT;
-    }
-
-    r = (ReplicationRPCResult *)fast_mblock_alloc_object(
-            &replication->context.callee.result_allocator);
-    if (r == NULL) {
-        return ENOMEM;
-    }
-
-    r->data_version = data_version;
-    r->err_no = err_no;
-    fc_queue_push_ex(&replication->context.callee.done_queue, r, &notify);
-    if (notify) {
-        iovent_notify_thread(replication->task->thread_data);
-    }
-
-    return 0;
 }
 
 int fs_get_replication_count()

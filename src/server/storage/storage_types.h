@@ -2,6 +2,7 @@
 #ifndef _STORAGE_TYPES_H
 #define _STORAGE_TYPES_H
 
+#include "fastcommon/shared_buffer.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC  2
@@ -33,6 +34,7 @@ typedef struct fs_slice_op_context {
         uint64_t data_version;
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
+        char *body;
     } info;
 
     struct {
@@ -43,12 +45,8 @@ typedef struct fs_slice_op_context {
 } FSSliceOpContext;
 
 typedef struct fs_slice_op_buffer_context {
-    FSSliceOpContext *op_ctx;
-    struct {
-        char *buff;
-        int capacity;
-    } buffer;
-    struct fast_task_info *task;
+    FSSliceOpContext op_ctx;
+    SharedBuffer *buffer;
 } FSSliceOpBufferContext;
 
 #endif
