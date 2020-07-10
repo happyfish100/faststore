@@ -79,7 +79,7 @@ int binlog_writer_init_normal(BinlogWriterInfo *writer,
         const char *subdir_name);
 
 int binlog_writer_init_by_version(BinlogWriterInfo *writer,
-        const char *subdir_name, const int64_t next_version,
+        const char *subdir_name, const uint64_t next_version,
         const int ring_size);
 
 int binlog_writer_init_thread_ex(BinlogWriterThread *thread,
@@ -101,6 +101,15 @@ static inline int binlog_writer_init(BinlogWriterContext *context,
 
     return binlog_writer_init_thread(&context->thread, &context->writer,
             FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE, max_record_size);
+}
+
+static inline void binlog_writer_set_next_version(BinlogWriterInfo *writer,
+        const uint64_t next_version)
+{
+    writer->version_ctx.next = next_version;
+    writer->version_ctx.ring.start = writer->version_ctx.ring.end =
+        writer->version_ctx.ring.entries + next_version %
+        writer->version_ctx.ring.size;
 }
 
 void binlog_writer_finish(BinlogWriterInfo *writer);

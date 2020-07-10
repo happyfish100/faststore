@@ -590,10 +590,13 @@ int binlog_writer_init_normal(BinlogWriterInfo *writer,
 }
 
 int binlog_writer_init_by_version(BinlogWriterInfo *writer,
-        const char *subdir_name, const int64_t next_version,
+        const char *subdir_name, const uint64_t next_version,
         const int ring_size)
 {
     int bytes;
+
+    logInfo("init writer %s ===== next version: %"PRId64", writer: %p",
+            subdir_name, next_version, writer);
 
     bytes = sizeof(BinlogWriterBuffer *) * ring_size;
     writer->version_ctx.ring.entries = (BinlogWriterBuffer **)fc_malloc(bytes);
@@ -602,13 +605,10 @@ int binlog_writer_init_by_version(BinlogWriterInfo *writer,
     }
     memset(writer->version_ctx.ring.entries, 0, bytes);
     writer->version_ctx.ring.size = ring_size;
-
-    writer->version_ctx.next = next_version;
     writer->version_ctx.ring.count = 0;
     writer->version_ctx.ring.max_count = 0;
-    writer->version_ctx.ring.start = writer->version_ctx.ring.end =
-        writer->version_ctx.ring.entries + next_version %
-        writer->version_ctx.ring.size;
+
+    binlog_writer_set_next_version(writer, next_version);
     return binlog_writer_init_normal(writer, subdir_name);
 }
 

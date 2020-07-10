@@ -167,7 +167,6 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
             fill_slice_update_response(task, op_ctx->write.inc_alloc);
         }
 
-        result = 0;
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "op_ctx->info.data_version: %"PRId64", result: %d",
@@ -214,6 +213,9 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
 
     op_buffer_ctx = fc_list_entry(op_ctx, FSSliceOpBufferContext, op_ctx);
     shared_buffer_release(op_buffer_ctx->buffer);
+
+    RESPONSE_STATUS = op_ctx->result;
+    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,
@@ -247,22 +249,23 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return result;
     }
 
-    if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.slice.length
-            != REQUEST.header.body_len)
-    {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "body header length: %d + slice length: %d"
-                " != body length: %d", (int)sizeof(FSProtoSliceWriteReqHeader),
-                op_ctx->info.bs_key.slice.length, REQUEST.header.body_len);
-        return EINVAL;
-    }
-
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "data_group_id: %d", __LINE__, __FUNCTION__,
             op_ctx->info.data_group_id);
 
     buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.
+                slice.length != REQUEST.header.body_len)
+        {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "body header length: %d + slice length: %d"
+                    " != body length: %d", (int)sizeof
+                    (FSProtoSliceWriteReqHeader), op_ctx->info.bs_key.
+                    slice.length, REQUEST.header.body_len);
+            return EINVAL;
+        }
+
         op_ctx->notify.func = master_slice_write_done_notify;
     } else {
         op_ctx->notify.func = slave_slice_write_done_notify;

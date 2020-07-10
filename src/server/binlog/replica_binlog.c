@@ -147,6 +147,7 @@ int replica_binlog_init()
     BinlogWriterInfo *writer;
     int data_group_id;
     int min_id;
+    uint64_t data_version;
     char filepath[PATH_MAX];
     char subdir_name[64];
     int result;
@@ -200,6 +201,7 @@ int replica_binlog_init()
         binlog_writer_array.writers[data_group_id - min_id] = writer;
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
+
         if ((result=binlog_writer_init_by_version(writer,
                         subdir_name, cs->data_version + 1, 1024)) != 0)
         {
@@ -207,14 +209,19 @@ int replica_binlog_init()
         }
 
         if ((result=get_last_data_version_from_file(data_group_id,
-                        &cs->data_version)) != 0)
+                        &data_version)) != 0)
         {
             return result;
         }
 
+        if (cs->data_version != data_version) {
+            cs->data_version = data_version;
+            binlog_writer_set_next_version(writer, cs->data_version + 1);
+        }
+
         if (cs->data_version > 0) {
-            logInfo("=====data_group_id: %d, data_version: %"PRId64" =====",
-                    data_group_id, cs->data_version);
+            logInfo("=====line: %d, data_group_id: %d, data_version: %"PRId64" =====",
+                    __LINE__, data_group_id, cs->data_version);
         }
 
         writer->thread = &binlog_writer_thread;

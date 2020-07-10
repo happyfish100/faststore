@@ -493,10 +493,12 @@ static int replication_rpc_from_queue(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
     ReplicationRPCEntry *rb;
+    ReplicationRPCEntry *deleted;
     struct fast_task_info *task;
     FSProtoReplicaRPCReqBodyHeader *body_header;
     FSProtoReplicaRPCReqBodyPart *body_part;
     uint64_t data_version;
+    int result;
     int count;
     int body_len;
     int blen;
@@ -516,10 +518,11 @@ static int replication_rpc_from_queue(FSReplication *replication)
         body_part = (FSProtoReplicaRPCReqBodyPart *)(task->data +
                 task->length);
 
-        logInfo("replication rb: %p", rb);
-
         blen = rb->task->length - sizeof(FSProtoHeader);
         pkg_len = task->length + sizeof(*body_part) + blen;
+
+        logInfo("replication rb: %p, blen: %d, pkg_len: %d", rb, blen, pkg_len);
+
         if (pkg_len > task->size) {
             bool notify;
 
@@ -540,15 +543,28 @@ static int replication_rpc_from_queue(FSReplication *replication)
             task->length = pkg_len;
             long2buff(data_version, body_part->data_version);
             int2buff(blen, body_part->body_len);
+
+            logInfo("count: %d, task->length: %d", count, task->length);
+
+            if ((result=rpc_result_ring_add(&replication->context.caller.
+                            rpc_result_ctx, data_version, rb->task,
+                            rb->task_version)) != 0)
+            {
+                SF_G_CONTINUE_FLAG = false;
+                return result;
+            }
         } else {
             logWarning("file: "__FILE__", line: %d, "
                     "task %p already cleanup", __LINE__, rb->task);
             decrease_task_waiting_rpc_count(rb);
         }
-        replication_caller_release_rpc_entry(rb);
-
+        deleted = rb;
         rb = rb->nexts[replication->peer->link_index];
+
+        replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
+
+    logInfo("replication count: %d, task->length: %d", count, task->length);
 
     if (count == 0) {
         return 0;
@@ -569,7 +585,8 @@ int replication_processors_deal_rpc_response(FSReplication *replication,
         const uint64_t data_version)
 {
     if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
-        //TODO
+        return rpc_result_ring_remove(&replication->context.caller.
+                rpc_result_ctx, data_version);
     }
     return 0;
 }
