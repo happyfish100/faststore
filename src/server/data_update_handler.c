@@ -132,6 +132,10 @@ static int handle_slice_write_replica_done(struct fast_task_info *task)
     TASK_ARG->context.deal_func = NULL;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
+
+    logInfo("file: "__FILE__", line: %d, "
+            "inc_alloc: %d, status: %d", __LINE__,
+            SLICE_OP_CTX.write.inc_alloc, RESPONSE_STATUS);
     return RESPONSE_STATUS;
 }
 
@@ -169,9 +173,11 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
 
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
-                "op_ctx->info.data_version: %"PRId64", result: %d",
-                __LINE__, TASK_CTX.which_side, op_ctx->info.data_group_id,
-                op_ctx->info.data_version, result);
+                "op_ctx->info.data_version: %"PRId64", result: %d, "
+                "done_bytes: %d, inc_alloc: %d", __LINE__,
+                TASK_CTX.which_side, op_ctx->info.data_group_id,
+                op_ctx->info.data_version, result, SLICE_OP_CTX.done_bytes,
+                SLICE_OP_CTX.write.inc_alloc);
     }
 
     RESPONSE_STATUS = op_ctx->result;
@@ -215,6 +221,7 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
     shared_buffer_release(op_buffer_ctx->buffer);
 
     RESPONSE_STATUS = op_ctx->result;
+    replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
 

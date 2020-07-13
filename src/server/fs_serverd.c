@@ -56,6 +56,7 @@ int main(int argc, char *argv[])
         sf_usage(argv[0]);
         return 1;
     }
+
     config_filename = argv[1];
     log_init2();
     //log_set_time_precision(&g_log_context, LOG_TIME_PRECISION_USECOND);

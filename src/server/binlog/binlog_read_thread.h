@@ -32,9 +32,8 @@ extern "C" {
 #endif
 
 int binlog_read_thread_init(BinlogReadThreadContext *ctx,
-        const char *subdir_name, get_current_write_index_func
-        get_current_write_index, const FSBinlogFilePosition *position,
-        const int buffer_size);
+        const char *subdir_name, struct binlog_writer_info *writer,
+        const FSBinlogFilePosition *position, const int buffer_size);
 
 static inline int binlog_read_thread_return_result_buffer(
         BinlogReadThreadContext *ctx, BinlogReadThreadResult *r)

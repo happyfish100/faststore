@@ -45,7 +45,7 @@ extern "C" {
 #endif
 
     int binlog_loader_load(const char *subdir_name,
-            get_current_write_index_func get_current_write_index,
+            struct binlog_writer_info *writer,
             binlog_parse_line_func parse_line);
 
 

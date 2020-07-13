@@ -23,15 +23,14 @@
 static void *binlog_read_thread_func(void *arg);
 
 int binlog_read_thread_init(BinlogReadThreadContext *ctx,
-        const char *subdir_name, get_current_write_index_func
-        get_current_write_index, const FSBinlogFilePosition *position,
-        const int buffer_size)
+        const char *subdir_name, struct binlog_writer_info *writer,
+        const FSBinlogFilePosition *position, const int buffer_size)
 {
     int result;
     int i;
 
     if ((result=binlog_reader_init(&ctx->reader, subdir_name,
-                    get_current_write_index, position)) != 0)
+                    writer, position)) != 0)
     {
         return result;
     }

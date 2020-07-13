@@ -142,8 +142,7 @@ int trunk_binlog_init()
     }
 
     return binlog_loader_load(FS_TRUNK_BINLOG_SUBDIR_NAME,
-                    trunk_binlog_get_current_write_index,
-                    trunk_parse_line);
+            &binlog_writer.writer, trunk_parse_line);
 }
 
 void trunk_binlog_destroy()

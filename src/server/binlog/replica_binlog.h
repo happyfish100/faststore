@@ -9,6 +9,9 @@
 #define REPLICA_BINLOG_OP_TYPE_DEL_SLICE    'd'
 #define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    'D'
 
+struct binlog_writer_info;
+struct server_binlog_reader;
+
 typedef struct replica_binlog_record {
     int op_type;
     FSBlockSliceKeyInfo bs_key;
@@ -21,6 +24,9 @@ extern "C" {
 
     int replica_binlog_init();
     void replica_binlog_destroy();
+
+    struct binlog_writer_info *replica_binlog_get_writer(
+            const int data_group_id);
 
     int replica_binlog_get_current_write_index(const int data_group_id);
 
@@ -54,6 +60,9 @@ extern "C" {
         return replica_binlog_log_slice(data_group_id, data_version,
                 bs_key, REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
     }
+
+    int replica_binlog_reader_init(struct server_binlog_reader *reader,
+            const int data_group_id, const uint64_t last_data_version);
 
 #ifdef __cplusplus
 }

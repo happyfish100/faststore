@@ -53,8 +53,9 @@
 //replication commands, master -> slave
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
 #define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
-#define FS_REPLICA_PROTO_GET_BINLOG_REQ          83
-#define FS_REPLICA_PROTO_GET_BINLOG_RESP         84
+#define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ  83
+#define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ   85
+#define FS_REPLICA_PROTO_FETCH_BINLOG_RESP       86
 
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
@@ -269,6 +270,29 @@ typedef struct fs_proto_ping_leader_req_body_part {
     char status;
     char padding[3];
 } FSProtoPingLeaderReqBodyPart;
+
+typedef struct fs_proto_replia_fetch_binlog_first_req {
+    char start_data_version[8];   //NOT including
+    char data_group_id[4];
+    char padding[4];
+} FSProtoReplicaFetchBinlogFirstReq;
+
+typedef struct fs_proto_replia_fetch_binlog_next_req {
+    char binlog_offset[8];
+    char binlog_index[4];
+    char data_group_id[4];
+} FSProtoReplicaFetchBinlogNextReq;
+
+typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
+    struct {
+        char binlog_offset[8];
+        char binlog_index[4];
+    } next;
+    char binlog_length[4];  //current binlog length
+    char is_last;
+    char padding[7];
+    char binlog[0];
+} FSProtoReplicaFetchBinlogRespBodyHeader;
 
 typedef struct fs_proto_replica_rpc_req_body_header {
     char count[4];

@@ -115,6 +115,7 @@ static inline void binlog_writer_set_next_version(BinlogWriterInfo *writer,
 void binlog_writer_finish(BinlogWriterInfo *writer);
 
 int binlog_get_current_write_index(BinlogWriterInfo *writer);
+
 void binlog_get_current_write_position(BinlogWriterInfo *writer,
         FSBinlogFilePosition *position);
 

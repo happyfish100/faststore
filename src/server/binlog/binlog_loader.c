@@ -44,7 +44,7 @@ static int parse_binlog(BinlogParseContext *ctx)
 }
 
 int binlog_loader_load(const char *subdir_name,
-        get_current_write_index_func get_current_write_index,
+        struct binlog_writer_info *writer,
         binlog_parse_line_func parse_line)
 {
     BinlogReadThreadContext read_thread_ctx;
@@ -57,9 +57,8 @@ int binlog_loader_load(const char *subdir_name,
 
     start_time = get_current_time_ms();
 
-    if ((result=binlog_read_thread_init(&read_thread_ctx,
-                    subdir_name, get_current_write_index,
-                    NULL, BINLOG_BUFFER_SIZE)) != 0)
+    if ((result=binlog_read_thread_init(&read_thread_ctx, subdir_name,
+                    writer, NULL, BINLOG_BUFFER_SIZE)) != 0)
     {
         return result;
     }

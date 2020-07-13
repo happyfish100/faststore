@@ -5,11 +5,11 @@
 
 #include "binlog_types.h"
 
-typedef int (*get_current_write_index_func)();
+struct binlog_writer_info;
 
-typedef struct {
+typedef struct server_binlog_reader {
     const char *subdir_name;
-    get_current_write_index_func get_current_write_index;
+    struct binlog_writer_info *writer;  //for get current write index
     char filename[PATH_MAX];
     int fd;
     FSBinlogFilePosition position;
@@ -21,8 +21,7 @@ extern "C" {
 #endif
 
 int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
-        get_current_write_index_func get_current_write_index,
-        const FSBinlogFilePosition *position);
+        struct binlog_writer_info *writer, const FSBinlogFilePosition *pos);
 
 void binlog_reader_destroy(ServerBinlogReader *reader);
 

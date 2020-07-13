@@ -11,6 +11,7 @@
 #include "../dio/trunk_io_thread.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
+#include "binlog_reader.h"
 #include "binlog_writer.h"
 #include "binlog_loader.h"
 #include "replica_binlog.h"
@@ -52,8 +53,59 @@ typedef struct {
 static BinlogWriterArray binlog_writer_array = {NULL, 0};
 static BinlogWriterThread binlog_writer_thread;   //only one write thread
 
-static int get_last_data_version_from_file(const int data_group_id,
-        uint64_t *data_version)
+static int get_first_data_version_from_file(const int data_group_id,
+        const int binlog_index, uint64_t *data_version)
+{
+    BinlogWriterInfo *writer;
+    char filename[PATH_MAX];
+    char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
+    char error_info[256];
+    string_t line;
+    char *line_end;
+    ReplicaBinlogRecord record;
+    int result;
+    int64_t read_bytes;
+
+    *data_version = 0;
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    binlog_writer_get_filename(writer, binlog_index,
+            filename, sizeof(filename));
+
+    read_bytes = FS_REPLICA_BINLOG_MAX_RECORD_SIZE - 1;
+    if ((result=getFileContentEx(filename, buff, 0, &read_bytes)) != 0) {
+        return result;
+    }
+    if (read_bytes == 0) {
+        return ENOENT;
+    }
+
+    line_end = (char *)memchr(buff, '\n', read_bytes);
+    if (line_end == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: 1, "
+                "expect new line char \"\\n\"",
+                __LINE__, filename);
+        return EINVAL;
+    }
+    line.str = buff;
+    line.len = line_end - buff + 1;
+    if ((result=replica_binlog_record_unpack(&line,
+                    &record, error_info)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: 1, %s",
+                __LINE__, filename, error_info);
+        return result;
+    }
+
+    *data_version = record.data_version;
+    return 0;
+}
+
+static int get_last_data_version_from_file_ex(const int data_group_id,
+        uint64_t *data_version, FSBinlogFilePosition *position,
+        int *record_len)
 {
     BinlogWriterInfo *writer;
     char filename[PATH_MAX];
@@ -62,24 +114,30 @@ static int get_last_data_version_from_file(const int data_group_id,
     string_t line;
     ReplicaBinlogRecord record;
     int result;
-    int binlog_index;
     int64_t file_size;
     int64_t offset;
     int64_t read_bytes;
 
     *data_version = 0;
+    *record_len = 0;
     writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    binlog_index = binlog_get_current_write_index(writer);
-    while (binlog_index >= 0) {
-        binlog_writer_get_filename(writer, binlog_index,
+    position->index = binlog_get_current_write_index(writer);
+    while (position->index >= 0) {
+        binlog_writer_get_filename(writer, position->index,
                 filename, sizeof(filename));
         if ((result=getFileSize(filename, &file_size)) != 0) {
             return result;
         }
+
         if (file_size == 0) {
-            binlog_index--;
-            continue;
+            if (position->index > 0) {
+                position->index--;
+                continue;
+            } else {
+                position->offset = 0;
+                return 0;
+            }
         }
 
         if (file_size >= FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
@@ -97,8 +155,11 @@ static int get_last_data_version_from_file(const int data_group_id,
         line.str = (char *)fc_memrchr(buff, '\n', read_bytes - 1);
         if (line.str == NULL) {
             line.str = buff;
+        } else {
+            line.str += 1;  //skip \n
         }
-        line.len = (buff + read_bytes) - line.str;
+        line.len = *record_len = (buff + read_bytes) - line.str;
+        position->offset = file_size - *record_len;
         if ((result=replica_binlog_record_unpack(&line,
                         &record, error_info)) != 0)
         {
@@ -116,6 +177,16 @@ static int get_last_data_version_from_file(const int data_group_id,
     }
 
     return 0;
+}
+
+static inline int get_last_data_version_from_file(const int data_group_id,
+        uint64_t *data_version)
+{
+    FSBinlogFilePosition position;
+    int record_len;
+
+    return get_last_data_version_from_file_ex(data_group_id,
+            data_version, &position, &record_len);
 }
 
 static int alloc_binlog_writer_array(const int my_data_group_count)
@@ -238,11 +309,16 @@ void replica_binlog_destroy()
     }
 }
 
+struct binlog_writer_info *replica_binlog_get_writer(const int data_group_id)
+{
+    return binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+}
+
 int replica_binlog_get_current_write_index(const int data_group_id)
 {
     BinlogWriterInfo *writer;
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
+    writer = replica_binlog_get_writer(data_group_id);
     return binlog_get_current_write_index(writer);
 }
 
@@ -379,4 +455,174 @@ int replica_binlog_log_del_block(const int data_group_id,
             bkey->oid, bkey->offset);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
+}
+
+static int find_position_by_buffer(ServerBinlogReader *reader,
+        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+{
+    int result;
+    char error_info[256];
+    string_t line;
+    char *line_end;
+    ReplicaBinlogRecord record;
+
+    while (reader->binlog_buffer.current < reader->binlog_buffer.end) {
+        line_end = (char *)memchr(reader->binlog_buffer.current, '\n',
+                reader->binlog_buffer.end - reader->binlog_buffer.current);
+        if (line_end == NULL) {
+            return EAGAIN;
+        }
+
+        ++line_end;   //skip \n
+        line.str = reader->binlog_buffer.current;
+        line.len = line_end - reader->binlog_buffer.current;
+        if ((result=replica_binlog_record_unpack(&line,
+                        &record, error_info)) != 0)
+        {
+            int64_t file_offset;
+            int64_t line_count;
+
+            file_offset = reader->position.offset - (reader->
+                    binlog_buffer.end - reader->binlog_buffer.current);
+            fc_get_file_line_count_ex(reader->filename,
+                    file_offset, &line_count);
+            logError("file: "__FILE__", line: %d, "
+                    "binlog file %s, line no: %"PRId64", %s",
+                    __LINE__, reader->filename, line_count, error_info);
+            return result;
+        }
+
+        if (last_data_version < record.data_version) {
+            pos->index = reader->position.index;
+            pos->offset = reader->position.offset - (reader->
+                    binlog_buffer.end - reader->binlog_buffer.current);
+            return 0;
+        }
+
+        reader->binlog_buffer.current = line_end;
+    }
+
+    return EAGAIN;
+}
+
+static int find_position_by_reader(ServerBinlogReader *reader,
+        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+{
+    int result;
+
+    while ((result=binlog_reader_read(reader)) == 0) {
+        result = find_position_by_buffer(reader, last_data_version, pos);
+        if (result != EAGAIN) {
+            return result;
+        }
+    }
+
+    return result;
+}
+
+static int find_position(const int data_group_id,
+        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+{
+    int result;
+    int record_len;
+    uint64_t data_version;
+    ServerBinlogReader reader;
+    BinlogWriterInfo *writer;
+    char subdir_name[64];
+
+    if ((result=get_last_data_version_from_file_ex(data_group_id,
+                    &data_version, pos, &record_len)) != 0)
+    {
+        return result;
+    }
+
+    if (last_data_version == data_version) {
+        pos->offset += record_len;
+        return 0;
+    }
+
+    if (last_data_version > data_version) {
+        logError("file: "__FILE__", line: %d, data_group_id: %d, "
+                "last_data_version: %"PRId64" is too large "
+                " > the last data version %"PRId64" in the binlog file, "
+                "binlog index: %d", __LINE__, data_group_id,
+                last_data_version, data_version, pos->index);
+        return EINVAL;
+    }
+
+    sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
+            data_group_id);
+    writer = replica_binlog_get_writer(data_group_id);
+    pos->offset = 0;
+    if ((result=binlog_reader_init(&reader, subdir_name,
+                    writer, pos)) != 0)
+    {
+        return result;
+    }
+
+    result = find_position_by_reader(&reader, last_data_version, pos);
+    binlog_reader_destroy(&reader);
+    return result;
+}
+
+static int find_position_by_data_version(const int data_group_id,
+        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+{
+    int result;
+    int binlog_index;
+    BinlogWriterInfo *writer;
+    uint64_t first_data_version;
+
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    binlog_index = binlog_get_current_write_index(writer);
+
+    while (binlog_index >= 0) {
+        if ((result=get_first_data_version_from_file(data_group_id,
+                        binlog_index, &first_data_version)) != 0)
+        {
+            if (result == ENOENT) {
+                --binlog_index;
+                continue;
+            }
+
+            return result;
+        }
+
+        if (last_data_version >= first_data_version) {
+            pos->index = binlog_index;
+            pos->offset = 0;
+            return find_position(data_group_id, last_data_version, pos);
+        }
+
+        --binlog_index;
+    }
+
+    pos->index = 0;
+    pos->offset = 0;
+    return 0;
+}
+
+int replica_binlog_reader_init(struct server_binlog_reader *reader,
+        const int data_group_id, const uint64_t last_data_version)
+{
+    int result;
+    char subdir_name[64];
+    BinlogWriterInfo *writer;
+    FSBinlogFilePosition position;
+
+    sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
+            data_group_id);
+    writer = replica_binlog_get_writer(data_group_id);
+    if (last_data_version == 0) {
+        return binlog_reader_init(reader, subdir_name, writer, NULL);
+    }
+
+    if ((result=find_position_by_data_version(data_group_id,
+                    last_data_version, &position)) != 0)
+    {
+        return result;
+    }
+
+    return binlog_reader_init(reader, subdir_name, writer, &position);
 }

@@ -66,6 +66,56 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
     sf_task_finish_clean_up(task);
 }
 
+static int replica_check_master(struct fast_task_info *task,
+        const int data_group_id)
+{
+    FSClusterDataServerInfo *myself;
+
+    myself = fs_get_my_data_server(data_group_id);
+    if (myself == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d NOT belongs to me", data_group_id);
+        return ENOENT;
+    }
+
+    if (!myself->is_master) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, i am NOT master", data_group_id);
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
+{
+    FSProtoReplicaFetchBinlogFirstReq *req;
+    uint64_t start_data_version;
+    int data_group_id;
+    int result;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoReplicaFetchBinlogFirstReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoReplicaFetchBinlogFirstReq *)REQUEST.body;
+    start_data_version = buff2long(req->start_data_version);
+    data_group_id = buff2int(req->data_group_id);
+
+    if ((result=replica_check_master(task, data_group_id)) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
+static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
+{
+    return 0;
+}
+
 static int replica_deal_join_server_req(struct fast_task_info *task)
 {
     int result;
@@ -246,6 +296,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
                         "unkown cmd: %d", body_part->cmd);
                 return EINVAL;
         }
+
         if (result != TASK_STATUS_CONTINUE) {
             int r;
             r = replication_callee_push_to_rpc_result_queue(
@@ -411,10 +462,6 @@ int replica_deal_task(struct fast_task_info *task)
                         "client ip: %s, cmd: %d", __LINE__,
                         task->client_ip, REQUEST.header.cmd);
                 result = replica_deal_join_server_req(task);
-
-                logInfo("file: "__FILE__", line: %d, "
-                        "client ip: %s, cmd: %d, result: %d", __LINE__,
-                        task->client_ip, REQUEST.header.cmd, result);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
                 result = replica_deal_join_server_resp(task);
@@ -428,6 +475,12 @@ int replica_deal_task(struct fast_task_info *task)
             case FS_REPLICA_PROTO_RPC_RESP:
                 result = replica_deal_rpc_resp(task);
                 TASK_ARG->context.need_response = false;
+                break;
+            case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ:
+                result = replica_deal_fetch_binlog_first(task);
+                break;
+            case FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ:
+                result = replica_deal_fetch_binlog_next(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

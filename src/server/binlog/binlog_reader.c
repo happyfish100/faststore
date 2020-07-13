@@ -139,7 +139,9 @@ int binlog_reader_read(ServerBinlogReader *reader)
         return result;
     }
 
-    if (reader->position.index < reader->get_current_write_index()) {
+    if (reader->position.index < binlog_get_current_write_index(
+                reader->writer))
+    {
         reader->position.offset = 0;
         reader->position.index++;
         if ((result=open_readable_binlog(reader)) != 0) {
@@ -161,7 +163,9 @@ int binlog_read_to_buffer(ServerBinlogReader *reader,
         return result;
     }
 
-    if (reader->position.index < reader->get_current_write_index()) {
+    if (reader->position.index < binlog_get_current_write_index(
+                reader->writer))
+    {
         reader->position.offset = 0;
         reader->position.index++;
         if ((result=open_readable_binlog(reader)) != 0) {
@@ -219,8 +223,7 @@ int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
 }
 
 int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
-        get_current_write_index_func get_current_write_index,
-        const FSBinlogFilePosition *position)
+        struct binlog_writer_info *writer, const FSBinlogFilePosition *pos)
 {
     int result;
 
@@ -230,12 +233,12 @@ int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
 
     reader->fd = -1;
     reader->subdir_name = subdir_name;
-    reader->get_current_write_index = get_current_write_index;
-    if (position == NULL) {
+    reader->writer = writer;
+    if (pos == NULL) {
         reader->position.index = 0;
         reader->position.offset = 0;
     } else {
-        reader->position = *position;
+        reader->position = *pos;
     }
     return open_readable_binlog(reader);
 }

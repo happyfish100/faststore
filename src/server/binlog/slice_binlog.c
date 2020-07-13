@@ -294,8 +294,7 @@ int slice_binlog_init()
     }
 
     return binlog_loader_load(FS_SLICE_BINLOG_SUBDIR_NAME,
-                    slice_binlog_get_current_write_index,
-                    slice_parse_line);
+            &binlog_writer.writer, slice_parse_line);
 }
 
 void slice_binlog_destroy()
