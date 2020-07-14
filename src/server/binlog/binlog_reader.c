@@ -232,7 +232,8 @@ int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
     }
 
     reader->fd = -1;
-    reader->subdir_name = subdir_name;
+    snprintf(reader->subdir_name, FS_BINLOG_SUBDIR_NAME_SIZE,
+            "%s", subdir_name);
     reader->writer = writer;
     if (pos == NULL) {
         reader->position.index = 0;

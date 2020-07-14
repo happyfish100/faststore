@@ -3,7 +3,6 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/connection_pool.h"
 #include "fastcommon/ini_file_reader.h"
-#include "fastcommon/sockopt.h"
 #include "fs_types.h"
 #include "fs_proto.h"
 

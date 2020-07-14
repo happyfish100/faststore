@@ -6,6 +6,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/connection_pool.h"
 #include "fastcommon/ini_file_reader.h"
+#include "fastcommon/sockopt.h"
 #include "fs_types.h"
 
 #define FS_STATUS_LEADER_INCONSISTENT     9999
@@ -328,7 +329,7 @@ int fs_send_and_recv_response_header(ConnectionInfo *conn, char *data,
 
 static inline int fs_send_and_check_response_header(ConnectionInfo *conn,
         char *data, const int len, FSResponseInfo *response,
-        const int network_timeout,  const unsigned char expect_cmd)
+        const int network_timeout, const unsigned char expect_cmd)
 {
     int result;
 

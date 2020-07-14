@@ -8,7 +8,7 @@
 struct binlog_writer_info;
 
 typedef struct server_binlog_reader {
-    const char *subdir_name;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     struct binlog_writer_info *writer;  //for get current write index
     char filename[PATH_MAX];
     int fd;

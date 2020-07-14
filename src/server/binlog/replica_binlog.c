@@ -103,20 +103,73 @@ static int get_first_data_version_from_file(const int data_group_id,
     return 0;
 }
 
+int replica_binlog_get_last_data_version_ex(const char *filename,
+        uint64_t *data_version, FSBinlogFilePosition *position,
+        int *record_len)
+{
+    char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
+    char error_info[256];
+    string_t line;
+    ReplicaBinlogRecord record;
+    int64_t file_size;
+    int64_t offset;
+    int64_t read_bytes;
+    int result;
+
+    *data_version = 0;
+    position->offset = 0;
+    *record_len = 0;
+    if ((result=getFileSize(filename, &file_size)) != 0) {
+        return result;
+    }
+
+    if (file_size == 0) {
+        return ENOENT;
+    }
+
+    if (file_size >= FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
+        offset = file_size - FS_REPLICA_BINLOG_MAX_RECORD_SIZE + 1;
+    } else {
+        offset = 0;
+    }
+    read_bytes = (file_size - offset) + 1;
+    if ((result=getFileContentEx(filename, buff,
+                    offset, &read_bytes)) != 0)
+    {
+        return result;
+    }
+
+    line.str = (char *)fc_memrchr(buff, '\n', read_bytes - 1);
+    if (line.str == NULL) {
+        line.str = buff;
+    } else {
+        line.str += 1;  //skip \n
+    }
+    line.len = *record_len = (buff + read_bytes) - line.str;
+    position->offset = file_size - *record_len;
+    if ((result=replica_binlog_record_unpack(&line,
+                    &record, error_info)) != 0)
+    {
+        int64_t line_count;
+        fc_get_file_line_count(filename, &line_count);
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: %"PRId64", %s",
+                __LINE__, filename, line_count, error_info);
+
+        return result;
+    }
+
+    *data_version = record.data_version;
+    return 0;
+}
+
 static int get_last_data_version_from_file_ex(const int data_group_id,
         uint64_t *data_version, FSBinlogFilePosition *position,
         int *record_len)
 {
     BinlogWriterInfo *writer;
     char filename[PATH_MAX];
-    char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
-    char error_info[256];
-    string_t line;
-    ReplicaBinlogRecord record;
     int result;
-    int64_t file_size;
-    int64_t offset;
-    int64_t read_bytes;
 
     *data_version = 0;
     *record_len = 0;
@@ -126,54 +179,23 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
     while (position->index >= 0) {
         binlog_writer_get_filename(writer, position->index,
                 filename, sizeof(filename));
-        if ((result=getFileSize(filename, &file_size)) != 0) {
-            return result;
+
+        if ((result=replica_binlog_get_last_data_version_ex(filename,
+                        data_version, position, record_len)) == 0)
+        {
+            return 0;
         }
 
-        if (file_size == 0) {
+        if (result == ENOENT && position->offset == 0) {
             if (position->index > 0) {
                 position->index--;
                 continue;
             } else {
-                position->offset = 0;
                 return 0;
             }
         }
 
-        if (file_size >= FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
-            offset = file_size - FS_REPLICA_BINLOG_MAX_RECORD_SIZE + 1;
-        } else {
-            offset = 0;
-        }
-        read_bytes = (file_size - offset) + 1;
-        if ((result=getFileContentEx(filename, buff,
-                        offset, &read_bytes)) != 0)
-        {
-            return result;
-        }
-
-        line.str = (char *)fc_memrchr(buff, '\n', read_bytes - 1);
-        if (line.str == NULL) {
-            line.str = buff;
-        } else {
-            line.str += 1;  //skip \n
-        }
-        line.len = *record_len = (buff + read_bytes) - line.str;
-        position->offset = file_size - *record_len;
-        if ((result=replica_binlog_record_unpack(&line,
-                        &record, error_info)) != 0)
-        {
-            int64_t line_count;
-            fc_get_file_line_count(filename, &line_count);
-            logError("file: "__FILE__", line: %d, "
-                    "binlog file %s, line no: %"PRId64", %s",
-                    __LINE__, filename, line_count, error_info);
-
-            return result;
-        }
-
-        *data_version = record.data_version;
-        break;
+        return result;
     }
 
     return 0;

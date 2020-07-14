@@ -44,27 +44,15 @@ void replication_callee_terminate()
 {
 }
 
-static int op_ctx_allocator_alloc_init(void *element, void *args)
-{
-    /*
-    FSSliceOpBufferContext *ctx;
-    ctx = (FSSliceOpBufferContext *)element;
-    ctx->op_ctx = (FSSliceOpContext *)(ctx + 1);
-    */
-    return 0;
-}
-
 int replication_callee_init_allocator(FSServerContext *server_context)
 {
     int result;
     int element_size;
 
-    //element_size = sizeof(FSSliceOpBufferContext) + sizeof(FSSliceOpContext);
     element_size = sizeof(FSSliceOpBufferContext);
     if ((result=fast_mblock_init_ex2(&server_context->replica.
                     op_ctx_allocator, "slice_op_ctx", element_size,
-                    1024, op_ctx_allocator_alloc_init, NULL, true,
-                    NULL, NULL, NULL)) != 0)
+                    1024, NULL, NULL, true, NULL, NULL, NULL)) != 0)
     {
         return result;
     }

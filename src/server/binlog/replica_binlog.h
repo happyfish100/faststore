@@ -30,6 +30,20 @@ extern "C" {
 
     int replica_binlog_get_current_write_index(const int data_group_id);
 
+    int replica_binlog_get_last_data_version_ex(const char *filename,
+            uint64_t *data_version, FSBinlogFilePosition *position,
+            int *record_len);
+
+    static inline int replica_binlog_get_last_data_version(
+            const char *filename, uint64_t *data_version)
+    {
+        FSBinlogFilePosition position;
+        int record_len;
+
+        return replica_binlog_get_last_data_version_ex(filename,
+                data_version, &position, &record_len);
+    }
+
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
 
