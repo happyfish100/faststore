@@ -25,6 +25,7 @@
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "server_binlog.h"
 #include "server_group_info.h"
 #include "server_replication.h"
 #include "cluster_topology.h"
@@ -43,6 +44,26 @@ int replica_handler_destroy()
     return 0;
 }
 
+static inline int replica_alloc_reader(struct fast_task_info *task)
+{
+    REPLICA_READER = (ServerBinlogReader *)fc_malloc(sizeof(ServerBinlogReader));
+    if (REPLICA_READER == NULL) {
+        return ENOMEM;
+    }
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_FETCH_BINLOG;
+    return 0;
+}
+
+static inline void replica_release_reader(struct fast_task_info *task)
+{
+    if (REPLICA_READER != NULL) {
+        binlog_reader_destroy(REPLICA_READER);
+        free(REPLICA_READER);
+        REPLICA_READER = NULL;
+    }
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+}
+
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     /*
@@ -50,13 +71,16 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
     task_arg = (FSServerTaskArg *)task->arg;
     */
 
-    switch (CLUSTER_TASK_TYPE) {
-        case  FS_CLUSTER_TASK_TYPE_REPLICATION:
-            if (CLUSTER_REPLICA != NULL) {
-                replication_processor_unbind(CLUSTER_REPLICA);
-                CLUSTER_REPLICA = NULL;
+    switch (SERVER_TASK_TYPE) {
+        case FS_SERVER_TASK_TYPE_REPLICATION:
+            if (REPLICA_REPLICATION != NULL) {
+                replication_processor_unbind(REPLICA_REPLICATION);
+                REPLICA_REPLICATION = NULL;
             }
-            CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
+            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+            break;
+        case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
+            replica_release_reader(task);
             break;
         default:
             break;
@@ -87,10 +111,40 @@ static int replica_check_master(struct fast_task_info *task,
     return 0;
 }
 
+static int replica_fetch_binlog_output(struct fast_task_info *task)
+{
+    FSProtoReplicaFetchBinlogRespBodyHeader *body_header;
+    char *buff;
+    int result;
+    int size;
+    int read_bytes;
+
+    body_header = (FSProtoReplicaFetchBinlogRespBodyHeader *)REQUEST.body;
+    buff = (char *)(body_header + 1);
+    size = (task->data + task->size) - buff;
+    result = binlog_reader_integral_read(REPLICA_READER,
+            buff, size, &read_bytes);
+    if (!(result == 0 || result == ENOENT)) {
+        return result;
+    }
+
+    int2buff(read_bytes, body_header->binlog_length);
+    if (size - read_bytes < FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
+        body_header->is_last = false;
+    } else {
+        body_header->is_last = binlog_reader_is_last_file(REPLICA_READER);
+    }
+
+    RESPONSE.header.body_len = sizeof(*body_header) + read_bytes;
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_FETCH_BINLOG_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
 {
     FSProtoReplicaFetchBinlogFirstReq *req;
-    uint64_t start_data_version;
+    uint64_t last_data_version;
     int data_group_id;
     int result;
 
@@ -101,19 +155,52 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     req = (FSProtoReplicaFetchBinlogFirstReq *)REQUEST.body;
-    start_data_version = buff2long(req->start_data_version);
+    last_data_version = buff2long(req->last_data_version);
     data_group_id = buff2int(req->data_group_id);
 
     if ((result=replica_check_master(task, data_group_id)) != 0) {
         return result;
     }
 
-    return 0;
+    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_NONE ||
+            REPLICA_READER != NULL)
+    {
+        return EALREADY;
+    }
+
+    if ((result=replica_alloc_reader(task)) != 0) {
+        return result;
+    }
+
+    if ((result=replica_binlog_reader_init(REPLICA_READER,
+                    data_group_id, last_data_version)) != 0)
+    {
+        replica_release_reader(task);
+        return result;
+    }
+
+    return replica_fetch_binlog_output(task);
 }
 
 static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
 {
-    return 0;
+    int result;
+
+    if ((result=server_expect_body_length(task, 0)) != 0) {
+        return result;
+    }
+
+    if (!(SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_FETCH_BINLOG &&
+            REPLICA_READER != NULL))
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "please send cmd %d (%s) first",
+                FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
+                fs_get_cmd_caption(FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ));
+        return EINVAL;
+    }
+
+    return replica_fetch_binlog_output(task);
 }
 
 static int replica_deal_join_server_req(struct fast_task_info *task)
@@ -166,7 +253,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
-    if (CLUSTER_TASK_TYPE != FS_CLUSTER_TASK_TYPE_NONE) {
+    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_NONE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "server id: %d already joined", server_id);
         return EEXIST;
@@ -185,28 +272,28 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
 
 static int replica_deal_join_server_resp(struct fast_task_info *task)
 {
-    if (!(CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_REPLICATION &&
-                CLUSTER_REPLICA != NULL))
+    if (!(SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
+                REPLICA_REPLICATION != NULL))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "unexpect cmd: %d", REQUEST.header.cmd);
         return EINVAL;
     }
 
-    set_replication_stage(CLUSTER_REPLICA, FS_REPLICATION_STAGE_SYNCING);
+    set_replication_stage(REPLICA_REPLICATION, FS_REPLICATION_STAGE_SYNCING);
     return 0;
 }
 
 static inline int replica_check_replication_task(struct fast_task_info *task)
 {
-    if (CLUSTER_TASK_TYPE != FS_CLUSTER_TASK_TYPE_REPLICATION) {
+    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_REPLICATION) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "invalid task type: %d != %d", CLUSTER_TASK_TYPE,
-                FS_CLUSTER_TASK_TYPE_REPLICATION);
+                "invalid task type: %d != %d", SERVER_TASK_TYPE,
+                FS_SERVER_TASK_TYPE_REPLICATION);
         return EINVAL;
     }
 
-    if (CLUSTER_REPLICA == NULL) {
+    if (REPLICA_REPLICATION == NULL) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "cluster replication ptr is null");
@@ -300,7 +387,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
         if (result != TASK_STATUS_CONTINUE) {
             int r;
             r = replication_callee_push_to_rpc_result_queue(
-                    CLUSTER_REPLICA, op_ctx->info.data_version, result);
+                    REPLICA_REPLICATION, op_ctx->info.data_version, result);
             if (r != 0) {
                 return r;
             }
@@ -410,7 +497,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
         //logInfo("push_binlog_resp data_version: %"PRId64", errno: %d", data_version, err_no);
 
         if ((result=replication_processors_deal_rpc_response(
-                        CLUSTER_REPLICA, data_version)) != 0)
+                        REPLICA_REPLICATION, data_version)) != 0)
         {
             RESPONSE.error.length = sprintf(
                     RESPONSE.error.message,

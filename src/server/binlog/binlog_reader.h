@@ -37,6 +37,8 @@ static inline void binlog_reader_get_filename(const char *subdir_name,
 int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
         const int size, int *read_bytes);
 
+bool binlog_reader_is_last_file(ServerBinlogReader *reader);
+
 #ifdef __cplusplus
 }
 #endif

@@ -98,8 +98,8 @@ void replication_processor_bind_task(FSReplication *replication,
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_SYNCING);
     replication->task = task;
-    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_REPLICATION;
-    CLUSTER_REPLICA = replication;
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION;
+    REPLICA_REPLICATION = replication;
     server_ctx = (FSServerContext *)task->thread_data->arg;
     add_to_replication_ptr_array(&server_ctx->
             replica.connected, replication);
@@ -127,8 +127,8 @@ int replication_processor_bind_thread(FSReplication *replication)
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
 
-    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_REPLICATION;
-    CLUSTER_REPLICA = replication;
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION;
+    REPLICA_REPLICATION = replication;
     replication->connection_info.conn.sock = -1;
     replication->task = task;
 

@@ -22,11 +22,14 @@
 #define FS_REPLICA_BINLOG_MAX_RECORD_SIZE  128
 #define FS_REPLICA_BINLOG_SUBDIR_NAME    "replica"
 
+#define FS_RECOVERY_BINLOG_SUBDIR_NAME   "recovery"
+
 #define FS_BINLOG_SUBDIR_NAME_SIZE          32
 
-#define FS_CLUSTER_TASK_TYPE_NONE               0
-#define FS_CLUSTER_TASK_TYPE_RELATIONSHIP       1   //slave  -> master
-#define FS_CLUSTER_TASK_TYPE_REPLICATION        2
+#define FS_SERVER_TASK_TYPE_NONE                0
+#define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
+#define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
+#define FS_SERVER_TASK_TYPE_REPLICATION         3
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
@@ -61,9 +64,9 @@
 #define RECORD            TASK_CTX.service.record
 #define WAITING_RPC_COUNT TASK_CTX.service.waiting_rpc_count
 #define CLUSTER_PEER      TASK_CTX.cluster.peer
-#define CLUSTER_REPLICA   TASK_CTX.cluster.replica
-#define CLUSTER_CONSUMER_CTX  TASK_CTX.cluster.consumer_ctx
-#define CLUSTER_TASK_TYPE TASK_CTX.cluster.task_type
+#define REPLICA_REPLICATION  TASK_CTX.replica.replication
+#define REPLICA_READER       TASK_CTX.replica.reader
+#define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
 #define OP_CTX_NOTIFY     TASK_CTX.slice_op_ctx.notify
@@ -252,6 +255,7 @@ typedef struct {
     bool response_done;
     bool log_error;
     bool need_response;
+    int task_type;
 
     union {
         struct {
@@ -259,11 +263,15 @@ typedef struct {
         } service;
 
         struct {
-            int task_type;
-
             FSClusterServerInfo *peer;   //the peer server in the cluster
-            FSReplication *replica;
         } cluster;
+
+        struct {
+            union {
+                FSReplication *replication;
+                struct server_binlog_reader *reader;  //for fetch binlog
+            };
+        } replica;
     };
 
     int which_side;   //master or slave

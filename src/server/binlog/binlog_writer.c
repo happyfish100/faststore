@@ -222,6 +222,10 @@ static int binlog_write_to_file(BinlogWriterInfo *writer)
 
 int binlog_get_current_write_index(BinlogWriterInfo *writer)
 {
+    if (writer == NULL) {   //for data recovery
+        return 0;
+    }
+
     if (writer->binlog.index < 0) {
         get_binlog_index_from_file(writer);
     }

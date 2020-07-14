@@ -576,7 +576,6 @@ static int find_position_by_data_version(const int data_group_id,
     writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
     binlog_index = binlog_get_current_write_index(writer);
-
     while (binlog_index >= 0) {
         if ((result=get_first_data_version_from_file(data_group_id,
                         binlog_index, &first_data_version)) != 0)

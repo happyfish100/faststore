@@ -252,3 +252,9 @@ void binlog_reader_destroy(ServerBinlogReader *reader)
 
     binlog_buffer_destroy(&reader->binlog_buffer);
 }
+
+bool binlog_reader_is_last_file(ServerBinlogReader *reader)
+{
+    return reader->position.index == binlog_get_current_write_index(
+            reader->writer);
+}

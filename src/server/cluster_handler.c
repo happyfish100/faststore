@@ -43,7 +43,7 @@ int cluster_handler_destroy()
 
 int cluster_recv_timeout_callback(struct fast_task_info *task)
 {
-    if (CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_RELATIONSHIP &&
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_RELATIONSHIP &&
             CLUSTER_PEER != NULL)
     {
         logError("file: "__FILE__", line: %d, "
@@ -64,8 +64,8 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
     task_arg = (FSServerTaskArg *)task->arg;
     */
 
-    switch (CLUSTER_TASK_TYPE) {
-        case FS_CLUSTER_TASK_TYPE_RELATIONSHIP:
+    switch (SERVER_TASK_TYPE) {
+        case FS_SERVER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
                 cluster_topology_deactivate_server(CLUSTER_PEER);
                 __sync_bool_compare_and_swap(&CLUSTER_PEER->notify_ctx.
@@ -76,7 +76,7 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
                 CLUSTER_PEER = NULL;
             }
-            CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_NONE;
+            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;
@@ -183,7 +183,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
-    CLUSTER_TASK_TYPE = FS_CLUSTER_TASK_TYPE_RELATIONSHIP;
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
     cluster_topology_activate_server(peer);
     cluster_topology_sync_all_data_servers(peer);

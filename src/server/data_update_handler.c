@@ -210,10 +210,10 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 op_ctx->info.data_version, op_ctx->result);
     }
 
-    if (CLUSTER_TASK_TYPE == FS_CLUSTER_TASK_TYPE_REPLICATION &&
-            CLUSTER_REPLICA != NULL)
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
+            REPLICA_REPLICATION != NULL)
     {
-        replication_callee_push_to_rpc_result_queue(CLUSTER_REPLICA,
+        replication_callee_push_to_rpc_result_queue(REPLICA_REPLICATION,
                 op_ctx->info.data_version, op_ctx->result);
     }
 

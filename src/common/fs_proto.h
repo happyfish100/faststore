@@ -272,22 +272,12 @@ typedef struct fs_proto_ping_leader_req_body_part {
 } FSProtoPingLeaderReqBodyPart;
 
 typedef struct fs_proto_replia_fetch_binlog_first_req {
-    char start_data_version[8];   //NOT including
+    char last_data_version[8];   //NOT including
     char data_group_id[4];
     char padding[4];
 } FSProtoReplicaFetchBinlogFirstReq;
 
-typedef struct fs_proto_replia_fetch_binlog_next_req {
-    char binlog_offset[8];
-    char binlog_index[4];
-    char data_group_id[4];
-} FSProtoReplicaFetchBinlogNextReq;
-
 typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
-    struct {
-        char binlog_offset[8];
-        char binlog_index[4];
-    } next;
     char binlog_length[4];  //current binlog length
     char is_last;
     char padding[7];

@@ -18,6 +18,6 @@
 
 int data_recovery_fetch_binlog(DataRecoveryContext *ctx)
 {
-    //    ctx->data_group_id = data_group_id;
+    //ctx->data_group_id;
     return 0;
 }
