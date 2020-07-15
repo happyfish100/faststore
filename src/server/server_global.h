@@ -12,7 +12,7 @@
 typedef struct server_global_vars {
     struct {
         FSClusterServerInfo *myself;
-        FSClusterServerInfo *leader;
+        volatile FSClusterServerInfo *leader;
         struct {
             FSClusterConfig ctx;
             struct {
@@ -50,6 +50,8 @@ typedef struct server_global_vars {
 #define CLUSTER_MYSELF_PTR    g_server_global_vars.cluster.myself
 #define MYSELF_IS_LEADER      CLUSTER_MYSELF_PTR->is_leader
 #define CLUSTER_LEADER_PTR    g_server_global_vars.cluster.leader
+#define CLUSTER_LEADER_ATOM_PTR  ((FSClusterServerInfo *)__sync_add_and_fetch(  \
+        &CLUSTER_LEADER_PTR, 0))
 
 #define CLUSTER_SERVER_ARRAY  g_server_global_vars.cluster.server_array
 #define CLUSTER_DATA_RGOUP_ARRAY g_server_global_vars.cluster.data_group_array

@@ -236,6 +236,10 @@ static inline void cluster_topology_offline_data_server(
 
 void cluster_topology_activate_server(FSClusterServerInfo *cs)
 {
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        return;
+    }
+
     __sync_bool_compare_and_swap(&cs->active, 0, 1);
     cluster_relationship_remove_from_inactive_sarray(cs);
 }
@@ -245,13 +249,17 @@ void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
 
-    __sync_bool_compare_and_swap(&cs->active, 1, 0);
-
-    end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
-    for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
-        cluster_topology_offline_data_server(*ds, true);
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        return;
     }
-    cluster_relationship_add_to_inactive_sarray(cs);
+
+    if (__sync_bool_compare_and_swap(&cs->active, 1, 0)) {
+        end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
+        for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
+            cluster_topology_offline_data_server(*ds, true);
+        }
+        cluster_relationship_add_to_inactive_sarray(cs);
+    }
 }
 
 void cluster_topology_offline_all_data_servers()
@@ -272,6 +280,17 @@ void cluster_topology_offline_all_data_servers()
     }
 }
 
+static inline void clear_decision_action(FSClusterDataGroupInfo *group)
+{
+    int old_action;
+    if ((old_action=__sync_fetch_and_add(&group->delay_decision.
+                    action, 0)) != FS_CLUSTER_DELAY_DECISION_NO_OP)
+    {
+        __sync_bool_compare_and_swap(&group->delay_decision.action,
+                old_action, FS_CLUSTER_DELAY_DECISION_NO_OP);
+    }
+}
+
 void cluster_topology_set_check_master_flags()
 {
     FSClusterDataGroupInfo *group;
@@ -279,7 +298,6 @@ void cluster_topology_set_check_master_flags()
     FSClusterDataServerInfo *master;
     int old_count;
     int new_count;
-    int old_action;
 
     old_count = __sync_add_and_fetch(&CLUSTER_DATA_RGOUP_ARRAY.
             delay_decision_count, 0);
@@ -294,13 +312,7 @@ void cluster_topology_set_check_master_flags()
         master = (FSClusterDataServerInfo *)__sync_fetch_and_add(
                 &group->master, 0);
         if (master == NULL) {
-            if ((old_action=__sync_fetch_and_add(&group->delay_decision.
-                            action, 0)) != FS_CLUSTER_DELAY_DECISION_NO_OP)
-            {
-                __sync_bool_compare_and_swap(&group->delay_decision.action,
-                        old_action, FS_CLUSTER_DELAY_DECISION_NO_OP);
-            }
-
+            clear_decision_action(group);
             if (group->myself != NULL) {
                 cluster_topology_select_master(group, false);
             }
@@ -313,6 +325,8 @@ void cluster_topology_set_check_master_flags()
         {
             group->delay_decision.expire_time = g_current_time + 5;
             ++new_count;
+        } else {
+            clear_decision_action(group);
         }
     }
 

@@ -156,7 +156,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return result;
     }
 
-    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_PTR) {
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "i am not leader");
         return EINVAL;
@@ -273,7 +273,7 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         return EINVAL;
     }
 
-    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_PTR) {
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "i am not leader");
@@ -293,7 +293,7 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
         return result;
     }
 
-    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "i am already leader");
@@ -428,7 +428,7 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
                 server_ctx->replica.connected.count);
     }
 
-    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         static int lcount = 0;
         if (lcount++ % 100 == 0) {
             logInfo("thread index: %d, notify context count: %d",

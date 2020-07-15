@@ -343,10 +343,10 @@ static inline void cluster_unset_leader()
 {
     FSClusterServerInfo *old_leader;
 
-    old_leader = CLUSTER_LEADER_PTR;
+    old_leader = CLUSTER_LEADER_ATOM_PTR;
     if (old_leader != NULL) {
         old_leader->is_leader = false;
-        CLUSTER_LEADER_PTR = NULL;
+        __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR, old_leader, NULL);
     }
 }
 
@@ -406,6 +406,7 @@ static void init_inactive_server_array()
     FSClusterServerInfo *end;
     FSClusterServerDetectEntry *entry;
 
+    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
     entry = inactive_server_array.entries;
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
@@ -416,14 +417,35 @@ static void init_inactive_server_array()
     }
 
     inactive_server_array.count = entry - inactive_server_array.entries;
+    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
 }
 
-static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
+static void cluster_relationship_deactivate_all_servers()
 {
-    leader->is_leader = true;
-    if (CLUSTER_MYSELF_PTR == leader) {
-        if (CLUSTER_LEADER_PTR != CLUSTER_MYSELF_PTR) {
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if (cs != CLUSTER_MYSELF_PTR) {
+            if (__sync_fetch_and_add(&cs->active, 0)) {
+                __sync_bool_compare_and_swap(&cs->active, 1, 0);
+            }
+        }
+    }
+}
+
+static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
+{
+    FSClusterServerInfo *old_leader;
+
+    old_leader = CLUSTER_LEADER_ATOM_PTR;
+    new_leader->is_leader = true;
+    if (CLUSTER_MYSELF_PTR == new_leader) {
+        if (old_leader != CLUSTER_MYSELF_PTR) {
+            cluster_relationship_deactivate_all_servers();
             __sync_bool_compare_and_swap(&CLUSTER_MYSELF_PTR->active, 0, 1);
+
             init_inactive_server_array();
             cluster_topology_offline_all_data_servers();
             cluster_topology_set_check_master_flags();
@@ -435,11 +457,12 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
 
         logInfo("file: "__FILE__", line: %d, "
                 "the leader server id: %d, ip %s:%d",
-                __LINE__, leader->server->id,
-                CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
-                CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
+                __LINE__, new_leader->server->id,
+                CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
+                CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server));
     }
-    CLUSTER_LEADER_PTR = leader;
+    __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
+            old_leader, new_leader);
 
     return 0;
 }
@@ -659,7 +682,7 @@ static int cluster_process_leader_push(FSResponseInfo *response,
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "recv push from leader: %d, data_server_count: %d",
-            __LINE__, __FUNCTION__, CLUSTER_LEADER_PTR->server->id,
+            __LINE__, __FUNCTION__, CLUSTER_LEADER_ATOM_PTR->server->id,
             data_server_count);
 
     body_part = (FSProtoPushDataServerStatusBodyPart *)(body_header + 1);
@@ -859,7 +882,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
     int inactive_count;
     FSClusterServerInfo *leader;
 
-    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR) {
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         sleep(1);
         PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
         inactive_count = inactive_server_array.count;
@@ -878,7 +901,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
         return 0;  //do not need ping myself
     }
 
-    leader = CLUSTER_LEADER_PTR;
+    leader = CLUSTER_LEADER_ATOM_PTR;
     if (leader == NULL) {
         return ENOENT;
     }
@@ -931,7 +954,7 @@ static void *cluster_thread_entrance(void* arg)
     fail_count = 0;
     sleep_seconds = 1;
     while (SF_G_CONTINUE_FLAG) {
-        leader = CLUSTER_LEADER_PTR;
+        leader = CLUSTER_LEADER_ATOM_PTR;
         if (leader == NULL) {
             if (cluster_select_leader() != 0) {
                 sleep_seconds = 1 + (int)((double)rand()
