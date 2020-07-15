@@ -128,17 +128,42 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     return 0;
 }
 
+static int init_ds_ptr_array(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
+    int bytes;
+
+    group->ds_ptr_array.alloc = group->data_server_array.count;
+    bytes = sizeof(FSClusterDataServerInfo *) *
+        group->ds_ptr_array.alloc;
+    group->ds_ptr_array.servers = (FSClusterDataServerInfo **)
+        fc_malloc(bytes);
+    if (group->ds_ptr_array.servers == NULL) {
+        return ENOMEM;
+    }
+
+    group->ds_ptr_array.count = 0;
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        group->ds_ptr_array.servers[group->ds_ptr_array.count++] = ds;
+    }
+
+    return 0;
+}
+
 static int init_slave_ds_array(FSClusterDataGroupInfo *group)
 {
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
-    int count;
     int bytes;
 
-    count = group->data_server_array.count - 1;
-    if (count > 0) {
-        bytes = sizeof(FSClusterDataServerInfo *) * count;
-        group->slave_ds_array.servers = (FSClusterDataServerInfo **)fc_malloc(bytes);
+    group->slave_ds_array.alloc = group->data_server_array.count - 1;
+    if (group->slave_ds_array.alloc > 0) {
+        bytes = sizeof(FSClusterDataServerInfo *) *
+            group->slave_ds_array.alloc;
+        group->slave_ds_array.servers = (FSClusterDataServerInfo **)
+            fc_malloc(bytes);
         if (group->slave_ds_array.servers == NULL) {
             return ENOMEM;
         }
@@ -202,8 +227,19 @@ static int init_cluster_data_group_array(const char *filename,
         group->id = data_group_id;
         group->index = data_group_index;
         group->hash_code = fs_cluster_cfg_get_dg_hash_code(
-            &CLUSTER_CONFIG_CTX, data_group_id - 1);
+                &CLUSTER_CONFIG_CTX, data_group_id - 1);
         if ((result=init_cluster_data_server_array(group)) != 0) {
+            return result;
+        }
+
+        if ((result=init_ds_ptr_array(group)) != 0) {
+            return result;
+        }
+
+        if ((result=init_pthread_lock(&group->lock)) != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "init_pthread_lock fail, errno: %d, error info: %s",
+                    __LINE__, result, STRERROR(result));
             return result;
         }
     }

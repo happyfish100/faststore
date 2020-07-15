@@ -181,9 +181,11 @@ typedef struct fs_cluster_data_group_info {
         int expire_time;
     } delay_decision;
     FSClusterDataServerArray data_server_array;
+    FSClusterDataServerPtrArray ds_ptr_array;  //for leader select master
     FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
+    pthread_mutex_t lock;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {

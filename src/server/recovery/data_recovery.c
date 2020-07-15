@@ -13,8 +13,10 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
+#include "sf/sf_service.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../server_replication.h"
 #include "data_recovery.h"
 
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
@@ -102,6 +104,8 @@ int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
 {
     int result;
     FSClusterDataServerInfo *master;
+    struct nio_thread_data *thread_data;
+    FSServerContext *server_ctx;
 
     ctx->start_time = get_current_time_ms();
     ctx->data_group_id = data_group_id;
@@ -122,9 +126,18 @@ int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
         return result;
     }
 
+    thread_data = sf_get_random_thread_data_ex(&REPLICA_SF_CTX);
+    server_ctx = (FSServerContext *)thread_data->arg;
+    ctx->buffer = replication_callee_alloc_shared_buffer(server_ctx);
+    if (ctx->buffer == NULL) {
+        return ENOMEM;
+    }
+
     return 0;
 }
 
 void data_recovery_destroy(DataRecoveryContext *ctx)
 {
+    shared_buffer_release(ctx->buffer);
+    ctx->buffer = NULL;
 }

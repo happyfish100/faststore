@@ -423,6 +423,7 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *leader)
     leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == leader) {
         if (CLUSTER_LEADER_PTR != CLUSTER_MYSELF_PTR) {
+            __sync_bool_compare_and_swap(&CLUSTER_MYSELF_PTR->active, 0, 1);
             init_inactive_server_array();
             cluster_topology_offline_all_data_servers();
             cluster_topology_set_check_master_flags();

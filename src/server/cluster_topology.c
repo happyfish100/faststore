@@ -211,6 +211,7 @@ static inline void cluster_topology_offline_data_server(
     notify = false;
     old_status = __sync_fetch_and_add(&ds->status, 0);
     if (old_status == FS_SERVER_STATUS_SYNCING ||
+            old_status == FS_SERVER_STATUS_ONLINE ||
             old_status == FS_SERVER_STATUS_ACTIVE)
     {
         if (__sync_bool_compare_and_swap(&ds->status, old_status,
@@ -351,29 +352,56 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
     return 0;
 }
 
+static int compare_ds_by_data_version(const void *p1, const void *p2)
+{
+    FSClusterDataServerInfo **ds1;
+    FSClusterDataServerInfo **ds2;
+    int64_t dv_sub;
+    int active_sub;
+
+    ds1 = (FSClusterDataServerInfo **)p1;
+    ds2 = (FSClusterDataServerInfo **)p2;
+    dv_sub = (int64_t)((*ds1)->data_version) - (int64_t)((*ds2)->data_version);
+    if (dv_sub > 0) {
+        return 1;
+    } else if (dv_sub < 0) {
+        return -1;
+    }
+
+    active_sub = __sync_fetch_and_add(&(*ds1)->cs->active, 0) -
+        __sync_fetch_and_add(&(*ds2)->cs->active, 0);
+    if (active_sub != 0) {
+        return active_sub;
+    }
+
+    return (*ds1)->is_preseted - (*ds2)->is_preseted;
+}
+
 static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         const bool force, int *result)
 {
+    FSClusterDataServerInfo *online_data_servers[FS_MAX_GROUP_SERVERS];
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
+    uint64_t max_data_version;
     int active_count;
     int master_index;
     int old_action;
-    int index;
 
-    active_count = 0;
-    end = group->data_server_array.servers + group->data_server_array.count;
-    for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ACTIVE) {
-            if (ds->is_preseted) {
-                *result = 0;
-                return ds;
-            }
-            ++active_count;
-        }
+    if (group->ds_ptr_array.count > 1) {
+        qsort(group->ds_ptr_array.servers,
+                group->ds_ptr_array.count,
+                sizeof(FSClusterDataServerInfo *),
+                compare_ds_by_data_version);
     }
 
-    if (active_count == 0) {
+    ds = group->ds_ptr_array.servers[group->ds_ptr_array.count - 1];
+    if (__sync_fetch_and_add(&ds->cs->active, 0)) {
+        if (group->ds_ptr_array.count == 1 || ds->is_preseted) {
+            *result = 0;
+            return ds;
+        }
+    } else {
         *result = ENOENT;
         return NULL;
     }
@@ -394,20 +422,32 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
+    max_data_version = ds->data_version;
+    active_count = 0;
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        if (__sync_fetch_and_add(&ds->cs->active, 0) &&
+                ds->data_version >= max_data_version)
+        {
+            online_data_servers[active_count++] = ds;
+        }
+    }
+
+    if (active_count == 0) {
+        *result = ENOENT;
+        return NULL;
+    }
+
+
     master_index = group->hash_code % active_count;
-    index = 0;
 
     logInfo("data_group_id: %d, active_count: %d, master_index: %d, hash_code: %d",
             group->id, active_count, master_index, group->hash_code);
 
-    for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ACTIVE) {
-            if (index == master_index) {
-                *result = 0;
-                return ds;
-            }
-            ++index;
-        }
+    ds = online_data_servers[master_index];
+    if (__sync_fetch_and_add(&ds->cs->active, 0)) {
+        *result = 0;
+        return ds;
     }
 
     *result = ENOENT;
@@ -420,7 +460,16 @@ int cluster_topology_select_master(FSClusterDataGroupInfo *group,
     FSClusterDataServerInfo *master;
     int result;
 
-    if ((master=select_master(group, force, &result)) == NULL) {
+    PTHREAD_MUTEX_LOCK(&group->lock);
+    if (__sync_add_and_fetch(&group->master, 0) == NULL) {
+        master = select_master(group, force, &result);
+    } else {
+        master = NULL;
+        result = 0;
+    }
+    PTHREAD_MUTEX_UNLOCK(&group->lock);
+
+    if (master == NULL) {
         return result;
     }
 
