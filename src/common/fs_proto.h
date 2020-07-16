@@ -43,21 +43,25 @@
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP  62
-#define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         63
-#define FS_CLUSTER_PROTO_JOIN_LEADER_RESP        64
-#define FS_CLUSTER_PROTO_PING_LEADER_REQ         65
-#define FS_CLUSTER_PROTO_PING_LEADER_RESP        66
-#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     67  //notify next leader to other servers
-#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      68  //commit next leader to other servers
-#define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 69
+#define FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ    63  //report data server status
+#define FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP   64
+#define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         65
+#define FS_CLUSTER_PROTO_JOIN_LEADER_RESP        66
+#define FS_CLUSTER_PROTO_ACTIVATE_SERVER         67
+#define FS_CLUSTER_PROTO_PING_LEADER_REQ         69
+#define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
+#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     75  //notify next leader to other servers
+#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      76  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
 
-//replication commands, master -> slave
+//replication commands
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
 #define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
 #define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ  83
 #define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ   85
 #define FS_REPLICA_PROTO_FETCH_BINLOG_RESP       86
 
+// master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
 
@@ -171,6 +175,14 @@ typedef struct fs_proto_get_server_status_resp {
     char is_leader;
     char padding[3];
 } FSProtoGetServerStatusResp;
+
+typedef struct fs_proto_report_ds_status_req {
+    char server_id[4];
+    char data_group_id[4];
+    char data_version[8];
+    char status;
+    char padding[7];
+} FSProtoReportDSStatusReq;
 
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];

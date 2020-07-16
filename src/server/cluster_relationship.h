@@ -23,6 +23,15 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader);
 
 void cluster_relationship_trigger_reselect_leader();
 
+bool cluster_relationship_set_ds_status(FSClusterDataServerInfo *ds,
+        const int new_status);
+
+bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
+        const int status, const uint64_t data_version);
+
+void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
+        const int new_status, const bool notify_leader);
+
 void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs);
 
 void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs);

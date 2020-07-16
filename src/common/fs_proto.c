@@ -274,6 +274,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_SERVER_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP:
             return "GET_SERVER_STATUS_RESP";
+        case FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ:
+            return "REPORT_DS_STATUS_REQ";
+        case FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP:
+            return "REPORT_DS_STATUS_RESP";
         case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
             return "JOIN_LEADER_REQ";
         case FS_CLUSTER_PROTO_JOIN_LEADER_RESP:
@@ -282,6 +286,8 @@ const char *fs_get_cmd_caption(const int cmd)
             return "PING_LEADER_REQ";
         case FS_CLUSTER_PROTO_PING_LEADER_RESP:
             return "PING_LEADER_RESP";
+        case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
+            return "ACTIVATE_SERVER";
         case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
             return "PRE_SET_NEXT_LEADER";
         case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:

@@ -185,9 +185,21 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
-    cluster_topology_activate_server(peer);
     cluster_topology_sync_all_data_servers(peer);
     return 0;
+}
+
+static bool set_ds_status_and_data_version(FSClusterDataServerInfo *ds,
+        const int status, const uint64_t data_version)
+{
+    if (cluster_relationship_set_ds_status_and_dv(ds,
+                status, data_version))
+    {
+        cluster_topology_data_server_chg_notify(ds, false);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 static int process_ping_leader_req(struct fast_task_info *task)
@@ -198,10 +210,9 @@ static int process_ping_leader_req(struct fast_task_info *task)
     int data_group_count;
     int expect_body_length;
     int data_group_id;
-    int64_t data_version;
+    uint64_t data_version;
     int i;
     int change_count;
-    bool changed;
 
     req_header = (FSProtoPingLeaderReqHeader *)REQUEST.body;
     data_group_count = buff2int(req_header->data_group_count);
@@ -225,21 +236,11 @@ static int process_ping_leader_req(struct fast_task_info *task)
         if ((ds=fs_get_data_server(data_group_id,
                         CLUSTER_PEER->server->id)) != NULL)
         {
-            changed = false;
             data_version = buff2long(body_part->data_version);
-            if (__sync_fetch_and_add(&ds->status, 0) != body_part->status) {
-                cluster_topology_change_data_server_status(ds,
-                        body_part->status);
-                changed = true;
-            }
-            if (ds->data_version != data_version) {
-                ds->data_version = data_version;
-                changed = true;
-            }
-
-            if (changed) {
+            if (set_ds_status_and_data_version(ds, body_part->status,
+                        data_version))
+            {
                 ++change_count;
-                cluster_topology_data_server_chg_notify(ds, false);
             }
         }
     }
@@ -281,6 +282,59 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     }
 
     return process_ping_leader_req(task);
+}
+
+static int cluster_deal_active_server(struct fast_task_info *task)
+{
+    int result;
+
+    if ((result=cluster_deal_ping_leader(task)) == 0) {
+        cluster_topology_activate_server(CLUSTER_PEER);
+    }
+
+    return result;
+}
+
+static int cluster_deal_report_ds_status(struct fast_task_info *task)
+{
+    int result;
+    FSProtoReportDSStatusReq *req;
+    FSClusterDataServerInfo *ds;
+    int server_id;
+    int data_group_id;
+    uint64_t data_version;
+
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoReportDSStatusReq))) != 0)
+    {
+        return result;
+    }
+
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    req = (FSProtoReportDSStatusReq *)REQUEST.body;
+    server_id = buff2int(req->server_id);
+    data_group_id = buff2int(req->data_group_id);
+    data_version = buff2long(req->data_version);
+    if ((ds=fs_get_data_server(data_group_id, server_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d, server_id: %d not exist",
+                data_group_id, server_id);
+        return ENOENT;
+    }
+
+    if (set_ds_status_and_data_version(ds, req->status,
+                data_version))
+    {
+        __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
+    }
+    return 0;
 }
 
 static int cluster_deal_next_leader(struct fast_task_info *task)
@@ -353,6 +407,9 @@ int cluster_deal_task(struct fast_task_info *task)
             case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
                 result = cluster_deal_get_server_status(task);
                 break;
+            case FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ:
+                result = cluster_deal_report_ds_status(task);
+                break;
             case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
             case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:
                 result = cluster_deal_next_leader(task);
@@ -362,6 +419,9 @@ int cluster_deal_task(struct fast_task_info *task)
                 break;
             case FS_CLUSTER_PROTO_PING_LEADER_REQ:
                 result = cluster_deal_ping_leader(task);
+                break;
+            case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
+                result = cluster_deal_active_server(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

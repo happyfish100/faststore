@@ -32,7 +32,7 @@ typedef struct fs_cluster_server_status {
 
 typedef struct fs_my_data_group_info {
     int data_group_id;
-    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *ds;
 } FSMyDataGroupInfo;
 
 typedef struct fs_my_data_group_array {
@@ -143,18 +143,43 @@ static void pack_changed_data_versions(char *buff, int *length,
     body_part = (FSProtoPingLeaderReqBodyPart *)buff;
     end = my_data_group_array.groups + my_data_group_array.count;
     for (group=my_data_group_array.groups; group<end; group++) {
-        data_version = group->sp->data_version;
-        if (report_all || group->sp->last_report_version != data_version) {
-            group->sp->last_report_version = data_version;
+        data_version = __sync_add_and_fetch(&group->ds->data_version, 0);
+        if (report_all || group->ds->last_report_version != data_version) {
+            group->ds->last_report_version = data_version;
             int2buff(group->data_group_id, body_part->data_group_id);
             long2buff(data_version, body_part->data_version);
-            body_part->status = group->sp->status;
+            body_part->status = group->ds->status;
             body_part++;
             ++(*count);
         }
     }
 
     *length = (char *)body_part - buff;
+}
+
+static void leader_deal_data_version_changes()
+{
+    FSMyDataGroupInfo *group;
+    FSMyDataGroupInfo *end;
+    int64_t data_version;
+    int count;
+
+    count = 0;
+    end = my_data_group_array.groups + my_data_group_array.count;
+    for (group=my_data_group_array.groups; group<end; group++) {
+        data_version = __sync_add_and_fetch(&group->ds->data_version, 0);
+        if (group->ds->last_report_version != data_version) {
+            group->ds->last_report_version = data_version;
+            cluster_topology_data_server_chg_notify(group->ds, false);
+            ++count;
+        }
+    }
+
+    if (count > 0) {
+        logInfo("file: "__FILE__", line: %d, "
+                "leader data versions change count: %d",
+                __LINE__, count);
+    }
 }
 
 static int cluster_cmp_server_status(const void *p1, const void *p2)
@@ -312,6 +337,48 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_PROTO_ACK)) != 0)
+    {
+        fs_log_network_error(&response, &conn, result);
+    }
+
+    conn_pool_disconnect_server(&conn);
+    return result;
+}
+
+static int report_my_status_to_leader(FSClusterDataServerInfo *ds)
+{
+    FSClusterServerInfo *leader;
+    FSProtoHeader *header;
+    FSProtoReportDSStatusReq *req;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReportDSStatusReq)];
+    ConnectionInfo conn;
+    FSResponseInfo response;
+    int result;
+
+    leader = CLUSTER_LEADER_ATOM_PTR;
+    if (leader == NULL) {
+        return ENOENT;
+    }
+
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        leader->server), &conn, SF_G_CONNECT_TIMEOUT)) != 0)
+    {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    req = (FSProtoReportDSStatusReq *)(header + 1);
+    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    int2buff(ds->cs->server->id, req->server_id);
+    int2buff(ds->dg->id, req->data_group_id);
+    long2buff(__sync_fetch_and_add(&ds->data_version, 0),
+            req->data_version);
+    req->status = __sync_fetch_and_add(&ds->status, 0);
+    response.error.length = 0;
+    if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
+                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
         fs_log_network_error(&response, &conn, result);
     }
@@ -656,6 +723,54 @@ static int cluster_select_leader()
 	return 0;
 }
 
+bool cluster_relationship_set_ds_status(FSClusterDataServerInfo *ds,
+        const int new_status)
+{
+    int old_status;
+    old_status = __sync_add_and_fetch(&ds->status, 0);
+    if (new_status != old_status) {
+        return __sync_bool_compare_and_swap(&ds->status,
+                old_status, new_status);
+    } else {
+        return false;
+    }
+}
+
+bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
+        const int status, const uint64_t data_version)
+{
+    bool changed;
+
+    if (cluster_relationship_set_ds_status(ds, status)) {
+        changed = true;
+    } else {
+        changed = false;
+    }
+
+    if (ds->data_version != data_version) {
+        ds->data_version = data_version;
+        changed = true;
+    }
+
+    return changed;
+}
+
+void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
+        const int new_status, const bool notify_leader)
+{
+    if (!cluster_relationship_set_ds_status(ds, new_status)) {
+        return;
+    }
+
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //leader
+        cluster_topology_data_server_chg_notify(ds, false);
+    } else if (notify_leader) {   //follower
+        if (report_my_status_to_leader(ds) != 0) {
+            ds->last_report_version = -1;   //trigger report to leader
+        }
+    }
+}
+
 static int cluster_process_leader_push(FSResponseInfo *response,
         char *body_buff, const int body_len)
 {
@@ -697,7 +812,7 @@ static int cluster_process_leader_push(FSResponseInfo *response,
                 ds->status = body_part->status;
                 ds->data_version = buff2long(body_part->data_version);
             }
-            if (ds->is_master != body_part->is_master) {
+            if (ds->is_master != body_part->is_master) { //master changed
                 ds->is_master = body_part->is_master;
                 if (ds->is_master) {
                     if (ds->dg->master != NULL && ds->dg->master != ds) {
@@ -706,6 +821,11 @@ static int cluster_process_leader_push(FSResponseInfo *response,
                     ds->dg->master = ds;
                     logInfo("data_group_id: %d, set master server_id: %d",
                             data_group_id, ds->cs->server->id);
+
+                    if (ds->cs == CLUSTER_MYSELF_PTR) {
+                        cluster_relationship_set_my_status(ds,
+                                FS_SERVER_STATUS_ACTIVE, false);
+                    }
                 } else if (ds->dg->master == ds) {
                     ds->dg->master = NULL;
 
@@ -795,20 +915,8 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 }
 
-//TODO
-static void set_status_for_test()
-{
-    FSMyDataGroupInfo *group;
-    FSMyDataGroupInfo *end;
-
-    end = my_data_group_array.groups + my_data_group_array.count;
-    for (group=my_data_group_array.groups; group<end; group++) {
-        group->sp->status = FS_SERVER_STATUS_ACTIVE;
-        group->sp->last_report_version = -1;
-    }
-}
-
-static int proto_ping_leader_ex(ConnectionInfo *conn, const bool report_all)
+static int proto_ping_leader_ex(ConnectionInfo *conn,
+        const unsigned char cmd, const bool report_all)
 {
     FSProtoHeader *header;
     FSResponseInfo response;
@@ -835,8 +943,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn, const bool report_all)
     }
 
     int2buff(data_group_count, req_header->data_group_count);
-    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PING_LEADER_REQ,
-            out_bytes - sizeof(FSProtoHeader));
+    FS_PROTO_SET_HEADER(header, cmd, out_bytes - sizeof(FSProtoHeader));
 
     response.error.length = 0;
     if ((result=tcpsenddata_nb(conn->sock, out_buff, out_bytes,
@@ -852,6 +959,13 @@ static int proto_ping_leader_ex(ConnectionInfo *conn, const bool report_all)
 
     return result;
 }
+
+#define proto_activate_server(conn) \
+    proto_ping_leader_ex(conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, true)
+
+#define proto_ping_leader(conn) \
+    proto_ping_leader_ex(conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, false)
+
 
 static int cluster_try_recv_push_data(ConnectionInfo *conn)
 {
@@ -897,6 +1011,8 @@ static int cluster_ping_leader(ConnectionInfo *conn)
                 return result;
             }
         }
+
+        leader_deal_data_version_changes();
         cluster_topology_check_and_make_delay_decisions();
         return 0;  //do not need ping myself
     }
@@ -918,7 +1034,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
             return result;
         }
 
-        if ((result=proto_ping_leader_ex(conn, true)) != 0) {
+        if ((result=proto_activate_server(conn)) != 0) {
             conn_pool_disconnect_server(conn);
             return result;
         }
@@ -929,7 +1045,7 @@ static int cluster_ping_leader(ConnectionInfo *conn)
         return result;
     }
 
-    if ((result=proto_ping_leader_ex(conn, false)) != 0) {
+    if ((result=proto_ping_leader(conn)) != 0) {
         conn_pool_disconnect_server(conn);
     }
 
@@ -944,9 +1060,6 @@ static void *cluster_thread_entrance(void* arg)
     int sleep_seconds;
     FSClusterServerInfo *leader;
     ConnectionInfo mconn;  //leader connection
-
-    //TODO
-    set_status_for_test();
 
     memset(&mconn, 0, sizeof(mconn));
     mconn.sock = -1;
@@ -996,7 +1109,7 @@ static int init_my_data_group_array()
 {
     FSIdArray *id_array;
     FSClusterDataGroupInfo *data_group;
-    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
     int bytes;
     int data_group_id;
@@ -1016,14 +1129,14 @@ static int init_my_data_group_array()
         data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - 1);
         end = data_group->data_server_array.servers +
             data_group->data_server_array.count;
-        for (sp=data_group->data_server_array.servers; sp<end; sp++) {
-            if (sp->cs == CLUSTER_MYSELF_PTR) {
+        for (ds=data_group->data_server_array.servers; ds<end; ds++) {
+            if (ds->cs == CLUSTER_MYSELF_PTR) {
                 my_data_group_array.groups[i].data_group_id = data_group_id;
-                my_data_group_array.groups[i].sp = sp;
+                my_data_group_array.groups[i].ds = ds;
                 break;
             }
         }
-        if (sp == end) {
+        if (ds == end) {
             logError("file: "__FILE__", line: %d, "
                     "data group id: %d, NOT found me, my server id: %d",
                     __LINE__, data_group_id, CLUSTER_MYSELF_PTR->server->id);
