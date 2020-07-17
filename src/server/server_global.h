@@ -39,7 +39,8 @@ typedef struct server_global_vars {
 
     struct {
         int channels_between_two_servers;
-        SFContext sf_context;  //for replica communication
+        int active_test_interval;   //round(nework_timeout / 2)
+        SFContext sf_context;       //for replica communication
     } replica;
 
 } FSServerGlobalVars;

@@ -88,6 +88,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
     FSReplication *replication;
+    int status;
     int inactive_count;
 
     __sync_add_and_fetch(&rpc->reffer_count,
@@ -99,7 +100,10 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     inactive_count = 0;
     end = group->slave_ds_array.servers + group->slave_ds_array.count;
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&(*ds)->status, 0) != FS_SERVER_STATUS_ACTIVE) {
+        status = __sync_fetch_and_add(&(*ds)->status, 0);
+        if (!(status == FS_SERVER_STATUS_ONLINE ||
+                    status == FS_SERVER_STATUS_ACTIVE))
+        {
             inactive_count++;
             continue;
         }

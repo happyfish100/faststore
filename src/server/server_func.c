@@ -1,6 +1,7 @@
 
 #include <sys/stat.h>
 #include <limits.h>
+#include <math.h>
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
@@ -345,6 +346,9 @@ int server_load_config(const char *filename)
     }
 
     iniFreeContext(&ini_context);
+
+    g_server_global_vars.replica.active_test_interval = (int)
+        ceil(SF_G_NETWORK_TIMEOUT / 2.00);
 
     load_local_host_ip_addrs();
     server_log_configs();

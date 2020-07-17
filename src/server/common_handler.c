@@ -130,13 +130,20 @@ int handler_deal_task_done(struct fast_task_info *task)
 
     if (!TASK_ARG->context.need_response) {
         time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
-        logInfo("file: "__FILE__", line: %d, "
-                "client %s:%d, req cmd: %d (%s), req body_len: %d, "
-                "status: %d, time used: %s us", __LINE__,
-                task->client_ip, task->port, REQUEST.header.cmd,
-                fs_get_cmd_caption(REQUEST.header.cmd),
-                REQUEST.header.body_len, RESPONSE_STATUS,
-                long_to_comma_str(time_used, time_buff));
+
+        switch (REQUEST.header.cmd) {
+            case FS_PROTO_ACTIVE_TEST_RESP:
+                break;
+            default:
+                logInfo("file: "__FILE__", line: %d, "
+                        "client %s:%d, req cmd: %d (%s), req body_len: %d, "
+                        "status: %d, time used: %s us", __LINE__,
+                        task->client_ip, task->port, REQUEST.header.cmd,
+                        fs_get_cmd_caption(REQUEST.header.cmd),
+                        REQUEST.header.body_len, RESPONSE_STATUS,
+                        long_to_comma_str(time_used, time_buff));
+                break;
+        }
 
         if (RESPONSE_STATUS == 0) {
             task->offset = task->length = 0;
@@ -171,17 +178,22 @@ int handler_deal_task_done(struct fast_task_info *task)
                 RESPONSE.header.body_len);
     }
 
-    if (REQUEST.header.cmd != FS_CLUSTER_PROTO_PING_LEADER_REQ) {
-    logInfo("file: "__FILE__", line: %d, "
-            "client %s:%d, req cmd: %d (%s), req body_len: %d, "
-            "resp cmd: %d (%s), status: %d, resp body_len: %d, "
-            "time used: %s us", __LINE__,
-            task->client_ip, task->port, REQUEST.header.cmd,
-            fs_get_cmd_caption(REQUEST.header.cmd),
-            REQUEST.header.body_len, RESPONSE.header.cmd,
-            fs_get_cmd_caption(RESPONSE.header.cmd),
-            RESPONSE_STATUS, RESPONSE.header.body_len,
-            long_to_comma_str(time_used, time_buff));
+    switch (REQUEST.header.cmd) {
+        case FS_CLUSTER_PROTO_PING_LEADER_REQ:
+        case FS_PROTO_ACTIVE_TEST_REQ:
+            break;
+        default:
+            logInfo("file: "__FILE__", line: %d, "
+                    "client %s:%d, req cmd: %d (%s), req body_len: %d, "
+                    "resp cmd: %d (%s), status: %d, resp body_len: %d, "
+                    "time used: %s us", __LINE__,
+                    task->client_ip, task->port, REQUEST.header.cmd,
+                    fs_get_cmd_caption(REQUEST.header.cmd),
+                    REQUEST.header.body_len, RESPONSE.header.cmd,
+                    fs_get_cmd_caption(RESPONSE.header.cmd),
+                    RESPONSE_STATUS, RESPONSE.header.body_len,
+                    long_to_comma_str(time_used, time_buff));
+            break;
     }
 
     return r == 0 ? RESPONSE_STATUS : r;

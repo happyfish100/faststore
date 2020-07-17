@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
                 fs_proto_set_body_length, replica_deal_task,
-                replica_task_finish_cleanup, NULL,
+                replica_task_finish_cleanup, replica_recv_timeout_callback,
                 1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg));
         if (result != 0) {
             break;

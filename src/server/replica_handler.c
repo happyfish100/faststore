@@ -64,6 +64,21 @@ static inline void replica_release_reader(struct fast_task_info *task)
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
 }
 
+int replica_recv_timeout_callback(struct fast_task_info *task)
+{
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
+            REPLICA_REPLICATION != NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "client %s:%d, sock: %d, server id: %d, recv timeout",
+                __LINE__, task->client_ip, task->port, task->event.fd,
+                REPLICA_REPLICATION->peer->server->id);
+        return ETIMEDOUT;
+    }
+
+    return 0;
+}
+
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     /*
@@ -299,7 +314,22 @@ static inline int replica_check_replication_task(struct fast_task_info *task)
                 "cluster replication ptr is null");
         return EINVAL;
     }
+
+    if (REPLICA_REPLICATION->last_net_comm_time != g_current_time) {
+        REPLICA_REPLICATION->last_net_comm_time = g_current_time;
+    }
+
     return 0;
+}
+
+static inline int replica_deal_actvie_test_req(struct fast_task_info *task)
+{
+    int result;
+
+    if ((result=replica_check_replication_task(task)) != 0) {
+        return result;
+    }
+    return handler_deal_actvie_test(task);
 }
 
 static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
@@ -515,10 +545,12 @@ int replica_deal_task(struct fast_task_info *task)
 {
     int result;
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
             "cmd: %d, nio_stage: %d, SF_NIO_STAGE_CONTINUE: %d",
             __LINE__, ((FSProtoHeader *)task->data)->cmd,
             task->nio_stage, SF_NIO_STAGE_CONTINUE);
+            */
 
     if (task->nio_stage == SF_NIO_STAGE_CONTINUE) {
         task->nio_stage = SF_NIO_STAGE_SEND;
@@ -538,7 +570,11 @@ int replica_deal_task(struct fast_task_info *task)
         switch (REQUEST.header.cmd) {
             case FS_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = FS_PROTO_ACTIVE_TEST_RESP;
-                result = handler_deal_actvie_test(task);
+                result = replica_deal_actvie_test_req(task);
+                break;
+            case FS_PROTO_ACTIVE_TEST_RESP:
+                result = replica_check_replication_task(task);
+                TASK_ARG->context.need_response = false;
                 break;
             case FS_PROTO_ACK:
                 result = handler_deal_ack(task);

@@ -239,13 +239,14 @@ typedef struct fs_replication {
     bool is_client;
     int thread_index; //for nio thread
     int conn_index;
+    int last_net_comm_time;  //last network communication time
     struct {
         int start_time;
         int next_connect_time;
         int last_errno;
         int fail_count;
         ConnectionInfo conn;
-    } connection_info;
+    } connection_info;  //for client to make connection
 
     FSReplicationContext context;
 } FSReplication;

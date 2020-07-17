@@ -303,7 +303,7 @@ static int check_and_make_replica_connection(FSReplication *replication)
     return result;
 }
 
-static int send_join_slave_package(FSReplication *replication)
+static int send_join_server_package(FSReplication *replication)
 {
 	int result;
 	FSProtoHeader *header;
@@ -334,6 +334,8 @@ static int send_join_slave_package(FSReplication *replication)
                 result, STRERROR(result));
         close(replication->connection_info.conn.sock);
         replication->connection_info.conn.sock = -1;
+    } else {
+        replication->last_net_comm_time = g_current_time;
     }
 
     return result;
@@ -385,7 +387,7 @@ static int deal_connecting_replication(FSReplication *replication)
 
     result = check_and_make_replica_connection(replication);
     if (result == 0) {
-        result = send_join_slave_package(replication);
+        result = send_join_server_package(replication);
     }
 
     return result;
@@ -578,7 +580,19 @@ static int replication_rpc_from_queue(FSReplication *replication)
     FS_PROTO_SET_HEADER((FSProtoHeader *)task->data,
             FS_REPLICA_PROTO_RPC_REQ, body_len);
     sf_send_add_event(task);
+
+    if (replication->last_net_comm_time != g_current_time) {
+        replication->last_net_comm_time = g_current_time;
+    }
     return 0;
+}
+
+static inline void send_active_test_package(FSReplication *replication)
+{
+    replication->task->length = sizeof(FSProtoHeader);
+    FS_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
+            FS_PROTO_ACTIVE_TEST_REQ, 0);
+    sf_send_add_event(replication->task);
 }
 
 int replication_processors_deal_rpc_response(FSReplication *replication,
@@ -640,6 +654,15 @@ static int deal_replication_connected(FSServerContext *server_ctx)
         if ((result=deal_connected_replication(replication)) == 0) {
             result = replication_callee_deal_rpc_result_queue(replication);
         }
+        if (result == 0 && replication->is_client) {
+            if (g_current_time - replication->last_net_comm_time >=
+                    g_server_global_vars.replica.active_test_interval)
+            {
+                replication->last_net_comm_time = g_current_time;
+                send_active_test_package(replication);
+            }
+        }
+
         if (result != 0) {
             iovent_add_to_deleted_list(replication->task);
         }
