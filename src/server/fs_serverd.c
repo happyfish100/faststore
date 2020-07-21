@@ -35,6 +35,7 @@
 #include "server_storage.h"
 #include "server_binlog.h"
 #include "server_replication.h"
+#include "server_recovery.h"
 #include "dio/trunk_io_thread.h"
 
 static bool daemon_mode = true;
@@ -150,6 +151,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=server_recovery_init()) != 0) {
+            break;
+        }
+
         fs_proto_init();
         //sched_print_all_entries();
 
@@ -210,6 +215,9 @@ int main(int argc, char *argv[])
     }
 
     trunk_io_thread_terminate();
+    server_binlog_terminate();
+    server_replication_terminate();
+    server_recovery_terminate();
 
     wait_count = 0;
     while ((SF_G_ALIVE_THREAD_COUNT != 0 || SF_ALIVE_THREAD_COUNT(

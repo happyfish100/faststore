@@ -2,7 +2,7 @@
 
 COMPILE = $(CC) $(CFLAGS)
 INC_PATH = -I/usr/local/include -I..
-LIB_PATH = $(LIBS) -lfastcommon -lserverframe
+LIB_PATH = $(LIBS) -lm -lfastcommon -lserverframe
 TARGET_PATH = $(TARGET_PREFIX)/bin
 CONFIG_PATH = $(TARGET_CONF_PATH)
 
@@ -21,8 +21,9 @@ ALL_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_global.o \
            replication/replication_processor.o replication/rpc_result_ring.o \
            replication/replication_common.o replication/replication_caller.o \
            replication/replication_callee.o server_binlog.o server_replication.o \
-           cluster_relationship.o cluster_topology.o \
-           recovery/binlog_fetch.o recovery/data_recovery.o
+           cluster_relationship.o cluster_topology.o server_recovery.o \
+           recovery/binlog_fetch.o recovery/data_recovery.o \
+           recovery/recovery_thread.o
 
 ALL_PRGS = fs_serverd
 
