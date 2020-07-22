@@ -20,6 +20,8 @@
 #include "../server_group_info.h"
 #include "recovery_thread.h"
 
+#define RECOVERY_THREADS_LIMIT  2
+
 typedef struct {
     pthread_t tid;
     struct common_blocked_queue queue;
@@ -27,6 +29,44 @@ typedef struct {
 } RecoveryThreadContext;
 
 static RecoveryThreadContext recovery_thread_ctx;
+
+static void recovery_thread_run_task(void *arg)
+{
+    FSClusterDataServerInfo *ds;
+
+    ds = (FSClusterDataServerInfo *)arg;
+    //TODO
+}
+
+static void recovery_thread_deal(FSClusterDataServerInfo *ds)
+{
+    int status;
+    bool notify;
+
+    status = __sync_fetch_and_add(&ds->status, 0);
+    if ((status & FS_SERVER_STATUS_RECOVERY_FLAG)) {
+        return;
+    }
+
+    switch (status) {
+        case FS_SERVER_STATUS_ONLINE:
+        case FS_SERVER_STATUS_ACTIVE:
+            return;
+        case FS_SERVER_STATUS_INIT:
+            if (fc_thread_pool_avail_count(&recovery_thread_ctx.tpool) <
+                    RECOVERY_THREADS_LIMIT)
+            {
+                common_blocked_queue_push_ex(&recovery_thread_ctx.queue,
+                        ds, &notify);
+                sleep(1);
+                break;
+            }
+        case FS_SERVER_STATUS_OFFLINE:
+            fc_thread_pool_run(&recovery_thread_ctx.tpool,
+                    recovery_thread_run_task, ds);
+            break;
+    }
+}
 
 static void *recovery_thread_entrance(void *arg)
 {
@@ -36,6 +76,7 @@ static void *recovery_thread_entrance(void *arg)
         ds = (FSClusterDataServerInfo *)common_blocked_queue_pop(
                 &recovery_thread_ctx.queue);
         if (ds != NULL) {
+            recovery_thread_deal(ds);
         }
     }
 
@@ -45,7 +86,7 @@ static void *recovery_thread_entrance(void *arg)
 int recovery_thread_init()
 {
     const int alloc_elements_once = 256;
-    const int limit = 2;
+    const int limit = RECOVERY_THREADS_LIMIT;
     const int max_idle_time = 60;
     const int min_idle_count = 0;
     int result;

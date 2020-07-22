@@ -651,7 +651,9 @@ static int load_group_servers_from_ini(const char *group_filename,
         server_id = strtol(fields[0].str, NULL, 10);
         status = strtol(fields[1].str, NULL, 10);
         data_version = strtoll(fields[2].str, NULL, 10);
-        if (status == FS_SERVER_STATUS_SYNCING ||
+
+        status &= ~FS_SERVER_STATUS_RECOVERY_FLAG;
+        if (status == FS_SERVER_STATUS_ONLINE ||
                 status == FS_SERVER_STATUS_ACTIVE)
         {
             status = FS_SERVER_STATUS_OFFLINE;

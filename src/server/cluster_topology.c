@@ -202,30 +202,60 @@ int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
     return 0;
 }
 
-static inline void cluster_topology_offline_data_server(
-        FSClusterDataServerInfo *ds, const bool unset_master)
+static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
+        const bool remove_recovery_flag)
 {
     int old_status;
+    int new_status;
     bool notify;
 
     notify = false;
     old_status = __sync_fetch_and_add(&ds->status, 0);
-    if (old_status == FS_SERVER_STATUS_SYNCING ||
-            old_status == FS_SERVER_STATUS_ONLINE ||
-            old_status == FS_SERVER_STATUS_ACTIVE)
+    new_status = old_status & (~FS_SERVER_STATUS_RECOVERY_FLAG);
+    if (new_status == FS_SERVER_STATUS_ONLINE ||
+            new_status == FS_SERVER_STATUS_ACTIVE)
     {
-        if (__sync_bool_compare_and_swap(&ds->status, old_status,
-                    FS_SERVER_STATUS_OFFLINE))
+        new_status = FS_SERVER_STATUS_OFFLINE;
+    } else if (!remove_recovery_flag) {
+        return false;
+    }
+
+    if (new_status != old_status) {
+        if (__sync_bool_compare_and_swap(&ds->status,
+                    old_status, new_status))
         {
             notify = true;
         }
     }
 
+    return notify;
+}
+
+static void cluster_topology_offline_data_server(
+        FSClusterDataServerInfo *ds, const bool unset_master)
+{
+    FSClusterDataServerInfo *cur;
+    FSClusterDataServerInfo *end;
+    bool notify;
+
+    notify = downgrade_data_server_status(ds, unset_master);
     if (unset_master && __sync_fetch_and_add(&ds->is_master, 0)) {
+        __sync_bool_compare_and_swap(&ds->is_master, true, false);
         if (__sync_bool_compare_and_swap(&ds->dg->master, ds, NULL)) {
+            cluster_relationship_on_master_change(ds, NULL);
+
+            end = ds->dg->data_server_array.servers +
+                ds->dg->data_server_array.count;
+            for (cur=ds->dg->data_server_array.servers; cur<end; cur++) {
+                if (cur != ds) {
+                    if (downgrade_data_server_status(cur, false)) {
+                        cluster_topology_data_server_chg_notify(cur, true);
+                    }
+                }
+            }
+
             cluster_topology_select_master(ds->dg, false);
         }
-        __sync_bool_compare_and_swap(&ds->is_master, true, false);
         notify = true;
     }
 
@@ -366,8 +396,9 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
     if (__sync_fetch_and_add(&master->status, 0) != FS_SERVER_STATUS_ACTIVE) {
         if (__sync_bool_compare_and_swap(&group->master, master, NULL)) {
             __sync_bool_compare_and_swap(&master->is_master, true, false);
-            cluster_topology_data_server_chg_notify(master, true);
+            cluster_relationship_on_master_change(master, NULL);
 
+            cluster_topology_data_server_chg_notify(master, true);
             group->delay_decision.expire_time = g_current_time + 5;
             return EAGAIN;
         }
@@ -499,7 +530,7 @@ int cluster_topology_select_master(FSClusterDataGroupInfo *group,
 
     if (__sync_bool_compare_and_swap(&group->master, NULL, master)) {
         __sync_bool_compare_and_swap(&master->is_master, false, true);
-        cluster_relationship_set_ds_status(master, FS_SERVER_STATUS_ACTIVE);
+        cluster_relationship_on_master_change(NULL, master);
         cluster_topology_data_server_chg_notify(master, true);
 
         logInfo("file: "__FILE__", line: %d, "

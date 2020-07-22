@@ -476,21 +476,11 @@ void *cluster_alloc_thread_extra_data(const int thread_index)
 int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
 {
     FSServerContext *server_ctx;
-    static int count = 0;
 
     server_ctx = (FSServerContext *)thread_data->arg;
-
-    if (count++ % 1000 == 0) {
-        logInfo("thread index: %d, connectings.count: %d, "
-                "connected.count: %d",
-                SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
-                server_ctx->replica.connectings.count,
-                server_ctx->replica.connected.count);
-    }
-
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
-        static int lcount = 0;
-        if (lcount++ % 100 == 0) {
+        static int count = 0;
+        if (count++ % 100 == 0) {
             logInfo("thread index: %d, notify context count: %d",
                     SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
                     server_ctx->cluster.notify_ctx_ptr_array.count);

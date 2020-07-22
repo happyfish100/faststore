@@ -125,6 +125,12 @@ int replication_processor_bind_thread(FSReplication *replication)
     task->thread_data = REPLICA_SF_CTX.thread_data +
         replication->thread_index % REPLICA_SF_CTX.work_threads;
 
+
+    /*
+    logInfo("=========task: %p, thread_index: %d, work_threads: %d, thread_data: %p ======",
+            task,  replication->thread_index, REPLICA_SF_CTX.work_threads, task->thread_data);
+            */
+
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
 
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION;

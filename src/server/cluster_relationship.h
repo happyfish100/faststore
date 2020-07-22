@@ -32,6 +32,9 @@ bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
 void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
         const int new_status, const bool notify_leader);
 
+int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master);
+
 void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs);
 
 void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs);

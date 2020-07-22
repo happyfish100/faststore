@@ -208,12 +208,14 @@ const char *fs_get_server_status_caption(const int status)
     switch (status) {
         case FS_SERVER_STATUS_INIT:
             return "INIT";
-        case FS_SERVER_STATUS_BUILDING:
-            return "BUILDING";
+        case FS_SERVER_STATUS_REBUILDING:
+            return "REBUILDING";
         case FS_SERVER_STATUS_OFFLINE:
             return "OFFLINE";
-        case FS_SERVER_STATUS_SYNCING:
-            return "SYNCING";
+        case FS_SERVER_STATUS_RECOVERING:
+            return "RECOVERING";
+        case FS_SERVER_STATUS_ONLINE:
+            return "ONLINE";
         case FS_SERVER_STATUS_ACTIVE:
             return "ACTIVE";
         default:

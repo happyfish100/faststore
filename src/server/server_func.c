@@ -224,10 +224,12 @@ static void server_log_configs()
     snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, data_path = %s, "
             "replica_channels_between_two_servers = %d, "
+            "recovery_threads_per_data_group = %d, "
             "binlog_buffer_size = %d KB, "
             "cluster server count = %d",
-            CLUSTER_MY_SERVER_ID,
-            DATA_PATH_STR, REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
+            REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            RECOVERY_THREADS_PER_DATA_GROUP,
             BINLOG_BUFFER_SIZE / 1024,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
 
@@ -327,6 +329,14 @@ int server_load_config(const char *filename)
     if (REPLICA_CHANNELS_BETWEEN_TWO_SERVERS <= 0) {
         REPLICA_CHANNELS_BETWEEN_TWO_SERVERS =
             FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
+    }
+
+    RECOVERY_THREADS_PER_DATA_GROUP = iniGetIntValue(NULL,
+            "recovery_threads_per_data_group",
+            &ini_context, FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP);
+    if (RECOVERY_THREADS_PER_DATA_GROUP <= 0) {
+        RECOVERY_THREADS_PER_DATA_GROUP =
+            FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP;
     }
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {

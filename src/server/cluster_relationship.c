@@ -18,6 +18,7 @@
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
+#include "server_recovery.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 
@@ -728,12 +729,27 @@ bool cluster_relationship_set_ds_status(FSClusterDataServerInfo *ds,
 {
     int old_status;
     old_status = __sync_add_and_fetch(&ds->status, 0);
-    if (new_status != old_status) {
-        return __sync_bool_compare_and_swap(&ds->status,
-                old_status, new_status);
-    } else {
+    if (new_status == old_status) {
         return false;
     }
+
+    if (!__sync_bool_compare_and_swap(&ds->status,
+                old_status, new_status))
+    {
+        return false;
+    }
+
+    if (ds->cs != CLUSTER_MYSELF_PTR) {
+        return true;
+    }
+
+    if (new_status == FS_SERVER_STATUS_OFFLINE && __sync_add_and_fetch(
+                &ds->dg->master, 0) != NULL)
+    {
+        recovery_thread_push_to_queue(ds);
+    }
+
+    return true;
 }
 
 bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
@@ -771,6 +787,93 @@ void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
     }
 }
 
+int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    FSClusterDataGroupInfo *group;
+
+    if (old_master != NULL) {
+        group = old_master->dg;
+    } else if (new_master != NULL) {
+        group = new_master->dg;
+    } else {
+        return EINVAL;
+    }
+
+    if (new_master == old_master) {
+        return 0;
+    }
+
+    if (group->myself == NULL) {
+        return 0;
+    }
+
+    if (group->myself == new_master) {
+        cluster_relationship_set_ds_status(new_master,
+                FS_SERVER_STATUS_ACTIVE);
+        new_master->last_report_version = -1;   //trigger report to leader
+    } else {
+        if (group->myself == old_master) {
+            if (old_master->status == FS_SERVER_STATUS_ACTIVE) {
+                cluster_relationship_set_ds_status(old_master,
+                        FS_SERVER_STATUS_OFFLINE);
+                old_master->last_report_version = -1;   //trigger report to leader
+            }
+        }
+
+        if (new_master != NULL && group->myself->status ==
+                FS_SERVER_STATUS_OFFLINE)
+        {
+            recovery_thread_push_to_queue(group->myself);
+        }
+    }
+
+    return 0;
+}
+
+static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
+        const FSProtoPushDataServerStatusBodyPart *body_part)
+{
+    FSClusterDataServerInfo *old_master;
+
+    if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
+        if ((body_part->status == FS_SERVER_STATUS_OFFLINE) &&
+                (!ds->is_master) &&
+                (ds->status == FS_SERVER_STATUS_ONLINE ||
+                 ds->status == FS_SERVER_STATUS_ACTIVE))
+        {
+            cluster_relationship_set_ds_status(ds,
+                    FS_SERVER_STATUS_OFFLINE);
+        }
+    } else {
+        cluster_relationship_set_ds_status(ds, body_part->status);
+        ds->data_version = buff2long(body_part->data_version);
+    }
+
+    if (ds->is_master == body_part->is_master) { //master NOT changed
+        return;
+    }
+
+    old_master = (FSClusterDataServerInfo *)ds->dg->master;
+    ds->is_master = body_part->is_master;
+    if (ds->is_master) {
+        if (ds->dg->master != NULL && ds->dg->master != ds) {
+            ds->dg->master->is_master = false;
+        }
+        ds->dg->master = ds;
+        logInfo("data_group_id: %d, set master server_id: %d",
+                ds->dg->id, ds->cs->server->id);
+    } else if (ds->dg->master == ds) {
+        ds->dg->master = NULL;
+
+        logInfo("data_group_id: %d, unset master server_id: %d",
+                ds->dg->id, ds->cs->server->id);
+    }
+
+    cluster_relationship_on_master_change(old_master,
+            (FSClusterDataServerInfo *)ds->dg->master);
+}
+
 static int cluster_process_leader_push(FSResponseInfo *response,
         char *body_buff, const int body_len)
 {
@@ -805,34 +908,9 @@ static int cluster_process_leader_push(FSResponseInfo *response,
     for (; body_part < body_end; body_part++) {
         data_group_id = buff2int(body_part->data_group_id);
         server_id = buff2int(body_part->server_id);
-
         //logInfo("data_group_id: %d, server_id: %d", data_group_id, server_id);
         if ((ds=fs_get_data_server(data_group_id, server_id)) != NULL) {
-            if (ds->cs != CLUSTER_MYSELF_PTR) {
-                ds->status = body_part->status;
-                ds->data_version = buff2long(body_part->data_version);
-            }
-            if (ds->is_master != body_part->is_master) { //master changed
-                ds->is_master = body_part->is_master;
-                if (ds->is_master) {
-                    if (ds->dg->master != NULL && ds->dg->master != ds) {
-                        ds->dg->master->is_master = false;
-                    }
-                    ds->dg->master = ds;
-                    logInfo("data_group_id: %d, set master server_id: %d",
-                            data_group_id, ds->cs->server->id);
-
-                    if (ds->cs == CLUSTER_MYSELF_PTR) {
-                        cluster_relationship_set_my_status(ds,
-                                FS_SERVER_STATUS_ACTIVE, false);
-                    }
-                } else if (ds->dg->master == ds) {
-                    ds->dg->master = NULL;
-
-                    logInfo("data_group_id: %d, unset master server_id: %d",
-                            data_group_id, ds->cs->server->id);
-                }
-            }
+            cluster_process_push_entry(ds, body_part);
         }
     }
 
