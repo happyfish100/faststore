@@ -724,11 +724,9 @@ static int cluster_select_leader()
 	return 0;
 }
 
-bool cluster_relationship_set_ds_status(FSClusterDataServerInfo *ds,
-        const int new_status)
+bool cluster_relationship_set_ds_status_ex(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status)
 {
-    int old_status;
-    old_status = __sync_add_and_fetch(&ds->status, 0);
     if (new_status == old_status) {
         return false;
     }
@@ -743,8 +741,9 @@ bool cluster_relationship_set_ds_status(FSClusterDataServerInfo *ds,
         return true;
     }
 
-    if (new_status == FS_SERVER_STATUS_OFFLINE && __sync_add_and_fetch(
-                &ds->dg->master, 0) != NULL)
+    if ((new_status == FS_SERVER_STATUS_INIT ||
+                new_status == FS_SERVER_STATUS_OFFLINE) &&
+            __sync_add_and_fetch(&ds->dg->master, 0) != NULL)
     {
         recovery_thread_push_to_queue(ds);
     }
@@ -771,11 +770,13 @@ bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
     return changed;
 }
 
-void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
-        const int new_status, const bool notify_leader)
+bool cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status, const bool notify_leader)
 {
-    if (!cluster_relationship_set_ds_status(ds, new_status)) {
-        return;
+    bool changed;
+    changed = cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
+    if (!changed) {
+        return changed;
     }
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //leader
@@ -785,6 +786,7 @@ void cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
             ds->last_report_version = -1;   //trigger report to leader
         }
     }
+    return changed;
 }
 
 int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
@@ -821,8 +823,9 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
             }
         }
 
-        if (new_master != NULL && group->myself->status ==
-                FS_SERVER_STATUS_OFFLINE)
+        if (new_master != NULL && (group->myself->status ==
+                FS_SERVER_STATUS_INIT || group->myself->status ==
+                FS_SERVER_STATUS_OFFLINE))
         {
             recovery_thread_push_to_queue(group->myself);
         }

@@ -207,28 +207,24 @@ static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
 {
     int old_status;
     int new_status;
-    bool notify;
 
-    notify = false;
     old_status = __sync_fetch_and_add(&ds->status, 0);
-    new_status = old_status & (~FS_SERVER_STATUS_RECOVERY_FLAG);
-    if (new_status == FS_SERVER_STATUS_ONLINE ||
-            new_status == FS_SERVER_STATUS_ACTIVE)
+    if (old_status == FS_SERVER_STATUS_ONLINE ||
+            old_status == FS_SERVER_STATUS_ACTIVE)
     {
         new_status = FS_SERVER_STATUS_OFFLINE;
     } else if (!remove_recovery_flag) {
-        return false;
+        new_status = old_status;
+    } else {
+        fs_downgrade_data_server_status(old_status, &new_status);
     }
 
     if (new_status != old_status) {
-        if (__sync_bool_compare_and_swap(&ds->status,
-                    old_status, new_status))
-        {
-            notify = true;
-        }
+        return __sync_bool_compare_and_swap(&ds->status,
+                old_status, new_status);
+    } else {
+        return false;
     }
-
-    return notify;
 }
 
 static void cluster_topology_offline_data_server(

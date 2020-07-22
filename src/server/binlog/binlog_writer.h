@@ -125,13 +125,18 @@ static inline BinlogWriterBuffer *binlog_writer_alloc_buffer(
     return (BinlogWriterBuffer *)fast_mblock_alloc_object(&thread->mblock);
 }
 
+static inline const char *binlog_writer_get_filepath(const char *subdir_name,
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s", DATA_PATH_STR, subdir_name);
+    return filename;
+}
 
-static inline const char *binlog_writer_get_filename(BinlogWriterInfo *writer,
+static inline const char *binlog_writer_get_filename(const char *subdir_name,
         const int binlog_index, char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s"BINLOG_FILE_EXT_FMT,
-            DATA_PATH_STR, writer->cfg.subdir_name,
-            BINLOG_FILE_PREFIX, binlog_index);
+    snprintf(filename, size, "%s/%s/%s"BINLOG_FILE_EXT_FMT, DATA_PATH_STR,
+            subdir_name, BINLOG_FILE_PREFIX, binlog_index);
     return filename;
 }
 

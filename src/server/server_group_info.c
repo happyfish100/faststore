@@ -606,12 +606,44 @@ static inline void get_server_group_filename(
             DATA_PATH_STR, DATA_GROUP_INFO_FILENAME);
 }
 
+int fs_downgrade_data_server_status(const int old_status, int *new_status)
+{
+    int result;
+
+    switch (old_status) {
+        case FS_SERVER_STATUS_INIT:
+        case FS_SERVER_STATUS_OFFLINE:
+            result = 0;
+            *new_status = old_status;
+            break;
+        case FS_SERVER_STATUS_REBUILDING:
+            result = 0;
+            *new_status = FS_SERVER_STATUS_INIT;
+            break;
+        case FS_SERVER_STATUS_RECOVERING:
+        case FS_SERVER_STATUS_ONLINE:
+        case FS_SERVER_STATUS_ACTIVE:
+            result = 0;
+            *new_status = FS_SERVER_STATUS_OFFLINE;
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "invalid status: %d, set to %d (INIT)",
+                    __LINE__, old_status, FS_SERVER_STATUS_INIT);
+            result = EINVAL;
+            *new_status = FS_SERVER_STATUS_INIT;
+            break;
+    }
+
+    return result;
+}
+
 static int load_group_servers_from_ini(const char *group_filename,
         IniContext *ini_context, FSClusterDataGroupInfo *group)
 {
 #define MAX_FIELD_COUNT 4
-    FSClusterDataServerInfo *sp;
-    FSClusterDataServerInfo *sp_end;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *ds_end;
     IniItem *items;
     IniItem *it_end;
     IniItem *it;
@@ -632,7 +664,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         return 0;
     }
 
-    sp_end = group->data_server_array.servers + group->data_server_array.count;
+    ds_end = group->data_server_array.servers + group->data_server_array.count;
     it_end = items + item_count;
     for (it=items; it<it_end; it++) {
         FC_SET_STRING(value, it->value);
@@ -652,16 +684,11 @@ static int load_group_servers_from_ini(const char *group_filename,
         status = strtol(fields[1].str, NULL, 10);
         data_version = strtoll(fields[2].str, NULL, 10);
 
-        status &= ~FS_SERVER_STATUS_RECOVERY_FLAG;
-        if (status == FS_SERVER_STATUS_ONLINE ||
-                status == FS_SERVER_STATUS_ACTIVE)
-        {
-            status = FS_SERVER_STATUS_OFFLINE;
-        }
-        for (sp=group->data_server_array.servers; sp<sp_end; sp++) {
-            if (sp->cs->server->id == server_id) {
-                sp->status = status;
-                sp->data_version = data_version;
+        fs_downgrade_data_server_status(status, &status);
+        for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
+            if (ds->cs->server->id == server_id) {
+                ds->status = status;
+                ds->data_version = data_version;
                 break;
             }
         }

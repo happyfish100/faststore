@@ -19,6 +19,8 @@ FSClusterServerInfo *fs_get_server_by_id(const int server_id);
 FSClusterDataServerInfo *fs_get_data_server(const int data_group_id,
         const int server_id);
 
+int fs_downgrade_data_server_status(const int old_status, int *new_status);
+
 int fs_get_server_pair_base_offset(const int server_id1, const int server_id2);
 
 int server_group_info_setup_sync_to_file_task();

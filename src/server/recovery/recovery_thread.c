@@ -16,8 +16,10 @@
 #include "fastcommon/thread_pool.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../cluster_relationship.h"
 #include "recovery_thread.h"
 
 #define RECOVERY_THREADS_LIMIT  2
@@ -32,10 +34,41 @@ static RecoveryThreadContext recovery_thread_ctx;
 
 static void recovery_thread_run_task(void *arg)
 {
+    int old_status;
+    int new_status;
     FSClusterDataServerInfo *ds;
 
     ds = (FSClusterDataServerInfo *)arg;
-    //TODO
+    old_status = __sync_fetch_and_add(&ds->status, 0);
+    if (old_status == FS_SERVER_STATUS_INIT) {
+        new_status = FS_SERVER_STATUS_REBUILDING;
+    } else if (old_status == FS_SERVER_STATUS_OFFLINE) {
+        new_status = FS_SERVER_STATUS_RECOVERING;
+    } else {
+        logInfo("file: "__FILE__", line: %d, "
+                "data group id: %d, my status: %d (%s), "
+                "skip data recovery", __LINE__,
+                ds->dg->id, old_status,
+                fs_get_server_status_caption(old_status));
+        return;
+    }
+
+    if (!cluster_relationship_set_my_status(ds,
+                old_status, new_status, true))
+    {
+        logInfo("file: "__FILE__", line: %d, "
+                "data group id: %d, change my status to %d (%s) fail, "
+                "skip data recovery", __LINE__, ds->dg->id, new_status,
+                fs_get_server_status_caption(new_status));
+        return;
+    }
+
+    sleep(5); //TODO
+    logInfo("====file: "__FILE__", line: %d, func: %s, "
+            "do recovery, data group: %d, status: %d =====", __LINE__,
+            __FUNCTION__, ds->dg->id, ds->status);
+
+    cluster_relationship_set_my_status(ds, new_status, old_status, true);
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)
@@ -43,8 +76,17 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
     int status;
     bool notify;
 
+    if (ds->cs != CLUSTER_MYSELF_PTR) {
+        logInfo("file: "__FILE__", line: %d, "
+                "i NOT belong to data group id: %d",
+                __LINE__, ds->dg->id);
+        return;
+    }
+
     status = __sync_fetch_and_add(&ds->status, 0);
-    if ((status & FS_SERVER_STATUS_RECOVERY_FLAG)) {
+    if (status == FS_SERVER_STATUS_REBUILDING ||
+            status == FS_SERVER_STATUS_RECOVERING)
+    {
         return;
     }
 
@@ -61,9 +103,14 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
                 sleep(1);
                 break;
             }
+
         case FS_SERVER_STATUS_OFFLINE:
+
             fc_thread_pool_run(&recovery_thread_ctx.tpool,
                     recovery_thread_run_task, ds);
+            if (status == FS_SERVER_STATUS_INIT) {
+                usleep(500000);
+            }
             break;
     }
 }

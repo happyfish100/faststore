@@ -69,8 +69,8 @@ static int get_first_data_version_from_file(const int data_group_id,
     *data_version = 0;
     writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    binlog_writer_get_filename(writer, binlog_index,
-            filename, sizeof(filename));
+    binlog_writer_get_filename(writer->cfg.subdir_name,
+            binlog_index, filename, sizeof(filename));
 
     read_bytes = FS_REPLICA_BINLOG_MAX_RECORD_SIZE - 1;
     if ((result=getFileContentEx(filename, buff, 0, &read_bytes)) != 0) {
@@ -177,8 +177,8 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
         binlog_writer_array.base_id];
     position->index = binlog_get_current_write_index(writer);
     while (position->index >= 0) {
-        binlog_writer_get_filename(writer, position->index,
-                filename, sizeof(filename));
+        binlog_writer_get_filename(writer->cfg.subdir_name,
+                position->index, filename, sizeof(filename));
 
         if ((result=replica_binlog_get_last_data_version_ex(filename,
                         data_version, position, record_len)) == 0)
