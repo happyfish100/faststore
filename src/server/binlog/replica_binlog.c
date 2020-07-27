@@ -410,6 +410,7 @@ int replica_binlog_record_unpack(const string_t *line,
             result = unpack_slice_record(cols, count, record, error_info);
             break;
         case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
+        case REPLICA_BINLOG_OP_TYPE_NO_OP:
             result = unpack_block_record(cols, count, record, error_info);
             break;
         default:
@@ -646,4 +647,22 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
     }
 
     return binlog_reader_init(reader, subdir_name, writer, &position);
+}
+
+const char *replica_binlog_get_op_type_caption(const int op_type)
+{
+    switch (op_type) {
+        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+            return "write slice";
+        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
+            return "alloc slice";
+        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+            return "delete slice";
+        case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
+            return "delete block";
+        case REPLICA_BINLOG_OP_TYPE_NO_OP:
+            return "no op";
+        default:
+            return "unkown";
+    }
 }

@@ -8,6 +8,7 @@
 #define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  'a'
 #define REPLICA_BINLOG_OP_TYPE_DEL_SLICE    'd'
 #define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    'D'
+#define REPLICA_BINLOG_OP_TYPE_NO_OP        'N'
 
 struct binlog_writer_info;
 struct server_binlog_reader;
@@ -74,6 +75,8 @@ extern "C" {
         return replica_binlog_log_slice(data_group_id, data_version,
                 bs_key, REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
     }
+
+    const char *replica_binlog_get_op_type_caption(const int op_type);
 
     int replica_binlog_reader_init(struct server_binlog_reader *reader,
             const int data_group_id, const uint64_t last_data_version);

@@ -131,6 +131,14 @@ static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
     return safeWriteToFile(filename, buff, len);
 }
 
+static int data_recovery_unlink_sys_data(DataRecoveryContext *ctx)
+{
+    char filename[PATH_MAX];
+
+    data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
+    return fc_delete_file(filename);
+}
+
 static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
 {
     IniContext ini_context;
@@ -240,7 +248,7 @@ int data_recovery_start(const int data_group_id)
                 break;
             }
         case DATA_RECOVERY_STAGE_REPLAY:
-            result = 0;
+            result = data_recovery_unlink_sys_data(&ctx);
             break;
         default:
             logError("file: "__FILE__", line: %d, "
