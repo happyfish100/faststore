@@ -20,6 +20,7 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../cluster_relationship.h"
+#include "data_recovery.h"
 #include "recovery_thread.h"
 
 #define RECOVERY_THREADS_LIMIT  2
@@ -34,6 +35,7 @@ static RecoveryThreadContext recovery_thread_ctx;
 
 static void recovery_thread_run_task(void *arg)
 {
+    int result;
     int old_status;
     int new_status;
     FSClusterDataServerInfo *ds;
@@ -63,12 +65,14 @@ static void recovery_thread_run_task(void *arg)
         return;
     }
 
+    if ((result=data_recovery_start(ds->dg->id)) != 0) {
+        cluster_relationship_set_my_status(ds, new_status, old_status, true);
+    }
+
     sleep(5); //TODO
     logInfo("====file: "__FILE__", line: %d, func: %s, "
             "do recovery, data group: %d, status: %d =====", __LINE__,
             __FUNCTION__, ds->dg->id, ds->status);
-
-    cluster_relationship_set_my_status(ds, new_status, old_status, true);
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)

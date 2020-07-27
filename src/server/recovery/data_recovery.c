@@ -17,7 +17,17 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../server_replication.h"
+#include "binlog_fetch.h"
+#include "binlog_dedup.h"
 #include "data_recovery.h"
+
+
+#define DATA_RECOVERY_SYS_DATA_FILENAME    "data_recovery.dat"
+#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE  "stage"
+
+#define DATA_RECOVERY_STAGE_FETCH   'F'
+#define DATA_RECOVERY_STAGE_DEDUP   'D'
+#define DATA_RECOVERY_STAGE_REPLAY  'R'
 
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 {
@@ -100,7 +110,68 @@ FSClusterDataServerInfo *data_recovery_get_master(
     return master;
 }
 
-int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
+static void data_recovery_get_sys_data_filename(DataRecoveryContext *ctx,
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s/%d/%s", DATA_PATH_STR,
+            FS_RECOVERY_BINLOG_SUBDIR_NAME, ctx->data_group_id,
+            DATA_RECOVERY_SYS_DATA_FILENAME);
+}
+
+static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
+{
+    char filename[PATH_MAX];
+    char buff[256];
+    int len;
+
+    data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
+    len = sprintf(buff, "%s=%c\n",
+            DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage);
+
+    return safeWriteToFile(filename, buff, len);
+}
+
+static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
+{
+    IniContext ini_context;
+    char filename[PATH_MAX];
+    char *stage;
+    int result;
+
+    data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
+    if (access(filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result != ENOENT) {
+            logError("file: "__FILE__", line: %d, "
+                    "access file: %s fail, errno: %d, error info: %s",
+                    __LINE__, filename, result, STRERROR(result));
+            return result;
+        }
+
+        ctx->stage = DATA_RECOVERY_STAGE_FETCH;
+        return data_recovery_save_sys_data(ctx);
+    }
+
+    if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, filename, result);
+        return result;
+    }
+
+    stage = iniGetStrValue(NULL, DATA_RECOVERY_SYS_DATA_ITEM_STAGE,
+            &ini_context);
+    if (stage == NULL || *stage == '\0') {
+        ctx->stage = DATA_RECOVERY_STAGE_FETCH;
+    } else {
+        ctx->stage = stage[0];
+    }
+
+    iniFreeContext(&ini_context);
+    return 0;
+}
+
+static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
 {
     int result;
     FSClusterDataServerInfo *master;
@@ -133,11 +204,52 @@ int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
         return ENOMEM;
     }
 
-    return 0;
+    return data_recovery_load_sys_data(ctx);
 }
 
-void data_recovery_destroy(DataRecoveryContext *ctx)
+static void data_recovery_destroy(DataRecoveryContext *ctx)
 {
     shared_buffer_release(ctx->buffer);
     ctx->buffer = NULL;
+}
+
+int data_recovery_start(const int data_group_id)
+{
+    DataRecoveryContext ctx;
+    int result;
+
+    if ((result=data_recovery_init(&ctx, data_group_id)) != 0) {
+        return result;
+    }
+
+    switch (ctx.stage) {
+        case DATA_RECOVERY_STAGE_FETCH:
+            if ((result=data_recovery_fetch_binlog(&ctx)) != 0) {
+                break;
+            }
+            ctx.stage = DATA_RECOVERY_STAGE_DEDUP;
+            if ((result=data_recovery_save_sys_data(&ctx)) != 0) {
+                break;
+            }
+        case DATA_RECOVERY_STAGE_DEDUP:
+            ctx.stage = DATA_RECOVERY_STAGE_REPLAY;
+            if ((result=data_recovery_save_sys_data(&ctx)) != 0) {
+                break;
+            }
+            if ((result=data_recovery_dedup_binlog(&ctx)) != 0) {
+                break;
+            }
+        case DATA_RECOVERY_STAGE_REPLAY:
+            result = 0;
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "invalid stage value: 0x%02x",
+                    __LINE__, ctx.stage);
+            result = EINVAL;
+            break;
+    }
+
+    data_recovery_destroy(&ctx);
+    return result;
 }

@@ -95,6 +95,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     __LINE__, full_filename, errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
+        ctx->last_data_version = 0;
     }
 
     if ((ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,

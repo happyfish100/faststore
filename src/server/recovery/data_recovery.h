@@ -10,9 +10,7 @@
 extern "C" {
 #endif
 
-int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id);
-
-void data_recovery_destroy(DataRecoveryContext *ctx);
+int data_recovery_start(const int data_group_id);
 
 static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
         const char *subdir, char *subdir_name)
