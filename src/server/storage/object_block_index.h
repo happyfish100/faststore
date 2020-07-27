@@ -24,6 +24,14 @@ typedef struct ob_entry {
     struct ob_entry *next; //for hashtable
 } OBEntry;
 
+typedef struct {
+    int64_t count;
+    int64_t capacity;
+    OBEntry **buckets;
+    bool need_lock;
+    bool modify_sallocator; //if modify storage allocator
+} OBHashtable;
+
 typedef struct ob_slice_entry {
     OBEntry *ob;
     OBSliceType type;    //in file or memory as fallocate
@@ -44,22 +52,51 @@ typedef struct ob_slice_ptr_array {
 extern "C" {
 #endif
 
+    extern OBHashtable g_ob_hashtable;
+
+#define ob_index_add_slice(slice, sn, inc_alloc) \
+    ob_index_add_slice_ex(&g_ob_hashtable, slice, sn, inc_alloc)
+
+#define ob_index_delete_slices(bs_key, sn, dec_alloc) \
+    ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc)
+
+#define ob_index_delete_block(bkey, sn, dec_alloc) \
+    ob_index_delete_block_ex(&g_ob_hashtable, bkey, sn, dec_alloc)
+
+#define ob_index_get_slices(bs_key, sarray) \
+    ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray)
+
+#define ob_index_alloc_slice(bkey) \
+    ob_index_alloc_slice_ex(&g_ob_hashtable, bkey)
+
+#define ob_index_init_hable(hable) \
+    ob_index_init_hable_ex(hable, false, false)
+
     int ob_index_init();
     void ob_index_destroy();
 
-    int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc);
+    int ob_index_init_hable_ex(OBHashtable *hable, const bool need_lock,
+            const bool modify_sallocator);
+    void ob_index_destroy_hable(OBHashtable *hable);
 
-    int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
+    int ob_index_add_slice_ex(OBHashtable *hable, OBSliceEntry *slice,
+            uint64_t *sn, int *inc_alloc);
+
+    int ob_index_delete_slices_ex(OBHashtable *hable,
+            const FSBlockSliceKeyInfo *bs_key,
             uint64_t *sn, int *dec_alloc);
 
-    int ob_index_delete_block(const FSBlockKey *bkey,
+    int ob_index_delete_block_ex(OBHashtable *hable,
+            const FSBlockKey *bkey,
             uint64_t *sn, int *dec_alloc);
 
-    OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey);
+    OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *hable,
+            const FSBlockKey *bkey);
 
     void ob_index_free_slice(OBSliceEntry *slice);
 
-    int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
+    int ob_index_get_slices_ex(OBHashtable *hable,
+            const FSBlockSliceKeyInfo *bs_key,
             OBSlicePtrArray *sarray);
 
     static inline void ob_index_init_slice_ptr_array(OBSlicePtrArray *sarray)

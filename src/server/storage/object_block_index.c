@@ -9,20 +9,12 @@
 #include "storage_allocator.h"
 #include "object_block_index.h"
 
-//TODO fixeme!!!
-#define SLICE_ARRAY_FIXED_COUNT     4
-//#define SLICE_ARRAY_FIXED_COUNT  64
+#define SLICE_ARRAY_FIXED_COUNT  64
 
 typedef struct {
     int count;
     OBSharedContext *contexts;
 } OBSharedContextArray;
-
-typedef struct {
-    int64_t count;
-    int64_t capacity;
-    OBEntry **buckets;
-} OBHashtable;
 
 typedef struct {
     int alloc;
@@ -32,24 +24,38 @@ typedef struct {
 } OBSlicePtrSmartArray;
 
 static OBSharedContextArray ob_shared_ctx_array = {0, NULL};
-static OBHashtable ob_hashtable = {0, 0, NULL};
 
-#define OB_INDEX_SET_HASHTABLE_CTX(bkey) \
+OBHashtable g_ob_hashtable = {0, 0, NULL};
+
+#define OB_INDEX_SET_HASHTABLE_CTX(hable, bkey) \
     int64_t bucket_index;  \
     OBSharedContext *ctx;  \
     do {  \
-        bucket_index = FS_BLOCK_HASH_CODE(bkey) % ob_hashtable.capacity; \
-        ctx = ob_shared_ctx_array.contexts + bucket_index %    \
+        bucket_index = FS_BLOCK_HASH_CODE(bkey) % (hable)->capacity; \
+        ctx = ob_shared_ctx_array.contexts + bucket_index %   \
             ob_shared_ctx_array.count;  \
     } while (0)
 
-#define OB_INDEX_SET_BUCKET_AND_CTX(bkey) \
+#define OB_INDEX_SET_BUCKET_AND_CTX(hable, bkey) \
     OBEntry **bucket;   \
-    OB_INDEX_SET_HASHTABLE_CTX(bkey);  \
+    OB_INDEX_SET_HASHTABLE_CTX(hable, bkey);  \
     do {  \
-        bucket = ob_hashtable.buckets + bucket_index; \
+        bucket = (hable)->buckets + bucket_index; \
     } while (0)
 
+#define OB_INDEX_SHARED_CTX_LOCK(hable, ctx) \
+    do {  \
+        if (hable->need_lock) { \
+            PTHREAD_MUTEX_LOCK(&ctx->lock);  \
+        } \
+    } while (0)
+
+#define OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx) \
+    do {  \
+        if (hable->need_lock) { \
+            PTHREAD_MUTEX_UNLOCK(&ctx->lock);  \
+        } \
+    } while (0)
 
 static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
 {
@@ -138,13 +144,15 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
 #define get_ob_entry(ctx, bucket, bkey, create_flag)  \
     get_ob_entry_ex(ctx, bucket, bkey, create_flag, NULL)
 
-OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
+OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *hable,
+        const FSBlockKey *bkey)
 {
     OBEntry *ob;
     OBSliceEntry *slice;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    OB_INDEX_SET_BUCKET_AND_CTX(hable, *bkey);
+
+    OB_INDEX_SHARED_CTX_LOCK(hable, ctx);
     ob = get_ob_entry(ctx, bucket, bkey, true);
     if (ob == NULL) {
         slice = NULL;
@@ -155,7 +163,7 @@ OBSliceEntry *ob_index_alloc_slice(const FSBlockKey *bkey)
             slice->ref_count = 1;
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx);
 
     return slice;
 }
@@ -165,7 +173,7 @@ void ob_index_free_slice(OBSliceEntry *slice)
     logInfo("free slice1: %p, ref_count: %d",
             slice, __sync_add_and_fetch(&slice->ref_count, 0));
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-        OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+        OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
 
         logInfo("free slice2: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
@@ -189,7 +197,7 @@ static void slice_free_func(void *ptr, const int delay_seconds)
 
     slice = (OBSliceEntry *)ptr;
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-        OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+        OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
 
         /*
         logInfo("free slice3: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
@@ -255,58 +263,89 @@ static int init_ob_shared_ctx_array()
     return 0;
 }
 
-static int init_ob_hashtable()
+int ob_index_init_hable_ex(OBHashtable *hable, const bool need_lock,
+        const bool modify_sallocator)
 {
     int64_t bytes;
 
-    ob_hashtable.capacity = STORAGE_CFG.object_block.hashtable_capacity;
-    bytes = sizeof(OBEntry *) * ob_hashtable.capacity;
-    ob_hashtable.buckets = (OBEntry **)fc_malloc(bytes);
-    if (ob_hashtable.buckets == NULL) {
+    hable->capacity = STORAGE_CFG.object_block.hashtable_capacity;
+    bytes = sizeof(OBEntry *) * hable->capacity;
+    hable->buckets = (OBEntry **)fc_malloc(bytes);
+    if (hable->buckets == NULL) {
         return ENOMEM;
     }
-    memset(ob_hashtable.buckets, 0, bytes);
+    memset(hable->buckets, 0, bytes);
 
+    hable->need_lock = need_lock;
+    hable->modify_sallocator = modify_sallocator;
     return 0;
+}
+
+void ob_index_destroy_hable(OBHashtable *hable)
+{
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+
+    end = hable->buckets + hable->capacity;
+    for (bucket=hable->buckets; bucket<end; bucket++) {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            uniq_skiplist_free(ob->slices);
+            ob = ob->next;
+        } while (ob != NULL);
+    }
+
+    free(hable->buckets);
+    hable->buckets = NULL;
 }
 
 int ob_index_init()
 {
     int result;
-
     if ((result=init_ob_shared_ctx_array()) != 0) {
         return result;
     }
 
-    if ((result=init_ob_hashtable()) != 0) {
-        return result;
-    }
-
-    return 0;
+    return ob_index_init_hable_ex(&g_ob_hashtable, true, true);
 }
 
 void ob_index_destroy()
 {
 }
 
-static inline int do_delete_slice(OBEntry *ob, OBSliceEntry *slice)
+static inline int do_delete_slice(OBHashtable *hable,
+        OBEntry *ob, OBSliceEntry *slice)
 {
     int result;
 
     if ((result=uniq_skiplist_delete(ob->slices, slice)) != 0) {
         return result;
     }
-    return storage_allocator_delete_slice(slice);
+    if (hable->modify_sallocator) {
+        return storage_allocator_delete_slice(slice);
+    } else {
+        return 0;
+    }
 }
 
-static inline int do_add_slice(OBEntry *ob, OBSliceEntry *slice)
+static inline int do_add_slice(OBHashtable *hable,
+        OBEntry *ob, OBSliceEntry *slice)
 {
     int result;
 
     if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
         return result;
     }
-    return storage_allocator_add_slice(slice);
+    if (hable->modify_sallocator) {
+        return storage_allocator_add_slice(slice);
+    } else {
+        return 0;
+    }
 }
 
 static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
@@ -386,8 +425,8 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
     } while (0)
 
 
-static int add_slice(OBSharedContext *ctx, OBEntry *ob,
-        OBSliceEntry *slice, int *inc_alloc)
+static int add_slice(OBHashtable *hable, OBSharedContext *ctx,
+        OBEntry *ob, OBSliceEntry *slice, int *inc_alloc)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -406,7 +445,7 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob,
         previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
         if (previous == ob->slices->top) {
             *inc_alloc += slice->ssize.length;
-            return do_add_slice(ob, slice);
+            return do_add_slice(hable, ob, slice);
         }
     } else {
         previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
@@ -484,19 +523,20 @@ static int add_slice(OBSharedContext *ctx, OBEntry *ob,
     }
 
     for (i=0; i<del_slice_array.count; i++) {
-        do_delete_slice(ob, del_slice_array.slices[i]);
+        do_delete_slice(hable, ob, del_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(del_slice_array);
 
     for (i=0; i<add_slice_array.count; i++) {
-        do_add_slice(ob, add_slice_array.slices[i]);
+        do_add_slice(hable, ob, add_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(add_slice_array);
 
-    return do_add_slice(ob, slice);
+    return do_add_slice(hable, ob, slice);
 }
 
-int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc)
+int ob_index_add_slice_ex(OBHashtable *hable, OBSliceEntry *slice,
+        uint64_t *sn, int *inc_alloc)
 {
     int result;
 
@@ -505,14 +545,14 @@ int ob_index_add_slice(OBSliceEntry *slice, uint64_t *sn, int *inc_alloc)
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
             slice->ob->bkey.oid, slice->ob->bkey.offset);
 
-    OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
-    result = add_slice(ctx, slice->ob, slice, inc_alloc);
+    OB_INDEX_SET_HASHTABLE_CTX(hable, slice->ob->bkey);
+    OB_INDEX_SHARED_CTX_LOCK(hable, ctx);
+    result = add_slice(hable, ctx, slice->ob, slice, inc_alloc);
     if (result == 0) {
         __sync_add_and_fetch(&slice->ref_count, 1);
         *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx);
 
     return result;
 }
@@ -522,15 +562,15 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     int result;
     int inc_alloc;
 
-    OB_INDEX_SET_HASHTABLE_CTX(slice->ob->bkey);
+    OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&ctx->lock);
-    result = add_slice(ctx, slice->ob, slice, &inc_alloc);
+    result = add_slice(&g_ob_hashtable, ctx, slice->ob, slice, &inc_alloc);
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
     return result;
 }
 
-static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
+static int delete_slices(OBHashtable *hable, OBSharedContext *ctx, OBEntry *ob,
         const FSBlockSliceKeyInfo *bs_key, int *count, int *dec_alloc)
 {
     OBSliceEntry target;
@@ -626,42 +666,44 @@ static int delete_slices(OBSharedContext *ctx, OBEntry *ob,
 
     *count = del_slice_array.count;
     for (i=0; i<del_slice_array.count; i++) {
-        do_delete_slice(ob, del_slice_array.slices[i]);
+        do_delete_slice(hable, ob, del_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(del_slice_array);
 
     for (i=0; i<add_slice_array.count; i++) {
-        do_add_slice(ob, add_slice_array.slices[i]);
+        do_add_slice(hable, ob, add_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(add_slice_array);
 
     return 0;
 }
 
-int ob_index_delete_slices(const FSBlockSliceKeyInfo *bs_key,
+int ob_index_delete_slices_ex(OBHashtable *hable,
+        const FSBlockSliceKeyInfo *bs_key,
         uint64_t *sn, int *dec_alloc)
 {
     OBEntry *ob;
     int result;
     int count;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    OB_INDEX_SET_BUCKET_AND_CTX(hable, bs_key->block);
+    OB_INDEX_SHARED_CTX_LOCK(hable, ctx);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        result = delete_slices(ctx, ob, bs_key, &count, dec_alloc);
+        result = delete_slices(hable, ctx, ob, bs_key, &count, dec_alloc);
         if (result == 0 && sn != NULL) {
             *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx);
 
     return result;
 }
 
-int ob_index_delete_block(const FSBlockKey *bkey, uint64_t *sn, int *dec_alloc)
+int ob_index_delete_block_ex(OBHashtable *hable, const FSBlockKey *bkey,
+        uint64_t *sn, int *dec_alloc)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -669,16 +711,18 @@ int ob_index_delete_block(const FSBlockKey *bkey, uint64_t *sn, int *dec_alloc)
     UniqSkiplistIterator it;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(*bkey);
+    OB_INDEX_SET_BUCKET_AND_CTX(hable, *bkey);
 
     *dec_alloc = 0;
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_LOCK(hable, ctx);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
-            storage_allocator_delete_slice(slice);
+            if (hable->modify_sallocator) {
+                storage_allocator_delete_slice(slice);
+            }
         }
 
         uniq_skiplist_free(ob->slices);
@@ -696,7 +740,7 @@ int ob_index_delete_block(const FSBlockKey *bkey, uint64_t *sn, int *dec_alloc)
     } else {
         result = ENOENT;
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx);
 
     return result;
 }
@@ -902,13 +946,14 @@ static void free_slices(OBSlicePtrArray *sarray)
     sarray->count = 0;
 }
 
-int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
+int ob_index_get_slices_ex(OBHashtable *hable,
+        const FSBlockSliceKeyInfo *bs_key,
         OBSlicePtrArray *sarray)
 {
     OBEntry *ob;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(bs_key->block);
+    OB_INDEX_SET_BUCKET_AND_CTX(hable, bs_key->block);
     sarray->count = 0;
 
     /*
@@ -917,14 +962,14 @@ int ob_index_get_slices(const FSBlockSliceKeyInfo *bs_key,
             __LINE__, __FUNCTION__, bs_key->block.oid, bs_key->block.offset);
             */
 
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_LOCK(hable, ctx);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
         result = get_slices(ctx, ob, bs_key, sarray);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    OB_INDEX_SHARED_CTX_UNLOCK(hable, ctx);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);
