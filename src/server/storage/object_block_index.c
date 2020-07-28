@@ -287,6 +287,8 @@ void ob_index_destroy_htable(OBHashtable *htable)
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
+    OBEntry *deleted;
+    OBSharedContext *ctx;
 
     end = htable->buckets + htable->capacity;
     for (bucket=htable->buckets; bucket<end; bucket++) {
@@ -294,11 +296,20 @@ void ob_index_destroy_htable(OBHashtable *htable)
             continue;
         }
 
+        ctx = ob_shared_ctx_array.contexts + (bucket - htable->buckets) %
+            ob_shared_ctx_array.count;
+        PTHREAD_MUTEX_LOCK(&ctx->lock);
+
         ob = *bucket;
         do {
             uniq_skiplist_free(ob->slices);
+
+            deleted = ob;
             ob = ob->next;
+            fast_mblock_free_object(&ctx->ob_allocator, deleted);
         } while (ob != NULL);
+
+        PTHREAD_MUTEX_UNLOCK(&ctx->lock);
     }
 
     free(htable->buckets);

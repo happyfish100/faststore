@@ -11,11 +11,12 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
-#include "../../common/fs_proto.h"
+#include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/replica_binlog.h"
 #include "../binlog/binlog_read_thread.h"
 #include "../storage/object_block_index.h"
+#include "binlog_fetch.h"
 #include "data_recovery.h"
 #include "binlog_dedup.h"
 
@@ -24,8 +25,10 @@ typedef struct {
     BinlogReadThreadContext rdthread_ctx;
     BinlogReadThreadResult *r;
     ReplicaBinlogRecord record;
-    int current_count;
-    int64_t total_count;
+    struct {
+        int64_t total;
+        int64_t success;
+    } record_counts;
 } BinlogDedupContext;
 
 static int add_slice(BinlogDedupContext *dedup_ctx, const OBSliceType stype)
@@ -50,18 +53,17 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
     char *p;
     char *line_end;
     char *end;
+    BufferInfo *buffer;
     string_t line;
     char error_info[256];
     int result;
     int dec_alloc;
-    int64_t file_offset;
-    int64_t line_count;
 
     result = 0;
     *error_info = '\0';
-    dedup_ctx->current_count = 0;
-    end = dedup_ctx->r->buffer.buff + dedup_ctx->r->buffer.length;
-    p = dedup_ctx->r->buffer.buff;
+    buffer = &dedup_ctx->r->buffer;
+    end = buffer->buff + buffer->length;
+    p = buffer->buff;
     while (p < end) {
         line_end = (char *)memchr(p, '\n', end - p);
         if (line_end == NULL) {
@@ -79,6 +81,7 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
             break;
         }
 
+        fs_calc_block_hashcode(&dedup_ctx->record.bs_key.block);
         switch (dedup_ctx->record.op_type) {
             case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
                 result = add_slice(dedup_ctx, OB_SLICE_TYPE_FILE);
@@ -96,35 +99,46 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                 break;
         }
 
-        if (result != 0) {
-            snprintf(error_info, sizeof(error_info),
-                    "%s fail, errno: %d, error info: %s",
-                    replica_binlog_get_op_type_caption(
-                        dedup_ctx->record.op_type),
-                    result, STRERROR(result));
-            break;
+        dedup_ctx->record_counts.total++;
+        if (result == 0) {
+            dedup_ctx->record_counts.success++;
+        } else {
+            int op_type;
+            op_type = dedup_ctx->record.op_type;
+            if (!((result == ENOENT) &&
+                        (op_type == REPLICA_BINLOG_OP_TYPE_DEL_SLICE ||
+                         op_type == REPLICA_BINLOG_OP_TYPE_DEL_BLOCK)))
+            {
+                snprintf(error_info, sizeof(error_info),
+                        "%s fail, errno: %d, error info: %s",
+                        replica_binlog_get_op_type_caption(op_type),
+                        result, STRERROR(result));
+                break;
+            }
         }
 
-        dedup_ctx->current_count++;
         p = line_end;
     }
 
     if (result != 0) {
-        file_offset = dedup_ctx->rdthread_ctx.reader.position.offset +
-            (p - dedup_ctx->r->buffer.buff);
-        fc_get_file_line_count_ex(dedup_ctx->rdthread_ctx.reader.filename,
-                file_offset, &line_count);
+        ServerBinlogReader *reader;
+        int64_t offset;
+        int64_t line_count;
+
+        reader = &dedup_ctx->rdthread_ctx.reader;
+        offset = reader->position.offset + (p - buffer->buff);
+        fc_get_file_line_count_ex(reader->filename, offset, &line_count);
 
         logError("file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", %s",
-                __LINE__, dedup_ctx->rdthread_ctx.reader.filename,
+                __LINE__, reader->filename,
                 line_count + 1, error_info);
     }
 
     return result;
 }
 
-static int do_dedup_binlog(DataRecoveryContext *ctx,
+static int dedup_binlog(DataRecoveryContext *ctx,
         BinlogDedupContext *dedup_ctx)
 {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
@@ -163,7 +177,6 @@ static int do_dedup_binlog(DataRecoveryContext *ctx,
             break;
         }
 
-        dedup_ctx->total_count += dedup_ctx->current_count;
         binlog_read_thread_return_result_buffer(&dedup_ctx->rdthread_ctx,
                 dedup_ctx->r);
     }
@@ -172,7 +185,43 @@ static int do_dedup_binlog(DataRecoveryContext *ctx,
     return result;
 }
 
-int data_recovery_dedup_binlog(DataRecoveryContext *ctx)
+static int do_output(BinlogDedupContext *dedup_ctx, UniqSkiplist *slices)
+{
+    return 0;
+}
+
+static int dedup_output(DataRecoveryContext *ctx,
+        BinlogDedupContext *dedup_ctx, int64_t *binlog_count)
+{
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+    int result;
+
+    result = 0;
+    end = dedup_ctx->htable.buckets + dedup_ctx->htable.capacity;
+    for (bucket = dedup_ctx->htable.buckets;
+            bucket < end && result == 0; bucket++)
+    {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            if (!uniq_skiplist_empty(ob->slices)) {
+                if ((result=do_output(dedup_ctx, ob->slices)) != 0) {
+                    break;
+                }
+            }
+            ob = ob->next;
+        } while (ob != NULL);
+    }
+
+    return 0;
+}
+
+int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 {
     int result;
     BinlogDedupContext dedup_ctx;
@@ -182,21 +231,30 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx)
 
     start_time = get_current_time_ms();
 
-    dedup_ctx.total_count = 0;
+    *binlog_count = 0;
+    dedup_ctx.record_counts.total = 0;
+    dedup_ctx.record_counts.success = 0;
     if ((result=ob_index_init_htable(&dedup_ctx.htable)) != 0) {
         return result;
     }
 
-    result = do_dedup_binlog(ctx, &dedup_ctx);
+    if ((result=dedup_binlog(ctx, &dedup_ctx)) == 0) {
+        if (dedup_ctx.record_counts.success > 0) {
+            result = dedup_output(ctx, &dedup_ctx, binlog_count);
+        }
+    }
     ob_index_destroy_htable(&dedup_ctx.htable);
 
     if (result == 0) {
+        result = data_recovery_unlink_fetched_binlog(ctx);
+
         end_time = get_current_time_ms();
         long_to_comma_str(end_time - start_time, time_buff);
         logInfo("file: "__FILE__", line: %d, "
-                "dedup data group id: %d done. record count: %"PRId64", "
-                "time used: %s ms", __LINE__, ctx->data_group_id,
-                dedup_ctx.total_count, time_buff);
+                "dedup data group id: %d done. total record count: %"PRId64", "
+                "success record count: %"PRId64", time used: %s ms", __LINE__,
+                ctx->data_group_id, dedup_ctx.record_counts.total,
+                dedup_ctx.record_counts.success, time_buff);
     } else {
         logError("file: "__FILE__", line: %d, "
                 "result: %d", __LINE__, result);

@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-int data_recovery_dedup_binlog(DataRecoveryContext *ctx);
+int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count);
 
 #ifdef __cplusplus
 }

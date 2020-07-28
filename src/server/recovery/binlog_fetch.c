@@ -32,10 +32,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
 
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
             subdir_name);
-
     binlog_reader_get_filename(subdir_name, 0,
             full_filename, sizeof(full_filename));
-
     unlink_flag = false;
     do {
         if (stat(full_filename, &stbuf) != 0) {
@@ -249,4 +247,17 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx)
     }
 
     return do_fetch_binlog(ctx);
+}
+
+int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx)
+{
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char full_filename[PATH_MAX];
+
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
+            subdir_name);
+    binlog_reader_get_filename(subdir_name, 0,
+            full_filename, sizeof(full_filename));
+
+    return fc_delete_file(full_filename);
 }

@@ -11,6 +11,8 @@ extern "C" {
 
 int data_recovery_fetch_binlog(DataRecoveryContext *ctx);
 
+int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx);
+
 #ifdef __cplusplus
 }
 #endif
