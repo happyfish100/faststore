@@ -28,9 +28,9 @@ static int open_readable_binlog(ServerBinlogReader *reader)
         close(reader->fd);
     }
 
-    binlog_reader_get_filename(reader->subdir_name,
-            reader->position.index, reader->filename,
-            sizeof(reader->filename));
+    binlog_reader_get_filename_ex(reader->subdir_name,
+            reader->fname_suffix, reader->position.index,
+            reader->filename, sizeof(reader->filename));
     reader->fd = open(reader->filename, O_RDONLY);
     if (reader->fd < 0) {
         result = errno != 0 ? errno : EACCES;
@@ -222,8 +222,9 @@ int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
     return 0;
 }
 
-int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
-        struct binlog_writer_info *writer, const FSBinlogFilePosition *pos)
+int binlog_reader_init_ex(ServerBinlogReader *reader, const char *subdir_name,
+        const char *fname_suffix, struct binlog_writer_info *writer,
+        const FSBinlogFilePosition *pos)
 {
     int result;
 
@@ -234,6 +235,12 @@ int binlog_reader_init(ServerBinlogReader *reader, const char *subdir_name,
     reader->fd = -1;
     snprintf(reader->subdir_name, FS_BINLOG_SUBDIR_NAME_SIZE,
             "%s", subdir_name);
+    if (fname_suffix == NULL) {
+        *reader->fname_suffix = '\0';
+    } else {
+        snprintf(reader->fname_suffix, FS_BINLOG_FILENAME_SUFFIX_SIZE,
+                "%s", fname_suffix);
+    }
     reader->writer = writer;
     if (pos == NULL) {
         reader->position.index = 0;

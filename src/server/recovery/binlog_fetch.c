@@ -16,9 +16,15 @@
 #include "sf/sf_global.h"
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
-#include "../binlog/replica_binlog.h"
+#include "../server_binlog.h"
+#include "../server_replication.h"
 #include "data_recovery.h"
 #include "binlog_fetch.h"
+
+typedef struct {
+    int fd;
+    SharedBuffer *buffer;  //for network
+} BinlogFetchContext;
 
 static int check_and_open_binlog_file(DataRecoveryContext *ctx)
 {
@@ -96,8 +102,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
         ctx->last_data_version = 0;
     }
 
-    if ((ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,
-                    0644)) < 0)
+    if ((((BinlogFetchContext *)ctx->arg)->fd=open(full_filename,
+                    O_WRONLY | O_CREAT | O_APPEND, 0644)) < 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "open binlog file %s fail, errno: %d, error info: %s",
@@ -114,9 +120,11 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 {
     int result;
     int binlog_length;
+    BinlogFetchContext *fetch_ctx;
     FSProtoReplicaFetchBinlogRespBodyHeader *resp_header;
     FSResponseInfo response;
 
+    fetch_ctx = (BinlogFetchContext *)ctx->arg;
     response.error.length = 0;
     if ((result=fs_send_and_check_response_header(conn, out_buff,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT,
@@ -133,15 +141,15 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 response.header.body_len, (int)sizeof(*resp_header));
         return EINVAL;
     }
-    if (response.header.body_len > ctx->buffer->capacity) {
+    if (response.header.body_len > fetch_ctx->buffer->capacity) {
         logError("file: "__FILE__", line: %d, "
                 "response body length: %d is too large, "
                 "the max body length is %d", __LINE__,
-                response.header.body_len, ctx->buffer->capacity);
+                response.header.body_len, fetch_ctx->buffer->capacity);
         return EOVERFLOW;
     }
 
-    if ((result=tcprecvdata_nb(conn->sock, ctx->buffer->buff,
+    if ((result=tcprecvdata_nb(conn->sock, fetch_ctx->buffer->buff,
                     response.header.body_len, SF_G_NETWORK_TIMEOUT)) != 0)
     {
         response.error.length = snprintf(response.error.message,
@@ -152,7 +160,8 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         return result;
     }
 
-    resp_header = (FSProtoReplicaFetchBinlogRespBodyHeader *)ctx->buffer->buff;
+    resp_header = (FSProtoReplicaFetchBinlogRespBodyHeader *)
+        fetch_ctx->buffer->buff;
     binlog_length = buff2int(resp_header->binlog_length);
     *is_last = resp_header->is_last;
     if (response.header.body_len != sizeof(*resp_header) + binlog_length) {
@@ -167,7 +176,9 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         return 0;
     }
 
-    if (write(ctx->fd, resp_header + 1, binlog_length) != binlog_length) {
+    if (write(((BinlogFetchContext *)ctx->arg)->fd, resp_header + 1,
+                binlog_length) != binlog_length)
+    {
         result = errno != 0 ? errno : EPERM;
         logError("file: "__FILE__", line: %d, "
                 "write to file fail, errno: %d, error info: %s",
@@ -241,12 +252,24 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
 int data_recovery_fetch_binlog(DataRecoveryContext *ctx)
 {
     int result;
+    BinlogFetchContext fetch_ctx;
 
+    ctx->arg = &fetch_ctx;
     if ((result=check_and_open_binlog_file(ctx)) != 0) {
         return result;
     }
 
-    return do_fetch_binlog(ctx);
+    fetch_ctx.buffer = replication_callee_alloc_shared_buffer(ctx->server_ctx);
+    if (fetch_ctx.buffer == NULL) {
+        close(fetch_ctx.fd);
+        return ENOMEM;
+    }
+
+    result = do_fetch_binlog(ctx);
+
+    close(fetch_ctx.fd);
+    shared_buffer_release(fetch_ctx.buffer);
+    return result;
 }
 
 int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx)

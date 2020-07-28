@@ -19,9 +19,9 @@ typedef struct data_recovery_context {
     uint64_t last_data_version;
     int stage;
     int data_group_id;
-    int fd;
-    SharedBuffer *buffer;  //for network
-    ServerBinlogReader reader;
+    //ServerBinlogReader reader;
+    FSServerContext *server_ctx;
+    void *arg;
 } DataRecoveryContext;
 
 #ifdef __cplusplus

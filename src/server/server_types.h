@@ -25,6 +25,7 @@
 #define FS_RECOVERY_BINLOG_SUBDIR_NAME   "recovery"
 
 #define FS_BINLOG_SUBDIR_NAME_SIZE          64
+#define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
 
 #define FS_SERVER_TASK_TYPE_NONE                0
 #define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master

@@ -20,6 +20,13 @@
 #include "data_recovery.h"
 #include "binlog_dedup.h"
 
+#define FIXED_OUT_WRITER_COUNT  16
+
+typedef struct {
+    FILE *fp;
+    char filename[PATH_MAX];
+} BinlogFileWriter;
+
 typedef struct {
     OBHashtable htable;
     BinlogReadThreadContext rdthread_ctx;
@@ -29,6 +36,12 @@ typedef struct {
         int64_t total;
         int64_t success;
     } record_counts;
+
+    struct {
+        BinlogFileWriter *writers;
+        BinlogFileWriter fixed[FIXED_OUT_WRITER_COUNT];
+        BinlogFileWriter *current_writer;
+    } out;
 } BinlogDedupContext;
 
 static int add_slice(BinlogDedupContext *dedup_ctx, const OBSliceType stype)
@@ -138,12 +151,13 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
     return result;
 }
 
-static int dedup_binlog(DataRecoveryContext *ctx,
-        BinlogDedupContext *dedup_ctx)
+static int dedup_binlog(DataRecoveryContext *ctx)
 {
+    BinlogDedupContext *dedup_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
 
+    dedup_ctx = (BinlogDedupContext *)ctx->arg;
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
             subdir_name);
     if ((result=binlog_read_thread_init(&dedup_ctx->rdthread_ctx, subdir_name,
@@ -185,20 +199,127 @@ static int dedup_binlog(DataRecoveryContext *ctx,
     return result;
 }
 
-static int do_output(BinlogDedupContext *dedup_ctx, UniqSkiplist *slices)
+static int write_one_binlog(BinlogDedupContext *dedup_ctx,
+        const OBSliceEntry *first, const OBSliceEntry *last)
 {
+    int length;
+    int result;
+
+    if (first == last) {
+        length = first->ssize.length;
+    } else {
+        length = (last->ssize.offset - first->ssize.offset) +
+            last->ssize.length;
+    }
+
+    if (fprintf(dedup_ctx->out.current_writer->fp,
+                "%c %"PRId64" %"PRId64" %d %d\n",
+                first->type, first->ob->bkey.oid,
+                first->ob->bkey.offset,
+                first->ssize.offset, length) > 0)
+    {
+        result = 0;
+    } else {
+        result = errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, "
+                "write to file: %s fail, "
+                "errno: %d, error info: %s", __LINE__,
+                dedup_ctx->out.current_writer->filename,
+                result, STRERROR(result));
+    }
+
+    return result;
+}
+
+static int do_output(BinlogDedupContext *dedup_ctx, const OBEntry *ob)
+{
+    UniqSkiplistIterator it;
+    OBSliceEntry *first;
+    OBSliceEntry *previous;
+    OBSliceEntry *slice;
+    int result;
+
+    dedup_ctx->out.current_writer = dedup_ctx->out.writers +
+        FS_BLOCK_HASH_CODE(ob->bkey) % RECOVERY_THREADS_PER_DATA_GROUP;
+
+    uniq_skiplist_iterator(ob->slices, &it);
+    first = previous = (OBSliceEntry *)uniq_skiplist_next(&it);
+    while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+        if (!((previous->ssize.offset + previous->ssize.length ==
+                        slice->ssize.offset) && (previous->type == slice->type)))
+        {
+            if ((result=write_one_binlog(dedup_ctx, first, previous)) != 0) {
+                return result;
+            }
+
+            first = slice;
+        }
+
+        previous = slice;
+    }
+
+    return write_one_binlog(dedup_ctx, first, previous);
+}
+
+static int open_output_files(DataRecoveryContext *ctx)
+{
+    BinlogFileWriter *writer;
+    BinlogFileWriter *end;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char fname_suffix[FS_BINLOG_FILENAME_SUFFIX_SIZE];
+    BinlogDedupContext *dedup_ctx;
+    int result;
+
+    dedup_ctx = (BinlogDedupContext *)ctx->arg;
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
+            subdir_name);
+
+    end = dedup_ctx->out.writers + RECOVERY_THREADS_PER_DATA_GROUP;
+    for (writer=dedup_ctx->out.writers; writer<end; writer++) {
+        sprintf(fname_suffix, "-%d", (int)(writer - dedup_ctx->out.writers));
+        binlog_reader_get_filename_ex(subdir_name, fname_suffix, 0,
+                writer->filename, sizeof(writer->filename));
+        writer->fp = fopen(writer->filename, "wb");
+        if (writer->fp == NULL) {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, "
+                    "open file: %s to write fail, "
+                    "errno: %d, error info: %s",
+                    __LINE__, writer->filename,
+                    result, STRERROR(result));
+            return result;
+        }
+    }
+
     return 0;
 }
 
-static int dedup_output(DataRecoveryContext *ctx,
-        BinlogDedupContext *dedup_ctx, int64_t *binlog_count)
+static void close_output_files(BinlogDedupContext *dedup_ctx)
 {
+    BinlogFileWriter *writer;
+    BinlogFileWriter *end;
+    end = dedup_ctx->out.writers + RECOVERY_THREADS_PER_DATA_GROUP;
+    for (writer=dedup_ctx->out.writers; writer<end; writer++) {
+        if (writer->fp != NULL) {
+            fclose(writer->fp);
+            writer->fp = NULL;
+        }
+    }
+}
+
+static int dedup_output(DataRecoveryContext *ctx, int64_t *binlog_count)
+{
+    BinlogDedupContext *dedup_ctx;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
     int result;
 
-    result = 0;
+    dedup_ctx = (BinlogDedupContext *)ctx->arg;
+    if ((result=open_output_files(ctx)) != 0) {
+        return result;
+    }
+
     end = dedup_ctx->htable.buckets + dedup_ctx->htable.capacity;
     for (bucket = dedup_ctx->htable.buckets;
             bucket < end && result == 0; bucket++)
@@ -210,7 +331,7 @@ static int dedup_output(DataRecoveryContext *ctx,
         ob = *bucket;
         do {
             if (!uniq_skiplist_empty(ob->slices)) {
-                if ((result=do_output(dedup_ctx, ob->slices)) != 0) {
+                if ((result=do_output(dedup_ctx, ob)) != 0) {
                     break;
                 }
             }
@@ -218,12 +339,14 @@ static int dedup_output(DataRecoveryContext *ctx,
         } while (ob != NULL);
     }
 
-    return 0;
+    close_output_files(dedup_ctx);
+    return result;
 }
 
 int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 {
     int result;
+    int bytes;
     BinlogDedupContext dedup_ctx;
     int64_t start_time;
     int64_t end_time;
@@ -234,16 +357,32 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     *binlog_count = 0;
     dedup_ctx.record_counts.total = 0;
     dedup_ctx.record_counts.success = 0;
+
+    ctx->arg = &dedup_ctx;
+    bytes = sizeof(BinlogFileWriter) * RECOVERY_THREADS_PER_DATA_GROUP;
+    if (RECOVERY_THREADS_PER_DATA_GROUP <= FIXED_OUT_WRITER_COUNT) {
+        dedup_ctx.out.writers = dedup_ctx.out.fixed;
+    } else {
+        dedup_ctx.out.writers = (BinlogFileWriter *)fc_malloc(bytes);
+        if (dedup_ctx.out.writers == NULL) {
+            return ENOMEM;
+        }
+    }
+    memset(dedup_ctx.out.writers, 0, bytes);
+
     if ((result=ob_index_init_htable(&dedup_ctx.htable)) != 0) {
         return result;
     }
 
-    if ((result=dedup_binlog(ctx, &dedup_ctx)) == 0) {
+    if ((result=dedup_binlog(ctx)) == 0) {
         if (dedup_ctx.record_counts.success > 0) {
-            result = dedup_output(ctx, &dedup_ctx, binlog_count);
+            result = dedup_output(ctx, binlog_count);
         }
     }
     ob_index_destroy_htable(&dedup_ctx.htable);
+    if (dedup_ctx.out.writers != dedup_ctx.out.fixed) {
+        free(dedup_ctx.out.writers);
+    }
 
     if (result == 0) {
         result = data_recovery_unlink_fetched_binlog(ctx);

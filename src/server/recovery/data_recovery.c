@@ -21,7 +21,6 @@
 #include "binlog_dedup.h"
 #include "data_recovery.h"
 
-
 #define DATA_RECOVERY_SYS_DATA_FILENAME    "data_recovery.dat"
 #define DATA_RECOVERY_SYS_DATA_ITEM_STAGE  "stage"
 
@@ -184,7 +183,6 @@ static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
     int result;
     FSClusterDataServerInfo *master;
     struct nio_thread_data *thread_data;
-    FSServerContext *server_ctx;
 
     ctx->start_time = get_current_time_ms();
     ctx->data_group_id = data_group_id;
@@ -206,25 +204,19 @@ static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
     }
 
     thread_data = sf_get_random_thread_data_ex(&REPLICA_SF_CTX);
-    server_ctx = (FSServerContext *)thread_data->arg;
-    ctx->buffer = replication_callee_alloc_shared_buffer(server_ctx);
-    if (ctx->buffer == NULL) {
-        return ENOMEM;
-    }
-
+    ctx->server_ctx = (FSServerContext *)thread_data->arg;
     return data_recovery_load_sys_data(ctx);
 }
 
 static void data_recovery_destroy(DataRecoveryContext *ctx)
 {
-    shared_buffer_release(ctx->buffer);
-    ctx->buffer = NULL;
 }
 
 int data_recovery_start(const int data_group_id)
 {
     DataRecoveryContext ctx;
     int result;
+    int64_t binlog_count;
 
     if ((result=data_recovery_init(&ctx, data_group_id)) != 0) {
         return result;
@@ -244,7 +236,7 @@ int data_recovery_start(const int data_group_id)
             if ((result=data_recovery_save_sys_data(&ctx)) != 0) {
                 break;
             }
-            if ((result=data_recovery_dedup_binlog(&ctx)) != 0) {
+            if ((result=data_recovery_dedup_binlog(&ctx, &binlog_count)) != 0) {
                 break;
             }
         case DATA_RECOVERY_STAGE_REPLAY:
