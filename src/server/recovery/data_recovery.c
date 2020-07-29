@@ -181,17 +181,15 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
 static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
 {
     int result;
-    FSClusterDataServerInfo *master;
     struct nio_thread_data *thread_data;
 
     ctx->start_time = get_current_time_ms();
     ctx->data_group_id = data_group_id;
 
-    if ((master=data_recovery_get_master(ctx, &result)) == NULL) {
+    if ((ctx->master=data_recovery_get_master(ctx, &result)) == NULL) {
         return result;
     }
 
-    ctx->last_data_version = master->dg->myself->data_version;
     if ((result=init_recovery_sub_path(ctx,
                     RECOVERY_BINLOG_SUBDIR_NAME_FETCH)) != 0)
     {

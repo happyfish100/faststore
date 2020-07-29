@@ -4,6 +4,10 @@
 
 #include "../storage/object_block_index.h"
 
+#define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
+#define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
+#define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
+
 #ifdef __cplusplus
 extern "C" {
 #endif

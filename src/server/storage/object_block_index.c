@@ -144,6 +144,19 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
 #define get_ob_entry(ctx, bucket, bkey, create_flag)  \
     get_ob_entry_ex(ctx, bucket, bkey, create_flag, NULL)
 
+OBEntry *ob_index_get_ob_entry(OBHashtable *htable,
+        const FSBlockKey *bkey)
+{
+    OBEntry *ob;
+    OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
+
+    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    ob = get_ob_entry(ctx, bucket, bkey, true);
+    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+
+    return ob;
+}
+
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
         const FSBlockKey *bkey, const int init_refer)
 {
@@ -264,12 +277,12 @@ static int init_ob_shared_ctx_array()
     return 0;
 }
 
-int ob_index_init_htable_ex(OBHashtable *htable, const bool need_lock,
-        const bool modify_sallocator)
+int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
+        const bool need_lock, const bool modify_sallocator)
 {
     int64_t bytes;
 
-    htable->capacity = STORAGE_CFG.object_block.hashtable_capacity;
+    htable->capacity = fc_ceil_prime(capacity);
     bytes = sizeof(OBEntry *) * htable->capacity;
     htable->buckets = (OBEntry **)fc_malloc(bytes);
     if (htable->buckets == NULL) {
@@ -323,7 +336,8 @@ int ob_index_init()
         return result;
     }
 
-    return ob_index_init_htable_ex(&g_ob_hashtable, true, true);
+    return ob_index_init_htable_ex(&g_ob_hashtable, STORAGE_CFG.
+            object_block.hashtable_capacity, true, true);
 }
 
 void ob_index_destroy()
@@ -605,7 +619,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
     if (node == NULL) {
         previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
         if (previous == ob->slices->top) {
-            return 0;
+            return ENOENT;
         }
     } else {
         previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
@@ -645,7 +659,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
             }
         }
     }
- 
+
     if (node != NULL) {
         do {
             curr_slice = (OBSliceEntry *)node->data;
@@ -689,7 +703,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
     }
     FREE_SLICE_PTR_ARRAY(add_slice_array);
 
-    return 0;
+    return *count > 0 ? 0 : ENOENT;
 }
 
 int ob_index_delete_slices_ex(OBHashtable *htable,
@@ -704,6 +718,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
+        *dec_alloc = 0;
         result = ENOENT;
     } else {
         result = delete_slices(htable, ctx, ob, bs_key, &count, dec_alloc);

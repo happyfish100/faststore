@@ -14,10 +14,6 @@
 #include "binlog_loader.h"
 #include "slice_binlog.h"
 
-#define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
-#define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
-#define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
-
 #define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
 #define BINLOG_COMMON_FIELD_DATA_VERSION       1
 #define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      2

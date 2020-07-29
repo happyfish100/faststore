@@ -23,11 +23,13 @@
 
 typedef struct {
     int fd;
+    uint64_t last_data_version;
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
 
 static int check_and_open_binlog_file(DataRecoveryContext *ctx)
 {
+    BinlogFetchContext *fetch_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char full_filename[PATH_MAX];
     struct stat stbuf;
@@ -36,10 +38,13 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     uint64_t last_data_version;
     bool unlink_flag;
 
+    fetch_ctx = (BinlogFetchContext *)ctx->arg;
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
             subdir_name);
     binlog_reader_get_filename(subdir_name, 0,
             full_filename, sizeof(full_filename));
+
+    fetch_ctx->last_data_version = ctx->master->dg->myself->data_version;
     unlink_flag = false;
     do {
         if (stat(full_filename, &stbuf) != 0) {
@@ -78,18 +83,18 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             break;
         }
 
-        if (last_data_version <= ctx->last_data_version) {
+        if (last_data_version <= ctx->master->dg->myself->data_version) {
             logWarning("file: "__FILE__", line: %d, "
                     "data_group_id: %d, binlog file: %s, the last data "
                     "version: %"PRId64" <= my current data version: %"PRId64
                     ", should fetch the data binlog again", __LINE__,
                     ctx->data_group_id, full_filename, last_data_version,
-                    ctx->last_data_version);
+                    ctx->master->dg->myself->data_version);
             unlink_flag = true;
             break;
         }
 
-        ctx->last_data_version = last_data_version;
+        fetch_ctx->last_data_version = last_data_version;
     } while (0);
 
     if (unlink_flag) {
@@ -99,11 +104,11 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     __LINE__, full_filename, errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
-        ctx->last_data_version = 0;
+        fetch_ctx->last_data_version = ctx->master->dg->myself->data_version;
     }
 
-    if ((((BinlogFetchContext *)ctx->arg)->fd=open(full_filename,
-                    O_WRONLY | O_CREAT | O_APPEND, 0644)) < 0)
+    if ((fetch_ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,
+                    0644)) < 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "open binlog file %s fail, errno: %d, error info: %s",
@@ -195,14 +200,17 @@ static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
     bool is_last;
     FSProtoHeader *header;
     FSProtoReplicaFetchBinlogFirstReq *req;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReplicaFetchBinlogFirstReq)];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(
+            FSProtoReplicaFetchBinlogFirstReq)];
 
     header = (FSProtoHeader *)out_buff;
     FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
-    req = (FSProtoReplicaFetchBinlogFirstReq *)(out_buff + sizeof(FSProtoHeader));
-    long2buff(ctx->last_data_version, req->last_data_version);
+    req = (FSProtoReplicaFetchBinlogFirstReq *)
+        (out_buff + sizeof(FSProtoHeader));
+    long2buff(((BinlogFetchContext *)ctx->arg)->last_data_version,
+            req->last_data_version);
     int2buff(ctx->data_group_id, req->data_group_id);
  
     if ((result=fetch_binlog_to_local(conn, ctx, out_buff,

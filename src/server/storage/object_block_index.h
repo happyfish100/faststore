@@ -69,14 +69,15 @@ extern "C" {
 #define ob_index_alloc_slice(bkey) \
     ob_index_alloc_slice_ex(&g_ob_hashtable, bkey, 1)
 
-#define ob_index_init_htable(htable) \
-    ob_index_init_htable_ex(htable, false, false)
+#define ob_index_init_htable(ht) \
+    ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.hashtable_capacity, \
+            false, false)
 
     int ob_index_init();
     void ob_index_destroy();
 
-    int ob_index_init_htable_ex(OBHashtable *htable, const bool need_lock,
-            const bool modify_sallocator);
+    int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
+        const bool need_lock, const bool modify_sallocator);
     void ob_index_destroy_htable(OBHashtable *htable);
 
     int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
@@ -89,6 +90,9 @@ extern "C" {
     int ob_index_delete_block_ex(OBHashtable *htable,
             const FSBlockKey *bkey,
             uint64_t *sn, int *dec_alloc);
+
+    OBEntry *ob_index_get_ob_entry(OBHashtable *htable,
+            const FSBlockKey *bkey);
 
     OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const int init_refer);
