@@ -9,7 +9,7 @@
 extern "C" {
 #endif
 
-int data_recovery_fetch_binlog(DataRecoveryContext *ctx);
+int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size);
 
 int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx);
 

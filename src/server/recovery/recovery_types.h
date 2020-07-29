@@ -17,6 +17,7 @@
 typedef struct data_recovery_context {
     int64_t start_time;   //in ms
     int stage;
+    int catch_up;
     int data_group_id;
     //ServerBinlogReader reader;
     FSServerContext *server_ctx;

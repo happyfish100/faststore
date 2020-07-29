@@ -285,15 +285,16 @@ typedef struct fs_proto_ping_leader_req_body_part {
 } FSProtoPingLeaderReqBodyPart;
 
 typedef struct fs_proto_replia_fetch_binlog_first_req {
-    char last_data_version[8];   //NOT including
+    char last_data_version[8]; //NOT including
     char data_group_id[4];
-    char padding[4];
+    char catch_up;
+    char padding[3];
 } FSProtoReplicaFetchBinlogFirstReq;
 
 typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
-    char binlog_length[4];  //current binlog length
-    char is_last;
-    char padding[7];
+    char binlog_length[4]; //current binlog length
+    char is_last;          //is the last package
+    char padding[6];
     char binlog[0];
 } FSProtoReplicaFetchBinlogRespBodyHeader;
 

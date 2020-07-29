@@ -28,6 +28,10 @@
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
 
+#define DATA_RECOVERY_CATCH_UP_DOING       0
+#define DATA_RECOVERY_CATCH_UP_LAST_BATCH  1
+#define DATA_RECOVERY_CATCH_UP_DONE        2
+
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 {
     char filepath[PATH_MAX];
@@ -183,12 +187,8 @@ static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
     int result;
     struct nio_thread_data *thread_data;
 
-    ctx->start_time = get_current_time_ms();
     ctx->data_group_id = data_group_id;
-
-    if ((ctx->master=data_recovery_get_master(ctx, &result)) == NULL) {
-        return result;
-    }
+    ctx->start_time = get_current_time_ms();
 
     if ((result=init_recovery_sub_path(ctx,
                     RECOVERY_BINLOG_SUBDIR_NAME_FETCH)) != 0)
@@ -210,44 +210,117 @@ static void data_recovery_destroy(DataRecoveryContext *ctx)
 {
 }
 
+static int next_catch_up_stage(DataRecoveryContext *ctx)
+{
+    switch (ctx->catch_up) {
+        case DATA_RECOVERY_CATCH_UP_DOING:
+            ctx->catch_up = DATA_RECOVERY_CATCH_UP_LAST_BATCH;
+            //TODO
+            break;
+        case DATA_RECOVERY_CATCH_UP_LAST_BATCH:
+            ctx->catch_up = DATA_RECOVERY_CATCH_UP_DONE;
+            //TODO
+            break;
+        default:
+            break;
+    }
+
+    return 0;
+}
+
+static int do_data_recovery(DataRecoveryContext *ctx)
+{
+    int result;
+    int64_t binlog_count;
+    int64_t binlog_size;
+    int64_t start_time;
+    int64_t end_time;
+
+    start_time = get_current_time_ms();
+    binlog_count = 0;
+    result = 0;
+    switch (ctx->stage) {
+        case DATA_RECOVERY_STAGE_FETCH:
+            if ((result=data_recovery_fetch_binlog(ctx, &binlog_size)) != 0) {
+                break;
+            }
+
+            if (binlog_size == 0) {
+                result = next_catch_up_stage(ctx);
+                break;
+            }
+
+            ctx->stage = DATA_RECOVERY_STAGE_DEDUP;
+            if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+                break;
+            }
+        case DATA_RECOVERY_STAGE_DEDUP:
+            if ((result=data_recovery_dedup_binlog(ctx, &binlog_count)) != 0) {
+                break;
+            }
+
+            ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
+            if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+                break;
+            }
+            if (binlog_count == 0) {  //no binlog to replay
+                break;
+            }
+        case DATA_RECOVERY_STAGE_REPLAY:
+            //TODO
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "invalid stage value: 0x%02x",
+                    __LINE__, ctx->stage);
+            result = EINVAL;
+            break;
+    }
+
+    if (result != 0) {
+        return result;
+    }
+
+    switch (ctx->catch_up) {
+        case DATA_RECOVERY_CATCH_UP_DOING:
+            end_time = get_current_time_ms();
+            if (end_time - start_time >= 1000) {
+                break;
+            }
+        case DATA_RECOVERY_CATCH_UP_LAST_BATCH:
+            result = next_catch_up_stage(ctx);
+            break;
+        default:
+            break;
+    }
+
+    return result;
+}
+
 int data_recovery_start(const int data_group_id)
 {
     DataRecoveryContext ctx;
     int result;
-    int64_t binlog_count;
 
     if ((result=data_recovery_init(&ctx, data_group_id)) != 0) {
         return result;
     }
 
-    switch (ctx.stage) {
-        case DATA_RECOVERY_STAGE_FETCH:
-            if ((result=data_recovery_fetch_binlog(&ctx)) != 0) {
-                break;
-            }
-            ctx.stage = DATA_RECOVERY_STAGE_DEDUP;
-            if ((result=data_recovery_save_sys_data(&ctx)) != 0) {
-                break;
-            }
-        case DATA_RECOVERY_STAGE_DEDUP:
-            ctx.stage = DATA_RECOVERY_STAGE_REPLAY;
-            if ((result=data_recovery_save_sys_data(&ctx)) != 0) {
-                break;
-            }
-            if ((result=data_recovery_dedup_binlog(&ctx, &binlog_count)) != 0) {
-                break;
-            }
-        case DATA_RECOVERY_STAGE_REPLAY:
-            result = data_recovery_unlink_sys_data(&ctx);
+    ctx.catch_up = DATA_RECOVERY_CATCH_UP_DOING;
+    do {
+        if ((ctx.master=data_recovery_get_master(&ctx, &result)) == NULL) {
             break;
-        default:
-            logError("file: "__FILE__", line: %d, "
-                    "invalid stage value: 0x%02x",
-                    __LINE__, ctx.stage);
-            result = EINVAL;
-            break;
-    }
+        }
 
+        if ((result=do_data_recovery(&ctx)) != 0) {
+            break;
+        }
+
+    } while (result == 0 && ctx.catch_up != DATA_RECOVERY_CATCH_UP_DONE);
+
+    if (result == 0) {
+        result = data_recovery_unlink_sys_data(&ctx);
+    }
     data_recovery_destroy(&ctx);
     return result;
 }

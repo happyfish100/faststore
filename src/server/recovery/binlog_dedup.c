@@ -374,7 +374,9 @@ static int htable_dump(BinlogDedupContext *dedup_ctx, OBHashtable *htable,
 
     *binlog_count = 0;
     end = htable->buckets + htable->capacity;
-    for (bucket = htable->buckets; bucket < end && result == 0; bucket++) {
+    for (bucket = htable->buckets, result = 0;
+            bucket < end && result == 0; bucket++)
+    {
         if (*bucket == NULL) {
             continue;
         }
@@ -558,14 +560,14 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
                 "input: {all : {total : %"PRId64", success : %"PRId64"}, "
                 "create : {total : %"PRId64", success : %"PRId64"}, "
                 "delete : {total : %"PRId64", success : %"PRId64", "
-                "ignore : %"PRId64"}}, "
+                "ignore : %"PRId64", partial : %"PRId64"}}, "
                 "output: {create : %"PRId64", delete : %"PRId64"}, "
                 "time used: %s ms", __LINE__, ctx->data_group_id,
                 dedup_ctx.rstat.create.total + dedup_ctx.rstat.remove.total,
                 dedup_ctx.rstat.create.success + dedup_ctx.rstat.remove.success,
                 dedup_ctx.rstat.create.total, dedup_ctx.rstat.create.success,
                 dedup_ctx.rstat.remove.total, dedup_ctx.rstat.remove.success,
-                dedup_ctx.rstat.remove.ignore,
+                dedup_ctx.rstat.remove.ignore, dedup_ctx.rstat.partial_deletes,
                 dedup_ctx.out.binlog_counts.create,
                 dedup_ctx.out.binlog_counts.remove, time_buff);
     } else {

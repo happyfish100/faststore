@@ -257,7 +257,7 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
     return result;
 }
 
-int data_recovery_fetch_binlog(DataRecoveryContext *ctx)
+int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
 {
     int result;
     BinlogFetchContext fetch_ctx;
@@ -273,7 +273,15 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx)
         return ENOMEM;
     }
 
-    result = do_fetch_binlog(ctx);
+    if ((result=do_fetch_binlog(ctx)) == 0) {
+        if ((*binlog_size=lseek(fetch_ctx.fd, 0, SEEK_END)) < 0) {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "lseek fetched binlog fail, data group id: %d, "
+                    "errno: %d, error info: %s", __LINE__,
+                    ctx->data_group_id, result, STRERROR(result));
+        }
+    }
 
     close(fetch_ctx.fd);
     shared_buffer_release(fetch_ctx.buffer);
