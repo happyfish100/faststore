@@ -55,8 +55,8 @@ static void recovery_thread_run_task(void *arg)
         return;
     }
 
-    if (!cluster_relationship_set_my_status(ds,
-                old_status, new_status, true))
+    if (!cluster_relationship_set_report_ds_status(ds,
+                old_status, new_status))
     {
         logInfo("file: "__FILE__", line: %d, "
                 "data group id: %d, change my status to %d (%s) fail, "
@@ -66,7 +66,7 @@ static void recovery_thread_run_task(void *arg)
     }
 
     if ((result=data_recovery_start(ds->dg->id)) != 0) {
-        cluster_relationship_set_my_status(ds, new_status, old_status, true);
+        cluster_relationship_set_report_ds_status(ds, new_status, old_status);
     }
 
     sleep(5); //TODO

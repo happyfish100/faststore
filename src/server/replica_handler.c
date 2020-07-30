@@ -105,19 +105,51 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
     sf_task_finish_clean_up(task);
 }
 
-static int replica_check_master(struct fast_task_info *task,
-        const int data_group_id)
+static int check_fetch_binlog_peer(struct fast_task_info *task,
+        const int data_group_id, const int server_id,
+        FSClusterDataServerInfo **peer)
 {
-    FSClusterDataServerInfo *myself;
+    int status;
 
-    myself = fs_get_my_data_server(data_group_id);
-    if (myself == NULL) {
+    if ((*peer=fs_get_data_server(data_group_id, server_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, server id: %d not exist",
+                data_group_id, server_id);
+        return ENOENT;
+    }
+    if ((*peer)->is_master) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, server id: %d is master",
+                data_group_id, server_id);
+        return EINVAL;
+    }
+
+    status = __sync_add_and_fetch(&(*peer)->status, 0);
+    if (status == FS_SERVER_STATUS_ONLINE ||
+            status == FS_SERVER_STATUS_ACTIVE)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, server id: %d, "
+                "unexpect data server status: %d (%s)",
+                data_group_id, server_id, status,
+                fs_get_server_status_caption(status));
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static int check_myself_master(struct fast_task_info *task,
+        const int data_group_id, FSClusterDataServerInfo **myself)
+{
+    *myself = fs_get_my_data_server(data_group_id);
+    if (*myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d NOT belongs to me", data_group_id);
         return ENOENT;
     }
 
-    if (!myself->is_master) {
+    if (!(*myself)->is_master) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, i am NOT master", data_group_id);
         return EINVAL;
@@ -126,16 +158,15 @@ static int replica_check_master(struct fast_task_info *task,
     return 0;
 }
 
-static int replica_fetch_binlog_output(struct fast_task_info *task)
+static int fetch_binlog_output(struct fast_task_info *task, char *buff,
+        const int body_header_size, const int resp_cmd)
 {
-    FSProtoReplicaFetchBinlogRespBodyHeader *body_header;
-    char *buff;
     int result;
     int size;
     int read_bytes;
+    FSProtoReplicaFetchBinlogRespBodyHeader *bheader;
 
-    body_header = (FSProtoReplicaFetchBinlogRespBodyHeader *)REQUEST.body;
-    buff = (char *)(body_header + 1);
+    bheader = (FSProtoReplicaFetchBinlogRespBodyHeader *)REQUEST.body;
     size = (task->data + task->size) - buff;
     result = binlog_reader_integral_read(REPLICA_READER,
             buff, size, &read_bytes);
@@ -143,25 +174,63 @@ static int replica_fetch_binlog_output(struct fast_task_info *task)
         return result;
     }
 
-    int2buff(read_bytes, body_header->binlog_length);
+    int2buff(read_bytes, bheader->binlog_length);
     if (size - read_bytes < FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
-        body_header->is_last = false;
+        bheader->is_last = false;
     } else {
-        body_header->is_last = binlog_reader_is_last_file(REPLICA_READER);
+        bheader->is_last = binlog_reader_is_last_file(REPLICA_READER);
     }
 
-    RESPONSE.header.body_len = sizeof(*body_header) + read_bytes;
-    RESPONSE.header.cmd = FS_REPLICA_PROTO_FETCH_BINLOG_RESP;
+    RESPONSE.header.cmd = resp_cmd;
+    RESPONSE.header.body_len = body_header_size + read_bytes;
     TASK_ARG->context.response_done = true;
     return 0;
+}
+
+static int replica_fetch_binlog_first_output(struct fast_task_info *task,
+        const bool is_online, const uint64_t until_version)
+{
+    FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
+    char *buff;
+    int result;
+
+    body_header = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)REQUEST.body;
+    buff = (char *)(body_header + 1);
+
+    if ((result=fetch_binlog_output(task, buff, sizeof(*body_header),
+                    FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP)) != 0)
+    {
+        return result;
+    }
+
+    body_header->is_online = is_online;
+    long2buff(until_version, body_header->until_version);
+    return 0;
+}
+
+static int replica_fetch_binlog_next_output(struct fast_task_info *task)
+{
+    char *buff;
+
+    buff = REQUEST.body + sizeof(FSProtoReplicaFetchBinlogNextRespBodyHeader);
+    return fetch_binlog_output(task, buff,
+            sizeof(FSProtoReplicaFetchBinlogNextRespBodyHeader),
+            FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP);
 }
 
 static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
 {
     FSProtoReplicaFetchBinlogFirstReq *req;
+    FSClusterDataServerInfo *myself;
+    FSClusterDataServerInfo *peer;
     uint64_t last_data_version;
+    uint64_t old_version;
+    uint64_t new_version;
+    uint64_t until_version;
     int data_group_id;
+    int server_id;
     int result;
+    bool is_online;
 
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoReplicaFetchBinlogFirstReq))) != 0)
@@ -172,9 +241,14 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     req = (FSProtoReplicaFetchBinlogFirstReq *)REQUEST.body;
     last_data_version = buff2long(req->last_data_version);
     data_group_id = buff2int(req->data_group_id);
-    //req->catch_up
+    server_id = buff2int(req->server_id);
 
-    if ((result=replica_check_master(task, data_group_id)) != 0) {
+    if ((result=check_fetch_binlog_peer(task, data_group_id,
+                    server_id, &peer)) != 0)
+    {
+        return result;
+    }
+    if ((result=check_myself_master(task, data_group_id, &myself)) != 0) {
         return result;
     }
 
@@ -195,7 +269,36 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    return replica_fetch_binlog_output(task);
+    new_version = __sync_add_and_fetch(&myself->data_version, 0);
+    if (req->catch_up || last_data_version == new_version) {
+        int old_status;
+        int i;
+
+        for (i=0; i<10; i++) {
+            old_status = __sync_add_and_fetch(&peer->status, 0);
+            old_version = __sync_add_and_fetch(&myself->data_version, 0);
+
+            cluster_relationship_set_ds_status_ex(peer,
+                    old_status, FS_SERVER_STATUS_ONLINE);
+
+            new_version = __sync_add_and_fetch(&myself->data_version, 0);
+            if (new_version == old_version) {
+                break;
+            }
+
+            cluster_relationship_set_ds_status_ex(peer,
+                    FS_SERVER_STATUS_ONLINE, old_status);  //restore status
+            //TODO clear replica queue to peer
+        }
+
+        is_online = true;
+        until_version = new_version;
+    } else {
+        is_online = false;
+        until_version = 0;
+    }
+
+    return replica_fetch_binlog_first_output(task, is_online, until_version);
 }
 
 static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
@@ -216,7 +319,7 @@ static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
         return EINVAL;
     }
 
-    return replica_fetch_binlog_output(task);
+    return replica_fetch_binlog_next_output(task);
 }
 
 static int replica_deal_join_server_req(struct fast_task_info *task)

@@ -302,10 +302,12 @@ const char *fs_get_cmd_caption(const int cmd)
             return "JOIN_SERVER_RESP";
         case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ:
             return "FETCH_BINLOG_FIRST_REQ";
+        case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP:
+            return "FETCH_BINLOG_FIRST_RESP";
         case FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ:
             return "FETCH_BINLOG_NEXT_REQ";
-        case FS_REPLICA_PROTO_FETCH_BINLOG_RESP:
-            return "FETCH_BINLOG_RESP";
+        case FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP:
+            return "FETCH_BINLOG_NEXT_RESP";
         case FS_REPLICA_PROTO_RPC_REQ:
             return "REPLICA_RPC_REQ";
         case FS_REPLICA_PROTO_RPC_RESP:

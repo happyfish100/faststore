@@ -346,7 +346,7 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     return result;
 }
 
-static int report_my_status_to_leader(FSClusterDataServerInfo *ds)
+static int report_ds_status_to_leader(FSClusterDataServerInfo *ds)
 {
     FSClusterServerInfo *leader;
     FSProtoHeader *header;
@@ -770,8 +770,19 @@ bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
     return changed;
 }
 
-bool cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
-        const int old_status, const int new_status, const bool notify_leader)
+void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds)
+{
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //leader
+        cluster_topology_data_server_chg_notify(ds, false);
+    } else {   //follower
+        if (report_ds_status_to_leader(ds) != 0) {
+            ds->last_report_version = -1;   //trigger report to leader
+        }
+    }
+}
+
+bool cluster_relationship_set_report_ds_status(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status)
 {
     bool changed;
     changed = cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
@@ -779,13 +790,7 @@ bool cluster_relationship_set_my_status(FSClusterDataServerInfo *ds,
         return changed;
     }
 
-    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //leader
-        cluster_topology_data_server_chg_notify(ds, false);
-    } else if (notify_leader) {   //follower
-        if (report_my_status_to_leader(ds) != 0) {
-            ds->last_report_version = -1;   //trigger report to leader
-        }
-    }
+    cluster_relationship_report_ds_status(ds);
     return changed;
 }
 

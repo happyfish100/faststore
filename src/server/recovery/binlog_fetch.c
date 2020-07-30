@@ -125,30 +125,40 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
 }
 
 static int fetch_binlog_to_local(ConnectionInfo *conn,
-        DataRecoveryContext *ctx, char *out_buff,
+        DataRecoveryContext *ctx, const unsigned char req_cmd,
+        const unsigned char resp_cmd, char *out_buff,
         const int out_bytes, bool *is_last)
 {
     int result;
+    int bheader_size;
     int binlog_length;
     BinlogFetchContext *fetch_ctx;
-    FSProtoReplicaFetchBinlogRespBodyHeader *resp_header;
+    FSProtoHeader *header;
+    FSProtoReplicaFetchBinlogRespBodyHeader *common_bheader;
     FSResponseInfo response;
+
+    if (req_cmd == FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ) {
+        bheader_size = sizeof(FSProtoReplicaFetchBinlogFirstRespBodyHeader);
+    } else {
+        bheader_size = sizeof(FSProtoReplicaFetchBinlogNextRespBodyHeader);
+    }
 
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
     response.error.length = 0;
+    header = (FSProtoHeader *)out_buff;
+    FS_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
     if ((result=fs_send_and_check_response_header(conn, out_buff,
-            out_bytes, &response, SF_G_NETWORK_TIMEOUT,
-            FS_REPLICA_PROTO_FETCH_BINLOG_RESP)) != 0)
+            out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
         fs_log_network_error(&response, conn, result);
         return result;
     }
 
-    if (response.header.body_len < sizeof(*resp_header)) {
+    if (response.header.body_len < bheader_size) {
         logError("file: "__FILE__", line: %d, "
                 "response body length: %d is too short, "
                 "the min body length is %d", __LINE__,
-                response.header.body_len, (int)sizeof(*resp_header));
+                response.header.body_len, bheader_size);
         return EINVAL;
     }
     if (response.header.body_len > fetch_ctx->buffer->capacity) {
@@ -170,23 +180,37 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         return result;
     }
 
-    resp_header = (FSProtoReplicaFetchBinlogRespBodyHeader *)
+    common_bheader = (FSProtoReplicaFetchBinlogRespBodyHeader *)
         fetch_ctx->buffer->buff;
-    binlog_length = buff2int(resp_header->binlog_length);
-    *is_last = resp_header->is_last;
-    if (response.header.body_len != sizeof(*resp_header) + binlog_length) {
+    binlog_length = buff2int(common_bheader->binlog_length);
+    *is_last = common_bheader->is_last;
+    if (response.header.body_len != bheader_size + binlog_length) {
         logError("file: "__FILE__", line: %d, "
-                "response body length: %d != sizeof(resp_header): %d"
+                "response body length: %d != body header size: %d"
                 " + binlog_length: %d ", __LINE__, response.header.body_len,
-                (int)sizeof(*resp_header), binlog_length);
+                bheader_size, binlog_length);
         return EINVAL;
+    }
+
+    if (req_cmd == FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ) {
+        FSProtoReplicaFetchBinlogFirstRespBodyHeader *first_bheader;
+
+        first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
+            fetch_ctx->buffer->buff;
+        ctx->fetch.until_version = buff2long(first_bheader->until_version);
+        ctx->fetch.is_online = first_bheader->is_online;
+
+        logInfo("data group id: %d, is_online: %d, until_version: %"PRId64,
+                ctx->data_group_id, ctx->fetch.is_online,
+                ctx->fetch.until_version);
     }
 
     if (binlog_length == 0) {
         return 0;
     }
 
-    if (write(((BinlogFetchContext *)ctx->arg)->fd, resp_header + 1,
+    if (write(((BinlogFetchContext *)ctx->arg)->fd,
+                fetch_ctx->buffer->buff + bheader_size,
                 binlog_length) != binlog_length)
     {
         result = errno != 0 ? errno : EPERM;
@@ -199,44 +223,55 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     return 0;
 }
 
-static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
+static int fetch_binlog_first_to_local(ConnectionInfo *conn,
+        DataRecoveryContext *ctx, bool *is_last)
 {
-    int result;
-    bool is_last;
-    FSProtoHeader *header;
     FSProtoReplicaFetchBinlogFirstReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaFetchBinlogFirstReq)];
 
-    header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
 
     req = (FSProtoReplicaFetchBinlogFirstReq *)
         (out_buff + sizeof(FSProtoHeader));
     long2buff(ctx->fetch.last_data_version, req->last_data_version);
     int2buff(ctx->data_group_id, req->data_group_id);
+    int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
     if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH) {
         req->catch_up = 1;
     } else {
         req->catch_up = 0;
     }
- 
-    if ((result=fetch_binlog_to_local(conn, ctx, out_buff,
-                    sizeof(out_buff), &is_last)) != 0)
-    {
+
+    return fetch_binlog_to_local(conn, ctx,
+            FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
+            FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP,
+            out_buff, sizeof(out_buff), is_last);
+}
+
+static int fetch_binlog_next_to_local(ConnectionInfo *conn,
+        DataRecoveryContext *ctx, bool *is_last)
+{
+    char out_buff[sizeof(FSProtoHeader)];
+    return fetch_binlog_to_local(conn, ctx,
+            FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ,
+            FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP,
+            out_buff, sizeof(out_buff), is_last);
+}
+
+static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
+{
+    int result;
+    bool is_last;
+
+    if ((result=fetch_binlog_first_to_local(conn, ctx, &is_last)) != 0) {
         return result;
     }
-
     if (is_last) {
         return 0;
     }
 
-    FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ, 0);
     do {
-        if ((result=fetch_binlog_to_local(conn, ctx, out_buff,
-                        sizeof(FSProtoHeader), &is_last)) != 0)
-        {
+        if ((result=fetch_binlog_next_to_local(conn, ctx, &is_last)) != 0) {
             return result;
         }
     } while (!is_last);

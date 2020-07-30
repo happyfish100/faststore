@@ -22,6 +22,8 @@ typedef struct data_recovery_context {
     struct {
         uint64_t last_data_version;
         FSBlockKey last_bkey;
+        uint64_t until_version;
+        bool is_online;
     } fetch;
     //ServerBinlogReader reader;
     FSServerContext *server_ctx;

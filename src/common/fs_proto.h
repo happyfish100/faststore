@@ -58,8 +58,9 @@
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
 #define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
 #define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ  83
+#define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP 84
 #define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ   85
-#define FS_REPLICA_PROTO_FETCH_BINLOG_RESP       86
+#define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP  86
 
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
@@ -287,16 +288,29 @@ typedef struct fs_proto_ping_leader_req_body_part {
 typedef struct fs_proto_replia_fetch_binlog_first_req {
     char last_data_version[8]; //NOT including
     char data_group_id[4];
-    char catch_up;
-    char padding[3];
+    char server_id[4];
+    char catch_up;  //tell master to ONLINE me
+    char padding[7];
 } FSProtoReplicaFetchBinlogFirstReq;
 
 typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
     char binlog_length[4]; //current binlog length
     char is_last;          //is the last package
-    char padding[6];
-    char binlog[0];
 } FSProtoReplicaFetchBinlogRespBodyHeader;
+
+typedef struct fs_proto_replia_fetch_binlog_first_resp_body_header {
+    FSProtoReplicaFetchBinlogRespBodyHeader common;
+    char is_online;        //tell slave to ONLINE
+    char padding[2];
+    char until_version[8];  // for catch up master (including)
+    char binlog[0];
+} FSProtoReplicaFetchBinlogFirstRespBodyHeader;
+
+typedef struct fs_proto_replia_fetch_binlog_next_resp_body_header {
+    FSProtoReplicaFetchBinlogRespBodyHeader common;
+    char padding[3];
+    char binlog[0];
+} FSProtoReplicaFetchBinlogNextRespBodyHeader;
 
 typedef struct fs_proto_replica_rpc_req_body_header {
     char count[4];
