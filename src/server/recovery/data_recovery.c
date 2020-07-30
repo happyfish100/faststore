@@ -16,21 +16,21 @@
 #include "sf/sf_service.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../server_binlog.h"
 #include "../server_replication.h"
 #include "binlog_fetch.h"
 #include "binlog_dedup.h"
 #include "data_recovery.h"
 
-#define DATA_RECOVERY_SYS_DATA_FILENAME    "data_recovery.dat"
-#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE  "stage"
+#define DATA_RECOVERY_SYS_DATA_FILENAME       "data_recovery.dat"
+#define DATA_RECOVERY_SYS_DATA_SECTION_FETCH  "fetch"
+#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE     "stage"
+#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV   "last_data_version"
+#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY "last_bkey"
 
 #define DATA_RECOVERY_STAGE_FETCH   'F'
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
-
-#define DATA_RECOVERY_CATCH_UP_DOING       0
-#define DATA_RECOVERY_CATCH_UP_LAST_BATCH  1
-#define DATA_RECOVERY_CATCH_UP_DONE        2
 
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 {
@@ -128,8 +128,15 @@ static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
     int len;
 
     data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
-    len = sprintf(buff, "%s=%c\n",
-            DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage);
+    len = sprintf(buff, "%s=%c\n"
+            "[%s]\n"
+            "%s=%"PRId64"\n"
+            "%s=%"PRId64",%"PRId64"\n",
+            DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage,
+            DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
+            DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV, ctx->fetch.last_data_version,
+            DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, ctx->fetch.last_bkey.oid,
+            ctx->fetch.last_bkey.offset);
 
     return safeWriteToFile(filename, buff, len);
 }
@@ -147,6 +154,7 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
     IniContext ini_context;
     char filename[PATH_MAX];
     char *stage;
+    char *last_bkey;
     int result;
 
     data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
@@ -176,6 +184,21 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
         ctx->stage = DATA_RECOVERY_STAGE_FETCH;
     } else {
         ctx->stage = stage[0];
+    }
+
+    ctx->fetch.last_data_version = iniGetInt64Value(
+            DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
+            DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV,
+            &ini_context, 0);
+    last_bkey = iniGetStrValue(DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
+            DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, &ini_context);
+    if (last_bkey != NULL && *last_bkey != '\0') {
+        char *cols[2];
+        int count;
+
+        count = splitEx(last_bkey, ',', cols, 2);
+        ctx->fetch.last_bkey.oid = strtoll(cols[0], NULL, 10);
+        ctx->fetch.last_bkey.offset = strtoll(cols[1], NULL, 10);
     }
 
     iniFreeContext(&ini_context);
@@ -212,10 +235,12 @@ static void data_recovery_destroy(DataRecoveryContext *ctx)
 
 static int next_catch_up_stage(DataRecoveryContext *ctx)
 {
+    int result;
+    uint64_t current_data_version;
+
     switch (ctx->catch_up) {
         case DATA_RECOVERY_CATCH_UP_DOING:
             ctx->catch_up = DATA_RECOVERY_CATCH_UP_LAST_BATCH;
-            //TODO
             break;
         case DATA_RECOVERY_CATCH_UP_LAST_BATCH:
             ctx->catch_up = DATA_RECOVERY_CATCH_UP_DONE;
@@ -225,7 +250,18 @@ static int next_catch_up_stage(DataRecoveryContext *ctx)
             break;
     }
 
-    return 0;
+    current_data_version = __sync_fetch_and_add(&ctx->master->dg->
+            myself->data_version, 0);
+    if (ctx->fetch.last_data_version > current_data_version) {
+        replica_binlog_set_data_version(ctx->master->dg->myself,
+                ctx->fetch.last_data_version - 1);
+        result = replica_binlog_log_no_op(ctx->master->dg->id,
+                ctx->fetch.last_data_version, &ctx->fetch.last_bkey);
+    } else {
+        result = 0;
+    }
+
+    return result;
 }
 
 static int do_data_recovery(DataRecoveryContext *ctx)
@@ -245,6 +281,9 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
 
+            logInfo("file: "__FILE__", line: %d, func: %s, "
+                    "binlog_size: %"PRId64, __LINE__, __FUNCTION__,
+                    binlog_size);
             if (binlog_size == 0) {
                 result = next_catch_up_stage(ctx);
                 break;
@@ -302,6 +341,7 @@ int data_recovery_start(const int data_group_id)
     DataRecoveryContext ctx;
     int result;
 
+    memset(&ctx, 0, sizeof(ctx));
     if ((result=data_recovery_init(&ctx, data_group_id)) != 0) {
         return result;
     }
@@ -316,6 +356,9 @@ int data_recovery_start(const int data_group_id)
             break;
         }
 
+        logInfo("======= stage: %d, catch_up: %d", ctx.stage, ctx.catch_up);
+
+        ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (result == 0 && ctx.catch_up != DATA_RECOVERY_CATCH_UP_DONE);
 
     if (result == 0) {

@@ -23,14 +23,23 @@
 
 typedef struct {
     int fd;
-    uint64_t last_data_version;
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
+
+
+static inline void get_fetched_binlog_filename(DataRecoveryContext *ctx,
+        char *full_filename, const int size)
+{
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
+            subdir_name);
+    binlog_reader_get_filename(subdir_name, 0, full_filename, size);
+}
 
 static int check_and_open_binlog_file(DataRecoveryContext *ctx)
 {
     BinlogFetchContext *fetch_ctx;
-    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char full_filename[PATH_MAX];
     struct stat stbuf;
     int result;
@@ -39,13 +48,9 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     bool unlink_flag;
 
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
-            subdir_name);
-    binlog_reader_get_filename(subdir_name, 0,
-            full_filename, sizeof(full_filename));
-
-    fetch_ctx->last_data_version = ctx->master->dg->myself->data_version;
+    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     unlink_flag = false;
+    ctx->fetch.last_data_version = ctx->master->dg->myself->data_version;
     do {
         if (stat(full_filename, &stbuf) != 0) {
             if (errno == ENOENT) {
@@ -94,7 +99,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             break;
         }
 
-        fetch_ctx->last_data_version = last_data_version;
+        ctx->fetch.last_data_version = last_data_version;
     } while (0);
 
     if (unlink_flag) {
@@ -104,7 +109,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     __LINE__, full_filename, errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
-        fetch_ctx->last_data_version = ctx->master->dg->myself->data_version;
+        ctx->fetch.last_data_version = ctx->master->dg->myself->data_version;
     }
 
     if ((fetch_ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,
@@ -209,9 +214,13 @@ static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
 
     req = (FSProtoReplicaFetchBinlogFirstReq *)
         (out_buff + sizeof(FSProtoHeader));
-    long2buff(((BinlogFetchContext *)ctx->arg)->last_data_version,
-            req->last_data_version);
+    long2buff(ctx->fetch.last_data_version, req->last_data_version);
     int2buff(ctx->data_group_id, req->data_group_id);
+    if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH) {
+        req->catch_up = 1;
+    } else {
+        req->catch_up = 0;
+    }
  
     if ((result=fetch_binlog_to_local(conn, ctx, out_buff,
                     sizeof(out_buff), &is_last)) != 0)
@@ -239,14 +248,9 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
 {
     int result;
     ConnectionInfo conn;
-    FSClusterDataServerInfo *master;
-
-    if ((master=data_recovery_get_master(ctx, &result)) == NULL) {
-        return result;
-    }
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
-                        master->cs->server), &conn,
+                        ctx->master->cs->server), &conn,
                     SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
     {
         return result;
@@ -263,6 +267,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
     BinlogFetchContext fetch_ctx;
 
     ctx->arg = &fetch_ctx;
+    *binlog_size = 0;
     if ((result=check_and_open_binlog_file(ctx)) != 0) {
         return result;
     }
@@ -285,18 +290,27 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
 
     close(fetch_ctx.fd);
     shared_buffer_release(fetch_ctx.buffer);
+
+    if (result == 0 && *binlog_size > 0) {
+        char full_filename[PATH_MAX];
+        ReplicaBinlogRecord record;
+
+        get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+        if ((result=replica_binlog_get_last_record(
+                        full_filename, &record)) == 0)
+        {
+            ctx->fetch.last_data_version = record.data_version;
+            ctx->fetch.last_bkey = record.bs_key.block;
+        }
+    }
+
     return result;
 }
 
 int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx)
 {
-    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char full_filename[PATH_MAX];
 
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
-            subdir_name);
-    binlog_reader_get_filename(subdir_name, 0,
-            full_filename, sizeof(full_filename));
-
+    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     return fc_delete_file(full_filename);
 }

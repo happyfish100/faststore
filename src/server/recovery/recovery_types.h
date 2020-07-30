@@ -16,9 +16,13 @@
 
 typedef struct data_recovery_context {
     int64_t start_time;   //in ms
+    int data_group_id;
     int stage;
     int catch_up;
-    int data_group_id;
+    struct {
+        uint64_t last_data_version;
+        FSBlockKey last_bkey;
+    } fetch;
     //ServerBinlogReader reader;
     FSServerContext *server_ctx;
     FSClusterDataServerInfo *master;

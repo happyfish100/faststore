@@ -71,8 +71,8 @@ static void recovery_thread_run_task(void *arg)
 
     sleep(5); //TODO
     logInfo("====file: "__FILE__", line: %d, func: %s, "
-            "do recovery, data group: %d, status: %d =====", __LINE__,
-            __FUNCTION__, ds->dg->id, ds->status);
+            "do recovery, data group: %d, result: %d, status: %d =====", __LINE__,
+            __FUNCTION__, ds->dg->id, result, ds->status);
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)

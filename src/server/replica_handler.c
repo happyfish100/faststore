@@ -172,6 +172,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     req = (FSProtoReplicaFetchBinlogFirstReq *)REQUEST.body;
     last_data_version = buff2long(req->last_data_version);
     data_group_id = buff2int(req->data_group_id);
+    //req->catch_up
 
     if ((result=replica_check_master(task, data_group_id)) != 0) {
         return result;

@@ -31,9 +31,37 @@ extern "C" {
 
     int replica_binlog_get_current_write_index(const int data_group_id);
 
-    int replica_binlog_get_last_data_version_ex(const char *filename,
-            uint64_t *data_version, FSBinlogFilePosition *position,
+    int replica_binlog_get_last_record_ex(const char *filename,
+            ReplicaBinlogRecord *record, FSBinlogFilePosition *position,
             int *record_len);
+
+    static inline int replica_binlog_get_last_record(const char *filename,
+            ReplicaBinlogRecord *record)
+    {
+        FSBinlogFilePosition position;
+        int record_len;
+
+        return replica_binlog_get_last_record_ex(filename,
+                record, &position, &record_len);
+    }
+
+    static inline int replica_binlog_get_last_data_version_ex(
+            const char *filename, uint64_t *data_version,
+            FSBinlogFilePosition *position, int *record_len)
+    {
+        ReplicaBinlogRecord record;
+        int result;
+
+        if ((result=replica_binlog_get_last_record_ex(filename,
+                        &record, position, record_len)) == 0)
+        {
+            *data_version = record.data_version;
+        } else {
+            *data_version = 0;
+        }
+
+        return result;
+    }
 
     static inline int replica_binlog_get_last_data_version(
             const char *filename, uint64_t *data_version)
@@ -52,8 +80,23 @@ extern "C" {
             const int64_t data_version, const FSBlockSliceKeyInfo *bs_key,
             const int op_type);
 
-    int replica_binlog_log_del_block(const int data_group_id,
-            const int64_t data_version, const FSBlockKey *bkey);
+    int replica_binlog_log_block(const int data_group_id,
+            const int64_t data_version, const FSBlockKey *bkey,
+            const int op_type);
+
+    static inline int replica_binlog_log_del_block(const int data_group_id,
+            const int64_t data_version, const FSBlockKey *bkey)
+    {
+        return replica_binlog_log_block(data_group_id, data_version, bkey,
+                REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
+    }
+
+    static inline int replica_binlog_log_no_op(const int data_group_id,
+            const int64_t data_version, const FSBlockKey *bkey)
+    {
+        return replica_binlog_log_block(data_group_id, data_version, bkey,
+                REPLICA_BINLOG_OP_TYPE_NO_OP);
+    }
 
     static inline int replica_binlog_log_write_slice(const int data_group_id,
             const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
@@ -80,6 +123,9 @@ extern "C" {
 
     int replica_binlog_reader_init(struct server_binlog_reader *reader,
             const int data_group_id, const uint64_t last_data_version);
+
+    void replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
+            const uint64_t new_data_version);
 
 #ifdef __cplusplus
 }

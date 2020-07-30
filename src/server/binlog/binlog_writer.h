@@ -6,8 +6,11 @@
 #include "fastcommon/fc_queue.h"
 #include "binlog_types.h"
 
-#define FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE    0
-#define FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION 1
+#define FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE     0
+#define FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION  1
+
+#define FS_BINLOG_BUFFER_TYPE_WRITE_TO_FILE     0  //default type, must be 0
+#define FS_BINLOG_BUFFER_TYPE_SET_NEXT_VERSION  1
 
 struct binlog_writer_info;
 
@@ -20,6 +23,7 @@ typedef struct binlog_writer_ptr_array {
 typedef struct binlog_writer_buffer {
     int64_t version;
     BufferInfo bf;
+    int type;    //for versioned writer
     struct binlog_writer_info *writer;
     struct binlog_writer_buffer *next;
 } BinlogWriterBuffer;
@@ -103,14 +107,8 @@ static inline int binlog_writer_init(BinlogWriterContext *context,
             FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE, max_record_size);
 }
 
-static inline void binlog_writer_set_next_version(BinlogWriterInfo *writer,
-        const uint64_t next_version)
-{
-    writer->version_ctx.next = next_version;
-    writer->version_ctx.ring.start = writer->version_ctx.ring.end =
-        writer->version_ctx.ring.entries + next_version %
-        writer->version_ctx.ring.size;
-}
+int binlog_writer_change_next_version(BinlogWriterInfo *writer,
+        const int64_t next_version);
 
 void binlog_writer_finish(BinlogWriterInfo *writer);
 
@@ -123,6 +121,24 @@ static inline BinlogWriterBuffer *binlog_writer_alloc_buffer(
         BinlogWriterThread *thread)
 {
     return (BinlogWriterBuffer *)fast_mblock_alloc_object(&thread->mblock);
+}
+
+#define binlog_writer_alloc_versioned_buffer(writer, version) \
+    binlog_writer_alloc_versioned_buffer_ex(writer, version, \
+            FS_BINLOG_BUFFER_TYPE_WRITE_TO_FILE)
+
+static inline BinlogWriterBuffer *binlog_writer_alloc_versioned_buffer_ex(
+        BinlogWriterInfo *writer, const int64_t version, const int type)
+{
+    BinlogWriterBuffer *buffer;
+    buffer = (BinlogWriterBuffer *)fast_mblock_alloc_object(
+            &writer->thread->mblock);
+    if (buffer != NULL) {
+        buffer->type = type;
+        buffer->writer = writer;
+        buffer->version = version;
+    }
+    return buffer;
 }
 
 static inline const char *binlog_writer_get_filepath(const char *subdir_name,

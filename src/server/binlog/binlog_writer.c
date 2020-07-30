@@ -240,6 +240,14 @@ void binlog_get_current_write_position(BinlogWriterInfo *writer,
     position->offset = writer->file.size;
 }
 
+static inline void binlog_writer_set_next_version(BinlogWriterInfo *writer,
+        const uint64_t next_version)
+{
+    writer->version_ctx.next = next_version;
+    writer->version_ctx.ring.start = writer->version_ctx.ring.end =
+        writer->version_ctx.ring.entries + next_version %
+        writer->version_ctx.ring.size;
+}
 static inline int deal_binlog_one_record(BinlogWriterBuffer *wb)
 {
     int result;
@@ -459,8 +467,29 @@ static int deal_binlog_records(BinlogWriterThread *thread,
             current = wbuffer;
             wbuffer = wbuffer->next;
 
-            add_to_flush_writer_array(thread, current->writer);
-            deal_record_by_version(current);
+            if (FS_BINLOG_BUFFER_TYPE_SET_NEXT_VERSION) {
+                if (current->writer->version_ctx.ring.start !=
+                        current->writer->version_ctx.ring.end)
+                {
+                    logWarning("file: "__FILE__", line: %d, "
+                            "subdir_name: %s, ring not empty, "
+                            "maybe some mistake happen", __LINE__,
+                            current->writer->cfg.subdir_name);
+                }
+
+                logInfo("file: "__FILE__", line: %d, "
+                        "subdir_name: %s, set next version to %"PRId64,
+                        __LINE__, current->writer->cfg.subdir_name,
+                        current->version);
+
+                binlog_writer_set_next_version(current->writer,
+                        current->version);
+                fast_mblock_free_object(&current->writer->
+                        thread->mblock, current);
+            } else {
+                add_to_flush_writer_array(thread, current->writer);
+                deal_record_by_version(current);
+            }
         } while (wbuffer != NULL);
     } else {
         do {
@@ -652,4 +681,18 @@ int binlog_writer_init_thread_ex(BinlogWriterThread *thread,
 
     return fc_create_thread(&tid, binlog_writer_func, thread,
             SF_G_THREAD_STACK_SIZE);
+}
+
+int binlog_writer_change_next_version(BinlogWriterInfo *writer,
+        const int64_t next_version)
+{
+    BinlogWriterBuffer *buffer;
+    if ((buffer=binlog_writer_alloc_versioned_buffer_ex(writer, next_version,
+            FS_BINLOG_BUFFER_TYPE_SET_NEXT_VERSION)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    push_to_binlog_write_queue(writer->thread, buffer);
+    return 0;
 }
