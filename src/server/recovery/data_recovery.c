@@ -14,8 +14,10 @@
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../cluster_relationship.h"
 #include "../server_binlog.h"
 #include "../server_replication.h"
 #include "binlog_fetch.h"
@@ -253,6 +255,74 @@ static int next_catch_up_stage(DataRecoveryContext *ctx)
     return result;
 }
 
+static int proto_active_confirm(ConnectionInfo *conn,
+        DataRecoveryContext *ctx)
+{
+    int result;
+    FSResponseInfo response;
+    FSProtoReplicaActiveConfirmReq *req;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(
+            FSProtoReplicaActiveConfirmReq)];
+
+    req = (FSProtoReplicaActiveConfirmReq *)
+        (out_buff + sizeof(FSProtoHeader));
+    int2buff(ctx->data_group_id, req->data_group_id);
+    int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
+    FS_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
+            FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
+            sizeof(FSProtoReplicaActiveConfirmReq));
+
+    response.error.length = 0;
+    if ((result=fs_send_and_recv_none_body_response(conn, out_buff,
+                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP)) != 0)
+    {
+        fs_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
+
+static int active_confirm(DataRecoveryContext *ctx)
+{
+    int result;
+    ConnectionInfo conn;
+
+    if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
+                        ctx->master->cs->server), &conn,
+                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+    {
+        return result;
+    }
+
+    result = proto_active_confirm(&conn, ctx);
+    conn_pool_disconnect_server(&conn);
+    return result;
+}
+
+static int active_me(DataRecoveryContext *ctx)
+{
+    int result;
+
+    if ((result=active_confirm(ctx)) != 0) {
+        return result;
+    }
+
+    if (cluster_relationship_swap_report_ds_status(ctx->master->dg->myself,
+                FS_SERVER_STATUS_ONLINE, FS_SERVER_STATUS_ACTIVE))
+    {
+        return 0;
+    } else {
+        int status;
+        status = __sync_add_and_fetch(&ctx->master->dg->myself->status, 0);
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, change my status to ACTIVE fail, "
+                "current status is %d (%s)", __LINE__, ctx->data_group_id,
+                status, fs_get_server_status_caption(status));
+        return EBUSY;
+    }
+}
+
 static int do_data_recovery(DataRecoveryContext *ctx)
 {
     int result;
@@ -308,7 +378,11 @@ static int do_data_recovery(DataRecoveryContext *ctx)
         return result;
     }
 
-    if (!ctx->is_online) {
+    if (ctx->is_online) {
+        if ((result=active_me(ctx)) != 0) {
+            return result;
+        }
+    } else {
         if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_DOING) {
             if (get_current_time_ms() - start_time < 1000) {
                 ctx->catch_up = DATA_RECOVERY_CATCH_UP_LAST_BATCH;

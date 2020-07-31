@@ -69,10 +69,15 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
         }
     } else {
         if (op_ctx->info.myself->status != FS_SERVER_STATUS_ACTIVE) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "data group id: %d, i am NOT active, my status: %d",
-                    op_ctx->info.data_group_id, op_ctx->info.myself->status);
-            return EINVAL;
+            int status;
+            status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
+            if (status != FS_SERVER_STATUS_ACTIVE) {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "data group id: %d, i am NOT active, "
+                        "my status: %d (%s)", op_ctx->info.data_group_id,
+                        status, fs_get_server_status_caption(status));
+                return EINVAL;
+            }
         }
     }
 

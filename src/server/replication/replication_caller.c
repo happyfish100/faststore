@@ -101,9 +101,16 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     end = group->slave_ds_array.servers + group->slave_ds_array.count;
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
         status = __sync_fetch_and_add(&(*ds)->status, 0);
-        if (!(status == FS_SERVER_STATUS_ONLINE ||
-                    status == FS_SERVER_STATUS_ACTIVE))
-        {
+        if (status == FS_SERVER_STATUS_ONLINE) {  //waiting for status change
+            while (status == FS_SERVER_STATUS_ONLINE) {
+                PTHREAD_MUTEX_LOCK(&(*ds)->replica_notify.lock);
+                pthread_cond_wait(&(*ds)->replica_notify.cond,
+                        &(*ds)->replica_notify.lock);
+                PTHREAD_MUTEX_UNLOCK(&(*ds)->replica_notify.lock);
+            }
+        }
+
+        if (status != FS_SERVER_STATUS_ACTIVE) {
             inactive_count++;
             continue;
         }

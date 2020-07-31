@@ -80,6 +80,27 @@ static int add_to_ds_ptr_array(FSClusterDataServerPtrArray *ds_ptr_array,
     return 0;
 }
 
+static int init_ds_pthread_lock_cond(FSClusterDataServerInfo *ds)
+{
+    int result;
+    if ((result=init_pthread_lock(&ds->replica_notify.lock)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "init_pthread_lock fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=pthread_cond_init(&ds->replica_notify.cond, NULL)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "pthread_cond_init fail, "
+                "errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    return 0;
+}
+
 static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
 {
     FSServerGroup *server_group;
@@ -120,6 +141,9 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
         }
         ds->is_preseted = (server_index == master_index);
 
+        if ((result=init_ds_pthread_lock_cond(ds)) != 0) {
+            return result;
+        }
         if ((result=add_to_ds_ptr_array(&ds->cs->ds_ptr_array, ds)) != 0) {
             return result;
         }

@@ -648,7 +648,8 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     static int count = 0;
 
     if (++count % 100 == 0) {
-        logInfo("server_ctx %p, connected.count: %d", server_ctx, server_ctx->replica.connected.count);
+        logInfo("server_ctx %p, connected.count: %d", server_ctx,
+                server_ctx->replica.connected.count);
     }
 
     if (server_ctx->replica.connected.count == 0) {

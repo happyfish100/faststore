@@ -105,12 +105,10 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
     sf_task_finish_clean_up(task);
 }
 
-static int check_fetch_binlog_peer(struct fast_task_info *task,
+static int check_peer_slave(struct fast_task_info *task,
         const int data_group_id, const int server_id,
         FSClusterDataServerInfo **peer)
 {
-    int status;
-
     if ((*peer=fs_get_data_server(data_group_id, server_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d not exist",
@@ -122,6 +120,22 @@ static int check_fetch_binlog_peer(struct fast_task_info *task,
                 "data group id: %d, server id: %d is master",
                 data_group_id, server_id);
         return EINVAL;
+    }
+
+    return 0;
+}
+
+static int fetch_binlog_check_peer(struct fast_task_info *task,
+        const int data_group_id, const int server_id,
+        FSClusterDataServerInfo **peer)
+{
+    int status;
+    int result;
+
+    if ((result=check_peer_slave(task, data_group_id,
+                    server_id, peer)) != 0)
+    {
+        return result;
     }
 
     status = __sync_add_and_fetch(&(*peer)->status, 0);
@@ -224,8 +238,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     FSClusterDataServerInfo *myself;
     FSClusterDataServerInfo *peer;
     uint64_t last_data_version;
-    uint64_t old_version;
-    uint64_t new_version;
+    uint64_t my_data_version;
     uint64_t until_version;
     int data_group_id;
     int server_id;
@@ -243,7 +256,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     data_group_id = buff2int(req->data_group_id);
     server_id = buff2int(req->server_id);
 
-    if ((result=check_fetch_binlog_peer(task, data_group_id,
+    if ((result=fetch_binlog_check_peer(task, data_group_id,
                     server_id, &peer)) != 0)
     {
         return result;
@@ -269,33 +282,18 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    new_version = __sync_add_and_fetch(&myself->data_version, 0);
-    if (req->catch_up || last_data_version == new_version) {
-        int old_status;
-        int i;
-
-        for (i=0; i<10; i++) {
-            old_status = __sync_add_and_fetch(&peer->status, 0);
-            old_version = __sync_add_and_fetch(&myself->data_version, 0);
-
-            cluster_relationship_set_ds_status_ex(peer,
-                    old_status, FS_SERVER_STATUS_ONLINE);
-
-            new_version = __sync_add_and_fetch(&myself->data_version, 0);
-            if (new_version == old_version) {
-                break;
-            }
-
-            cluster_relationship_set_ds_status_ex(peer,
-                    FS_SERVER_STATUS_ONLINE, old_status);  //restore status
-            //TODO clear replica queue to peer
+    my_data_version = __sync_add_and_fetch(&myself->data_version, 0);
+    if (req->catch_up || last_data_version == my_data_version) {
+        until_version = __sync_add_and_fetch(&myself->data_version, 0);
+        if (cluster_relationship_set_ds_status(peer, FS_SERVER_STATUS_ONLINE)) {
+            is_online = true;
+        } else {
+            until_version = 0;
+            is_online = false;
         }
-
-        is_online = true;
-        until_version = new_version;
     } else {
-        is_online = false;
         until_version = 0;
+        is_online = false;
     }
 
     return replica_fetch_binlog_first_output(task, is_online, until_version);
@@ -320,6 +318,49 @@ static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
     }
 
     return replica_fetch_binlog_next_output(task);
+}
+
+static int replica_deal_active_confirm(struct fast_task_info *task)
+{
+    FSProtoReplicaActiveConfirmReq *req;
+    FSClusterDataServerInfo *myself;
+    FSClusterDataServerInfo *peer;
+    int data_group_id;
+    int server_id;
+    int status;
+    int result;
+
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoReplicaActiveConfirmReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoReplicaActiveConfirmReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    server_id = buff2int(req->server_id);
+
+    if ((result=check_myself_master(task, data_group_id, &myself)) != 0) {
+        return result;
+    }
+    if ((result=check_peer_slave(task, data_group_id,
+                    server_id, &peer)) != 0)
+    {
+        return result;
+    }
+
+    status = __sync_add_and_fetch(&peer->status, 0);
+    if (status != FS_SERVER_STATUS_ONLINE) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, server id: %d, "
+                "unexpect data server status: %d (%s)",
+                data_group_id, server_id, status,
+                fs_get_server_status_caption(status));
+        return EINVAL;
+    }
+
+    return 0;
 }
 
 static int replica_deal_join_server_req(struct fast_task_info *task)
@@ -708,6 +749,9 @@ int replica_deal_task(struct fast_task_info *task)
                 break;
             case FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ:
                 result = replica_deal_fetch_binlog_next(task);
+                break;
+            case FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ:
+                result = replica_deal_active_confirm(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

@@ -312,6 +312,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "REPLICA_RPC_REQ";
         case FS_REPLICA_PROTO_RPC_RESP:
             return "REPLICA_RPC_RESP";
+        case FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ:
+            return "ACTIVE_CONFIRM_REQ";
+        case FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP:
+            return "ACTIVE_CONFIRM_RESP";
         default:
             return "UNKOWN";
     }

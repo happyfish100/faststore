@@ -57,10 +57,14 @@
 //replication commands
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
 #define FS_REPLICA_PROTO_JOIN_SERVER_RESP        82
+
+//slave -> master
 #define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ  83
 #define FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP 84
 #define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ   85
 #define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP  86
+#define FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ      87
+#define FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP     88
 
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
@@ -311,6 +315,11 @@ typedef struct fs_proto_replia_fetch_binlog_next_resp_body_header {
     char padding[3];
     char binlog[0];
 } FSProtoReplicaFetchBinlogNextRespBodyHeader;
+
+typedef struct fs_proto_replia_active_confirm_req {
+    char data_group_id[4];
+    char server_id[4];
+} FSProtoReplicaActiveConfirmReq;
 
 typedef struct fs_proto_replica_rpc_req_body_header {
     char count[4];
