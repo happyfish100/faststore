@@ -16,6 +16,7 @@
 #include "sf/sf_global.h"
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
+#include "../cluster_relationship.h"
 #include "../server_binlog.h"
 #include "../server_replication.h"
 #include "data_recovery.h"
@@ -23,9 +24,10 @@
 
 typedef struct {
     int fd;
+    int wait_count;
+    uint64_t until_version;
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
-
 
 static inline void get_fetched_binlog_filename(DataRecoveryContext *ctx,
         char *full_filename, const int size)
@@ -124,6 +126,126 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     return 0;
 }
 
+static int get_last_data_version(DataRecoveryContext *ctx,
+        string_t *binlog, uint64_t *last_data_version)
+{
+    ReplicaBinlogRecord record;
+    char error_info[256];
+    string_t line;
+    int result;
+
+    line.str = (char *)fc_memrchr(binlog->str, '\n', binlog->len - 1);
+    if (line.str == NULL) {
+        line.str = binlog->str;
+    } else {
+        line.str += 1;  //skip \n
+    }
+    line.len = (binlog->str + binlog->len) - line.str;
+    if ((result=replica_binlog_record_unpack(&line,
+                    &record, error_info)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "unpack replica binlog fail, %s",
+                __LINE__, error_info);
+        return result;
+    }
+
+    *last_data_version = record.data_version;
+    return 0;
+}
+
+static int find_binlog_length(DataRecoveryContext *ctx,
+        string_t *binlog, bool *is_last)
+{
+    BinlogFetchContext *fetch_ctx;
+    ReplicaBinlogRecord record;
+    uint64_t last_data_version;
+    char error_info[256];
+    char *end;
+    char *line_end;
+    string_t line;
+    int result;
+
+    fetch_ctx = (BinlogFetchContext *)ctx->arg;
+    if (binlog->len > 0) {
+        if ((result=get_last_data_version(ctx, binlog,
+                        &last_data_version)) != 0)
+        {
+            return result;
+        }
+    } else {
+        last_data_version = ctx->fetch.last_data_version;
+    }
+
+    logInfo("data group id: %d, current binlog length: %d, is_online: %d, "
+            "last_data_version: %"PRId64", until_version: %"PRId64,
+            ctx->data_group_id, binlog->len, ctx->is_online,
+            ctx->fetch.last_data_version, fetch_ctx->until_version);
+
+    if (last_data_version == fetch_ctx->until_version) {
+        *is_last = true;
+        return 0;
+    } else if (last_data_version < fetch_ctx->until_version) {
+        *is_last = false;
+        if (binlog->len == 0) {
+            if (++(fetch_ctx->wait_count) >= 10) {
+                logError("file: "__FILE__", line: %d, "
+                        "data group id: %d, waiting replica binlog timeout",
+                        __LINE__, ctx->data_group_id);
+                return ETIMEDOUT;
+            }
+
+            logInfo("file: "__FILE__", line: %d, "
+                    "data group id: %d, %dth waiting replica binlog ..., "
+                    "current data version: %"PRId64", waiting/until data "
+                    "version: %"PRId64, __LINE__, ctx->data_group_id,
+                    fetch_ctx->wait_count, last_data_version,
+                    fetch_ctx->until_version);
+            usleep(200000);
+        } else {
+            fetch_ctx->wait_count = 0;
+        }
+
+        return 0;
+    }
+
+    *is_last = true;
+    line.str = binlog->str;
+    end = binlog->str + binlog->len;
+    while (line.str < end) {
+        line_end = (char *)memchr(line.str, '\n', end - line.str);
+        if (line_end == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, expect end line char (\\n)",
+                    __LINE__, ctx->data_group_id);
+            return EINVAL;
+        }
+
+        line_end += 1;  //skip \n
+        line.len = line_end - line.str;
+        if ((result=replica_binlog_record_unpack(&line,
+                        &record, error_info)) != 0)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, unpack replica binlog fail, %s",
+                    __LINE__, ctx->data_group_id, error_info);
+            return result;
+        }
+
+        if (record.data_version == fetch_ctx->until_version) {
+            binlog->len = line_end - binlog->str;
+            break;
+        } else if (record.data_version > fetch_ctx->until_version) {
+            binlog->len = line.str - binlog->str;
+            break;
+        }
+
+        line.str = line_end;
+    }
+
+    return 0;
+}
+
 static int fetch_binlog_to_local(ConnectionInfo *conn,
         DataRecoveryContext *ctx, const unsigned char req_cmd,
         const unsigned char resp_cmd, char *out_buff,
@@ -131,7 +253,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 {
     int result;
     int bheader_size;
-    int binlog_length;
+    string_t binlog;
     BinlogFetchContext *fetch_ctx;
     FSProtoHeader *header;
     FSProtoReplicaFetchBinlogRespBodyHeader *common_bheader;
@@ -182,13 +304,13 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 
     common_bheader = (FSProtoReplicaFetchBinlogRespBodyHeader *)
         fetch_ctx->buffer->buff;
-    binlog_length = buff2int(common_bheader->binlog_length);
+    binlog.len = buff2int(common_bheader->binlog_length);
     *is_last = common_bheader->is_last;
-    if (response.header.body_len != bheader_size + binlog_length) {
+    if (response.header.body_len != bheader_size + binlog.len) {
         logError("file: "__FILE__", line: %d, "
                 "response body length: %d != body header size: %d"
                 " + binlog_length: %d ", __LINE__, response.header.body_len,
-                bheader_size, binlog_length);
+                bheader_size, binlog.len);
         return EINVAL;
     }
 
@@ -197,21 +319,45 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 
         first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
             fetch_ctx->buffer->buff;
-        ctx->fetch.until_version = buff2long(first_bheader->until_version);
-        ctx->fetch.is_online = first_bheader->is_online;
+        fetch_ctx->until_version = buff2long(first_bheader->until_version);
 
-        logInfo("data group id: %d, is_online: %d, until_version: %"PRId64,
-                ctx->data_group_id, ctx->fetch.is_online,
-                ctx->fetch.until_version);
+        if (ctx->is_online != first_bheader->is_online) {
+            ctx->is_online = first_bheader->is_online;
+            if (ctx->is_online) {
+                int old_status;
+                old_status = __sync_add_and_fetch(&ctx->
+                        master->dg->myself->status, 0);
+                if (old_status == FS_SERVER_STATUS_ACTIVE) {
+                    logError("file: "__FILE__", line: %d, "
+                            "data group id: %d, unexpect my status %d (%s)",
+                            __LINE__, ctx->data_group_id, old_status,
+                            fs_get_server_status_caption(old_status));
+                    return EBUSY;
+                }
+                cluster_relationship_swap_report_ds_status(
+                        ctx->master->dg->myself, old_status,
+                        FS_SERVER_STATUS_ONLINE);
+            }
+        }
+
+        logInfo("data group id: %d, is_online: %d, last_data_version: %"PRId64
+                ", until_version: %"PRId64, ctx->data_group_id, ctx->is_online,
+                ctx->fetch.last_data_version, fetch_ctx->until_version);
     }
 
-    if (binlog_length == 0) {
+    binlog.str = fetch_ctx->buffer->buff + bheader_size;
+    if (ctx->is_online) {
+        if ((result=find_binlog_length(ctx, &binlog, is_last)) != 0) {
+            return result;
+        }
+    }
+
+    if (binlog.len == 0) {
         return 0;
     }
 
     if (write(((BinlogFetchContext *)ctx->arg)->fd,
-                fetch_ctx->buffer->buff + bheader_size,
-                binlog_length) != binlog_length)
+                binlog.str, binlog.len) != binlog.len)
     {
         result = errno != 0 ? errno : EPERM;
         logError("file: "__FILE__", line: %d, "
@@ -229,7 +375,6 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     FSProtoReplicaFetchBinlogFirstReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaFetchBinlogFirstReq)];
-
 
     req = (FSProtoReplicaFetchBinlogFirstReq *)
         (out_buff + sizeof(FSProtoHeader));
@@ -276,6 +421,8 @@ static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
         }
     } while (!is_last);
 
+    //TODO
+
     return 0;
 }
 
@@ -302,6 +449,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
     BinlogFetchContext fetch_ctx;
 
     ctx->arg = &fetch_ctx;
+    memset(&fetch_ctx, 0, sizeof(fetch_ctx));
     *binlog_size = 0;
     if ((result=check_and_open_binlog_file(ctx)) != 0) {
         return result;
@@ -330,7 +478,8 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         char full_filename[PATH_MAX];
         ReplicaBinlogRecord record;
 
-        get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+        get_fetched_binlog_filename(ctx,full_filename,
+                sizeof(full_filename));
         if ((result=replica_binlog_get_last_record(
                         full_filename, &record)) == 0)
         {

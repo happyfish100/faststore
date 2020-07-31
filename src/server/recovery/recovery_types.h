@@ -19,11 +19,10 @@ typedef struct data_recovery_context {
     int data_group_id;
     int stage;
     int catch_up;
+    bool is_online;
     struct {
         uint64_t last_data_version;
         FSBlockKey last_bkey;
-        uint64_t until_version;
-        bool is_online;
     } fetch;
     //ServerBinlogReader reader;
     FSServerContext *server_ctx;

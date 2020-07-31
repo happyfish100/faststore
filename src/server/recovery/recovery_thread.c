@@ -55,7 +55,7 @@ static void recovery_thread_run_task(void *arg)
         return;
     }
 
-    if (!cluster_relationship_set_report_ds_status(ds,
+    if (!cluster_relationship_swap_report_ds_status(ds,
                 old_status, new_status))
     {
         logInfo("file: "__FILE__", line: %d, "
@@ -66,7 +66,11 @@ static void recovery_thread_run_task(void *arg)
     }
 
     if ((result=data_recovery_start(ds->dg->id)) != 0) {
-        cluster_relationship_set_report_ds_status(ds, new_status, old_status);
+        new_status = __sync_add_and_fetch(&ds->status, 0);
+        if (new_status != FS_SERVER_STATUS_ACTIVE) {
+            cluster_relationship_swap_report_ds_status(ds,
+                    new_status, old_status);  //rollback status
+        }
     }
 
     sleep(5); //TODO

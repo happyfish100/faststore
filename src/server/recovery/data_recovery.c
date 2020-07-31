@@ -233,22 +233,11 @@ static void data_recovery_destroy(DataRecoveryContext *ctx)
 {
 }
 
+//TODO
 static int next_catch_up_stage(DataRecoveryContext *ctx)
 {
     int result;
     uint64_t current_data_version;
-
-    switch (ctx->catch_up) {
-        case DATA_RECOVERY_CATCH_UP_DOING:
-            ctx->catch_up = DATA_RECOVERY_CATCH_UP_LAST_BATCH;
-            break;
-        case DATA_RECOVERY_CATCH_UP_LAST_BATCH:
-            ctx->catch_up = DATA_RECOVERY_CATCH_UP_DONE;
-            //TODO
-            break;
-        default:
-            break;
-    }
 
     current_data_version = __sync_fetch_and_add(&ctx->master->dg->
             myself->data_version, 0);
@@ -270,13 +259,13 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     int64_t binlog_count;
     int64_t binlog_size;
     int64_t start_time;
-    int64_t end_time;
 
-    start_time = get_current_time_ms();
+    start_time = 0;
     binlog_count = 0;
     result = 0;
     switch (ctx->stage) {
         case DATA_RECOVERY_STAGE_FETCH:
+            start_time = get_current_time_ms();
             if ((result=data_recovery_fetch_binlog(ctx, &binlog_size)) != 0) {
                 break;
             }
@@ -285,7 +274,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                     "binlog_size: %"PRId64, __LINE__, __FUNCTION__,
                     binlog_size);
             if (binlog_size == 0) {
-                result = next_catch_up_stage(ctx);
                 break;
             }
 
@@ -320,20 +308,16 @@ static int do_data_recovery(DataRecoveryContext *ctx)
         return result;
     }
 
-    switch (ctx->catch_up) {
-        case DATA_RECOVERY_CATCH_UP_DOING:
-            end_time = get_current_time_ms();
-            if (end_time - start_time >= 1000) {
-                break;
+    if (!ctx->is_online) {
+        if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_DOING) {
+            if (get_current_time_ms() - start_time < 1000) {
+                ctx->catch_up = DATA_RECOVERY_CATCH_UP_LAST_BATCH;
             }
-        case DATA_RECOVERY_CATCH_UP_LAST_BATCH:
-            result = next_catch_up_stage(ctx);
-            break;
-        default:
-            break;
+        }
     }
 
-    return result;
+    //TODO
+    return next_catch_up_stage(ctx);
 }
 
 int data_recovery_start(const int data_group_id)
@@ -356,10 +340,11 @@ int data_recovery_start(const int data_group_id)
             break;
         }
 
-        logInfo("======= stage: %d, catch_up: %d", ctx.stage, ctx.catch_up);
+        logInfo("======= stage: %d, catch_up: %d, is_online: %d",
+                ctx.stage, ctx.catch_up, ctx.is_online);
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
-    } while (result == 0 && ctx.catch_up != DATA_RECOVERY_CATCH_UP_DONE);
+    } while (result == 0 && !ctx.is_online);
 
     if (result == 0) {
         result = data_recovery_unlink_sys_data(&ctx);

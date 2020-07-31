@@ -756,12 +756,7 @@ bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
 {
     bool changed;
 
-    if (cluster_relationship_set_ds_status(ds, status)) {
-        changed = true;
-    } else {
-        changed = false;
-    }
-
+    changed = cluster_relationship_set_ds_status(ds, status);
     if (ds->data_version != data_version) {
         ds->data_version = data_version;
         changed = true;
@@ -781,7 +776,7 @@ void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds)
     }
 }
 
-bool cluster_relationship_set_report_ds_status(FSClusterDataServerInfo *ds,
+bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
 {
     bool changed;
@@ -792,6 +787,17 @@ bool cluster_relationship_set_report_ds_status(FSClusterDataServerInfo *ds,
 
     cluster_relationship_report_ds_status(ds);
     return changed;
+}
+
+bool cluster_relationship_set_report_ds_status(FSClusterDataServerInfo *ds,
+        const int new_status)
+{
+    if (cluster_relationship_set_ds_status(ds, new_status)) {
+        cluster_relationship_report_ds_status(ds);
+        return true;
+    } else {
+        return false;
+    }
 }
 
 int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,

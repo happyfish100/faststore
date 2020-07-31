@@ -8,7 +8,6 @@
 
 #define DATA_RECOVERY_CATCH_UP_DOING       0
 #define DATA_RECOVERY_CATCH_UP_LAST_BATCH  1
-#define DATA_RECOVERY_CATCH_UP_DONE        2
 
 #ifdef __cplusplus
 extern "C" {
