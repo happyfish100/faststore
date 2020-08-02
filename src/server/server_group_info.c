@@ -83,14 +83,14 @@ static int add_to_ds_ptr_array(FSClusterDataServerPtrArray *ds_ptr_array,
 static int init_ds_pthread_lock_cond(FSClusterDataServerInfo *ds)
 {
     int result;
-    if ((result=init_pthread_lock(&ds->replica_notify.lock)) != 0) {
+    if ((result=init_pthread_lock(&ds->replica.notify.lock)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "init_pthread_lock fail, errno: %d, error info: %s",
                 __LINE__, result, STRERROR(result));
         return result;
     }
 
-    if ((result=pthread_cond_init(&ds->replica_notify.cond, NULL)) != 0) {
+    if ((result=pthread_cond_init(&ds->replica.notify.cond, NULL)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "pthread_cond_init fail, "
                 "errno: %d, error info: %s",
@@ -712,7 +712,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
             if (ds->cs->server->id == server_id) {
                 ds->status = status;
-                ds->data_version = data_version;
+                ds->replica.data_version = data_version;
                 break;
             }
         }
@@ -817,7 +817,7 @@ int server_group_info_init(const char *cluster_config_filename)
 
 static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
 {
-    FSClusterDataServerInfo *sp;
+    FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
     int result;
 
@@ -829,10 +829,10 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
     }
 
     end = group->data_server_array.servers + group->data_server_array.count;
-    for (sp=group->data_server_array.servers; sp<end; sp++) {
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
-                        SERVER_GROUP_INFO_ITEM_SERVER, sp->cs->server->id,
-                        sp->status, sp->data_version)) != 0)
+                        SERVER_GROUP_INFO_ITEM_SERVER, ds->cs->server->id,
+                        ds->status, ds->replica.data_version)) != 0)
         {
             return result;
         }

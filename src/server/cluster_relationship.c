@@ -144,7 +144,7 @@ static void pack_changed_data_versions(char *buff, int *length,
     body_part = (FSProtoPingLeaderReqBodyPart *)buff;
     end = my_data_group_array.groups + my_data_group_array.count;
     for (group=my_data_group_array.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data_version, 0);
+        data_version = __sync_add_and_fetch(&group->ds->replica.data_version, 0);
         if (report_all || group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             int2buff(group->data_group_id, body_part->data_group_id);
@@ -168,7 +168,7 @@ static void leader_deal_data_version_changes()
     count = 0;
     end = my_data_group_array.groups + my_data_group_array.count;
     for (group=my_data_group_array.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data_version, 0);
+        data_version = __sync_add_and_fetch(&group->ds->replica.data_version, 0);
         if (group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             cluster_topology_data_server_chg_notify(group->ds, false);
@@ -373,7 +373,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds)
             sizeof(out_buff) - sizeof(FSProtoHeader));
     int2buff(ds->cs->server->id, req->server_id);
     int2buff(ds->dg->id, req->data_group_id);
-    long2buff(__sync_fetch_and_add(&ds->data_version, 0),
+    long2buff(__sync_fetch_and_add(&ds->replica.data_version, 0),
             req->data_version);
     req->status = __sync_fetch_and_add(&ds->status, 0);
     response.error.length = 0;
@@ -724,31 +724,51 @@ static int cluster_select_leader()
 	return 0;
 }
 
+static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status)
+{
+    FSClusterDataServerInfo *master;
+
+    master = (FSClusterDataServerInfo *)
+        __sync_add_and_fetch(&ds->dg->master, 0);
+    if (master == NULL) {
+        return;
+    }
+
+    if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
+        if ((new_status == FS_SERVER_STATUS_INIT ||
+                    new_status == FS_SERVER_STATUS_OFFLINE) &&
+                (master->cs != CLUSTER_MYSELF_PTR))
+        {
+            recovery_thread_push_to_queue(ds);
+        }
+    } else {
+        if (master->cs == CLUSTER_MYSELF_PTR) {  //i am master
+            if (old_status == FS_SERVER_STATUS_OFFLINE &&
+                    new_status == FS_SERVER_STATUS_ACTIVE)
+            {
+                PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
+                pthread_cond_broadcast(&ds->replica.notify.cond);
+                PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+            }
+        }
+    }
+}
+
 bool cluster_relationship_set_ds_status_ex(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
 {
+
     if (new_status == old_status) {
         return false;
     }
 
-    if (!__sync_bool_compare_and_swap(&ds->status,
-                old_status, new_status))
-    {
+    if (__sync_bool_compare_and_swap(&ds->status, old_status, new_status)) {
+        cluster_relationship_on_status_change(ds, old_status, new_status);
+        return true;
+    } else {
         return false;
     }
-
-    if (ds->cs != CLUSTER_MYSELF_PTR) {
-        return true;
-    }
-
-    if ((new_status == FS_SERVER_STATUS_INIT ||
-                new_status == FS_SERVER_STATUS_OFFLINE) &&
-            __sync_add_and_fetch(&ds->dg->master, 0) != NULL)
-    {
-        recovery_thread_push_to_queue(ds);
-    }
-
-    return true;
 }
 
 bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
@@ -757,8 +777,8 @@ bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
     bool changed;
 
     changed = cluster_relationship_set_ds_status(ds, status);
-    if (ds->data_version != data_version) {
-        ds->data_version = data_version;
+    if (ds->replica.data_version != data_version) {
+        ds->replica.data_version = data_version;
         changed = true;
     }
 
@@ -861,7 +881,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         }
     } else {
         cluster_relationship_set_ds_status(ds, body_part->status);
-        ds->data_version = buff2long(body_part->data_version);
+        ds->replica.data_version = buff2long(body_part->data_version);
     }
 
     if (ds->is_master == body_part->is_master) { //master NOT changed

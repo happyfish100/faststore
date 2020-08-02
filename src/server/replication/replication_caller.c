@@ -103,10 +103,11 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
         status = __sync_fetch_and_add(&(*ds)->status, 0);
         if (status == FS_SERVER_STATUS_ONLINE) {  //waiting for status change
             while (status == FS_SERVER_STATUS_ONLINE) {
-                PTHREAD_MUTEX_LOCK(&(*ds)->replica_notify.lock);
-                pthread_cond_wait(&(*ds)->replica_notify.cond,
-                        &(*ds)->replica_notify.lock);
-                PTHREAD_MUTEX_UNLOCK(&(*ds)->replica_notify.lock);
+                PTHREAD_MUTEX_LOCK(&(*ds)->replica.notify.lock);
+                pthread_cond_wait(&(*ds)->replica.notify.cond,
+                        &(*ds)->replica.notify.lock);
+                PTHREAD_MUTEX_UNLOCK(&(*ds)->replica.notify.lock);
+                status = __sync_fetch_and_add(&(*ds)->status, 0);
             }
         }
 

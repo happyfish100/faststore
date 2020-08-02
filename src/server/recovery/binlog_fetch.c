@@ -52,7 +52,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
     get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     unlink_flag = false;
-    ctx->fetch.last_data_version = ctx->master->dg->myself->data_version;
+    ctx->fetch.last_data_version = ctx->master->dg->myself->replica.data_version;
     do {
         if (stat(full_filename, &stbuf) != 0) {
             if (errno == ENOENT) {
@@ -90,13 +90,13 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             break;
         }
 
-        if (last_data_version <= ctx->master->dg->myself->data_version) {
+        if (last_data_version <= ctx->master->dg->myself->replica.data_version) {
             logWarning("file: "__FILE__", line: %d, "
                     "data_group_id: %d, binlog file: %s, the last data "
                     "version: %"PRId64" <= my current data version: %"PRId64
                     ", should fetch the data binlog again", __LINE__,
                     ctx->data_group_id, full_filename, last_data_version,
-                    ctx->master->dg->myself->data_version);
+                    ctx->master->dg->myself->replica.data_version);
             unlink_flag = true;
             break;
         }
@@ -111,7 +111,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     __LINE__, full_filename, errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
-        ctx->fetch.last_data_version = ctx->master->dg->myself->data_version;
+        ctx->fetch.last_data_version = ctx->master->dg->myself->replica.data_version;
     }
 
     if ((fetch_ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,
@@ -190,8 +190,10 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         if (binlog->len == 0) {
             if (++(fetch_ctx->wait_count) >= 10) {
                 logError("file: "__FILE__", line: %d, "
-                        "data group id: %d, waiting replica binlog timeout",
-                        __LINE__, ctx->data_group_id);
+                        "data group id: %d, waiting replica binlog timeout, "
+                        "current data version: %"PRId64", waiting/until data "
+                        "version: %"PRId64, __LINE__, ctx->data_group_id,
+                        last_data_version, fetch_ctx->until_version);
                 return ETIMEDOUT;
             }
 
@@ -350,6 +352,9 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         if ((result=find_binlog_length(ctx, &binlog, is_last)) != 0) {
             return result;
         }
+
+        ctx->master->dg->myself->replica.rpc_start_version =
+            fetch_ctx->until_version + 1;
     }
 
     if (binlog.len == 0) {

@@ -170,7 +170,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
                 &event->data_server->is_master, 0);
         body_part->status = __sync_add_and_fetch(
                 &event->data_server->status, 0);
-        long2buff(event->data_server->data_version, body_part->data_version);
+        long2buff(event->data_server->replica.data_version,
+                body_part->data_version);
 
         __sync_bool_compare_and_swap(&event->in_queue, 1, 0);  //release event
 
@@ -316,6 +317,53 @@ void cluster_topology_offline_all_data_servers()
     }
 }
 
+int cluster_topology_offline_slave_data_servers(
+        FSClusterServerInfo *peer, int *count)
+{
+    FSClusterDataServerInfo **pp;
+    FSClusterDataServerInfo **end;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *master;
+    int old_status;
+
+    *count = 0;
+    if (peer == CLUSTER_MYSELF_PTR) {
+        logError("file: "__FILE__", line: %d, "
+                "can't offline myself!", __LINE__);
+        return EINVAL;
+    }
+
+    end = peer->ds_ptr_array.servers + peer->ds_ptr_array.count;
+    for (pp=peer->ds_ptr_array.servers; pp<end; pp++) {
+        master = (FSClusterDataServerInfo *)__sync_fetch_and_add(
+                &(*pp)->dg->master, 0);
+        if (master == NULL) {
+            continue;
+        }
+
+        if (master->cs == CLUSTER_MYSELF_PTR) {
+            ds = *pp;
+        } else if (master->cs == peer) {
+            ds = (*pp)->dg->myself;
+        } else {
+            continue;
+        }
+
+        old_status = __sync_fetch_and_add(&ds->status, 0);
+        if (old_status == FS_SERVER_STATUS_ONLINE ||
+                old_status == FS_SERVER_STATUS_ACTIVE)
+        {
+            if (cluster_relationship_swap_report_ds_status(ds,
+                        old_status, FS_SERVER_STATUS_OFFLINE))
+            {
+                ++(*count);
+            }
+        }
+    }
+
+    return 0;
+}
+
 static inline void clear_decision_action(FSClusterDataGroupInfo *group)
 {
     int old_action;
@@ -412,7 +460,8 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 
     ds1 = (FSClusterDataServerInfo **)p1;
     ds2 = (FSClusterDataServerInfo **)p2;
-    dv_sub = (int64_t)((*ds1)->data_version) - (int64_t)((*ds2)->data_version);
+    dv_sub = (int64_t)((*ds1)->replica.data_version) -
+        (int64_t)((*ds2)->replica.data_version);
     if (dv_sub > 0) {
         return 1;
     } else if (dv_sub < 0) {
@@ -473,12 +522,12 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    max_data_version = ds->data_version;
+    max_data_version = ds->replica.data_version;
     active_count = 0;
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if (__sync_fetch_and_add(&ds->cs->active, 0) &&
-                ds->data_version >= max_data_version)
+                ds->replica.data_version >= max_data_version)
         {
             online_data_servers[active_count++] = ds;
         }

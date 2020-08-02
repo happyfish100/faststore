@@ -292,8 +292,8 @@ int replica_binlog_init()
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
 
-        if ((result=binlog_writer_init_by_version(writer,
-                        subdir_name, myself->data_version + 1, 1024)) != 0)
+        if ((result=binlog_writer_init_by_version(writer, subdir_name,
+                        myself->replica.data_version + 1, 1024)) != 0)
         {
             return result;
         }
@@ -305,9 +305,9 @@ int replica_binlog_init()
         }
 
         replica_binlog_set_data_version(myself, data_version);
-        if (myself->data_version > 0) {
+        if (myself->replica.data_version > 0) {
             logInfo("=====line: %d, data_group_id: %d, data_version: %"PRId64" =====",
-                    __LINE__, data_group_id, myself->data_version);
+                    __LINE__, data_group_id, myself->replica.data_version);
         }
 
         writer->thread = &binlog_writer_thread;
@@ -654,24 +654,24 @@ const char *replica_binlog_get_op_type_caption(const int op_type)
 }
 
 void replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
-        const uint64_t new_data_version)
+        const uint64_t new_version)
 {
     BinlogWriterInfo *writer;
-    uint64_t old_data_version;
+    uint64_t old_version;
 
     writer = binlog_writer_array.writers[myself->dg->id -
         binlog_writer_array.base_id];
 
     while (1) {
-        old_data_version = __sync_fetch_and_add(&myself->data_version, 0);
-        if (old_data_version == new_data_version) {
+        old_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
+        if (old_version == new_version) {
             break;
         }
 
-        if (__sync_bool_compare_and_swap(&myself->data_version,
-                    old_data_version, new_data_version))
+        if (__sync_bool_compare_and_swap(&myself->replica.data_version,
+                    old_version, new_version))
         {
-            binlog_writer_change_next_version(writer, new_data_version + 1);
+            binlog_writer_change_next_version(writer, new_version + 1);
             break;
         }
     }

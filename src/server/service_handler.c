@@ -373,7 +373,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
             short2buff(addr->conn.port, body_part->port);
             body_part->is_master = ds->is_master;
             body_part->status = ds->status;
-            long2buff(ds->data_version, body_part->data_version);
+            long2buff(ds->replica.data_version, body_part->data_version);
         }
     }
 

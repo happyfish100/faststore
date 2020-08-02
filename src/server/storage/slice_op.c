@@ -16,16 +16,17 @@ static void set_data_version(FSSliceOpContext *op_ctx)
 
     if (op_ctx->info.data_version <= 0) {
         op_ctx->info.data_version = __sync_add_and_fetch(
-                &op_ctx->info.myself->data_version, 1);
+                &op_ctx->info.myself->replica.data_version, 1);
     } else {
         while (1) {
             old_version = __sync_add_and_fetch(&op_ctx->info.
-                    myself->data_version, 0);
+                    myself->replica.data_version, 0);
             if (op_ctx->info.data_version <= old_version) {
                 break;
             }
             if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
-                        data_version, old_version, op_ctx->info.data_version))
+                        replica.data_version, old_version,
+                        op_ctx->info.data_version))
             {
                 break;
             }

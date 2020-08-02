@@ -63,6 +63,9 @@ void cluster_topology_deactivate_server(FSClusterServerInfo *cs);
 
 void cluster_topology_offline_all_data_servers();
 
+int cluster_topology_offline_slave_data_servers(
+        FSClusterServerInfo *peer, int *count);
+
 void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
         data_server, const bool notify_self);
 

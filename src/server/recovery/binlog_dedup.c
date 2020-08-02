@@ -487,8 +487,8 @@ static int init_htables(DataRecoveryContext *ctx)
 
     dedup_ctx = (BinlogDedupContext *)ctx->arg;
 
-    slice_capacity = ctx->master->data_version -
-        ctx->master->dg->myself->data_version;
+    slice_capacity = ctx->master->replica.data_version -
+        ctx->master->dg->myself->replica.data_version;
     if (slice_capacity < 256) {
         slice_capacity = 256;
     } else if (slice_capacity > STORAGE_CFG.object_block.hashtable_capacity) {

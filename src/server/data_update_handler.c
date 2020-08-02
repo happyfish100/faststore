@@ -240,6 +240,23 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
             op_ctx->info.bs_key.block.offset);
 }
 
+#define SLAVE_CHECK_DATA_VERSION(op_ctx) \
+    do {  \
+        if (TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE) { \
+            if (op_ctx->info.data_version < op_ctx->info. \
+                    myself->replica.rpc_start_version)    \
+            {  \
+                logInfo("file: "__FILE__", line: %d, "  \
+                        "data group id: %d, current data version: %"PRId64 \
+                        " < rpc start version: %"PRId64", skip it!", \
+                        __LINE__, op_ctx->info.data_group_id, \
+                        op_ctx->info.data_version, op_ctx->info. \
+                        myself->replica.rpc_start_version); \
+                return 0;  \
+            }  \
+        }  \
+    } while (0)
+
 int du_handler_deal_slice_write(struct fast_task_info *task,
         FSSliceOpContext *op_ctx)
 {
@@ -260,6 +277,7 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     {
         return result;
     }
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "data_group_id: %d", __LINE__, __FUNCTION__,
@@ -334,6 +352,7 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     {
         return result;
     }
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     op_ctx->info.write_data_binlog = true;
     if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
@@ -368,6 +387,7 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     {
         return result;
     }
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     op_ctx->info.write_data_binlog = true;
     if ((result=fs_delete_slices(op_ctx, &dec_alloc)) != 0) {
@@ -399,6 +419,7 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     {
         return result;
     }
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     op_ctx->info.write_data_binlog = true;
     if ((result=fs_delete_block(op_ctx, &dec_alloc)) != 0) {

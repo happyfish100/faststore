@@ -235,15 +235,14 @@ static void data_recovery_destroy(DataRecoveryContext *ctx)
 {
 }
 
-//TODO
-static int next_catch_up_stage(DataRecoveryContext *ctx)
+static int replica_binlog_log_padding(DataRecoveryContext *ctx)
 {
     int result;
-    uint64_t current_data_version;
+    uint64_t current_version;
 
-    current_data_version = __sync_fetch_and_add(&ctx->master->dg->
-            myself->data_version, 0);
-    if (ctx->fetch.last_data_version > current_data_version) {
+    current_version = __sync_fetch_and_add(&ctx->master->dg->
+            myself->replica.data_version, 0);
+    if (ctx->fetch.last_data_version > current_version) {
         replica_binlog_set_data_version(ctx->master->dg->myself,
                 ctx->fetch.last_data_version - 1);
         result = replica_binlog_log_no_op(ctx->master->dg->id,
@@ -356,15 +355,17 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
 
+            if (binlog_count == 0) {  //no binlog to replay
+                break;
+            }
+
             ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
             if ((result=data_recovery_save_sys_data(ctx)) != 0) {
                 break;
             }
-            if (binlog_count == 0) {  //no binlog to replay
-                break;
-            }
         case DATA_RECOVERY_STAGE_REPLAY:
-            //TODO
+            //TODO replay
+            result = replica_binlog_log_padding(ctx);
             break;
         default:
             logError("file: "__FILE__", line: %d, "
@@ -390,8 +391,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
         }
     }
 
-    //TODO
-    return next_catch_up_stage(ctx);
+    return 0;
 }
 
 int data_recovery_start(const int data_group_id)

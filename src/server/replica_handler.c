@@ -79,6 +79,18 @@ int replica_recv_timeout_callback(struct fast_task_info *task)
     return 0;
 }
 
+
+static void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
+{
+    int count;
+    cluster_topology_offline_slave_data_servers(peer, &count);
+    if (count > 0) {
+        logInfo("file: "__FILE__", line: %d, "
+                "peer server id: %d, offline slave data server count: %d",
+                __LINE__, peer->server->id, count);
+    }
+}
+
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     /*
@@ -90,6 +102,8 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
         case FS_SERVER_TASK_TYPE_REPLICATION:
             if (REPLICA_REPLICATION != NULL) {
                 replication_processor_unbind(REPLICA_REPLICATION);
+                replica_offline_slave_data_servers(REPLICA_REPLICATION->peer);
+
                 REPLICA_REPLICATION = NULL;
             }
             SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
@@ -282,10 +296,11 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->data_version, 0);
+    my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
     if (req->catch_up || last_data_version == my_data_version) {
-        until_version = __sync_add_and_fetch(&myself->data_version, 0);
         if (cluster_relationship_set_ds_status(peer, FS_SERVER_STATUS_ONLINE)) {
+            until_version = __sync_add_and_fetch(
+                    &myself->replica.data_version, 0);
             is_online = true;
         } else {
             until_version = 0;
@@ -538,7 +553,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
                     "invalid data version: %"PRId64, op_ctx->info.data_version);
             return EINVAL;
         }
-        
+
         op_ctx->info.body = (char *)(body_part + 1);
         switch (body_part->cmd) {
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
