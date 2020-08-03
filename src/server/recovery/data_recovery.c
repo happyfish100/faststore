@@ -22,6 +22,7 @@
 #include "../server_replication.h"
 #include "binlog_fetch.h"
 #include "binlog_dedup.h"
+#include "binlog_replay.h"
 #include "data_recovery.h"
 
 #define DATA_RECOVERY_SYS_DATA_FILENAME       "data_recovery.dat"
@@ -364,7 +365,9 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
         case DATA_RECOVERY_STAGE_REPLAY:
-            //TODO replay
+            if ((result=data_recovery_replay_binlog(ctx)) != 0) {
+                break;
+            }
             result = replica_binlog_log_padding(ctx);
             break;
         default:
