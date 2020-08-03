@@ -17,12 +17,17 @@ int server_recovery_init()
         return result;
     }
 
+    if ((result=data_recovery_init()) != 0) {
+        return result;
+    }
+
 	return 0;
 }
 
 void server_recovery_destroy()
 {
     recovery_thread_destroy();
+    data_recovery_destroy();
 }
  
 void server_recovery_terminate()

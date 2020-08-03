@@ -4,6 +4,7 @@
 #define _SERVER_RECOVERY_H_
 
 #include "recovery/recovery_thread.h"
+#include "recovery/data_recovery.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -225,11 +225,13 @@ static void server_log_configs()
             "my server id = %d, data_path = %s, "
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
+            "recovery_max_queue_depth = %d, "
             "binlog_buffer_size = %d KB, "
             "cluster server count = %d",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
+            RECOVERY_MAX_QUEUE_DEPTH,
             BINLOG_BUFFER_SIZE / 1024,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
 
@@ -332,11 +334,19 @@ int server_load_config(const char *filename)
     }
 
     RECOVERY_THREADS_PER_DATA_GROUP = iniGetIntValue(NULL,
-            "recovery_threads_per_data_group",
-            &ini_context, FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP);
+            "recovery_threads_per_data_group", &ini_context,
+            FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP);
     if (RECOVERY_THREADS_PER_DATA_GROUP <= 0) {
         RECOVERY_THREADS_PER_DATA_GROUP =
             FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP;
+    }
+
+    RECOVERY_MAX_QUEUE_DEPTH = iniGetIntValue(NULL,
+            "recovery_max_queue_depth", &ini_context,
+            FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH);
+    if (RECOVERY_MAX_QUEUE_DEPTH <= 0) {
+        RECOVERY_MAX_QUEUE_DEPTH =
+            FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH;
     }
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {

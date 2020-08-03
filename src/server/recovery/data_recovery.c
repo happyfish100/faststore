@@ -35,6 +35,21 @@
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
 
+int data_recovery_init()
+{
+    int result;
+
+    if ((result=binlog_replay_init()) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
+void data_recovery_destroy()
+{
+}
+
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 {
     char filepath[PATH_MAX];
@@ -208,7 +223,7 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
     return 0;
 }
 
-static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
+static int init_data_recovery_ctx(DataRecoveryContext *ctx, const int data_group_id)
 {
     int result;
     struct nio_thread_data *thread_data;
@@ -232,7 +247,7 @@ static int data_recovery_init(DataRecoveryContext *ctx, const int data_group_id)
     return data_recovery_load_sys_data(ctx);
 }
 
-static void data_recovery_destroy(DataRecoveryContext *ctx)
+static void destroy_data_recovery_ctx(DataRecoveryContext *ctx)
 {
 }
 
@@ -403,7 +418,7 @@ int data_recovery_start(const int data_group_id)
     int result;
 
     memset(&ctx, 0, sizeof(ctx));
-    if ((result=data_recovery_init(&ctx, data_group_id)) != 0) {
+    if ((result=init_data_recovery_ctx(&ctx, data_group_id)) != 0) {
         return result;
     }
 
@@ -426,6 +441,6 @@ int data_recovery_start(const int data_group_id)
     if (result == 0) {
         result = data_recovery_unlink_sys_data(&ctx);
     }
-    data_recovery_destroy(&ctx);
+    destroy_data_recovery_ctx(&ctx);
     return result;
 }

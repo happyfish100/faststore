@@ -40,6 +40,7 @@ typedef struct server_global_vars {
     struct {
         int channels_between_two_servers;
         int recovery_threads_per_data_group;
+        int recovery_max_queue_depth;
         int active_test_interval;   //round(nework_timeout / 2)
         SFContext sf_context;       //for replica communication
     } replica;
@@ -79,6 +80,9 @@ typedef struct server_global_vars {
 
 #define RECOVERY_THREADS_PER_DATA_GROUP \
     g_server_global_vars.replica.recovery_threads_per_data_group
+
+#define RECOVERY_MAX_QUEUE_DEPTH \
+    g_server_global_vars.replica.recovery_max_queue_depth
 
 #define CLUSTER_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.cluster_group_index
 #define REPLICA_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.replica_group_index

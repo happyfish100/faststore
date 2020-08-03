@@ -6,12 +6,17 @@
 #include "recovery_types.h"
 #include "../binlog/binlog_reader.h"
 
+#define DATA_RECOVERY_THREADS_LIMIT  2
+
 #define DATA_RECOVERY_CATCH_UP_DOING       0
 #define DATA_RECOVERY_CATCH_UP_LAST_BATCH  1
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+int data_recovery_init();
+void data_recovery_destroy();
 
 int data_recovery_start(const int data_group_id);
 
