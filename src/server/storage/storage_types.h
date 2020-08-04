@@ -21,7 +21,7 @@ struct fs_cluster_data_server_info;
 typedef struct fs_slice_op_context {
     struct {
         fs_slice_op_notify_func func;
-        void *args;
+        void *arg;
     } notify;
 
     volatile int counter;

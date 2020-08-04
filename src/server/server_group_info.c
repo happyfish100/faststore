@@ -84,9 +84,6 @@ static int init_ds_pthread_lock_cond(FSClusterDataServerInfo *ds)
 {
     int result;
     if ((result=init_pthread_lock(&ds->replica.notify.lock)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "init_pthread_lock fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
         return result;
     }
 

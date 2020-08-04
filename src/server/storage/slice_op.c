@@ -82,7 +82,7 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
 {
     FSSliceOpContext *op_ctx;
 
-    op_ctx = (FSSliceOpContext *)record->notify.args;
+    op_ctx = (FSSliceOpContext *)record->notify.arg;
     if (result == 0) {
         op_ctx->done_bytes += record->slice->ssize.length;
     } else {
@@ -378,7 +378,7 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
 
 static void slice_read_done(struct trunk_io_buffer *record, const int result)
 {
-    do_read_done(record->slice, (FSSliceOpContext *)record->notify.args, result);
+    do_read_done(record->slice, (FSSliceOpContext *)record->notify.arg, result);
 }
 
 int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,

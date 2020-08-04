@@ -135,7 +135,7 @@ static void slice_read_done_notify(FSSliceOpContext *notify)
 {
     struct fast_task_info *task;
 
-    task = (struct fast_task_info *)notify->notify.args;
+    task = (struct fast_task_info *)notify->notify.arg;
     if (notify->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
@@ -191,7 +191,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
 
     buff = REQUEST.body;
     OP_CTX_NOTIFY.func = slice_read_done_notify;
-    OP_CTX_NOTIFY.args = task;
+    OP_CTX_NOTIFY.arg = task;
     result = fs_slice_read_ex(&SLICE_OP_CTX, buff,
             SERVER_CTX->service.slice_ptr_array);
     if (result != 0) {

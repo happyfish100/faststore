@@ -254,6 +254,7 @@ static int write_one_binlog(BinlogDedupContext *dedup_ctx,
 {
     int length;
     int result;
+    int op_type;
     uint64_t data_version;
 
     if (first == last) {
@@ -263,11 +264,21 @@ static int write_one_binlog(BinlogDedupContext *dedup_ctx,
             last->ssize.length;
     }
 
+    if (dedup_ctx->out.current_op_type == SLICE_BINLOG_OP_TYPE_DEL_SLICE) {
+        op_type = REPLICA_BINLOG_OP_TYPE_DEL_SLICE;
+    } else {
+        if (first->type == OB_SLICE_TYPE_FILE) {
+            op_type = REPLICA_BINLOG_OP_TYPE_WRITE_SLICE;
+        } else {
+            op_type = REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE;
+        }
+    }
+
     data_version = ++(dedup_ctx->out.current_version);
     if (fprintf(dedup_ctx->out.writer.fp,
-                "%"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
-                data_version,dedup_ctx->out.current_op_type,
-                first->type, first->ob->bkey.oid,
+                "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+                (int)g_current_time, data_version,
+                op_type, first->ob->bkey.oid,
                 first->ob->bkey.offset,
                 first->ssize.offset, length) > 0)
     {

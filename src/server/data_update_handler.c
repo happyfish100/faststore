@@ -149,7 +149,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
     struct fast_task_info *task;
     int result;
 
-    task = (struct fast_task_info *)op_ctx->notify.args;
+    task = (struct fast_task_info *)op_ctx->notify.arg;
     if (op_ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
@@ -196,7 +196,7 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
     struct fast_task_info *task;
     FSSliceOpBufferContext *op_buffer_ctx;
 
-    task = (struct fast_task_info *)op_ctx->notify.args;
+    task = (struct fast_task_info *)op_ctx->notify.arg;
     if (op_ctx->result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, write slice fail, "
@@ -300,7 +300,7 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     } else {
         op_ctx->notify.func = slave_slice_write_done_notify;
     }
-    op_ctx->notify.args = task;
+    op_ctx->notify.arg = task;
 
     //TODO
     /*

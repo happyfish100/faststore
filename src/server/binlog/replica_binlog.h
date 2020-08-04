@@ -17,7 +17,6 @@ typedef struct replica_binlog_record {
     int op_type;
     FSBlockSliceKeyInfo bs_key;
     int64_t data_version;
-    struct replica_binlog_record *next;
 } ReplicaBinlogRecord;
 
 #ifdef __cplusplus

@@ -21,19 +21,41 @@
 #include "../cluster_relationship.h"
 #include "../server_binlog.h"
 #include "../server_replication.h"
+#include "../server_storage.h"
 #include "data_recovery.h"
 #include "binlog_replay.h"
 
 #define FIXED_THREAD_CONTEXT_COUNT  16
 
 struct binlog_replay_context;
+struct replay_thread_context;
 
-typedef struct {
+typedef struct replay_task_info {
+    int op_type;
+    FSSliceOpContext op_ctx;
+    struct replay_thread_context *thread_ctx;
+    struct replay_task_info *next;
+} ReplayTaskInfo;
+
+typedef struct replay_thread_context {
     struct {
-        struct fc_queue freelist; //element: ReplicaBinlogRecord
-        struct fc_queue waiting;  //element: ReplicaBinlogRecord
+        struct fc_queue freelist; //element: ReplayTaskInfo
+        struct fc_queue waiting;  //element: ReplayTaskInfo
     } queues;
 
+    struct {
+        pthread_mutex_t lock;
+        pthread_cond_t cond;
+    } notify;
+
+    struct {
+        int64_t write_count;
+        int64_t allocate_count;
+        int64_t delete_count;
+        int64_t fail_count;
+    } stat;
+
+    struct ob_slice_ptr_array slice_ptr_array;
     struct binlog_replay_context *replay_ctx;
 } ReplayThreadContext;
 
@@ -45,7 +67,7 @@ typedef struct binlog_replay_context {
     struct {
         ReplayThreadContext *contexts;
         ReplayThreadContext fixed[FIXED_THREAD_CONTEXT_COUNT];
-        ReplicaBinlogRecord *records;   //holder
+        ReplayTaskInfo *tasks;   //holder
     } thread_env;
     ReplicaBinlogRecord record;
 } BinlogReplayContext;
@@ -74,22 +96,77 @@ void binlog_replay_destroy()
 {
 }
 
-static void binlog_replay_run(void *arg)
+static void slice_write_done_notify(FSSliceOpContext *op_ctx)
 {
     ReplayThreadContext *thread_ctx;
 
-    thread_ctx = (ReplayThreadContext *)arg;
+    thread_ctx = (ReplayThreadContext *)op_ctx->notify.arg;
+    pthread_cond_signal(&thread_ctx->notify.cond);
+}
 
-    while (thread_ctx->replay_ctx->continue_flag) {
-        //TODO
+static int deal_task(ReplayTaskInfo *task)
+{
+    int result;
+    char *buff;
+    int inc_alloc;
+    int dec_alloc;
+
+    switch (task->op_type) {
+        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+            result = fs_delete_slices(&task->op_ctx, &dec_alloc);
+            break;
+        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+            //TODO
+            buff = NULL;
+            result = fs_slice_write(&task->op_ctx, buff);
+            break;
+        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
+            result = fs_slice_allocate_ex(&task->op_ctx,
+                    &task->thread_ctx->slice_ptr_array, &inc_alloc);
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "unkown op type: %c (0x%02x)",
+                    __LINE__, task->op_type, task->op_type);
+            return EINVAL;
     }
+
+    return result;
+}
+
+static void binlog_replay_run(void *arg)
+{
+    ReplayThreadContext *thread_ctx;
+    ReplayTaskInfo *task;
+
+    thread_ctx = (ReplayThreadContext *)arg;
+    __sync_add_and_fetch(&thread_ctx->replay_ctx->running_count, 1);
+    while (thread_ctx->replay_ctx->continue_flag) {
+        if ((task=(ReplayTaskInfo *)fc_queue_try_pop(
+                        &thread_ctx->queues.waiting)) == NULL)
+        {
+            usleep(100000);
+            continue;
+        }
+
+        do {
+            if (deal_task(task) != 0) {
+                break;
+            }
+            fc_queue_push(&thread_ctx->queues.freelist, task);
+            task = (ReplayTaskInfo *)fc_queue_try_pop(
+                    &thread_ctx->queues.waiting);
+        } while (task != NULL && SF_G_CONTINUE_FLAG);
+    }
+
+    __sync_sub_and_fetch(&thread_ctx->replay_ctx->running_count, 1);
 }
 
 static int deal_binlog_buffer(DataRecoveryContext *ctx)
 {
     BinlogReplayContext *replay_ctx;
     ReplayThreadContext *thread_ctx;
-    ReplicaBinlogRecord *record;
+    ReplayTaskInfo *task;
     char *p;
     char *line_end;
     char *end;
@@ -129,7 +206,9 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
             FS_BLOCK_HASH_CODE(replay_ctx->record.bs_key.block) %
             RECOVERY_THREADS_PER_DATA_GROUP;
         while (1) {
-            if ((record=fc_queue_pop(&thread_ctx->queues.freelist)) != NULL) {
+            if ((task=(ReplayTaskInfo *)fc_queue_pop(
+                            &thread_ctx->queues.freelist)) != NULL)
+            {
                 break;
             }
 
@@ -138,8 +217,10 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
             }
         }
 
-        *record = replay_ctx->record;
-        fc_queue_push(&thread_ctx->queues.waiting, record);
+        task->op_type = replay_ctx->record.op_type;
+        task->op_ctx.info.data_version = replay_ctx->record.data_version;
+        task->op_ctx.info.bs_key = replay_ctx->record.bs_key;
+        fc_queue_push(&thread_ctx->queues.waiting, task);
 
         p = line_end;
     }
@@ -207,73 +288,127 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     }
 
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
+
+    if (result != 0) {
+        replay_ctx->continue_flag = false;
+    } else {
+        usleep(100000);
+    }
+
+    while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
+        usleep(100000);
+        logInfo("data group id: %d, replay running threads: %d",
+                ctx->data_group_id, __sync_add_and_fetch(
+                    &replay_ctx->running_count, 0));
+    }
+
     return result;
 }
 
-static int int_rthread_context(ReplayThreadContext *thread_ctx,
-        ReplicaBinlogRecord *records)
+static int init_rthread_context(ReplayThreadContext *thread_ctx,
+        ReplayTaskInfo *tasks)
 {
     int result;
     bool notify;
-    ReplicaBinlogRecord *record;
-    ReplicaBinlogRecord *end;
+    ReplayTaskInfo *task;
+    ReplayTaskInfo *end;
 
     if ((result=fc_queue_init(&thread_ctx->queues.freelist, (long)
-                    (&((ReplicaBinlogRecord *)NULL)->next))) != 0)
+                    (&((ReplayTaskInfo *)NULL)->next))) != 0)
     {
         return result;
     }
 
     if ((result=fc_queue_init(&thread_ctx->queues.waiting, (long)
-                    (&((ReplicaBinlogRecord *)NULL)->next))) != 0)
+                    (&((ReplayTaskInfo *)NULL)->next))) != 0)
     {
         return result;
     }
 
-    end = records + RECOVERY_MAX_QUEUE_DEPTH;
-    for (record=records; record<end; record++) {
-        fc_queue_push_ex(&thread_ctx->queues.freelist, record, &notify);
+    if ((result=init_pthread_lock(&thread_ctx->notify.lock)) != 0) {
+        return result;
+    }
+
+    if ((result=pthread_cond_init(&thread_ctx->notify.cond, NULL)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "pthread_cond_init fail, "
+                "errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    end = tasks + RECOVERY_MAX_QUEUE_DEPTH;
+    for (task=tasks; task<end; task++) {
+        task->op_ctx.notify.func = slice_write_done_notify;
+        task->op_ctx.notify.arg = thread_ctx;
+        task->thread_ctx = thread_ctx;
+        fc_queue_push_ex(&thread_ctx->queues.freelist, task, &notify);
+    }
+
+    ob_index_init_slice_ptr_array(&thread_ctx->slice_ptr_array);
+    return 0;
+}
+
+static int init_replay_tasks(DataRecoveryContext *ctx)
+{
+    BinlogReplayContext *replay_ctx;
+    ReplayTaskInfo *task;
+    ReplayTaskInfo *end;
+    int count;
+    int bytes;
+
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
+    count = RECOVERY_THREADS_PER_DATA_GROUP * RECOVERY_MAX_QUEUE_DEPTH;
+    bytes = sizeof(ReplayTaskInfo) * count;
+    replay_ctx->thread_env.tasks = (ReplayTaskInfo *)fc_malloc(bytes);
+    if (replay_ctx->thread_env.tasks == NULL) {
+        return ENOMEM;
+    }
+
+    end = replay_ctx->thread_env.tasks + count;
+    for (task=replay_ctx->thread_env.tasks; task<end; task++) {
+        task->op_ctx.info.write_data_binlog = true;
+        task->op_ctx.info.data_group_id = ctx->data_group_id;
+        task->op_ctx.info.myself = ctx->master->dg->myself;
     }
 
     return 0;
 }
 
-static int int_replay_context(BinlogReplayContext *replay_ctx)
+static int int_replay_context(DataRecoveryContext *ctx)
 {
-    int bytes;
-    int result;
+    BinlogReplayContext *replay_ctx;
     ReplayThreadContext *context;
     ReplayThreadContext *end;
-    ReplicaBinlogRecord *records;
+    ReplayTaskInfo *tasks;
+    int bytes;
+    int result;
 
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
+    bytes = sizeof(ReplayThreadContext) * RECOVERY_THREADS_PER_DATA_GROUP;
     if (RECOVERY_THREADS_PER_DATA_GROUP <= FIXED_THREAD_CONTEXT_COUNT) {
         replay_ctx->thread_env.contexts = replay_ctx->thread_env.fixed;
     } else {
-        bytes = sizeof(ReplayThreadContext) * RECOVERY_THREADS_PER_DATA_GROUP;
         replay_ctx->thread_env.contexts = (ReplayThreadContext *)
             fc_malloc(bytes);
         if (replay_ctx->thread_env.contexts == NULL) {
             return ENOMEM;
         }
     }
+    memset(replay_ctx->thread_env.contexts, 0, bytes);
 
-    bytes = sizeof(ReplicaBinlogRecord) * (RECOVERY_THREADS_PER_DATA_GROUP *
-            RECOVERY_MAX_QUEUE_DEPTH);
-    replay_ctx->thread_env.records = (ReplicaBinlogRecord *)
-        fc_malloc(bytes);
-    if (replay_ctx->thread_env.records == NULL) {
-        return ENOMEM;
+    if ((result=init_replay_tasks(ctx)) != 0) {
+        return result;
     }
 
-    result = 0;
     replay_ctx->continue_flag = true;
     end = replay_ctx->thread_env.contexts + RECOVERY_THREADS_PER_DATA_GROUP;
     for (context=replay_ctx->thread_env.contexts,
-            records=replay_ctx->thread_env.records; context<end;
-            context++, records += RECOVERY_MAX_QUEUE_DEPTH)
+            tasks=replay_ctx->thread_env.tasks; context<end;
+            context++, tasks += RECOVERY_MAX_QUEUE_DEPTH)
     {
         context->replay_ctx = replay_ctx;
-        if ((result=int_rthread_context(context, records)) != 0) {
+        if ((result=init_rthread_context(context, tasks)) != 0) {
             break;
         }
 
@@ -300,8 +435,13 @@ static void destroy_replay_context(BinlogReplayContext *replay_ctx)
     for (context=replay_ctx->thread_env.contexts; context<end; context++) {
         fc_queue_destroy(&context->queues.freelist);
         fc_queue_destroy(&context->queues.waiting);
+
+        pthread_cond_destroy(&context->notify.cond);
+        pthread_mutex_destroy(&context->notify.lock);
+
+        ob_index_free_slice_ptr_array(&context->slice_ptr_array);
     }
-    free(replay_ctx->thread_env.records);
+    free(replay_ctx->thread_env.tasks);
 
     if (replay_ctx->thread_env.contexts != replay_ctx->thread_env.fixed) {
         free(replay_ctx->thread_env.contexts);
@@ -316,7 +456,7 @@ int data_recovery_replay_binlog(DataRecoveryContext *ctx)
     ctx->arg = &replay_ctx;
     memset(&replay_ctx, 0, sizeof(replay_ctx));
 
-    if ((result=int_replay_context(&replay_ctx)) != 0) {
+    if ((result=int_replay_context(ctx)) != 0) {
         return result;
     }
     result = do_replay_binlog(ctx);

@@ -196,7 +196,7 @@ void trunk_io_thread_terminate()
 
 int trunk_io_thread_push(const int type, const int path_index,
         const uint32_t hash_code, void *entry, char *buff,
-        trunk_io_notify_func notify_func, void *notify_args)
+        trunk_io_notify_func notify_func, void *notify_arg)
 {
     TrunkIOPathContext *path_ctx;
     TrunkIOThreadContext *thread_ctx;
@@ -233,7 +233,7 @@ int trunk_io_thread_push(const int type, const int path_index,
     }
     iob->data.len = 0;
     iob->notify.func = notify_func;
-    iob->notify.args = notify_args;
+    iob->notify.arg = notify_arg;
     iob->next = NULL;
 
     if (thread_ctx->tail == NULL) {

@@ -28,7 +28,7 @@ typedef struct trunk_io_buffer {
     string_t data;
     struct {
         trunk_io_notify_func func;
-        void *args;
+        void *arg;
     } notify;
     struct trunk_io_buffer *next;
 } TrunkIOBuffer;
@@ -42,24 +42,24 @@ extern "C" {
 
     int trunk_io_thread_push(const int type, const int path_index,
             const uint32_t hash_code, void *entry, char *buff,
-            trunk_io_notify_func notify_func, void *notify_args);
+            trunk_io_notify_func notify_func, void *notify_arg);
 
     static inline int io_thread_push_trunk_op(const int type,
             const FSTrunkSpaceInfo *space, trunk_io_notify_func
-            notify_func, void *notify_args)
+            notify_func, void *notify_arg)
     {
         return trunk_io_thread_push(type, space->store->index,
                 space->id_info.id, (void *)space, NULL,
-                notify_func, notify_args);
+                notify_func, notify_arg);
     }
 
     static inline int io_thread_push_slice_op(const int type,
             OBSliceEntry *slice, char *buff, trunk_io_notify_func
-            notify_func, void *notify_args)
+            notify_func, void *notify_arg)
     {
         return trunk_io_thread_push(type, slice->space.store->index,
                 FS_BLOCK_HASH_CODE(slice->ob->bkey), slice, buff,
-                notify_func, notify_args);
+                notify_func, notify_arg);
     }
 
 #ifdef __cplusplus
