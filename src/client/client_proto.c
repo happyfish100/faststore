@@ -27,7 +27,7 @@ static inline void proto_pack_block_key(const FSBlockKey *
 }
 
 #define FS_CLIENT_DATA_GROUP_INDEX(hash_code) \
-    (hash_code % FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg))
+    (hash_code % FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr))
 
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
@@ -196,6 +196,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
 
             *read_bytes += bytes;
             remain -= bytes;
+            //TODO
             if (curr_len > bytes) {
                 break;
             }
@@ -335,7 +336,7 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
 
     proto_header = (FSProtoHeader *)out_buff;
     req = (FSProtoClientJoinReq *)(proto_header + 1);
-    int2buff(FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg),
+    int2buff(FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             req->data_group_count);
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));

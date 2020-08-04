@@ -37,6 +37,12 @@ typedef struct replay_task_info {
     struct replay_task_info *next;
 } ReplayTaskInfo;
 
+typedef struct {
+    FSCounterTripple write;
+    FSCounterTripple allocate;
+    FSCounterTripple remove;
+} ReplayStatInfo;
+
 typedef struct replay_thread_context {
     struct {
         struct fc_queue freelist; //element: ReplayTaskInfo
@@ -46,22 +52,18 @@ typedef struct replay_thread_context {
     struct {
         pthread_mutex_t lock;
         pthread_cond_t cond;
+        bool done;
     } notify;
 
-    struct {
-        int64_t write_count;
-        int64_t allocate_count;
-        int64_t delete_count;
-        int64_t fail_count;
-    } stat;
-
+    ReplayStatInfo stat;
     struct ob_slice_ptr_array slice_ptr_array;
     struct binlog_replay_context *replay_ctx;
 } ReplayThreadContext;
 
 typedef struct binlog_replay_context {
     volatile int running_count;
-    bool continue_flag;
+    volatile bool continue_flag;
+    volatile int64_t fail_count;
     BinlogReadThreadContext rdthread_ctx;
     BinlogReadThreadResult *r;
     struct {
@@ -70,6 +72,7 @@ typedef struct binlog_replay_context {
         ReplayTaskInfo *tasks;   //holder
     } thread_env;
     ReplicaBinlogRecord record;
+    DataRecoveryContext *recovery_ctx;
 } BinlogReplayContext;
 
 static FCThreadPool replay_thread_pool;
@@ -101,7 +104,12 @@ static void slice_write_done_notify(FSSliceOpContext *op_ctx)
     ReplayThreadContext *thread_ctx;
 
     thread_ctx = (ReplayThreadContext *)op_ctx->notify.arg;
-    pthread_cond_signal(&thread_ctx->notify.cond);
+    PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lock);
+    if (!thread_ctx->notify.done) {
+        thread_ctx->notify.done = true;
+        pthread_cond_signal(&thread_ctx->notify.cond);
+    }
+    PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lock);
 }
 
 static int deal_task(ReplayTaskInfo *task)
@@ -112,23 +120,67 @@ static int deal_task(ReplayTaskInfo *task)
     int dec_alloc;
 
     switch (task->op_type) {
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
-            result = fs_delete_slices(&task->op_ctx, &dec_alloc);
-            break;
         case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+            task->thread_ctx->notify.done = false;
+            task->thread_ctx->stat.write.total++;
+
             //TODO
             buff = NULL;
-            result = fs_slice_write(&task->op_ctx, buff);
+            if ((result=fs_slice_write(&task->op_ctx, buff)) == 0) {
+                PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lock);
+                while (!task->thread_ctx->notify.done) {
+                    pthread_cond_wait(&task->thread_ctx->notify.cond,
+                            &task->thread_ctx->notify.lock);
+                }
+                PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lock);
+
+                if (task->op_ctx.result == 0) {
+                    task->thread_ctx->stat.write.success++;
+                } else {
+                    result = task->op_ctx.result;
+                }
+            }
             break;
         case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
-            result = fs_slice_allocate_ex(&task->op_ctx,
-                    &task->thread_ctx->slice_ptr_array, &inc_alloc);
+            task->thread_ctx->stat.allocate.total++;
+            if ((result=fs_slice_allocate_ex(&task->op_ctx, &task->
+                            thread_ctx->slice_ptr_array, &inc_alloc)) == 0)
+            {
+                task->thread_ctx->stat.allocate.success++;
+            }
             break;
+        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+            task->thread_ctx->stat.remove.total++;
+            if ((result=fs_delete_slices(&task->op_ctx, &dec_alloc)) == 0) {
+                task->thread_ctx->stat.remove.success++;
+            } else if (result == ENOENT) {
+                result = 0;
+                task->thread_ctx->stat.remove.ignore++;
+            }
         default:
             logError("file: "__FILE__", line: %d, "
                     "unkown op type: %c (0x%02x)",
                     __LINE__, task->op_type, task->op_type);
-            return EINVAL;
+            result = EINVAL;
+            break;
+    }
+
+    if (result != 0) {
+        __sync_add_and_fetch(&task->thread_ctx->replay_ctx->fail_count, 1);
+        task->thread_ctx->replay_ctx->continue_flag = false;
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, %s fail, "
+                "oid: %"PRId64", block offset: %"PRId64", "
+                "slice offset: %d, length: %d, "
+                "errno: %d, error info: %s",
+                __LINE__, task->thread_ctx->replay_ctx->
+                recovery_ctx->data_group_id,
+                replica_binlog_get_op_type_caption(task->op_type),
+                task->op_ctx.info.bs_key.block.oid,
+                task->op_ctx.info.bs_key.block.offset,
+                task->op_ctx.info.bs_key.slice.offset,
+                task->op_ctx.info.bs_key.slice.length,
+                task->op_ctx.result, STRERROR(task->op_ctx.result));
     }
 
     return result;
@@ -243,10 +295,37 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
     return result;
 }
 
+static void calc_replay_stat(BinlogReplayContext *replay_ctx,
+        ReplayStatInfo *stat)
+{
+    ReplayThreadContext *context;
+    ReplayThreadContext *end;
+
+    memset(stat, 0, sizeof(*stat));
+    end = replay_ctx->thread_env.contexts + RECOVERY_THREADS_PER_DATA_GROUP;
+    for (context=replay_ctx->thread_env.contexts; context<end; context++) {
+        stat->write.total += context->stat.write.total;
+        stat->write.success += context->stat.write.success;
+        stat->allocate.total += context->stat.allocate.total;
+        stat->allocate.success += context->stat.allocate.success;
+        stat->remove.total += context->stat.remove.total;
+        stat->remove.success += context->stat.remove.success;
+        stat->remove.ignore += context->stat.remove.ignore;
+    }
+}
+
 static int do_replay_binlog(DataRecoveryContext *ctx)
 {
     BinlogReplayContext *replay_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    ReplayStatInfo stat;
+    char prompt[32];
+    char time_buff[32];
+    int64_t end_time;
+    int64_t total_count;
+    int64_t success_count;
+    int64_t fail_count;
+    int64_t ignore_count;
     int result;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
@@ -289,18 +368,42 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
 
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
 
-    if (result != 0) {
-        replay_ctx->continue_flag = false;
-    } else {
+    if (result == 0) {
         usleep(100000);
     }
-
+    replay_ctx->continue_flag = false;
     while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
-        usleep(100000);
         logInfo("data group id: %d, replay running threads: %d",
                 ctx->data_group_id, __sync_add_and_fetch(
                     &replay_ctx->running_count, 0));
+        usleep(100000);
     }
+
+    calc_replay_stat(replay_ctx, &stat);
+    total_count = stat.write.total + stat.allocate.total + stat.remove.total;
+    success_count = stat.write.success + stat.allocate.success + stat.remove.success;
+    fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
+    ignore_count = stat.remove.ignore;
+
+    if (fail_count > 0) {
+        if (result == 0) {
+            result = EBUSY;
+        }
+    }
+    if (result == 0) {
+        strcpy(prompt, "success");
+    } else {
+        strcpy(prompt, "fail");
+    }
+
+    end_time = get_current_time_ms();
+    long_to_comma_str(end_time - ctx->start_time, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, data recovery %s. "
+            "total count: %"PRId64", success count: %"PRId64", "
+            "fail count: %"PRId64", ignore count: %"PRId64", "
+            "time used: %s ms", __LINE__, ctx->data_group_id, prompt,
+            total_count, success_count, fail_count, ignore_count, time_buff);
 
     return result;
 }
@@ -455,6 +558,7 @@ int data_recovery_replay_binlog(DataRecoveryContext *ctx)
 
     ctx->arg = &replay_ctx;
     memset(&replay_ctx, 0, sizeof(replay_ctx));
+    replay_ctx.recovery_ctx = ctx;
 
     if ((result=int_replay_context(ctx)) != 0) {
         return result;

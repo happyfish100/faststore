@@ -49,7 +49,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         g_fs_client_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
-    if ((result=fs_cluster_cfg_load_from_ini(&client_ctx->cluster_cfg,
+    if ((result=fs_cluster_cfg_load_from_ini(client_ctx->cluster_cfg.ptr,
                     iniContext, conf_filename)) != 0)
     {
         return result;
@@ -67,11 +67,11 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             g_fs_client_vars.base_path,
             g_fs_client_vars.connect_timeout,
             g_fs_client_vars.network_timeout,
-            FS_SERVER_GROUP_COUNT(client_ctx->cluster_cfg),
-            FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg));
+            FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
+            FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
 #endif
 
-    fs_cluster_cfg_to_log(&client_ctx->cluster_cfg);
+    fs_cluster_cfg_to_log(client_ctx->cluster_cfg.ptr);
     return 0;
 }
 
@@ -102,6 +102,8 @@ int fs_client_init_ex(FSClientContext *client_ctx,
         const char *conf_filename, const FSConnectionManager *conn_manager)
 {
     int result;
+
+    client_ctx->cluster_cfg.ptr = &client_ctx->cluster_cfg.holder;
     if ((result=fs_client_load_from_file_ex(
                     client_ctx, conf_filename)) != 0)
     {

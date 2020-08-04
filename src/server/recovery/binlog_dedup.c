@@ -32,19 +32,13 @@ typedef struct {
 } BinlogHashtables;
 
 typedef struct {
-    int64_t total;
-    int64_t success;
-    int64_t ignore;
-} BinlogCounterTripple;
-
-typedef struct {
     BinlogHashtables htables;
     BinlogReadThreadContext rdthread_ctx;
     BinlogReadThreadResult *r;
     ReplicaBinlogRecord record;
     struct {
-        BinlogCounterTripple create;  //add slice index
-        BinlogCounterTripple remove;  //remove slice index
+        FSCounterTripple create;  //add slice index
+        FSCounterTripple remove;  //remove slice index
         int64_t partial_deletes;
     } rstat;  //record stat
 

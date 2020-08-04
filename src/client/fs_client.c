@@ -63,7 +63,7 @@ static int stat_data_group(FSClientContext *client_ctx,
     int new_group_id;
     int result;
 
-    if ((server_group=fs_cluster_cfg_get_server_group(&client_ctx->cluster_cfg,
+    if ((server_group=fs_cluster_cfg_get_server_group(client_ctx->cluster_cfg.ptr,
                     data_group_id - 1)) == NULL)
     {
         return ENOENT;
@@ -103,7 +103,7 @@ int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
                 stats, size, count);
     }
 
-    data_group_count = FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
+    data_group_count = FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr);
     if (data_group_count <= FIXED_DATA_GROUP_SIZE) {
         ids = fixed_ids;
     } else {

@@ -66,7 +66,7 @@ static ConnectionInfo *get_connection(FSClientContext *client_ctx,
     int server_index;
     int i;
 
-    server_ptr_array = &client_ctx->cluster_cfg.data_groups.mappings
+    server_ptr_array = &client_ctx->cluster_cfg.ptr->data_groups.mappings
         [data_group_index].server_group->server_array;
 
     server_hash_code = rand();
@@ -233,7 +233,7 @@ static int init_data_group_array(FSClientContext *client_ctx,
     FSClientDataGroupEntry *entry;
     FSClientDataGroupEntry *end;
 
-    data_group_array->count = FS_DATA_GROUP_COUNT(client_ctx->cluster_cfg);
+    data_group_array->count = FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr);
     bytes = sizeof(FSClientDataGroupEntry) * data_group_array->count;
     data_group_array->entries = (FSClientDataGroupEntry *)fc_malloc(bytes);
     if (data_group_array->entries == NULL) {
@@ -270,7 +270,7 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
     }
 
     htable_init_capacity = 4 * FC_SID_SERVER_COUNT(client_ctx->
-            cluster_cfg.server_cfg);
+            cluster_cfg.ptr->server_cfg);
     if (htable_init_capacity < 256) {
         htable_init_capacity = 256;
     }

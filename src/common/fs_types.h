@@ -59,6 +59,12 @@ typedef struct fs_block_slice_key_info {
 } FSBlockSliceKeyInfo;
 
 typedef struct {
+    int64_t total;
+    int64_t success;
+    int64_t ignore;
+} FSCounterTripple;
+
+typedef struct {
     int body_len;      //body length
     short flags;
     short status;
