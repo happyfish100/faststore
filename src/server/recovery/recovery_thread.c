@@ -152,8 +152,9 @@ int recovery_thread_init()
     }
 
     if ((result=fc_thread_pool_init(&recovery_thread_ctx.tpool,
-                    limit, SF_G_THREAD_STACK_SIZE, max_idle_time,
-                    min_idle_count, (bool *)&SF_G_CONTINUE_FLAG)) != 0)
+                    "data recovery", limit, SF_G_THREAD_STACK_SIZE,
+                    max_idle_time, min_idle_count, (bool *)
+                    &SF_G_CONTINUE_FLAG)) != 0)
     {
         return result;
     }

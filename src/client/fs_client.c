@@ -117,6 +117,7 @@ int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
         ids[i] = i + 1;
     }
 
+    result = 0;
     *count = 0;
     for (i=0; i<data_group_count; i++) {
         if (ids[i] == 0) {

@@ -99,7 +99,7 @@ int binlog_replay_init()
     limit = DATA_RECOVERY_THREADS_LIMIT * RECOVERY_THREADS_PER_DATA_GROUP;
     extra_data_callbacks.alloc = alloc_thread_extra_data_func;
     extra_data_callbacks.free = free_thread_extra_data_func;
-    if ((result=fc_thread_pool_init_ex(&replay_thread_pool,
+    if ((result=fc_thread_pool_init_ex(&replay_thread_pool, "binlog replay",
                     limit, SF_G_THREAD_STACK_SIZE, max_idle_time,
                     min_idle_count, (bool *)&SF_G_CONTINUE_FLAG,
                     &extra_data_callbacks)) != 0)
@@ -107,6 +107,10 @@ int binlog_replay_init()
         return result;
     }
 
+    g_fs_client_vars.connect_timeout = SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.network_timeout = SF_G_NETWORK_TIMEOUT;
+    snprintf(g_fs_client_vars.base_path, sizeof(g_fs_client_vars.base_path),
+            "%s", SF_G_BASE_PATH);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
     if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.client_ctx,
                     &g_fs_client_vars.client_ctx.conn_manager)) != 0)
@@ -114,11 +118,6 @@ int binlog_replay_init()
         return result;
     }
     g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
-
-    g_fs_client_vars.connect_timeout = SF_G_CONNECT_TIMEOUT;
-    g_fs_client_vars.network_timeout = SF_G_NETWORK_TIMEOUT;
-    snprintf(g_fs_client_vars.base_path, sizeof(g_fs_client_vars.base_path),
-            "%s", SF_G_BASE_PATH);
 
     return 0;
 }
@@ -244,7 +243,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 task->op_ctx.info.bs_key.block.offset,
                 task->op_ctx.info.bs_key.slice.offset,
                 task->op_ctx.info.bs_key.slice.length,
-                task->op_ctx.result, STRERROR(task->op_ctx.result));
+                result, STRERROR(result));
     }
 
     return result;

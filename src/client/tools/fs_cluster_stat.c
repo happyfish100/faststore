@@ -93,8 +93,8 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    alloc_size = FS_DATA_GROUP_COUNT(g_fs_client_vars.
-            client_ctx.cluster_cfg) * 5;
+    alloc_size = FS_DATA_GROUP_COUNT(*g_fs_client_vars.
+            client_ctx.cluster_cfg.ptr) * 5;
     if (alloc_size < CLUSTER_MAX_STAT_COUNT) {
         alloc_size = CLUSTER_MAX_STAT_COUNT;
         stats = fixed_stats;

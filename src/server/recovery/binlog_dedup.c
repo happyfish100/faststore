@@ -527,7 +527,8 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     *binlog_count = dedup_ctx.out.binlog_counts.remove +
         dedup_ctx.out.binlog_counts.create;
     if (result == 0) {
-        result = data_recovery_unlink_fetched_binlog(ctx);
+        //TODO
+        //result = data_recovery_unlink_fetched_binlog(ctx);
 
         end_time = get_current_time_ms();
         long_to_comma_str(end_time - start_time, time_buff);

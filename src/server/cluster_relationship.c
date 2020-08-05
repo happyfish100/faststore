@@ -667,10 +667,10 @@ static int cluster_select_leader()
         }
 
         ++i;
-        if (g_current_time - server_status.last_shutdown_time > 300) {
+        if (g_current_time - server_status.last_shutdown_time > 3600) {
             sprintf(prompt, "the candidate leader server id: %d, "
                     "does not match the selection rule because it's "
-                    "restart interval: %d exceeds 300, "
+                    "restart interval: %d exceeds 3600, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the config file. ",
                     server_status.cs->server->id, (int)(g_current_time -

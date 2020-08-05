@@ -467,7 +467,7 @@ static int deal_binlog_records(BinlogWriterThread *thread,
             current = wbuffer;
             wbuffer = wbuffer->next;
 
-            if (FS_BINLOG_BUFFER_TYPE_SET_NEXT_VERSION) {
+            if (current->type == FS_BINLOG_BUFFER_TYPE_SET_NEXT_VERSION) {
                 if (current->writer->version_ctx.ring.start !=
                         current->writer->version_ctx.ring.end)
                 {
