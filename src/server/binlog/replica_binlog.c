@@ -288,6 +288,7 @@ int replica_binlog_init()
             return ENOENT;
         }
 
+        writer->thread = &binlog_writer_thread;
         binlog_writer_array.writers[data_group_id - min_id] = writer;
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
@@ -310,7 +311,6 @@ int replica_binlog_init()
                     __LINE__, data_group_id, myself->replica.data_version);
         }
 
-        writer->thread = &binlog_writer_thread;
         writer++;
     }
 

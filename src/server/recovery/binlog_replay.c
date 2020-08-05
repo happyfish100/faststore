@@ -17,6 +17,7 @@
 #include "sf/sf_global.h"
 #include "../../common/fs_proto.h"
 #include "../../common/fs_func.h"
+#include "../../client/fs_client.h"
 #include "../server_global.h"
 #include "../cluster_relationship.h"
 #include "../server_binlog.h"
@@ -77,20 +78,47 @@ typedef struct binlog_replay_context {
 
 static FCThreadPool replay_thread_pool;
 
+static void *alloc_thread_extra_data_func()
+{
+    return fc_malloc(FS_FILE_BLOCK_SIZE);
+}
+
+static void free_thread_extra_data_func(void *ptr)
+{
+    free(ptr);
+}
+
 int binlog_replay_init()
 {
     int result;
     int limit;
     const int max_idle_time = 60;
     const int min_idle_count = 0;
+    FCThreadExtraDataCallbacks extra_data_callbacks;
 
     limit = DATA_RECOVERY_THREADS_LIMIT * RECOVERY_THREADS_PER_DATA_GROUP;
-    if ((result=fc_thread_pool_init(&replay_thread_pool,
+    extra_data_callbacks.alloc = alloc_thread_extra_data_func;
+    extra_data_callbacks.free = free_thread_extra_data_func;
+    if ((result=fc_thread_pool_init_ex(&replay_thread_pool,
                     limit, SF_G_THREAD_STACK_SIZE, max_idle_time,
-                    min_idle_count, (bool *)&SF_G_CONTINUE_FLAG)) != 0)
+                    min_idle_count, (bool *)&SF_G_CONTINUE_FLAG,
+                    &extra_data_callbacks)) != 0)
     {
         return result;
     }
+
+    g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
+    if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.client_ctx,
+                    &g_fs_client_vars.client_ctx.conn_manager)) != 0)
+    {
+        return result;
+    }
+    g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
+
+    g_fs_client_vars.connect_timeout = SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.network_timeout = SF_G_NETWORK_TIMEOUT;
+    snprintf(g_fs_client_vars.base_path, sizeof(g_fs_client_vars.base_path),
+            "%s", SF_G_BASE_PATH);
 
     return 0;
 }
@@ -112,10 +140,10 @@ static void slice_write_done_notify(FSSliceOpContext *op_ctx)
     PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lock);
 }
 
-static int deal_task(ReplayTaskInfo *task)
+static int deal_task(ReplayTaskInfo *task, char *buff)
 {
     int result;
-    char *buff;
+    int read_bytes;
     int inc_alloc;
     int dec_alloc;
 
@@ -124,21 +152,57 @@ static int deal_task(ReplayTaskInfo *task)
             task->thread_ctx->notify.done = false;
             task->thread_ctx->stat.write.total++;
 
-            //TODO
-            buff = NULL;
-            if ((result=fs_slice_write(&task->op_ctx, buff)) == 0) {
-                PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lock);
-                while (!task->thread_ctx->notify.done) {
-                    pthread_cond_wait(&task->thread_ctx->notify.cond,
-                            &task->thread_ctx->notify.lock);
-                }
-                PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lock);
+            if (task->op_ctx.info.bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
+                logError("file: "__FILE__", line: %d, "
+                        "slice length: %d > block size: %d!",
+                        __LINE__, task->op_ctx.info.bs_key.slice.length,
+                        FS_FILE_BLOCK_SIZE);
+                result = EINVAL;
+                break;
+            }
 
-                if (task->op_ctx.result == 0) {
-                    task->thread_ctx->stat.write.success++;
-                } else {
-                    result = task->op_ctx.result;
+            if ((result=fs_client_proto_slice_read(&g_fs_client_vars.
+                            client_ctx, &task->op_ctx.info.bs_key,
+                            buff, &read_bytes)) == 0)
+            {
+                if (read_bytes != task->op_ctx.info.bs_key.slice.length) {
+                    logWarning("file: "__FILE__", line: %d, "
+                            "oid: %"PRId64", block offset: %"PRId64", "
+                            "slice offset: %d, length: %d, "
+                            "read bytes: %d != slice length, "
+                            "maybe delete later?", __LINE__,
+                            task->op_ctx.info.bs_key.block.oid,
+                            task->op_ctx.info.bs_key.block.offset,
+                            task->op_ctx.info.bs_key.slice.offset,
+                            task->op_ctx.info.bs_key.slice.length,
+                            read_bytes);
+                    task->op_ctx.info.bs_key.slice.length = read_bytes;
                 }
+                if ((result=fs_slice_write(&task->op_ctx, buff)) == 0) {
+                    PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lock);
+                    while (!task->thread_ctx->notify.done) {
+                        pthread_cond_wait(&task->thread_ctx->notify.cond,
+                                &task->thread_ctx->notify.lock);
+                    }
+                    PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lock);
+
+                    if (task->op_ctx.result == 0) {
+                        task->thread_ctx->stat.write.success++;
+                    } else {
+                        result = task->op_ctx.result;
+                    }
+                }
+            } else if (result == ENOENT) {
+                logWarning("file: "__FILE__", line: %d, "
+                        "oid: %"PRId64", block offset: %"PRId64", "
+                        "slice offset: %d, length: %d, slice not exist, "
+                        "maybe delete later?", __LINE__,
+                        task->op_ctx.info.bs_key.block.oid,
+                        task->op_ctx.info.bs_key.block.offset,
+                        task->op_ctx.info.bs_key.slice.offset,
+                        task->op_ctx.info.bs_key.slice.length);
+                result = 0;
+                task->thread_ctx->stat.write.ignore++;
             }
             break;
         case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
@@ -186,11 +250,13 @@ static int deal_task(ReplayTaskInfo *task)
     return result;
 }
 
-static void binlog_replay_run(void *arg)
+static void binlog_replay_run(void *arg, void *thread_data)
 {
     ReplayThreadContext *thread_ctx;
     ReplayTaskInfo *task;
+    char *buff;
 
+    buff = (char *)thread_data;
     thread_ctx = (ReplayThreadContext *)arg;
     __sync_add_and_fetch(&thread_ctx->replay_ctx->running_count, 1);
     while (thread_ctx->replay_ctx->continue_flag) {
@@ -202,7 +268,7 @@ static void binlog_replay_run(void *arg)
         }
 
         do {
-            if (deal_task(task) != 0) {
+            if (deal_task(task, buff) != 0) {
                 break;
             }
             fc_queue_push(&thread_ctx->queues.freelist, task);
@@ -306,6 +372,7 @@ static void calc_replay_stat(BinlogReplayContext *replay_ctx,
     for (context=replay_ctx->thread_env.contexts; context<end; context++) {
         stat->write.total += context->stat.write.total;
         stat->write.success += context->stat.write.success;
+        stat->write.ignore += context->stat.write.ignore;
         stat->allocate.total += context->stat.allocate.total;
         stat->allocate.success += context->stat.allocate.success;
         stat->remove.total += context->stat.remove.total;
@@ -383,7 +450,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     total_count = stat.write.total + stat.allocate.total + stat.remove.total;
     success_count = stat.write.success + stat.allocate.success + stat.remove.success;
     fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
-    ignore_count = stat.remove.ignore;
+    ignore_count = stat.write.ignore + stat.remove.ignore;
 
     if (fail_count > 0) {
         if (result == 0) {
@@ -399,11 +466,19 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     end_time = get_current_time_ms();
     long_to_comma_str(end_time - ctx->start_time, time_buff);
     logInfo("file: "__FILE__", line: %d, "
-            "data group id: %d, data recovery %s. "
-            "total count: %"PRId64", success count: %"PRId64", "
-            "fail count: %"PRId64", ignore count: %"PRId64", "
-            "time used: %s ms", __LINE__, ctx->data_group_id, prompt,
-            total_count, success_count, fail_count, ignore_count, time_buff);
+            "data group id: %d, data recovery %s, time used: %s ms. "
+            "all : {total : %"PRId64", success : %"PRId64", "
+            "fail : %"PRId64", ignore : %"PRId64"}, "
+            "write : {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "allocate: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "remove: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}", __LINE__, ctx->data_group_id, prompt,
+            time_buff, total_count, success_count, fail_count, ignore_count,
+            stat.write.total, stat.write.success, stat.write.ignore,
+            stat.allocate.total, stat.allocate.success, stat.allocate.ignore,
+            stat.remove.total, stat.remove.success, stat.remove.ignore);
 
     return result;
 }

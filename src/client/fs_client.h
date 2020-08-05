@@ -8,6 +8,7 @@
 #include "client_func.h"
 #include "client_global.h"
 #include "client_proto.h"
+#include "simple_connection_manager.h"
 
 #ifdef __cplusplus
 extern "C" {

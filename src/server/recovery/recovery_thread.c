@@ -31,7 +31,7 @@ typedef struct {
 
 static RecoveryThreadContext recovery_thread_ctx;
 
-static void recovery_thread_run_task(void *arg)
+static void recovery_thread_run_task(void *arg, void *thread_data)
 {
     int result;
     int old_status;

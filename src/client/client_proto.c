@@ -123,13 +123,16 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     FSProtoHeader *proto_header;
     FSProtoSliceReadReqHeader *req_header;
     FSResponseInfo response;
+    int hole_start;
+    int hole_len;
+    int buff_offet;
     int remain;
     int curr_len;
     int bytes;
     int result;
     int i;
 
-    *read_bytes = 0;
+    hole_start = buff_offet = 0;
     proto_header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
@@ -140,13 +143,12 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                         FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
                         &result)) == NULL)
         {
-            return result;
+            break;
         }
 
         connection_params = client_ctx->conn_manager.get_connection_params(
                 client_ctx, conn);
-        response.error.length = 0;
-        remain = bs_key->slice.length - *read_bytes;
+        remain = bs_key->slice.length - buff_offet;
         while (remain > 0) {
             if (remain <= connection_params->buffer_size) {
                 curr_len = remain;
@@ -154,13 +156,14 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                 curr_len = connection_params->buffer_size;
             }
 
-            int2buff(bs_key->slice.offset + *read_bytes,
+            int2buff(bs_key->slice.offset + buff_offet,
                     req_header->bs.slice_size.offset);
             int2buff(curr_len, req_header->bs.slice_size.length);
 
-            logInfo("recved: %d, current offset: %d, current length: %d",
-                    *read_bytes, bs_key->slice.offset + *read_bytes, curr_len);
+            logInfo("read bytes: %d, current offset: %d, current length: %d",
+                    hole_start, bs_key->slice.offset + buff_offet, curr_len);
 
+            response.error.length = 0;
             if ((result=fs_send_and_recv_response_header(conn,
                             out_buff, sizeof(out_buff), &response,
                             g_fs_client_vars.network_timeout)) != 0)
@@ -172,34 +175,40 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                             g_fs_client_vars.network_timeout,
                             FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
             {
-                break;
+                if (result == ENOENT) {  //ignore errno ENOENT
+                    result = 0;
+                } else {
+                    break;
+                }
+            } else {
+                if (response.header.body_len > curr_len) {
+                    response.error.length = sprintf(response.error.message,
+                            "reponse body length: %d > slice length: %d",
+                            response.header.body_len, curr_len);
+                    result = EINVAL;
+                    break;
+                }
+
+                if ((result=tcprecvdata_nb_ex(conn->sock, buff + buff_offet,
+                                response.header.body_len, g_fs_client_vars.
+                                network_timeout, &bytes)) != 0)
+                {
+                    response.error.length = snprintf(response.error.message,
+                            sizeof(response.error.message),
+                            "recv data fail, errno: %d, error info: %s",
+                            result, STRERROR(result));
+                    break;
+                }
+
+                hole_len = buff_offet - hole_start;
+                if (hole_len > 0) {
+                    memset(buff + hole_start, 0, hole_len);
+                }
+                hole_start = buff_offet + bytes;
             }
 
-            if (response.header.body_len > curr_len) {
-                response.error.length = sprintf(response.error.message,
-                        "reponse body length: %d > slice length: %d",
-                        response.header.body_len, curr_len);
-                result = EINVAL;
-                break;
-            }
-
-            if ((result=tcprecvdata_nb_ex(conn->sock, buff + *read_bytes,
-                            response.header.body_len, g_fs_client_vars.
-                            network_timeout, &bytes)) != 0)
-            {
-                response.error.length = snprintf(response.error.message,
-                        sizeof(response.error.message),
-                        "recv data fail, errno: %d, error info: %s",
-                        result, STRERROR(result));
-                break;
-            }
-
-            *read_bytes += bytes;
-            remain -= bytes;
-            //TODO
-            if (curr_len > bytes) {
-                break;
-            }
+            buff_offet += curr_len;
+            remain -= curr_len;
         }
 
         fs_client_release_connection(client_ctx, conn, result);
@@ -212,7 +221,12 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
         }
     }
 
-    return result;
+    *read_bytes = hole_start;
+    if (result == 0) {
+        return *read_bytes > 0 ? 0 : ENOENT;
+    } else {
+        return result;
+    }
 }
 
 static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
