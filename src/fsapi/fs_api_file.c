@@ -350,7 +350,6 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
 {
     FSBlockSliceKeyInfo bs_key;
     int result;
-    int stat_res;
     int current_read;
     int remain;
     int64_t current_offset;
@@ -368,17 +367,16 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         return EBADF;
     }
 
-    stat_res = 0;
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
         if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
                         &bs_key, buff + *read_bytes, &current_read)) != 0)
         {
-            if (current_read == 0) {
-                if (result != ENOENT) {
-                    break;
-                }
+            if (result == ENODATA) {
+                result = 0;
+            } else {
+                break;
             }
         }
 
@@ -386,9 +384,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
            logInfo("=====slice.length: %d, current_read: %d==",
            bs_key.slice.length, current_read);
            */
-        while ((current_read < bs_key.slice.length) &&
-                (result == 0 || result == ENOENT))
-        {
+        while (current_read < bs_key.slice.length) {
             /* deal file hole caused by ftruncate and lseek */
             current_offset = offset + *read_bytes + current_read;
             if (current_offset == fi->dentry.stat.size) {
@@ -396,11 +392,11 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
             }
 
             if (current_offset > fi->dentry.stat.size) {
-                if ((stat_res=fdir_client_stat_dentry_by_inode(fi->
+                if ((result=fdir_client_stat_dentry_by_inode(fi->
                                 ctx->contexts.fdir, fi->dentry.inode,
                                 &fi->dentry)) != 0)
                 {
-                    break;
+                    return result;
                 }
             }
 
@@ -433,13 +429,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
         fs_next_block_slice_key(&bs_key, remain);
     }
 
-    if (*read_bytes > 0) {
-        return 0;
-    } else if (result == ENOENT && stat_res == 0) {
-        return 0;   //allow read nothing
-    } else {
-        return EIO;
-    }
+    return result;
 }
 
 int fsapi_read(FSAPIFileInfo *fi, char *buff, const int size, int *read_bytes)

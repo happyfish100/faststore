@@ -223,7 +223,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
 
     *read_bytes = hole_start;
     if (result == 0) {
-        return *read_bytes > 0 ? 0 : ENOENT;
+        return *read_bytes > 0 ? 0 : ENODATA;
     } else {
         return result;
     }

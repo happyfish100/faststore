@@ -192,7 +192,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                         result = task->op_ctx.result;
                     }
                 }
-            } else if (result == ENOENT) {
+            } else if (result == ENODATA) {
                 logWarning("file: "__FILE__", line: %d, "
                         "oid: %"PRId64", block offset: %"PRId64", "
                         "slice offset: %d, length: %d, slice not exist, "
