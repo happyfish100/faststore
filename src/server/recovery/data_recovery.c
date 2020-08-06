@@ -255,14 +255,19 @@ static int replica_binlog_log_padding(DataRecoveryContext *ctx)
 {
     int result;
     uint64_t current_version;
+    FSClusterDataServerInfo *myself;
 
-    current_version = __sync_fetch_and_add(&ctx->master->dg->
-            myself->replica.data_version, 0);
+    myself = ctx->master->dg->myself;
+    current_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
     if (ctx->fetch.last_data_version > current_version) {
-        replica_binlog_set_data_version(ctx->master->dg->myself,
+        replica_binlog_set_data_version(myself,
                 ctx->fetch.last_data_version - 1);
-        result = replica_binlog_log_no_op(ctx->master->dg->id,
-                ctx->fetch.last_data_version, &ctx->fetch.last_bkey);
+        if ((result=replica_binlog_log_no_op(ctx->master->dg->id,
+                        ctx->fetch.last_data_version,
+                        &ctx->fetch.last_bkey)) == 0)
+        {
+            __sync_fetch_and_add(&myself->replica.data_version, 1);
+        }
     } else {
         result = 0;
     }
@@ -432,8 +437,10 @@ int data_recovery_start(const int data_group_id)
             break;
         }
 
-        logInfo("======= stage: %d, catch_up: %d, is_online: %d",
-                ctx.stage, ctx.catch_up, ctx.is_online);
+        logInfo("======= data group id: %d, stage: %d, catch_up: %d, "
+                "is_online: %d, last_data_version: %"PRId64,
+                data_group_id, ctx.stage, ctx.catch_up, ctx.is_online,
+                ctx.fetch.last_data_version);
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (result == 0 && !ctx.is_online);

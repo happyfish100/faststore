@@ -64,6 +64,7 @@ typedef struct replay_thread_context {
 typedef struct binlog_replay_context {
     volatile int running_count;
     volatile bool continue_flag;
+    int64_t total_count;
     volatile int64_t fail_count;
     BinlogReadThreadContext rdthread_ctx;
     BinlogReadThreadResult *r;
@@ -271,6 +272,7 @@ static void binlog_replay_run(void *arg, void *thread_data)
                 break;
             }
             fc_queue_push(&thread_ctx->queues.freelist, task);
+
             task = (ReplayTaskInfo *)fc_queue_try_pop(
                     &thread_ctx->queues.waiting);
         } while (task != NULL && SF_G_CONTINUE_FLAG);
@@ -338,6 +340,7 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
         task->op_ctx.info.data_version = replay_ctx->record.data_version;
         task->op_ctx.info.bs_key = replay_ctx->record.bs_key;
         fc_queue_push(&thread_ctx->queues.waiting, task);
+        replay_ctx->total_count++;
 
         p = line_end;
     }
@@ -415,7 +418,11 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             break;
         }
 
-        logInfo("errno: %d, buffer length: %d", replay_ctx->r->err_no,
+        logInfo("data group id: %d, replay running threads: %d, "
+                "errno: %d, buffer length: %d",
+                ctx->data_group_id, __sync_add_and_fetch(
+                &replay_ctx->running_count, 0),
+                replay_ctx->r->err_no,
                 replay_ctx->r->buffer.length);
         if (replay_ctx->r->err_no == ENOENT) {
             break;
@@ -431,18 +438,38 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
         binlog_read_thread_return_result_buffer(&replay_ctx->rdthread_ctx,
                 replay_ctx->r);
     }
-
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
 
     if (result == 0) {
-        usleep(100000);
+#define REPLAY_WAIT_TIMES  30
+        int i;
+        for (i=0; i<REPLAY_WAIT_TIMES; i++) {
+            usleep(100000);
+            calc_replay_stat(replay_ctx, &stat);
+            total_count = stat.write.total + stat.allocate.total +
+                stat.remove.total;
+            if (total_count == replay_ctx->total_count) {
+                break;
+            }
+        }
+
+        if (i == REPLAY_WAIT_TIMES) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "data group id: %d, replay running threads: %d, "
+                    "waiting thread ready timeout, input record "
+                    "count: %"PRId64", current deal count: %"PRId64,
+                    __LINE__, ctx->data_group_id, __sync_add_and_fetch(
+                        &replay_ctx->running_count, 0),
+                    replay_ctx->total_count, total_count);
+        }
     }
+
     replay_ctx->continue_flag = false;
     while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
         logInfo("data group id: %d, replay running threads: %d",
                 ctx->data_group_id, __sync_add_and_fetch(
                     &replay_ctx->running_count, 0));
-        usleep(100000);
+        usleep(10000);
     }
 
     calc_replay_stat(replay_ctx, &stat);

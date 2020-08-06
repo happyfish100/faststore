@@ -52,7 +52,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
     get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     unlink_flag = false;
-    ctx->fetch.last_data_version = ctx->master->dg->myself->replica.data_version;
+    ctx->fetch.last_data_version = __sync_fetch_and_add(&ctx->master->dg->
+            myself->replica.data_version, 0);
     do {
         if (stat(full_filename, &stbuf) != 0) {
             if (errno == ENOENT) {
