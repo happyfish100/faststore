@@ -92,6 +92,15 @@ int main(int argc, char *argv[])
     if (bs_key.slice.length == 0 || bs_key.slice.length > file_size) {
         bs_key.slice.length = file_size;
     }
+    if (bs_key.slice.offset >= FS_FILE_BLOCK_SIZE) {
+        logError("file: "__FILE__", line: %d, "
+                "invalid slice offset: %d > block size: %d",
+                __LINE__, bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+    if (bs_key.slice.offset + bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
+        bs_key.slice.length = FS_FILE_BLOCK_SIZE - bs_key.slice.offset;
+    }
 
     if ((result=fs_client_init(config_filename)) != 0) {
         return result;

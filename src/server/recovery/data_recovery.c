@@ -211,16 +211,26 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
     last_bkey = iniGetStrValue(DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
             DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, &ini_context);
     if (last_bkey != NULL && *last_bkey != '\0') {
+        char value[64];
         char *cols[2];
         int count;
 
-        count = splitEx(last_bkey, ',', cols, 2);
-        ctx->fetch.last_bkey.oid = strtoll(cols[0], NULL, 10);
-        ctx->fetch.last_bkey.offset = strtoll(cols[1], NULL, 10);
+        snprintf(value, sizeof(value), "%s", last_bkey);
+        count = splitEx(value, ',', cols, 2);
+        if (count == 2) {
+            ctx->fetch.last_bkey.oid = strtoll(cols[0], NULL, 10);
+            ctx->fetch.last_bkey.offset = strtoll(cols[1], NULL, 10);
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "load conf file \"%s\" fail, invalid %s: %s",
+                    __LINE__, filename, DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY,
+                    last_bkey);
+            result = EINVAL;
+        }
     }
 
     iniFreeContext(&ini_context);
-    return 0;
+    return result;
 }
 
 static int init_data_recovery_ctx(DataRecoveryContext *ctx, const int data_group_id)

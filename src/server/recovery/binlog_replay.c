@@ -293,7 +293,6 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
     string_t line;
     char error_info[256];
     int result;
-    int op_type;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
     result = 0;
@@ -318,7 +317,6 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
             break;
         }
 
-        op_type = replay_ctx->record.op_type;
         fs_calc_block_hashcode(&replay_ctx->record.bs_key.block);
 
         thread_ctx = replay_ctx->thread_env.contexts +

@@ -160,9 +160,6 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                     req_header->bs.slice_size.offset);
             int2buff(curr_len, req_header->bs.slice_size.length);
 
-            logInfo("read bytes: %d, current offset: %d, current length: %d",
-                    hole_start, bs_key->slice.offset + buff_offet, curr_len);
-
             response.error.length = 0;
             if ((result=fs_send_and_recv_response_header(conn,
                             out_buff, sizeof(out_buff), &response,
@@ -176,6 +173,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                             FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
             {
                 if (result == ENOENT) {  //ignore errno ENOENT
+                    bytes = 0;
                     result = 0;
                 } else {
                     break;
@@ -206,6 +204,11 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
                 }
                 hole_start = buff_offet + bytes;
             }
+
+            logInfo("total recv: %d, current offset: %d, "
+                    "current length: %d, current read: %d",
+                    hole_start, bs_key->slice.offset + buff_offet,
+                    curr_len, bytes);
 
             buff_offet += curr_len;
             remain -= curr_len;
