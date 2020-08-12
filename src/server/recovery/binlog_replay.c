@@ -221,6 +221,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 result = 0;
                 task->thread_ctx->stat.remove.ignore++;
             }
+            break;
         default:
             logError("file: "__FILE__", line: %d, "
                     "unkown op type: %c (0x%02x)",

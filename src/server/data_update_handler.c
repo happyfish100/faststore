@@ -132,16 +132,35 @@ static inline void fill_slice_update_response(struct fast_task_info *task,
     TASK_ARG->context.response_done = true;
 }
 
-static int handle_slice_write_replica_done(struct fast_task_info *task)
+static int handle_master_replica_done(struct fast_task_info *task)
 {
     TASK_ARG->context.deal_func = NULL;
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
     fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
 
     logInfo("file: "__FILE__", line: %d, "
-            "inc_alloc: %d, status: %d", __LINE__,
-            SLICE_OP_CTX.write.inc_alloc, RESPONSE_STATUS);
+            "response cmd: %d, inc_alloc: %d, status: %d", __LINE__,
+            RESPONSE.header.cmd, SLICE_OP_CTX.write.inc_alloc, RESPONSE_STATUS);
     return RESPONSE_STATUS;
+}
+
+static inline int do_replica(struct fast_task_info *task,
+        const unsigned char resp_cmd)
+{
+    int result;
+
+    if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        RESPONSE.header.cmd = resp_cmd;
+        if ((result=replication_caller_push_to_slave_queues(task)) ==
+                TASK_STATUS_CONTINUE)
+        {
+            TASK_ARG->context.deal_func = handle_master_replica_done;
+        } else {
+            fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
+        }
+        return result;
+    } else {
+        return 0;
+    }
 }
 
 static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
@@ -150,6 +169,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
     int result;
 
     task = (struct fast_task_info *)op_ctx->notify.arg;
+    RESPONSE_STATUS = op_ctx->result;
     if (op_ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
@@ -161,21 +181,15 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                op_ctx->info.bs_key.block.oid, op_ctx->info.bs_key.block.offset,
-                op_ctx->info.bs_key.slice.offset, op_ctx->info.bs_key.slice.length,
+                op_ctx->info.bs_key.block.oid,
+                op_ctx->info.bs_key.block.offset,
+                op_ctx->info.bs_key.slice.offset,
+                op_ctx->info.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
         TASK_ARG->context.log_error = false;
         result = op_ctx->result;
     } else {
-        if ((result=replication_caller_push_to_slave_queues(task)) ==
-                TASK_STATUS_CONTINUE)
-        {
-            TASK_ARG->context.deal_func = handle_slice_write_replica_done;
-        } else {
-            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
-            fill_slice_update_response(task, op_ctx->write.inc_alloc);
-        }
-
+        result = do_replica(task, FS_SERVICE_PROTO_SLICE_WRITE_RESP);
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "op_ctx->info.data_version: %"PRId64", result: %d, "
@@ -185,7 +199,6 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 SLICE_OP_CTX.write.inc_alloc);
     }
 
-    RESPONSE_STATUS = op_ctx->result;
     if (result != TASK_STATUS_CONTINUE) {
         sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
     }
@@ -337,7 +350,6 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
         FSSliceOpContext *op_ctx)
 {
     int result;
-    int inc_alloc;
     FSProtoSliceAllocateReq *req;
 
     if ((result=server_expect_body_length(task,
@@ -357,22 +369,19 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     op_ctx->info.write_data_binlog = true;
     if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
                         task->thread_data->arg)->service.slice_ptr_array,
-                    &inc_alloc)) != 0)
+                    &op_ctx->write.inc_alloc)) != 0)
     {
         du_handler_set_slice_op_error_msg(task, op_ctx, "allocate", result);
         return result;
     }
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP;
-    fill_slice_update_response(task, inc_alloc);
-    return 0;
+    return do_replica(task, FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
 }
 
 int du_handler_deal_slice_delete(struct fast_task_info *task,
         FSSliceOpContext *op_ctx)
 {
     int result;
-    int dec_alloc;
     FSProtoSliceDeleteReq *req;
 
     if ((result=server_expect_body_length(task,
@@ -390,21 +399,18 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     op_ctx->info.write_data_binlog = true;
-    if ((result=fs_delete_slices(op_ctx, &dec_alloc)) != 0) {
+    if ((result=fs_delete_slices(op_ctx, &op_ctx->write.inc_alloc)) != 0) {
         du_handler_set_slice_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_DELETE_RESP;
-    fill_slice_update_response(task, dec_alloc);
-    return 0;
+    return do_replica(task, FS_SERVICE_PROTO_SLICE_DELETE_RESP);
 }
 
 int du_handler_deal_block_delete(struct fast_task_info *task,
         FSSliceOpContext *op_ctx)
 {
     int result;
-    int dec_alloc;
     FSProtoBlockDeleteReq *req;
 
     if ((result=server_expect_body_length(task,
@@ -422,12 +428,10 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     op_ctx->info.write_data_binlog = true;
-    if ((result=fs_delete_block(op_ctx, &dec_alloc)) != 0) {
+    if ((result=fs_delete_block(op_ctx, &op_ctx->write.inc_alloc)) != 0) {
         set_block_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_BLOCK_DELETE_RESP;
-    fill_slice_update_response(task, dec_alloc);
-    return 0;
+    return do_replica(task, FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
 }
