@@ -36,7 +36,9 @@ src/fuse/Makefile
 *.out
 src/server/fs_serverd
 src/client/tools/fs_cluster_stat
+src/client/tools/fs_write
 src/client/tools/fs_read
+src/client/tools/fs_delete
 src/client/tests/test_slice_rw
 src/fsapi/tests/test_file_op
 src/fuse/fs_fused

@@ -35,6 +35,7 @@ typedef struct fs_slice_op_context {
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
         char *body;
+        int body_len;
     } info;
 
     struct {

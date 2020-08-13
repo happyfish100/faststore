@@ -555,6 +555,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
         }
 
         op_ctx->info.body = (char *)(body_part + 1);
+        op_ctx->info.body_len = blen;
         switch (body_part->cmd) {
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
                 result = du_handler_deal_slice_write(task, op_ctx);

@@ -343,9 +343,6 @@ int cluster_topology_offline_slave_data_servers(
 
         if (master->cs == CLUSTER_MYSELF_PTR) {
             ds = *pp;
-            if (ds == master) { //myself
-                continue;
-            }
         } else if (master->cs == peer) {
             ds = (*pp)->dg->myself;
             if (ds == NULL) {

@@ -389,6 +389,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         TASK_CTX.which_side = FS_WHICH_SIDE_MASTER; \
         OP_CTX_INFO.data_version = 0;     \
         OP_CTX_INFO.body = REQUEST.body;  \
+        OP_CTX_INFO.body_len = REQUEST.header.body_len; \
     } while (0)
 
 static inline int service_deal_slice_write(struct fast_task_info *task)

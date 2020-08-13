@@ -277,7 +277,7 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     char *buff;
     int result;
 
-    if ((result=server_check_min_body_length(task,
+    if ((result=server_check_min_body_length_ex(task, op_ctx->info.body_len,
                     sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
         return result;
@@ -296,19 +296,19 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
             "data_group_id: %d", __LINE__, __FUNCTION__,
             op_ctx->info.data_group_id);
 
+    if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.
+            slice.length != op_ctx->info.body_len)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "body header length: %d + slice length: %d"
+                " != body length: %d", (int)sizeof
+                (FSProtoSliceWriteReqHeader), op_ctx->info.bs_key.
+                slice.length, op_ctx->info.body_len);
+        return EINVAL;
+    }
+
     buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
-        if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.
-                slice.length != REQUEST.header.body_len)
-        {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "body header length: %d + slice length: %d"
-                    " != body length: %d", (int)sizeof
-                    (FSProtoSliceWriteReqHeader), op_ctx->info.bs_key.
-                    slice.length, REQUEST.header.body_len);
-            return EINVAL;
-        }
-
         op_ctx->notify.func = master_slice_write_done_notify;
     } else {
         op_ctx->notify.func = slave_slice_write_done_notify;
@@ -352,7 +352,7 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     int result;
     FSProtoSliceAllocateReq *req;
 
-    if ((result=server_expect_body_length(task,
+    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
                     sizeof(FSProtoSliceAllocateReq))) != 0)
     {
         return result;
@@ -384,7 +384,7 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     int result;
     FSProtoSliceDeleteReq *req;
 
-    if ((result=server_expect_body_length(task,
+    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
                     sizeof(FSProtoSliceDeleteReq))) != 0)
     {
         return result;
@@ -413,7 +413,7 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     int result;
     FSProtoBlockDeleteReq *req;
 
-    if ((result=server_expect_body_length(task,
+    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
                     sizeof(FSProtoBlockDeleteReq))) != 0)
     {
         return result;

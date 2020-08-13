@@ -12,37 +12,32 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename] [-i oid=1] "
+    fprintf(stderr, "Usage: %s [-c config_filename] <-i oid> "
             "[-O block_offset=0] [-o slice_offset=0] "
-            "[-l slice_length=0 for auto] <filename>\n", argv[0]);
+            "[-l slice_length=0 for auto]\n", argv[0]);
 }
 
 int main(int argc, char *argv[])
 {
     const char *config_filename = "/etc/fstore/client.conf";
-	int ch;
-	int result;
-    int64_t file_size;
+    int ch;
+    int result;
     int blk_offset_remain;
-    char *slice_filename;
+    int dec_alloc;
+    char *caption;
     char *endptr;
     FSBlockSliceKeyInfo bs_key;
-    char *out_buff;
-    char *in_buff;
-    int write_bytes;
-    int read_bytes;
-    int inc_alloc;
 
     if (argc < 2) {
         usage(argv);
-        return 1;
+        return EINVAL;
     }
 
-    bs_key.block.oid = 1;
+    bs_key.block.oid = 0;
     bs_key.block.offset = 0;
     bs_key.slice.offset = 0;
     bs_key.slice.length = 0;
-    while ((ch=getopt(argc, argv, "hc:i:O:o:l:")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:O:o:i:l:")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -64,41 +59,31 @@ int main(int argc, char *argv[])
                 break;
             default:
                 usage(argv);
-                return 1;
+                return EINVAL;
         }
     }
 
-    if (optind >= argc) {
+    if (bs_key.block.oid == 0) {
+        fprintf(stderr, "expect oid\n");
         usage(argv);
-        return 1;
+        return EINVAL;
     }
 
     log_init();
     //g_log_context.log_level = LOG_DEBUG;
 
-    slice_filename = argv[optind];
-    if ((result=getFileContent(slice_filename, &out_buff, &file_size)) != 0) {
-        return result;
-    }
-    if (file_size == 0) {
-        logError("file: "__FILE__", line: %d, "
-                "empty file: %s", __LINE__, slice_filename);
-        return ENOENT;
-    }
-
     blk_offset_remain = bs_key.block.offset % FS_FILE_BLOCK_SIZE;
     bs_key.block.offset -= blk_offset_remain;
     bs_key.slice.offset += blk_offset_remain;
-    if (bs_key.slice.length == 0 || bs_key.slice.length > file_size) {
-        bs_key.slice.length = file_size;
-    }
     if (bs_key.slice.offset >= FS_FILE_BLOCK_SIZE) {
         logError("file: "__FILE__", line: %d, "
                 "invalid slice offset: %d > block size: %d",
                 __LINE__, bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
         return EINVAL;
     }
-    if (bs_key.slice.offset + bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
+    if (bs_key.slice.length == 0) {
+        bs_key.slice.length = FS_FILE_BLOCK_SIZE - bs_key.slice.offset;
+    } else if (bs_key.slice.offset + bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
         bs_key.slice.length = FS_FILE_BLOCK_SIZE - bs_key.slice.offset;
     }
 
@@ -107,35 +92,22 @@ int main(int argc, char *argv[])
     }
 
     fs_calc_block_hashcode(&bs_key.block);
-    if ((result=fs_client_proto_slice_write(&g_fs_client_vars.
-                    client_ctx, &bs_key, out_buff,
-                    &write_bytes, &inc_alloc)) != 0)
+    if (bs_key.slice.offset == 0 &&
+            bs_key.slice.length == FS_FILE_BLOCK_SIZE)
     {
-        return result;
+        caption = "block";
+        result = fs_client_proto_block_delete(&g_fs_client_vars.
+                    client_ctx, &bs_key.block, &dec_alloc);
+    } else {
+        caption = "slice";
+        result = fs_client_proto_slice_delete(&g_fs_client_vars.
+                client_ctx, &bs_key, &dec_alloc);
     }
-
-    in_buff = (char *)fc_malloc(bs_key.slice.length);
-    if (in_buff == NULL) {
-        return ENOMEM;
-    }
-
-    memset(in_buff, 0, bs_key.slice.length);
-    if ((result=fs_client_proto_slice_read(&g_fs_client_vars.
-                    client_ctx, &bs_key, in_buff, &read_bytes)) != 0)
-    {
-        return result;
-    }
-    if (read_bytes != bs_key.slice.length) {
-        logError("file: "__FILE__", line: %d, "
-                "read bytes: %d != slice length: %d",
-                __LINE__, read_bytes, bs_key.slice.length);
-        return EINVAL;
-    }
-
-    result = memcmp(in_buff, out_buff, bs_key.slice.length);
     if (result != 0) {
-        printf("read and write buffer compare result: %d != 0\n", result);
-        return EINVAL;
+        logError("file: "__FILE__", line: %d, "
+                "delete %s fail, errno: %d, error info: %s",
+                __LINE__, caption, result, STRERROR(result));
+        return result;
     }
 
     return 0;
