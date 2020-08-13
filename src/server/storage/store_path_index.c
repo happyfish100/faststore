@@ -3,6 +3,9 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_buffer.h"
+#include "fastcommon/sched_thread.h"
+#include "fastcommon/hash.h"
+#include "fastcommon/base64.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "store_path_index.h"
@@ -19,6 +22,14 @@ typedef struct {
     StorePathEntry *entries;
 } StorePathArray;
 
+typedef struct
+{
+    int server_id;
+    int crc32;
+    int index;
+    time_t create_time;
+} StorePathMarkInfo;
+
 #define STORE_PATH_INDEX_FILENAME        ".store_path_index.dat"
 #define STORE_PATH_INDEX_SECTION_PREFIX_STR  "path-"
 #define STORE_PATH_INDEX_SECTION_PREFIX_LEN  \
@@ -27,7 +38,144 @@ typedef struct {
 #define STORE_PATH_INDEX_ITEM_PATH       "path"
 #define STORE_PATH_INDEX_ITEM_MARK       "mark"
 
+#define STORE_PATH_MARK_FILENAME    ".fs_vars"
+
 static StorePathArray store_paths = {0, 0, NULL};   //sort by index
+static struct base64_context base64_ctx;
+
+static int store_path_generate_mark(const char *store_path,
+        const int index, char *mark_str)
+{
+    StorePathMarkInfo mark_info;
+    char filename[PATH_MAX];
+    char buff[256];
+    int mark_len;
+    int buff_len;
+
+    mark_info.server_id = CLUSTER_MY_SERVER_ID;
+    mark_info.index = index;
+    mark_info.crc32 = CRC32(store_path, strlen(store_path));
+    mark_info.create_time = g_current_time;
+    base64_encode_ex(&base64_ctx, (char *)&mark_info,
+            sizeof(mark_info), mark_str, &mark_len, false);
+
+    snprintf(filename, sizeof(filename), "%s/%s",
+            store_path, STORE_PATH_MARK_FILENAME);
+    buff_len = sprintf(buff, "%s=%s\n",
+            STORE_PATH_INDEX_ITEM_MARK, mark_str);
+    return safeWriteToFile(filename, buff, buff_len);
+}
+
+static int store_path_get_mark(const char *filename,
+        char *mark, const int size)
+{
+    IniContext ini_context;
+    char *value;
+    int len;
+    int result;
+
+    *mark = '\0';
+    if (!fileExists(filename)) {
+        return ENOENT;
+    }
+
+    if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load from file \"%s\" fail, error code: %d",
+                __LINE__, filename, result);
+        return result;
+    }
+
+    value = iniGetStrValue(NULL, STORE_PATH_INDEX_ITEM_MARK, &ini_context);
+    if (value != NULL && *value != '\0') {
+        len = strlen(value);
+        if (len < size) {
+            strcpy(mark, value);
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "mark file: %s, mark length: %d "
+                    "is too long exceeds %d",
+                    __LINE__, filename, len, size);
+            result = EOVERFLOW;
+        }
+    } else {
+        result = ENOENT;
+    }
+
+    iniFreeContext(&ini_context);
+    return result;
+}
+
+static int store_path_check_mark(StorePathEntry *pentry, bool *regenerated)
+{
+    StorePathMarkInfo mark_info;
+    char filename[PATH_MAX];
+    char mark[64];
+    int mark_len;
+    int dest_len;
+    int result;
+
+    snprintf(filename, sizeof(filename), "%s/%s",
+            pentry->path, STORE_PATH_MARK_FILENAME);
+    if ((result=store_path_get_mark(filename, mark, sizeof(mark))) != 0) {
+        if (result == ENOENT) {
+            if ((result=store_path_generate_mark(pentry->path,
+                            pentry->index, pentry->mark)) == 0)
+            {
+                *regenerated = true;
+            }
+        }
+        return result;
+    }
+
+    if (strcmp(mark, pentry->mark) == 0) {
+        return 0;
+    }
+
+    mark_len = strlen(mark);
+    dest_len = (sizeof(StorePathMarkInfo) * 4 + 2) / 3;
+    if (mark_len > dest_len) {
+        logError("file: "__FILE__", line: %d, "
+                "the mark length: %d is too long exceed %d, "
+                "the mark file: %s, the mark string: %s",
+                __LINE__, mark_len, dest_len, filename, mark);
+        memset(&mark_info, 0, sizeof(StorePathMarkInfo));
+    } else if (base64_decode_auto(&base64_ctx, mark, mark_len,
+                (char *)&mark_info, &dest_len) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "the mark string is not base64 encoded, "
+                "the mark file: %s, the mark string: %s",
+                __LINE__, filename, mark);
+        memset(&mark_info, 0, sizeof(StorePathMarkInfo));
+    }
+
+    if (mark_info.server_id > 0) {
+        char time_str[32];
+
+        formatDatetime(mark_info.create_time,
+                "%Y-%m-%d %H:%M:%S",
+                time_str, sizeof(time_str));
+        logCrit("file: "__FILE__", line: %d, "
+                "the store path %s maybe used by other "
+                "store server. fields in the mark file: "
+                "{ server_id: %d, path_index: %d, crc32: %d,"
+                " create_time: %s }, if you confirm that it is NOT "
+                "used by other store server, you can delete "
+                "the mark file %s then try again.", __LINE__,
+                pentry->path, mark_info.server_id, mark_info.index,
+                mark_info.crc32, time_str, filename);
+    } else {
+        logCrit("file: "__FILE__", line: %d, "
+                "the store path %s maybe used by other "
+                "store server. if you confirm that it is NOT "
+                "used by other storage server, you can delete "
+                "the mark file %s then try again", __LINE__,
+                pentry->path, filename);
+    }
+
+    return EINVAL;
+}
 
 static char *get_store_path_index_filename(char *full_filename, const int size)
 {
@@ -76,13 +224,14 @@ static int check_alloc_store_paths(const int inc_count)
 }
 
 static int load_one_store_path_index(IniContext *ini_context, char *full_filename,
-        IniSectionInfo *section, StorePathEntry *pentry)
+        IniSectionInfo *section, StorePathEntry *pentry, bool *regenerated)
 {
     char *index_str;
     char *path;
     char *mark;
     char *endptr;
 
+    *regenerated = false;
     index_str = section->section_name + STORE_PATH_INDEX_SECTION_PREFIX_LEN;
     pentry->index = strtol(index_str, &endptr, 10);
     if (*endptr != '\0') {
@@ -110,7 +259,7 @@ static int load_one_store_path_index(IniContext *ini_context, char *full_filenam
 
     snprintf(pentry->path, sizeof(pentry->path), "%s", path);
     snprintf(pentry->mark, sizeof(pentry->mark), "%s", mark);
-    return 0;
+    return store_path_check_mark(pentry, regenerated);
 }
 
 static int compare_store_path_index(const void *p1, const void *p2)
@@ -118,19 +267,22 @@ static int compare_store_path_index(const void *p1, const void *p2)
     return ((StorePathEntry *)p1)->index - ((StorePathEntry *)p2)->index;
 }
 
-static int load_store_path_index(IniContext *ini_context, char *full_filename)
+static int load_store_path_index(IniContext *ini_context,
+        char *full_filename, bool *changed)
 {
 #define FIXED_SECTION_COUNT 64
     int result;
     int alloc_size;
     int count;
     int bytes;
+    bool regenerated;
     IniSectionInfo fixed_sections[FIXED_SECTION_COUNT];
     IniSectionInfo *sections;
     IniSectionInfo *section;
     IniSectionInfo *end;
     StorePathEntry *pentry;
 
+    *changed = false;
     sections = fixed_sections;
     alloc_size = FIXED_SECTION_COUNT;
     result = iniGetSectionNamesByPrefix(ini_context,
@@ -163,9 +315,13 @@ static int load_store_path_index(IniContext *ini_context, char *full_filename)
     end = sections + count;
     for (section=sections; section<end; section++,pentry++) {
         if ((result=load_one_store_path_index(ini_context, full_filename,
-                        section, pentry)) != 0)
+                        section, pentry, &regenerated)) != 0)
         {
             return result;
+        }
+
+        if (regenerated) {
+            *changed = true;
         }
     }
     store_paths.count = count;
@@ -198,8 +354,11 @@ int store_path_index_max()
 int store_path_index_init()
 {
     int result;
+    bool changed;
     IniContext ini_context;
     char full_filename[PATH_MAX];
+
+    base64_init_ex(&base64_ctx, 0, '-', '_', '.');
 
     get_store_path_index_filename(full_filename, sizeof(full_filename));
     if (access(full_filename, F_OK) != 0) {
@@ -221,8 +380,12 @@ int store_path_index_init()
         return result;
     }
 
-    result = load_store_path_index(&ini_context, full_filename);
+    result = load_store_path_index(&ini_context, full_filename, &changed);
     iniFreeContext(&ini_context);
+
+    if (result == 0 && changed) {
+        result = store_path_index_save();
+    }
     return result;
 }
 
@@ -254,7 +417,7 @@ int store_path_index_get(const char *path)
     return -1;
 }
 
-int store_path_index_add(const char *path, const char *mark, int *index)
+int store_path_index_add(const char *path, int *index)
 {
     int result;
     StorePathEntry *pentry;
@@ -269,10 +432,14 @@ int store_path_index_add(const char *path, const char *mark, int *index)
         *index = 0;
     }
 
-    pentry = store_paths.entries + store_paths.count++;
+    pentry = store_paths.entries + store_paths.count;
+    if ((result=store_path_generate_mark(path, *index, pentry->mark)) != 0) {
+        return result;
+    }
+
     pentry->index = *index;
     snprintf(pentry->path, sizeof(pentry->path), "%s", path);
-    snprintf(pentry->mark, sizeof(pentry->mark), "%s", mark);
+    store_paths.count++;
     return 0;
 }
 

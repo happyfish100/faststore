@@ -390,18 +390,15 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
 static int load_path_indexes(FSStoragePathArray *parray, const char *caption)
 {
     int result;
-    char mark[64];
     FSStoragePathInfo *p;
     FSStoragePathInfo *end;
 
-    *mark = '\0';
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
         p->store.index = store_path_index_get(p->store.path.str);
         if (p->store.index < 0) {
-            //TODO  generate mark
             if ((result=store_path_index_add(p->store.path.str,
-                            mark, &p->store.index)) != 0)
+                            &p->store.index)) != 0)
             {
                 return result;
             }
