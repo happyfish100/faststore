@@ -244,7 +244,7 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
     }
 
     logInfo("file: "__FILE__", line: %d, "
-            "read sarray->count: %d, target slice offset: %d, length: %d",
+            "read sarray->count: %"PRId64", target slice offset: %d, length: %d",
             __LINE__, sarray->count, bs_key->slice.offset, bs_key->slice.length);
 
     *count = 0;
@@ -396,7 +396,7 @@ int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
         return result;
     }
 
-    logInfo("read sarray->count: %d, target slice offset: %d, length: %d",
+    logInfo("read sarray->count: %"PRId64", target slice offset: %d, length: %d",
             sarray->count, op_ctx->info.bs_key.slice.offset,
             op_ctx->info.bs_key.slice.length);
 

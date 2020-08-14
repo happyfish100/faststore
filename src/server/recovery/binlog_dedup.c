@@ -43,6 +43,7 @@ typedef struct {
     } rstat;  //record stat
 
     struct {
+        OBSlicePtrArray slice_array;  //for sort
         BinlogFileWriter writer;
         int current_op_type;
         uint64_t current_version;
@@ -52,6 +53,8 @@ typedef struct {
         } binlog_counts;
     } out;
 } BinlogDedupContext;
+
+static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
 
 static int add_slice(OBHashtable *htable, ReplicaBinlogRecord *record,
         const OBSliceType stype)
@@ -243,54 +246,71 @@ static int do_dedup_binlog(DataRecoveryContext *ctx)
     return result;
 }
 
-static int write_one_binlog(BinlogDedupContext *dedup_ctx,
-        const OBSliceEntry *first, const OBSliceEntry *last)
+static int slice_array_to_file(BinlogDedupContext *dedup_ctx)
 {
-    int length;
+    OBSliceEntry **pp;
+    OBSliceEntry **end;
     int result;
     int op_type;
     uint64_t data_version;
 
-    if (first == last) {
-        length = first->ssize.length;
-    } else {
-        length = (last->ssize.offset - first->ssize.offset) +
-            last->ssize.length;
-    }
-
-    if (dedup_ctx->out.current_op_type == SLICE_BINLOG_OP_TYPE_DEL_SLICE) {
-        op_type = REPLICA_BINLOG_OP_TYPE_DEL_SLICE;
-    } else {
-        if (first->type == OB_SLICE_TYPE_FILE) {
-            op_type = REPLICA_BINLOG_OP_TYPE_WRITE_SLICE;
+    result = 0;
+    end = dedup_ctx->out.slice_array.slices +
+        dedup_ctx->out.slice_array.count;
+    for (pp=dedup_ctx->out.slice_array.slices; pp<end; pp++) {
+        if (dedup_ctx->out.current_op_type == SLICE_BINLOG_OP_TYPE_DEL_SLICE) {
+            op_type = REPLICA_BINLOG_OP_TYPE_DEL_SLICE;
         } else {
-            op_type = REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE;
+            if ((*pp)->type == OB_SLICE_TYPE_FILE) {
+                op_type = REPLICA_BINLOG_OP_TYPE_WRITE_SLICE;
+            } else {
+                op_type = REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE;
+            }
         }
-    }
 
-    data_version = ++(dedup_ctx->out.current_version);
-    if (fprintf(dedup_ctx->out.writer.fp,
-                "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-                (int)g_current_time, data_version,
-                op_type, first->ob->bkey.oid,
-                first->ob->bkey.offset,
-                first->ssize.offset, length) > 0)
-    {
-        result = 0;
-    } else {
-        result = errno != 0 ? errno : EPERM;
-        logError("file: "__FILE__", line: %d, "
-                "write to file: %s fail, "
-                "errno: %d, error info: %s", __LINE__,
-                dedup_ctx->out.writer.filename,
-                result, STRERROR(result));
+        data_version = ++(dedup_ctx->out.current_version);
+        if (fprintf(dedup_ctx->out.writer.fp,
+                    "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+                    (int)g_current_time, data_version,
+                    op_type, (*pp)->ob->bkey.oid,
+                    (*pp)->ob->bkey.offset,
+                    (*pp)->ssize.offset,
+                    (*pp)->ssize.length) <= 0)
+        {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, "
+                    "write to file: %s fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    dedup_ctx->out.writer.filename,
+                    result, STRERROR(result));
+            break;
+        }
     }
 
     return result;
 }
 
-static int do_output(BinlogDedupContext *dedup_ctx, const OBEntry *ob,
-        int64_t *binlog_count)
+static inline int add_to_sarray(OBSlicePtrArray *sarray,
+        OBSliceEntry *first, OBSliceEntry *last)
+{
+    int result;
+
+    if (first != last) {
+        first->ssize.length = (last->ssize.offset - first->ssize.offset) +
+            last->ssize.length;
+    }
+
+    if (sarray->count >= sarray->alloc) {
+        if ((result=realloc_slice_ptr_array(sarray)) != 0) {
+            return result;
+        }
+    }
+
+    sarray->slices[sarray->count++] = first;
+    return 0;
+}
+
+static int dump_to_array(BinlogDedupContext *dedup_ctx, const OBEntry *ob)
 {
     UniqSkiplistIterator it;
     OBSliceEntry *first;
@@ -304,8 +324,9 @@ static int do_output(BinlogDedupContext *dedup_ctx, const OBEntry *ob,
         if (!((previous->ssize.offset + previous->ssize.length ==
                         slice->ssize.offset) && (previous->type == slice->type)))
         {
-            (*binlog_count)++;
-            if ((result=write_one_binlog(dedup_ctx, first, previous)) != 0) {
+            if ((result=add_to_sarray(&dedup_ctx->out.slice_array,
+                            first, previous)) != 0)
+            {
                 return result;
             }
 
@@ -315,8 +336,7 @@ static int do_output(BinlogDedupContext *dedup_ctx, const OBEntry *ob,
         previous = slice;
     }
 
-    (*binlog_count)++;
-    return write_one_binlog(dedup_ctx, first, previous);
+    return add_to_sarray(&dedup_ctx->out.slice_array, first, previous);
 }
 
 static int open_output_files(DataRecoveryContext *ctx)
@@ -353,6 +373,27 @@ static void close_output_files(BinlogDedupContext *dedup_ctx)
     }
 }
 
+static int compare_slice(const OBSliceEntry **s1, const OBSliceEntry **s2)
+{
+    int64_t sub;
+
+    sub = (*s1)->ob->bkey.oid - (*s2)->ob->bkey.oid;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    sub = (*s1)->ob->bkey.offset - (*s2)->ob->bkey.offset;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    return (*s1)->ssize.offset - (*s2)->ssize.offset;
+}
+
 static int htable_dump(BinlogDedupContext *dedup_ctx, OBHashtable *htable,
         int64_t *binlog_count)
 {
@@ -361,7 +402,7 @@ static int htable_dump(BinlogDedupContext *dedup_ctx, OBHashtable *htable,
     OBEntry *ob;
     int result;
 
-    *binlog_count = 0;
+    dedup_ctx->out.slice_array.count = 0;
     end = htable->buckets + htable->capacity;
     for (bucket = htable->buckets, result = 0;
             bucket < end && result == 0; bucket++)
@@ -373,15 +414,22 @@ static int htable_dump(BinlogDedupContext *dedup_ctx, OBHashtable *htable,
         ob = *bucket;
         do {
             if (!uniq_skiplist_empty(ob->slices)) {
-                if ((result=do_output(dedup_ctx, ob, binlog_count)) != 0) {
-                    break;
+                if ((result=dump_to_array(dedup_ctx, ob)) != 0) {
+                    return result;
                 }
             }
             ob = ob->next;
         } while (ob != NULL);
     }
 
-    return result;
+    *binlog_count = dedup_ctx->out.slice_array.count;
+    if (dedup_ctx->out.slice_array.count > 1) {
+        qsort(dedup_ctx->out.slice_array.slices,
+                dedup_ctx->out.slice_array.count,
+                sizeof(OBSliceEntry *), (int (*)
+                    (const void *, const void *))compare_slice);
+    }
+    return slice_array_to_file(dedup_ctx);
 }
 
 static void htable_reverse_remove(BinlogHashtables *htables)
@@ -427,10 +475,68 @@ static void htable_reverse_remove(BinlogHashtables *htables)
     }
 }
 
+static int init_slice_ptr_array(OBSlicePtrArray *slice_ptr_array,
+        const int64_t count)
+{
+    int64_t n;
+    if (count <= 8) {
+        slice_ptr_array->alloc = 8;
+    } else if (count <= 64) {
+        slice_ptr_array->alloc = 64;
+    } else if (count <= 512) {
+        slice_ptr_array->alloc = 512;
+    } else if (count <= 4 * 1024) {
+        slice_ptr_array->alloc = 1024;
+    } else {
+        n = count / 4;
+        if (n <= 2 * 1024) {
+            slice_ptr_array->alloc = 2 * 1024;
+        } else if (n <= 8 * 1024) {
+            slice_ptr_array->alloc = 8 * 1024;
+        } else if (n <= 64 * 1024) {
+            slice_ptr_array->alloc = 64 * 1024;
+        } else if (n <= 512 * 1024) {
+            slice_ptr_array->alloc = 512 * 1024;
+        } else {
+            slice_ptr_array->alloc = 1024 * 1024;
+        }
+    }
+
+    slice_ptr_array->slices = (OBSliceEntry **)fc_malloc(
+            sizeof(OBSliceEntry *) * slice_ptr_array->alloc);
+    if (slice_ptr_array->slices == NULL) {
+        return ENOMEM;
+    }
+    return 0;
+}
+
+static int realloc_slice_ptr_array(OBSlicePtrArray *sarray)
+{
+    OBSliceEntry **slices;
+    int new_alloc;
+    int bytes;
+
+    new_alloc = 2 * sarray->alloc;
+    bytes = sizeof(OBSliceEntry *) * new_alloc;
+    slices = (OBSliceEntry **)fc_malloc(bytes);
+    if (slices == NULL) {
+        return ENOMEM;
+    }
+
+    memcpy(slices, sarray->slices, sarray->count *
+            sizeof(OBSliceEntry *));
+    free(sarray->slices);
+
+    sarray->alloc = new_alloc;
+    sarray->slices = slices;
+    return 0;
+}
+
 static int dedup_binlog(DataRecoveryContext *ctx)
 {
     BinlogDedupContext *dedup_ctx;
     int result;
+    int64_t count;
 
     dedup_ctx = (BinlogDedupContext *)ctx->arg;
     if ((result=do_dedup_binlog(ctx)) != 0) {
@@ -444,6 +550,15 @@ static int dedup_binlog(DataRecoveryContext *ctx)
     }
 
     if ((result=open_output_files(ctx)) != 0) {
+        close_output_files(dedup_ctx);
+        return result;
+    }
+
+    count = FC_MAX(dedup_ctx->rstat.partial_deletes,
+            dedup_ctx->rstat.create.success);
+    if ((result=init_slice_ptr_array(&dedup_ctx->out.
+                    slice_array, count)) != 0)
+    {
         return result;
     }
 
@@ -463,6 +578,7 @@ static int dedup_binlog(DataRecoveryContext *ctx)
                 &dedup_ctx->out.binlog_counts.create);
     }
 
+    free(dedup_ctx->out.slice_array.slices);
     close_output_files(dedup_ctx);
     return result;
 }

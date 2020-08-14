@@ -374,6 +374,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                     "binlog_size: %"PRId64, __LINE__, __FUNCTION__,
                     binlog_size);
             if (binlog_size == 0) {
+                data_recovery_unlink_fetched_binlog(ctx);
                 break;
             }
 
@@ -410,6 +411,14 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     }
 
     if (result != 0) {
+        return result;
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        return EINTR;
+    }
+
+    if ((result=data_recovery_unlink_replay_binlog(ctx)) != 0) {
         return result;
     }
 

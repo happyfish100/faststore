@@ -43,8 +43,8 @@ typedef struct ob_slice_entry {
 } OBSliceEntry;
 
 typedef struct ob_slice_ptr_array {
-    int alloc;
-    int count;
+    int64_t alloc;
+    int64_t count;
     OBSliceEntry **slices;
 } OBSlicePtrArray;
 

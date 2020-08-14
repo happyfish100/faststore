@@ -667,3 +667,14 @@ int data_recovery_replay_binlog(DataRecoveryContext *ctx)
     destroy_replay_context(&replay_ctx);
     return result;
 }
+
+int data_recovery_unlink_replay_binlog(DataRecoveryContext *ctx)
+{
+    char full_filename[PATH_MAX];
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
+            subdir_name);
+    binlog_reader_get_filename(subdir_name, 0, full_filename, sizeof(full_filename));
+    return fc_delete_file(full_filename);
+}
