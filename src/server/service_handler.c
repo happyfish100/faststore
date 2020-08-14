@@ -109,20 +109,10 @@ static int service_deal_service_stat(struct fast_task_info *task)
     }
 
     stat_resp = (FSProtoServiceStatResp *)REQUEST.body;
-
-    /*
-    stat_resp->is_master = CLUSTER_MYSELF_PTR == CLUSTER_MASTER_PTR ? 1 : 0;
-    stat_resp->status = CLUSTER_MYSELF_PTR->status;
+    stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
-
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
-    long2buff(CLUSTER_CURRENT_VERSION, stat_resp->dentry.current_data_version);
-    long2buff(CURRENT_INODE_SN, stat_resp->dentry.current_oid_sn);
-    long2buff(counters.ns, stat_resp->dentry.counters.ns);
-    long2buff(counters.dir, stat_resp->dentry.counters.dir);
-    long2buff(counters.file, stat_resp->dentry.counters.file);
-    */
 
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;

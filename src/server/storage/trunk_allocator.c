@@ -500,6 +500,11 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
                 __LINE__, slice->space.id_info.id);
         result = ENOENT;
     } else {
+        /* for loading slice binlog */
+        if (slice->space.offset + slice->space.size > trunk_info->free_start) {
+            trunk_info->free_start = slice->space.offset + slice->space.size;
+        }
+
         trunk_info->used.bytes += slice->space.size;
         trunk_info->used.count++;
         fc_list_add_tail(&slice->dlink, &trunk_info->used.slice_head);

@@ -417,7 +417,7 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
         }
     }
 
-    return result;
+    return 0;
 }
 
 static void do_set_paths_by_index(FSStorageConfig *storage_cfg,

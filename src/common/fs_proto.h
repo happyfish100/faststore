@@ -192,21 +192,12 @@ typedef struct fs_proto_report_ds_status_req {
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
     char is_leader;
-    char status;
 
     struct {
         char current_count[4];
         char max_count[4];
     } connection;
 
-    struct {
-        char current_data_version[8];
-        struct {
-            char ns[8];
-            char dir[8];
-            char file[8];
-        } counters;
-    } dentry;
 } FSProtoServiceStatResp;
 
 typedef struct fs_proto_cluster_stat_resp_body_header {
