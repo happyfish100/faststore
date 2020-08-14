@@ -156,6 +156,9 @@ int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
     target.file_count = 1;
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
+    if (sorted_subdirs->all == NULL) {
+        return ENOENT;
+    }
 
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
@@ -209,6 +212,9 @@ int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info)
     target.file_count = 1;
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
+    if (sorted_subdirs->all == NULL) {
+        return ENOENT;
+    }
 
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
@@ -233,6 +239,10 @@ int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info)
     StoreSubdirInfo *sd_info;
 
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
+    if (sorted_subdirs->all == NULL) {
+        return ENOENT;
+    }
+
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     sd_info = (StoreSubdirInfo *)uniq_skiplist_get_first(
                 sorted_subdirs->freelist);

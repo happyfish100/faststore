@@ -1,4 +1,3 @@
-#include <limits.h>
 #include <sys/stat.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
@@ -9,12 +8,6 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "store_path_index.h"
-
-typedef struct {
-    int index;
-    char path[PATH_MAX];
-    char mark[64];
-} StorePathEntry;
 
 typedef struct {
     int alloc;
@@ -106,7 +99,7 @@ static int store_path_get_mark(const char *filename,
     return result;
 }
 
-static int store_path_check_mark(StorePathEntry *pentry, bool *regenerated)
+int store_path_check_mark(StorePathEntry *pentry, bool *regenerated)
 {
     StorePathMarkInfo mark_info;
     char filename[PATH_MAX];
@@ -115,6 +108,7 @@ static int store_path_check_mark(StorePathEntry *pentry, bool *regenerated)
     int dest_len;
     int result;
 
+    *regenerated = false;
     snprintf(filename, sizeof(filename), "%s/%s",
             pentry->path, STORE_PATH_MARK_FILENAME);
     if ((result=store_path_get_mark(filename, mark, sizeof(mark))) != 0) {
@@ -224,14 +218,13 @@ static int check_alloc_store_paths(const int inc_count)
 }
 
 static int load_one_store_path_index(IniContext *ini_context, char *full_filename,
-        IniSectionInfo *section, StorePathEntry *pentry, bool *regenerated)
+        IniSectionInfo *section, StorePathEntry *pentry)
 {
     char *index_str;
     char *path;
     char *mark;
     char *endptr;
 
-    *regenerated = false;
     index_str = section->section_name + STORE_PATH_INDEX_SECTION_PREFIX_LEN;
     pentry->index = strtol(index_str, &endptr, 10);
     if (*endptr != '\0') {
@@ -259,7 +252,7 @@ static int load_one_store_path_index(IniContext *ini_context, char *full_filenam
 
     snprintf(pentry->path, sizeof(pentry->path), "%s", path);
     snprintf(pentry->mark, sizeof(pentry->mark), "%s", mark);
-    return store_path_check_mark(pentry, regenerated);
+    return 0;
 }
 
 static int compare_store_path_index(const void *p1, const void *p2)
@@ -268,21 +261,19 @@ static int compare_store_path_index(const void *p1, const void *p2)
 }
 
 static int load_store_path_index(IniContext *ini_context,
-        char *full_filename, bool *changed)
+        char *full_filename)
 {
 #define FIXED_SECTION_COUNT 64
     int result;
     int alloc_size;
     int count;
     int bytes;
-    bool regenerated;
     IniSectionInfo fixed_sections[FIXED_SECTION_COUNT];
     IniSectionInfo *sections;
     IniSectionInfo *section;
     IniSectionInfo *end;
     StorePathEntry *pentry;
 
-    *changed = false;
     sections = fixed_sections;
     alloc_size = FIXED_SECTION_COUNT;
     result = iniGetSectionNamesByPrefix(ini_context,
@@ -315,13 +306,9 @@ static int load_store_path_index(IniContext *ini_context,
     end = sections + count;
     for (section=sections; section<end; section++,pentry++) {
         if ((result=load_one_store_path_index(ini_context, full_filename,
-                        section, pentry, &regenerated)) != 0)
+                        section, pentry)) != 0)
         {
             return result;
-        }
-
-        if (regenerated) {
-            *changed = true;
         }
     }
     store_paths.count = count;
@@ -354,7 +341,6 @@ int store_path_index_max()
 int store_path_index_init()
 {
     int result;
-    bool changed;
     IniContext ini_context;
     char full_filename[PATH_MAX];
 
@@ -380,12 +366,8 @@ int store_path_index_init()
         return result;
     }
 
-    result = load_store_path_index(&ini_context, full_filename, &changed);
+    result = load_store_path_index(&ini_context, full_filename);
     iniFreeContext(&ini_context);
-
-    if (result == 0 && changed) {
-        result = store_path_index_save();
-    }
     return result;
 }
 
@@ -398,28 +380,30 @@ void store_path_index_destroy()
     }
 }
 
-int store_path_index_get(const char *path)
+StorePathEntry *store_path_index_get(const char *path)
 {
     StorePathEntry *entry;
 
     if (store_paths.count == 0) {
-        return -1;
+        return NULL;
     }
 
     for (entry=store_paths.entries + store_paths.count - 1;
             entry>=store_paths.entries; entry--)
     {
         if (strcmp(path, entry->path) == 0) {
-            return entry->index;
+            return entry;
         }
     }
 
-    return -1;
+    return NULL;
 }
 
 int store_path_index_add(const char *path, int *index)
 {
     int result;
+    char filename[PATH_MAX];
+    char mark[64];
     StorePathEntry *pentry;
 
     if ((result=check_alloc_store_paths(1)) != 0) {
@@ -433,6 +417,21 @@ int store_path_index_add(const char *path, int *index)
     }
 
     pentry = store_paths.entries + store_paths.count;
+    snprintf(filename, sizeof(filename), "%s/%s",
+            path, STORE_PATH_MARK_FILENAME);
+    result = store_path_get_mark(filename, mark, sizeof(mark));
+    if (result != ENOENT) {
+        if (result == 0) {
+            logCrit("file: "__FILE__", line: %d, "
+                    "store path: %s, the mark file %s already exist, "
+                    "if you confirm that it is NOT used by other "
+                    "store server, you can delete this mark file "
+                    "then try again.", __LINE__, path, filename);
+            return EEXIST;
+        }
+        return result;
+    }
+
     if ((result=store_path_generate_mark(path, *index, pentry->mark)) != 0) {
         return result;
     }

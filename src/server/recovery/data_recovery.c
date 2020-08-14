@@ -387,6 +387,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             }
 
             if (binlog_count == 0) {  //no binlog to replay
+                result = replica_binlog_log_padding(ctx);
                 break;
             }
 
