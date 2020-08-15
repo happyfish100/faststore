@@ -59,6 +59,10 @@
 #define FS_WHICH_SIDE_MASTER    'M'
 #define FS_WHICH_SIDE_SLAVE     'S'
 
+#define FS_EVENT_TYPE_STATUS_CHANGE     1
+#define FS_EVENT_TYPE_DV_CHANGE         2
+#define FS_EVENT_TYPE_MASTER_CHANGE     4
+
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.request
@@ -116,11 +120,13 @@ typedef struct fs_replication_ptr_array {
 struct fs_cluster_data_server_info;
 typedef struct fs_data_server_change_event {
     struct fs_cluster_data_server_info *data_server;
+    int type;
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
 
 typedef struct fs_cluster_topology_notify_context {
+    int server_id;
     volatile struct fast_task_info *task;
     struct fc_queue queue; //push data_server changes to the follower
     FSDataServerChangeEvent *events; //event array

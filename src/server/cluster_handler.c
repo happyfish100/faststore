@@ -190,12 +190,13 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 }
 
 static bool set_ds_status_and_data_version(FSClusterDataServerInfo *ds,
-        const int status, const uint64_t data_version)
+        const int status, const uint64_t data_version, const bool notify_self)
 {
-    if (cluster_relationship_set_ds_status_and_dv(ds,
-                status, data_version))
+    int event_type;
+    if ((event_type=cluster_relationship_set_ds_status_and_dv(ds,
+                status, data_version)) != 0)
     {
-        cluster_topology_data_server_chg_notify(ds, false);
+        cluster_topology_data_server_chg_notify(ds, event_type, notify_self);
         return true;
     } else {
         return false;
@@ -238,7 +239,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
         {
             data_version = buff2long(body_part->data_version);
             if (set_ds_status_and_data_version(ds, body_part->status,
-                        data_version))
+                        data_version, false))
             {
                 ++change_count;
             }
@@ -300,8 +301,10 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     int result;
     FSProtoReportDSStatusReq *req;
     FSClusterDataServerInfo *ds;
-    int server_id;
+    int my_server_id;
+    int ds_server_id;
     int data_group_id;
+    bool notify_self;
     uint64_t data_version;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP;
@@ -319,18 +322,47 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     }
 
     req = (FSProtoReportDSStatusReq *)REQUEST.body;
-    server_id = buff2int(req->server_id);
+    my_server_id = buff2int(req->my_server_id);
+    ds_server_id = buff2int(req->ds_server_id);
     data_group_id = buff2int(req->data_group_id);
     data_version = buff2long(req->data_version);
-    if ((ds=fs_get_data_server(data_group_id, server_id)) == NULL) {
+    if ((ds=fs_get_data_server(data_group_id, ds_server_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "data_group_id: %d, server_id: %d not exist",
-                data_group_id, server_id);
+                "data_group_id: %d, ds_server_id: %d not exist",
+                data_group_id, ds_server_id);
         return ENOENT;
     }
 
+    if (my_server_id == ds_server_id) {
+        notify_self = false;
+    } else {
+        FSClusterDataServerInfo *master;
+
+        if ((master=fs_get_data_server(data_group_id, my_server_id)) == NULL) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data_group_id: %d, my_server_id: %d not exist",
+                    data_group_id, my_server_id);
+            return ENOENT;
+        }
+        if (!master->is_master) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data_group_id: %d, my_server_id: %d is not master",
+                    data_group_id, my_server_id);
+            return EPERM;
+        }
+
+        if (req->status != FS_SERVER_STATUS_OFFLINE) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
+                    "invalid status: %d", data_group_id, my_server_id,
+                    ds_server_id, req->status);
+            return EINVAL;
+        }
+        notify_self = true;
+    }
+
     if (set_ds_status_and_data_version(ds, req->status,
-                data_version))
+                data_version, notify_self))
     {
         __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
     }

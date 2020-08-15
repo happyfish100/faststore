@@ -34,16 +34,13 @@ static inline bool cluster_relationship_set_ds_status(
     return cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
 }
 
-bool cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
+int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         const int status, const uint64_t data_version);
 
 void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds);
 
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status);
-
-bool cluster_relationship_set_report_ds_status(FSClusterDataServerInfo *ds,
-        const int new_status);
 
 int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master);

@@ -499,6 +499,7 @@ static int init_cluster_notify_contexts()
 
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        cs->notify_ctx.server_id = cs->server->id;
         if ((result=cluster_topology_init_notify_ctx(&cs->notify_ctx)) != 0) {
             return result;
         }

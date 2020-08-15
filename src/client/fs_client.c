@@ -1,3 +1,4 @@
+#include <stdlib.h>
 #include "fs_client.h"
 
 int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
@@ -59,8 +60,9 @@ static int stat_data_group(FSClientContext *client_ctx,
 {
     FSServerGroup *server_group;
     FCServerInfo **server;
-    FCServerInfo **end;
     int new_group_id;
+    int index;
+    int i;
     int result;
 
     if ((server_group=fs_cluster_cfg_get_server_group(client_ctx->cluster_cfg.ptr,
@@ -71,12 +73,19 @@ static int stat_data_group(FSClientContext *client_ctx,
 
     new_group_id = only_this_group ? data_group_id : 0;
     result = ENOENT;
-    end = server_group->server_array.servers + server_group->server_array.count;
-    for (server=server_group->server_array.servers; server<end; server++) {
+    for (i=0; i<server_group->server_array.count; i++) {
+        if (i == 0) {
+            index = 0;
+        } else {
+            index = (int)(((int64_t)server_group->server_array.count *
+                        (int64_t)rand()) / (int64_t)RAND_MAX);
+        }
+        server = server_group->server_array.servers + index;
         if ((result=stat_data_group_by_addresses(client_ctx, new_group_id,
                         &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, *server),
                         stats, size, count)) == 0)
         {
+            logInfo("stat by server id: %d", (*server)->id);
             break;
         }
     }
