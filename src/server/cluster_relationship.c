@@ -149,7 +149,7 @@ static void pack_changed_data_versions(char *buff, int *length,
             group->ds->last_report_version = data_version;
             int2buff(group->data_group_id, body_part->data_group_id);
             long2buff(data_version, body_part->data_version);
-            body_part->status = group->ds->status;
+            body_part->status = __sync_add_and_fetch(&group->ds->status, 0);
             body_part++;
             ++(*count);
         }
@@ -839,23 +839,32 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     }
 
     if (group->myself == new_master) {
-        cluster_relationship_set_ds_status(new_master,
-                FS_SERVER_STATUS_ACTIVE);
-        new_master->last_report_version = -1;   //trigger report to leader
+        if (cluster_relationship_set_ds_status(new_master,
+                FS_SERVER_STATUS_ACTIVE))
+        {
+            cluster_relationship_report_ds_status(new_master);
+        }
     } else {
         if (group->myself == old_master) {
-            if (old_master->status == FS_SERVER_STATUS_ACTIVE) {
-                cluster_relationship_set_ds_status(old_master,
-                        FS_SERVER_STATUS_OFFLINE);
-                old_master->last_report_version = -1;   //trigger report to leader
+            if (__sync_add_and_fetch(&old_master->status, 0) ==
+                    FS_SERVER_STATUS_ACTIVE)
+            {
+                if (cluster_relationship_set_ds_status_ex(old_master,
+                            FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE))
+                {
+                    old_master->last_report_version = -1;   //trigger report to leader
+                }
             }
         }
 
-        if (new_master != NULL && (group->myself->status ==
-                FS_SERVER_STATUS_INIT || group->myself->status ==
-                FS_SERVER_STATUS_OFFLINE))
-        {
-            recovery_thread_push_to_queue(group->myself);
+        if (new_master != NULL) {
+            int my_status;
+            my_status = __sync_add_and_fetch(&group->myself->status, 0);
+            if (my_status == FS_SERVER_STATUS_INIT ||
+                    my_status == FS_SERVER_STATUS_OFFLINE)
+            {
+                recovery_thread_push_to_queue(group->myself);
+            }
         }
     }
 
@@ -866,14 +875,16 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         const FSProtoPushDataServerStatusBodyPart *body_part)
 {
     FSClusterDataServerInfo *old_master;
+    int old_status;
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
+        old_status = __sync_add_and_fetch(&ds->status, 0);
         if ((body_part->status == FS_SERVER_STATUS_OFFLINE) &&
                 (!ds->is_master) &&
-                (ds->status == FS_SERVER_STATUS_ONLINE ||
-                 ds->status == FS_SERVER_STATUS_ACTIVE))
+                (old_status == FS_SERVER_STATUS_ONLINE ||
+                 old_status == FS_SERVER_STATUS_ACTIVE))
         {
-            cluster_relationship_set_ds_status(ds,
+            cluster_relationship_set_ds_status_ex(ds, old_status,
                     FS_SERVER_STATUS_OFFLINE);
         }
     } else {

@@ -449,11 +449,11 @@ int cluster_deal_task(struct fast_task_info *task)
             case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
                 result = cluster_deal_join_leader(task);
                 break;
-            case FS_CLUSTER_PROTO_PING_LEADER_REQ:
-                result = cluster_deal_ping_leader(task);
-                break;
             case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
                 result = cluster_deal_active_server(task);
+                break;
+            case FS_CLUSTER_PROTO_PING_LEADER_REQ:
+                result = cluster_deal_ping_leader(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

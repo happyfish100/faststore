@@ -121,12 +121,13 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
             logInfo("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, push to in_queue: %d, "
-                    "data version: %"PRId64, __LINE__,
+                    "data version: %"PRId64", ds: %p", __LINE__,
                     data_server->dg->id, data_server->cs->server->id,
                     __sync_add_and_fetch(&data_server->is_master, 0),
                     __sync_add_and_fetch(&data_server->status, 0),
                     cs->server->id, in_queue,
-                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
+                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+                    event->data_server);
 
             event->type = event_type;
             fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
@@ -137,12 +138,13 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, alread in_queue: %d, "
-                    "data version: %"PRId64, __LINE__,
+                    "data version: %"PRId64", ds: %p", __LINE__,
                     data_server->dg->id, data_server->cs->server->id,
                     __sync_add_and_fetch(&data_server->is_master, 0),
                     __sync_add_and_fetch(&data_server->status, 0),
                     cs->server->id, in_queue,
-                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
+                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+                    event->data_server);
         }
     }
 }
@@ -173,6 +175,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
 static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 {
     FSDataServerChangeEvent *event;
+    FSClusterServerInfo *cs;
     FSClusterDataServerInfo *ds;
     volatile int *in_queue;
     FSProtoHeader *header;
@@ -184,6 +187,15 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
     if (!(ctx->task->offset == 0 && ctx->task->length == 0)) {
         return EBUSY;
+    }
+
+
+    cs = ((FSServerTaskArg *)ctx->task->arg)->context.cluster.peer;
+    if (__sync_fetch_and_add(&cs->active, 0) == 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "server id: %d is not active, try again later",
+                __LINE__, cs->server->id);
+        return EAGAIN;
     }
 
     event = (FSDataServerChangeEvent *)fc_queue_try_pop_all(&ctx->queue);
@@ -629,7 +641,8 @@ int cluster_topology_select_master(FSClusterDataGroupInfo *group,
         logInfo("file: "__FILE__", line: %d, "
                 "data group id: %d, elected master id: %d, "
                 "is_preseted: %d, status: %d", __LINE__, group->id,
-                master->cs->server->id, master->is_preseted, master->status);
+                master->cs->server->id, master->is_preseted,
+                __sync_add_and_fetch(&master->status, 0));
     }
 
     return 0;

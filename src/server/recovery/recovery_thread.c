@@ -66,14 +66,23 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     if ((result=data_recovery_start(ds->dg->id)) != 0) {
         new_status = __sync_add_and_fetch(&ds->status, 0);
         if (new_status != FS_SERVER_STATUS_ACTIVE) {
-            cluster_relationship_swap_report_ds_status(ds,
-                    new_status, old_status);  //rollback status
+            if (cluster_relationship_swap_report_ds_status(ds,
+                    new_status, old_status))  //rollback status
+            {
+                logInfo("file: "__FILE__", line: %d, "
+                        "data group id: %d, data recovery fail, result: %d, "
+                        "rollback my status from %d (%s) to %d (%s)",
+                        __LINE__, ds->dg->id, result, new_status,
+                        fs_get_server_status_caption(new_status),
+                        old_status, fs_get_server_status_caption(old_status));
+            }
         }
     }
 
     logInfo("====file: "__FILE__", line: %d, func: %s, "
-            "do recovery, data group: %d, result: %d, status: %d =====", __LINE__,
-            __FUNCTION__, ds->dg->id, result, ds->status);
+            "do recovery, data group: %d, result: %d, status: %d =====",
+            __LINE__, __FUNCTION__, ds->dg->id, result,
+            __sync_add_and_fetch(&ds->status, 0));
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)
