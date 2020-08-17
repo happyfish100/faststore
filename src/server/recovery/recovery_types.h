@@ -16,7 +16,7 @@
 
 typedef struct data_recovery_context {
     int64_t start_time;   //in ms
-    int data_group_id;
+    FSClusterDataServerInfo *ds;
     int stage;
     int catch_up;
     bool is_online;

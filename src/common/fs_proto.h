@@ -182,7 +182,6 @@ typedef struct fs_proto_get_server_status_resp {
 } FSProtoGetServerStatusResp;
 
 typedef struct fs_proto_report_ds_status_req {
-    char data_version[8];
     char my_server_id[4];
     char ds_server_id[4];
     char data_group_id[4];

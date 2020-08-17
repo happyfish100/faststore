@@ -63,6 +63,11 @@
 #define FS_EVENT_TYPE_DV_CHANGE         2
 #define FS_EVENT_TYPE_MASTER_CHANGE     4
 
+#define FS_EVENT_SOURCE_DS_SELF         'S'
+#define FS_EVENT_SOURCE_DS_MASTER       'M'
+#define FS_EVENT_SOURCE_CS_LEADER       'L'
+#define FS_EVENT_SOURCE_MASTER_OFFLINE  'm'
+
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.request
@@ -119,8 +124,9 @@ typedef struct fs_replication_ptr_array {
 
 struct fs_cluster_data_server_info;
 typedef struct fs_data_server_change_event {
-    struct fs_cluster_data_server_info *data_server;
-    int type;
+    struct fs_cluster_data_server_info *ds;
+    short source;
+    short type;
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
@@ -173,6 +179,10 @@ typedef struct fs_cluster_data_server_info {
     bool is_preseted;
     volatile char is_master;
     volatile char status;   //the data server status
+
+    struct {
+        volatile char in_progress;  //if recovery in progress
+    } recovery;
 
     struct {
         struct {

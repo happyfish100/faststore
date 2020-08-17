@@ -37,10 +37,11 @@ static inline bool cluster_relationship_set_ds_status(
 int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         const int status, const uint64_t data_version);
 
-void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds);
+void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
+        const int source);
 
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
-        const int old_status, const int new_status);
+        const int old_status, const int new_status, const int source);
 
 int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master);

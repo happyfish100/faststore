@@ -655,7 +655,7 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
                 "delete : {total : %"PRId64", success : %"PRId64", "
                 "ignore : %"PRId64", partial : %"PRId64"}}, "
                 "output: {create : %"PRId64", delete : %"PRId64"}, "
-                "time used: %s ms", __LINE__, ctx->data_group_id,
+                "time used: %s ms", __LINE__, ctx->ds->dg->id,
                 dedup_ctx.rstat.create.total + dedup_ctx.rstat.remove.total,
                 dedup_ctx.rstat.create.success + dedup_ctx.rstat.remove.success,
                 dedup_ctx.rstat.create.total, dedup_ctx.rstat.create.success,

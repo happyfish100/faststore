@@ -190,13 +190,15 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 }
 
 static bool set_ds_status_and_data_version(FSClusterDataServerInfo *ds,
-        const int status, const uint64_t data_version, const bool notify_self)
+        const int status, const uint64_t data_version, const bool notify_self,
+        const int source)
 {
     int event_type;
     if ((event_type=cluster_relationship_set_ds_status_and_dv(ds,
                 status, data_version)) != 0)
     {
-        cluster_topology_data_server_chg_notify(ds, event_type, notify_self);
+        cluster_topology_data_server_chg_notify(ds, source,
+                event_type, notify_self);
         return true;
     } else {
         return false;
@@ -239,7 +241,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
         {
             data_version = buff2long(body_part->data_version);
             if (set_ds_status_and_data_version(ds, body_part->status,
-                        data_version, false))
+                        data_version, false, FS_EVENT_SOURCE_DS_SELF))
             {
                 ++change_count;
             }
@@ -304,8 +306,9 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     int my_server_id;
     int ds_server_id;
     int data_group_id;
+    int old_status;
+    int source;
     bool notify_self;
-    uint64_t data_version;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP;
     if ((result=server_expect_body_length(task,
@@ -325,7 +328,6 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     my_server_id = buff2int(req->my_server_id);
     ds_server_id = buff2int(req->ds_server_id);
     data_group_id = buff2int(req->data_group_id);
-    data_version = buff2long(req->data_version);
     if ((ds=fs_get_data_server(data_group_id, ds_server_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data_group_id: %d, ds_server_id: %d not exist",
@@ -333,7 +335,9 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
         return ENOENT;
     }
 
+    old_status = __sync_fetch_and_add(&ds->status, 0);
     if (my_server_id == ds_server_id) {
+        source = FS_EVENT_SOURCE_DS_SELF;
         notify_self = false;
     } else {
         FSClusterDataServerInfo *master;
@@ -344,26 +348,36 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
                     data_group_id, my_server_id);
             return ENOENT;
         }
-        if (!master->is_master) {
+        if (!__sync_add_and_fetch(&master->is_master, 0)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data_group_id: %d, my_server_id: %d is not master",
                     data_group_id, my_server_id);
             return EPERM;
         }
 
+        if (old_status != FS_SERVER_STATUS_ACTIVE) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
+                    "invalid old status: %d", data_group_id, my_server_id,
+                    ds_server_id, old_status);
+            return EINVAL;
+        }
+
         if (req->status != FS_SERVER_STATUS_OFFLINE) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
-                    "invalid status: %d", data_group_id, my_server_id,
+                    "invalid dest status: %d", data_group_id, my_server_id,
                     ds_server_id, req->status);
             return EINVAL;
         }
+
+        source = FS_EVENT_SOURCE_DS_MASTER;
         notify_self = true;
     }
 
-    if (set_ds_status_and_data_version(ds, req->status,
-                data_version, notify_self))
-    {
+    if (cluster_relationship_set_ds_status_ex(ds, old_status, req->status)) {
+        cluster_topology_data_server_chg_notify(ds, source,
+                FS_EVENT_TYPE_STATUS_CHANGE, notify_self);
         __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
     }
     return 0;

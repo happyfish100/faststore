@@ -153,15 +153,17 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
     }
 
     status = __sync_add_and_fetch(&(*peer)->status, 0);
-    if (status == FS_SERVER_STATUS_ONLINE ||
-            status == FS_SERVER_STATUS_ACTIVE)
+    if (!(status == FS_SERVER_STATUS_REBUILDING ||
+            status == FS_SERVER_STATUS_RECOVERING))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d, "
-                "unexpect data server status: %d (%s)",
-                data_group_id, server_id, status,
-                fs_get_server_status_caption(status));
-        return EINVAL;
+                "unexpect data server status: %d (%s), "
+                "expect status: %d or %d", data_group_id, server_id,
+                status, fs_get_server_status_caption(status),
+                FS_SERVER_STATUS_REBUILDING,
+                FS_SERVER_STATUS_RECOVERING);
+        return EAGAIN;
     }
 
     return 0;
@@ -298,7 +300,9 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
 
     my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
     if (req->catch_up || last_data_version == my_data_version) {
-        if (cluster_relationship_set_ds_status(peer, FS_SERVER_STATUS_ONLINE)) {
+        if (cluster_relationship_set_ds_status(peer,
+                    FS_SERVER_STATUS_ONLINE))
+        {
             until_version = __sync_add_and_fetch(
                     &myself->replica.data_version, 0);
             is_online = true;
@@ -369,9 +373,10 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
     if (status != FS_SERVER_STATUS_ONLINE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d, "
-                "unexpect data server status: %d (%s)",
-                data_group_id, server_id, status,
-                fs_get_server_status_caption(status));
+                "unexpect data server status: %d (%s), "
+                "expect status: %d", data_group_id, server_id,
+                status, fs_get_server_status_caption(status),
+                FS_SERVER_STATUS_ONLINE);
         return EINVAL;
     }
 

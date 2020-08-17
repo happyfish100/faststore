@@ -239,7 +239,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->thread_ctx->replay_ctx->
-                recovery_ctx->data_group_id,
+                recovery_ctx->ds->dg->id,
                 replica_binlog_get_op_type_caption(task->op_type),
                 task->op_ctx.info.bs_key.block.oid,
                 task->op_ctx.info.bs_key.block.offset,
@@ -419,7 +419,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
 
         logInfo("data group id: %d, replay running threads: %d, "
                 "errno: %d, buffer length: %d",
-                ctx->data_group_id, __sync_add_and_fetch(
+                ctx->ds->dg->id, __sync_add_and_fetch(
                 &replay_ctx->running_count, 0),
                 replay_ctx->r->err_no,
                 replay_ctx->r->buffer.length);
@@ -457,7 +457,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
                     "data group id: %d, replay running threads: %d, "
                     "waiting thread ready timeout, input record "
                     "count: %"PRId64", current deal count: %"PRId64,
-                    __LINE__, ctx->data_group_id, __sync_add_and_fetch(
+                    __LINE__, ctx->ds->dg->id, __sync_add_and_fetch(
                         &replay_ctx->running_count, 0),
                     replay_ctx->total_count, total_count);
         }
@@ -466,7 +466,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     replay_ctx->continue_flag = false;
     while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
         logInfo("data group id: %d, replay running threads: %d",
-                ctx->data_group_id, __sync_add_and_fetch(
+                ctx->ds->dg->id, __sync_add_and_fetch(
                     &replay_ctx->running_count, 0));
         usleep(10000);
     }
@@ -499,7 +499,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             "allocate: {total : %"PRId64", success : %"PRId64", "
             "ignore : %"PRId64"}, "
             "remove: {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}", __LINE__, ctx->data_group_id, prompt,
+            "ignore : %"PRId64"}", __LINE__, ctx->ds->dg->id, prompt,
             time_buff, total_count, success_count, fail_count, ignore_count,
             stat.write.total, stat.write.success, stat.write.ignore,
             stat.allocate.total, stat.allocate.success, stat.allocate.ignore,
@@ -571,7 +571,7 @@ static int init_replay_tasks(DataRecoveryContext *ctx)
     end = replay_ctx->thread_env.tasks + count;
     for (task=replay_ctx->thread_env.tasks; task<end; task++) {
         task->op_ctx.info.write_data_binlog = true;
-        task->op_ctx.info.data_group_id = ctx->data_group_id;
+        task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;
     }
 

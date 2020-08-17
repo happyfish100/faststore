@@ -18,13 +18,13 @@ extern "C" {
 int data_recovery_init();
 void data_recovery_destroy();
 
-int data_recovery_start(const int data_group_id);
+int data_recovery_start(FSClusterDataServerInfo *ds);
 
 static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
         const char *subdir, char *subdir_name)
 {
     sprintf(subdir_name, "%s/%d/%s", FS_RECOVERY_BINLOG_SUBDIR_NAME,
-            ctx->data_group_id, subdir);
+            ctx->ds->dg->id, subdir);
 }
 
 FSClusterDataServerInfo *data_recovery_get_master(

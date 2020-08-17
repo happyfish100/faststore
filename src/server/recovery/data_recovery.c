@@ -61,7 +61,7 @@ static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
     int i;
     bool create;
 
-    gid_len = sprintf(data_group_id, "%d", ctx->data_group_id);
+    gid_len = sprintf(data_group_id, "%d", ctx->ds->dg->id);
     subdir_names[0] = FS_RECOVERY_BINLOG_SUBDIR_NAME;
     subdir_names[1] = data_group_id;
     subdir_names[2] = subdir;
@@ -97,7 +97,7 @@ FSClusterDataServerInfo *data_recovery_get_master(
     FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *master;
 
-    if ((group=fs_get_data_group(ctx->data_group_id)) == NULL) {
+    if ((group=fs_get_data_group(ctx->ds->dg->id)) == NULL) {
         *err_no = ENOENT;
         return NULL;
     }
@@ -106,7 +106,7 @@ FSClusterDataServerInfo *data_recovery_get_master(
     if (master == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, no master",
-                __LINE__, ctx->data_group_id);
+                __LINE__, ctx->ds->dg->id);
         *err_no = ENOENT;
         return NULL;
     }
@@ -114,7 +114,7 @@ FSClusterDataServerInfo *data_recovery_get_master(
     if (group->myself == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d NOT belongs to me",
-                __LINE__, ctx->data_group_id);
+                __LINE__, ctx->ds->dg->id);
         *err_no = ENOENT;
         return NULL;
     }
@@ -122,7 +122,7 @@ FSClusterDataServerInfo *data_recovery_get_master(
     if (group->myself == master) {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, i am already master, "
-                "do NOT need recovery!", __LINE__, ctx->data_group_id);
+                "do NOT need recovery!", __LINE__, ctx->ds->dg->id);
         *err_no = EBUSY;
         return NULL;
     }
@@ -135,7 +135,7 @@ static void data_recovery_get_sys_data_filename(DataRecoveryContext *ctx,
         char *filename, const int size)
 {
     snprintf(filename, size, "%s/%s/%d/%s", DATA_PATH_STR,
-            FS_RECOVERY_BINLOG_SUBDIR_NAME, ctx->data_group_id,
+            FS_RECOVERY_BINLOG_SUBDIR_NAME, ctx->ds->dg->id,
             DATA_RECOVERY_SYS_DATA_FILENAME);
 }
 
@@ -233,12 +233,13 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
     return result;
 }
 
-static int init_data_recovery_ctx(DataRecoveryContext *ctx, const int data_group_id)
+static int init_data_recovery_ctx(DataRecoveryContext *ctx,
+        FSClusterDataServerInfo *ds)
 {
     int result;
     struct nio_thread_data *thread_data;
 
-    ctx->data_group_id = data_group_id;
+    ctx->ds = ds;
     ctx->start_time = get_current_time_ms();
 
     if ((result=init_recovery_sub_path(ctx,
@@ -296,7 +297,7 @@ static int proto_active_confirm(ConnectionInfo *conn,
 
     req = (FSProtoReplicaActiveConfirmReq *)
         (out_buff + sizeof(FSProtoHeader));
-    int2buff(ctx->data_group_id, req->data_group_id);
+    int2buff(ctx->ds->dg->id, req->data_group_id);
     int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
     FS_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
             FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
@@ -339,7 +340,8 @@ static int active_me(DataRecoveryContext *ctx)
     }
 
     if (cluster_relationship_swap_report_ds_status(ctx->master->dg->myself,
-                FS_SERVER_STATUS_ONLINE, FS_SERVER_STATUS_ACTIVE))
+                FS_SERVER_STATUS_ONLINE, FS_SERVER_STATUS_ACTIVE,
+                FS_EVENT_SOURCE_DS_SELF))
     {
         return 0;
     } else {
@@ -347,7 +349,7 @@ static int active_me(DataRecoveryContext *ctx)
         status = __sync_add_and_fetch(&ctx->master->dg->myself->status, 0);
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, change my status to ACTIVE fail, "
-                "current status is %d (%s)", __LINE__, ctx->data_group_id,
+                "current status is %d (%s)", __LINE__, ctx->ds->dg->id,
                 status, fs_get_server_status_caption(status));
         return EBUSY;
     }
@@ -437,13 +439,13 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     return 0;
 }
 
-int data_recovery_start(const int data_group_id)
+int data_recovery_start(FSClusterDataServerInfo *ds)
 {
     DataRecoveryContext ctx;
     int result;
 
     memset(&ctx, 0, sizeof(ctx));
-    if ((result=init_data_recovery_ctx(&ctx, data_group_id)) != 0) {
+    if ((result=init_data_recovery_ctx(&ctx, ds)) != 0) {
         return result;
     }
 
@@ -459,7 +461,7 @@ int data_recovery_start(const int data_group_id)
 
         logInfo("======= data group id: %d, stage: %d, catch_up: %d, "
                 "is_online: %d, last_data_version: %"PRId64,
-                data_group_id, ctx.stage, ctx.catch_up, ctx.is_online,
+                ds->dg->id, ctx.stage, ctx.catch_up, ctx.is_online,
                 ctx.fetch.last_data_version);
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;

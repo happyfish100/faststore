@@ -75,7 +75,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             logWarning("file: "__FILE__", line: %d, "
                     "data_group_id: %d, binlog file: %s is too old, "
                     "should fetch the data binlog again", __LINE__,
-                    ctx->data_group_id, full_filename);
+                    ctx->ds->dg->id, full_filename);
             unlink_flag = true;
             break;
         }
@@ -86,7 +86,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             logWarning("file: "__FILE__", line: %d, "
                     "data_group_id: %d, binlog file: %s, get the last "
                     "data version fail, should fetch the data binlog again",
-                    __LINE__, ctx->data_group_id, full_filename);
+                    __LINE__, ctx->ds->dg->id, full_filename);
             unlink_flag = true;
             break;
         }
@@ -96,7 +96,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     "data_group_id: %d, binlog file: %s, the last data "
                     "version: %"PRId64" <= my current data version: %"PRId64
                     ", should fetch the data binlog again", __LINE__,
-                    ctx->data_group_id, full_filename, last_data_version,
+                    ctx->ds->dg->id, full_filename, last_data_version,
                     ctx->master->dg->myself->replica.data_version);
             unlink_flag = true;
             break;
@@ -180,7 +180,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
 
     logInfo("data group id: %d, current binlog length: %d, is_online: %d, "
             "last_data_version: %"PRId64", until_version: %"PRId64,
-            ctx->data_group_id, binlog->len, ctx->is_online,
+            ctx->ds->dg->id, binlog->len, ctx->is_online,
             ctx->fetch.last_data_version, fetch_ctx->until_version);
 
     if (last_data_version == fetch_ctx->until_version) {
@@ -193,7 +193,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
                 logError("file: "__FILE__", line: %d, "
                         "data group id: %d, waiting replica binlog timeout, "
                         "current data version: %"PRId64", waiting/until data "
-                        "version: %"PRId64, __LINE__, ctx->data_group_id,
+                        "version: %"PRId64, __LINE__, ctx->ds->dg->id,
                         last_data_version, fetch_ctx->until_version);
                 return ETIMEDOUT;
             }
@@ -201,7 +201,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
             logInfo("file: "__FILE__", line: %d, "
                     "data group id: %d, %dth waiting replica binlog ..., "
                     "current data version: %"PRId64", waiting/until data "
-                    "version: %"PRId64, __LINE__, ctx->data_group_id,
+                    "version: %"PRId64, __LINE__, ctx->ds->dg->id,
                     fetch_ctx->wait_count, last_data_version,
                     fetch_ctx->until_version);
             usleep(200000);
@@ -220,7 +220,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         if (line_end == NULL) {
             logError("file: "__FILE__", line: %d, "
                     "data group id: %d, expect end line char (\\n)",
-                    __LINE__, ctx->data_group_id);
+                    __LINE__, ctx->ds->dg->id);
             return EINVAL;
         }
 
@@ -231,7 +231,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         {
             logError("file: "__FILE__", line: %d, "
                     "data group id: %d, unpack replica binlog fail, %s",
-                    __LINE__, ctx->data_group_id, error_info);
+                    __LINE__, ctx->ds->dg->id, error_info);
             return result;
         }
 
@@ -330,21 +330,23 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 int old_status;
                 old_status = __sync_add_and_fetch(&ctx->
                         master->dg->myself->status, 0);
-                if (old_status == FS_SERVER_STATUS_ACTIVE) {
+                if (!(old_status == FS_SERVER_STATUS_REBUILDING ||
+                        old_status == FS_SERVER_STATUS_RECOVERING))
+                {
                     logError("file: "__FILE__", line: %d, "
                             "data group id: %d, unexpect my status %d (%s)",
-                            __LINE__, ctx->data_group_id, old_status,
+                            __LINE__, ctx->ds->dg->id, old_status,
                             fs_get_server_status_caption(old_status));
                     return EBUSY;
                 }
                 cluster_relationship_swap_report_ds_status(
                         ctx->master->dg->myself, old_status,
-                        FS_SERVER_STATUS_ONLINE);
+                        FS_SERVER_STATUS_ONLINE, FS_EVENT_SOURCE_DS_SELF);
             }
         }
 
         logInfo("data group id: %d, is_online: %d, last_data_version: %"PRId64
-                ", until_version: %"PRId64, ctx->data_group_id, ctx->is_online,
+                ", until_version: %"PRId64, ctx->ds->dg->id, ctx->is_online,
                 ctx->fetch.last_data_version, fetch_ctx->until_version);
     }
 
@@ -378,6 +380,10 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         DataRecoveryContext *ctx, bool *is_last)
 {
+    int result;
+    int my_status;
+    int i;
+    bool trigger_report;
     FSProtoReplicaFetchBinlogFirstReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaFetchBinlogFirstReq)];
@@ -385,7 +391,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     req = (FSProtoReplicaFetchBinlogFirstReq *)
         (out_buff + sizeof(FSProtoHeader));
     long2buff(ctx->fetch.last_data_version, req->last_data_version);
-    int2buff(ctx->data_group_id, req->data_group_id);
+    int2buff(ctx->ds->dg->id, req->data_group_id);
     int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
     if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH) {
         req->catch_up = 1;
@@ -393,10 +399,42 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         req->catch_up = 0;
     }
 
-    return fetch_binlog_to_local(conn, ctx,
-            FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
-            FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP,
-            out_buff, sizeof(out_buff), is_last);
+    trigger_report = false;
+    for (i=0; i<30; i++) {
+        usleep(100000);  //waiting for ds status ready on the master
+        my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
+        if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
+                my_status == FS_SERVER_STATUS_RECOVERING))
+        {
+            logWarning("file: "__FILE__", line: %d, "
+                    "data group id: %d, my status: %d (%s) "
+                    "is unexpected, skip data recovery!",
+                    __LINE__, ctx->ds->dg->id, my_status,
+                    fs_get_server_status_caption(my_status));
+            result = EINVAL;
+            break;
+        }
+
+        result = fetch_binlog_to_local(conn, ctx,
+                FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
+                FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP,
+                out_buff, sizeof(out_buff), is_last);
+        if (result != EAGAIN) {
+            break;
+        }
+
+        if ((i + 1) % 6 == 0) {
+            //some thing goes wrong, trigger report to the leader again
+            ctx->ds->last_report_version = -1;
+            trigger_report = true;
+        }
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, waiting count: %d, result: %d, "
+            "trigger_report: %d", __LINE__, ctx->ds->dg->id,
+            i + 1, result, trigger_report);
+    return result == 0 ? 0 : EINVAL;
 }
 
 static int fetch_binlog_next_to_local(ConnectionInfo *conn,
@@ -473,7 +511,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
             logError("file: "__FILE__", line: %d, "
                     "lseek fetched binlog fail, data group id: %d, "
                     "errno: %d, error info: %s", __LINE__,
-                    ctx->data_group_id, result, STRERROR(result));
+                    ctx->ds->dg->id, result, STRERROR(result));
         }
     }
 

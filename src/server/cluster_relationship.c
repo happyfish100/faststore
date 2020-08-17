@@ -172,7 +172,7 @@ static void leader_deal_data_version_changes()
         if (group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             cluster_topology_data_server_chg_notify(group->ds,
-                    FS_EVENT_TYPE_DV_CHANGE, false);
+                    FS_EVENT_SOURCE_DS_SELF, FS_EVENT_TYPE_DV_CHANGE, false);
             ++count;
         }
     }
@@ -375,8 +375,6 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds)
     int2buff(CLUSTER_MY_SERVER_ID, req->my_server_id);
     int2buff(ds->cs->server->id, req->ds_server_id);
     int2buff(ds->dg->id, req->data_group_id);
-    long2buff(__sync_fetch_and_add(&ds->replica.data_version, 0),
-            req->data_version);
     req->status = __sync_fetch_and_add(&ds->status, 0);
     response.error.length = 0;
     if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
@@ -746,8 +744,9 @@ static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
         }
     } else {
         if (master->cs == CLUSTER_MYSELF_PTR) {  //i am master
-            if (old_status == FS_SERVER_STATUS_OFFLINE &&
-                    new_status == FS_SERVER_STATUS_ACTIVE)
+            if ((old_status == FS_SERVER_STATUS_ONLINE) ||
+                    (old_status == FS_SERVER_STATUS_OFFLINE &&
+                     new_status == FS_SERVER_STATUS_ACTIVE))
             {
                 PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
                 pthread_cond_broadcast(&ds->replica.notify.cond);
@@ -790,22 +789,25 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
     return flags;
 }
 
-void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds)
+void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
+        const int source)
 {
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
         bool notify_self;
         notify_self = (ds->cs != CLUSTER_MYSELF_PTR);
-        cluster_topology_data_server_chg_notify(ds,
+        cluster_topology_data_server_chg_notify(ds, source,
                 FS_EVENT_TYPE_STATUS_CHANGE, notify_self);
     } else {   //follower
-        if (report_ds_status_to_leader(ds) != 0) {
-            ds->last_report_version = -1;   //trigger report to leader
+        report_ds_status_to_leader(ds);
+        if (ds->cs == CLUSTER_MYSELF_PTR) {
+            //trigger report to the leader again for rare case
+            ds->last_report_version = -1;
         }
     }
 }
 
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
-        const int old_status, const int new_status)
+        const int old_status, const int new_status, const int source)
 {
     bool changed;
     changed = cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
@@ -813,7 +815,7 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         return changed;
     }
 
-    cluster_relationship_report_ds_status(ds);
+    cluster_relationship_report_ds_status(ds, source);
     return changed;
 }
 
@@ -842,7 +844,8 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         if (cluster_relationship_set_ds_status(new_master,
                 FS_SERVER_STATUS_ACTIVE))
         {
-            cluster_relationship_report_ds_status(new_master);
+            cluster_relationship_report_ds_status(new_master,
+                    FS_EVENT_SOURCE_DS_SELF);
         }
     } else {
         if (group->myself == old_master) {
@@ -881,8 +884,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         old_status = __sync_add_and_fetch(&ds->status, 0);
         if ((body_part->status == FS_SERVER_STATUS_OFFLINE) &&
                 (!ds->is_master) &&
-                (old_status == FS_SERVER_STATUS_ONLINE ||
-                 old_status == FS_SERVER_STATUS_ACTIVE))
+                (old_status == FS_SERVER_STATUS_ACTIVE))
         {
             cluster_relationship_set_ds_status_ex(ds, old_status,
                     FS_SERVER_STATUS_OFFLINE);
