@@ -63,10 +63,11 @@
 #define FS_EVENT_TYPE_DV_CHANGE         2
 #define FS_EVENT_TYPE_MASTER_CHANGE     4
 
-#define FS_EVENT_SOURCE_DS_SELF         'S'
-#define FS_EVENT_SOURCE_DS_MASTER       'M'
-#define FS_EVENT_SOURCE_CS_LEADER       'L'
+#define FS_EVENT_SOURCE_SELF_PING       'P'
+#define FS_EVENT_SOURCE_SELF_REPORT     'R'
+#define FS_EVENT_SOURCE_MASTER_REPORT   'M'
 #define FS_EVENT_SOURCE_MASTER_OFFLINE  'm'
+#define FS_EVENT_SOURCE_CS_LEADER       'L'
 
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context

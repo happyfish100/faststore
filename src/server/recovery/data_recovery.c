@@ -341,7 +341,7 @@ static int active_me(DataRecoveryContext *ctx)
 
     if (cluster_relationship_swap_report_ds_status(ctx->master->dg->myself,
                 FS_SERVER_STATUS_ONLINE, FS_SERVER_STATUS_ACTIVE,
-                FS_EVENT_SOURCE_DS_SELF))
+                FS_EVENT_SOURCE_SELF_REPORT))
     {
         return 0;
     } else {

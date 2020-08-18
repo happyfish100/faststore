@@ -384,6 +384,7 @@ int cluster_topology_offline_slave_data_servers(
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *master;
     int old_status;
+    bool changed;
 
     *count = 0;
     if (peer == CLUSTER_MYSELF_PTR) {
@@ -413,10 +414,17 @@ int cluster_topology_offline_slave_data_servers(
 
         old_status = __sync_fetch_and_add(&ds->status, 0);
         if (old_status == FS_SERVER_STATUS_ACTIVE) {
-            if (cluster_relationship_swap_report_ds_status(ds,
+            if (master->cs == CLUSTER_MYSELF_PTR) { //report peer/slave status
+                changed = cluster_relationship_report_ds_status(ds,
                         old_status, FS_SERVER_STATUS_OFFLINE,
-                        FS_EVENT_SOURCE_MASTER_OFFLINE))
-            {
+                        FS_EVENT_SOURCE_MASTER_OFFLINE) == 0;
+            } else {  //i am slave
+                changed = cluster_relationship_swap_report_ds_status(ds,
+                        old_status, FS_SERVER_STATUS_OFFLINE,
+                        FS_EVENT_SOURCE_MASTER_OFFLINE);
+            }
+
+            if (changed) {
                 ++(*count);
             }
         }

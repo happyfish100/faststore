@@ -61,7 +61,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     }
 
     if (!cluster_relationship_swap_report_ds_status(ds,
-                old_status, new_status, FS_EVENT_SOURCE_DS_SELF))
+                old_status, new_status, FS_EVENT_SOURCE_SELF_REPORT))
     {
         __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
         logInfo("file: "__FILE__", line: %d, "
@@ -82,7 +82,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
                 new_status == FS_SERVER_STATUS_ONLINE)
         {
             if (cluster_relationship_swap_report_ds_status(ds,
-                        new_status, old_status, FS_EVENT_SOURCE_DS_SELF))
+                        new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
             {  //rollback status
                 logInfo("file: "__FILE__", line: %d, "
                         "data group id: %d, data recovery fail, result: %d, "

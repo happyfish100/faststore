@@ -53,9 +53,20 @@ typedef struct fs_cluster_server_detect_array {
     pthread_mutex_t lock;
 } FSClusterServerDetectArray;
 
-FSClusterServerInfo *g_next_leader = NULL;
-static FSMyDataGroupArray my_data_group_array = {NULL, 0};
-static FSClusterServerDetectArray inactive_server_array = {NULL, 0};
+typedef struct fs_cluster_relationship_context {
+    FSClusterServerInfo *next_leader;
+    FSMyDataGroupArray my_data_group_array;
+    FSClusterServerDetectArray inactive_server_array;
+    volatile int immediate_report;
+} FSClusterRelationshipContext;
+
+#define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
+#define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
+#define IMMEDIATE_REPORT relationship_ctx.immediate_report
+
+static FSClusterRelationshipContext relationship_ctx = {
+    NULL, {NULL, 0}, {NULL, 0}, 0
+};
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
     do {  \
@@ -142,8 +153,8 @@ static void pack_changed_data_versions(char *buff, int *length,
 
     *count = 0;
     body_part = (FSProtoPingLeaderReqBodyPart *)buff;
-    end = my_data_group_array.groups + my_data_group_array.count;
-    for (group=my_data_group_array.groups; group<end; group++) {
+    end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
+    for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
         data_version = __sync_add_and_fetch(&group->ds->replica.data_version, 0);
         if (report_all || group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
@@ -166,13 +177,14 @@ static void leader_deal_data_version_changes()
     int count;
 
     count = 0;
-    end = my_data_group_array.groups + my_data_group_array.count;
-    for (group=my_data_group_array.groups; group<end; group++) {
+    end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
+    for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
         data_version = __sync_add_and_fetch(&group->ds->replica.data_version, 0);
         if (group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             cluster_topology_data_server_chg_notify(group->ds,
-                    FS_EVENT_SOURCE_DS_SELF, FS_EVENT_TYPE_DV_CHANGE, false);
+                    FS_EVENT_SOURCE_SELF_REPORT,
+                    FS_EVENT_TYPE_DV_CHANGE, false);
             ++count;
         }
     }
@@ -347,7 +359,8 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     return result;
 }
 
-static int report_ds_status_to_leader(FSClusterDataServerInfo *ds)
+static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
+        const int status)
 {
     FSClusterServerInfo *leader;
     FSProtoHeader *header;
@@ -375,7 +388,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds)
     int2buff(CLUSTER_MY_SERVER_ID, req->my_server_id);
     int2buff(ds->cs->server->id, req->ds_server_id);
     int2buff(ds->dg->id, req->data_group_id);
-    req->status = __sync_fetch_and_add(&ds->status, 0);
+    req->status = status;
     response.error.length = 0;
     if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
@@ -392,15 +405,15 @@ int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
 {
     FSClusterServerInfo *next_leader;
 
-    next_leader = g_next_leader;
+    next_leader = relationship_ctx.next_leader;
     if (next_leader == NULL) {
-        g_next_leader = leader;
+        relationship_ctx.next_leader = leader;
     } else if (next_leader != leader) {
         logError("file: "__FILE__", line: %d, "
                 "try to set next leader id: %d, "
                 "but next leader: %d already exist",
                 __LINE__, leader->server->id, next_leader->server->id);
-        g_next_leader = NULL;
+        relationship_ctx.next_leader = NULL;
         return EEXIST;
     }
 
@@ -448,10 +461,10 @@ static int cluster_check_brainsplit(const int inactive_count)
     FSClusterServerDetectEntry *end;
     int result;
 
-    end = inactive_server_array.entries + inactive_count;
-    for (entry=inactive_server_array.entries; entry<end; entry++) {
-        if (entry >= inactive_server_array.entries +
-                inactive_server_array.count)
+    end = INACTIVE_SERVER_ARRAY.entries + inactive_count;
+    for (entry=INACTIVE_SERVER_ARRAY.entries; entry<end; entry++) {
+        if (entry >= INACTIVE_SERVER_ARRAY.entries +
+                INACTIVE_SERVER_ARRAY.count)
         {
             break;
         }
@@ -474,8 +487,8 @@ static void init_inactive_server_array()
     FSClusterServerInfo *end;
     FSClusterServerDetectEntry *entry;
 
-    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
-    entry = inactive_server_array.entries;
+    PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
+    entry = INACTIVE_SERVER_ARRAY.entries;
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
         if (cs != CLUSTER_MYSELF_PTR) {
@@ -484,8 +497,8 @@ static void init_inactive_server_array()
         }
     }
 
-    inactive_server_array.count = entry - inactive_server_array.entries;
-    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+    INACTIVE_SERVER_ARRAY.count = entry - INACTIVE_SERVER_ARRAY.entries;
+    PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
 }
 
 static void cluster_relationship_deactivate_all_servers()
@@ -540,7 +553,7 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
     FSClusterServerInfo *next_leader;
     int result;
 
-    next_leader = g_next_leader;
+    next_leader = relationship_ctx.next_leader;
     if (next_leader == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "next leader is NULL", __LINE__);
@@ -550,12 +563,12 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
         logError("file: "__FILE__", line: %d, "
                 "next leader server id: %d != expected server id: %d",
                 __LINE__, next_leader->server->id, leader->server->id);
-        g_next_leader = NULL;
+        relationship_ctx.next_leader = NULL;
         return EBUSY;
     }
 
     result = cluster_relationship_set_leader(leader);
-    g_next_leader = NULL;
+    relationship_ctx.next_leader = NULL;
     return result;
 }
 
@@ -789,21 +802,31 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
     return flags;
 }
 
-void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
-        const int source)
+int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status, const int source)
 {
+    int result;
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
         bool notify_self;
+
+        if (new_status != old_status) {
+            __sync_bool_compare_and_swap(&ds->status,
+                    old_status, new_status);
+        }
         notify_self = (ds->cs != CLUSTER_MYSELF_PTR);
         cluster_topology_data_server_chg_notify(ds, source,
                 FS_EVENT_TYPE_STATUS_CHANGE, notify_self);
+        result = 0;
     } else {   //follower
-        report_ds_status_to_leader(ds);
+        result = report_ds_status_to_leader(ds, new_status);
         if (ds->cs == CLUSTER_MYSELF_PTR) {
             //trigger report to the leader again for rare case
             ds->last_report_version = -1;
+            __sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 0, 1);
         }
     }
+
+    return result;
 }
 
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
@@ -815,7 +838,8 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         return changed;
     }
 
-    cluster_relationship_report_ds_status(ds, source);
+    cluster_relationship_report_ds_status(ds,
+            old_status, new_status, source);
     return changed;
 }
 
@@ -823,6 +847,9 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
     FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo *ds;
+    int old_status;
+    int new_status;
 
     if (old_master != NULL) {
         group = old_master->dg;
@@ -841,33 +868,31 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     }
 
     if (group->myself == new_master) {
-        if (cluster_relationship_set_ds_status(new_master,
-                FS_SERVER_STATUS_ACTIVE))
-        {
-            cluster_relationship_report_ds_status(new_master,
-                    FS_EVENT_SOURCE_DS_SELF);
-        }
+        old_status = __sync_add_and_fetch(&group->myself->status, 0);
+        new_status = FS_SERVER_STATUS_ACTIVE;
+        ds = group->myself;
     } else {
+        old_status = __sync_add_and_fetch(&group->myself->status, 0);
+        new_status = FS_SERVER_STATUS_OFFLINE;
         if (group->myself == old_master) {
-            if (__sync_add_and_fetch(&old_master->status, 0) ==
-                    FS_SERVER_STATUS_ACTIVE)
-            {
-                if (cluster_relationship_set_ds_status_ex(old_master,
-                            FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE))
-                {
-                    old_master->last_report_version = -1;   //trigger report to leader
-                }
-            }
+            ds = old_status == FS_SERVER_STATUS_ACTIVE ? group->myself : NULL;
+        } else {
+            ds = NULL;
         }
+    }
 
-        if (new_master != NULL) {
-            int my_status;
-            my_status = __sync_add_and_fetch(&group->myself->status, 0);
-            if (my_status == FS_SERVER_STATUS_INIT ||
-                    my_status == FS_SERVER_STATUS_OFFLINE)
-            {
-                recovery_thread_push_to_queue(group->myself);
-            }
+    if (ds != NULL) {
+        cluster_relationship_swap_report_ds_status(ds, old_status,
+                new_status, FS_EVENT_SOURCE_SELF_REPORT);
+    }
+
+    if (new_master != NULL && group->myself != new_master) {
+        int my_status;
+        my_status = __sync_add_and_fetch(&group->myself->status, 0);
+        if (my_status == FS_SERVER_STATUS_INIT ||
+                my_status == FS_SERVER_STATUS_OFFLINE)
+        {
+            recovery_thread_push_to_queue(group->myself);
         }
     }
 
@@ -1099,7 +1124,7 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
     FSResponseInfo response;
 
     start_time = g_current_time;
-    timeout_ms = 1000;
+    timeout_ms = 100;
     response.error.length = 0;
     do {
         if ((result=cluster_recv_from_leader(conn, &response,
@@ -1108,7 +1133,12 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
             fs_log_network_error(&response, conn, result);
             return result;
         }
-        timeout_ms = 100;
+
+        if (__sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 1, 0)) {
+            if ((result=proto_ping_leader(conn)) != 0) {
+                return result;
+            }
+        }
     } while (start_time == g_current_time);
 
     return 0;
@@ -1122,9 +1152,9 @@ static int cluster_ping_leader(ConnectionInfo *conn)
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         sleep(1);
-        PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
-        inactive_count = inactive_server_array.count;
-        PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+        PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
+        inactive_count = INACTIVE_SERVER_ARRAY.count;
+        PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
         if (inactive_count > 0) {
             static int count = 0;
             if (count++ % 100 == 0) {
@@ -1243,8 +1273,8 @@ static int init_my_data_group_array()
             CLUSTER_MYSELF_PTR->server->id);
 
     bytes = sizeof(FSMyDataGroupInfo) * id_array->count;
-    my_data_group_array.groups = (FSMyDataGroupInfo *)fc_malloc(bytes);
-    if (my_data_group_array.groups == NULL) {
+    MY_DATA_GROUP_ARRAY.groups = (FSMyDataGroupInfo *)fc_malloc(bytes);
+    if (MY_DATA_GROUP_ARRAY.groups == NULL) {
         return ENOMEM;
     }
 
@@ -1255,8 +1285,8 @@ static int init_my_data_group_array()
             data_group->data_server_array.count;
         for (ds=data_group->data_server_array.servers; ds<end; ds++) {
             if (ds->cs == CLUSTER_MYSELF_PTR) {
-                my_data_group_array.groups[i].data_group_id = data_group_id;
-                my_data_group_array.groups[i].ds = ds;
+                MY_DATA_GROUP_ARRAY.groups[i].data_group_id = data_group_id;
+                MY_DATA_GROUP_ARRAY.groups[i].ds = ds;
                 break;
             }
         }
@@ -1267,7 +1297,7 @@ static int init_my_data_group_array()
             return ENOENT;
         }
     }
-    my_data_group_array.count = id_array->count;
+    MY_DATA_GROUP_ARRAY.count = id_array->count;
 
     return 0;
 }
@@ -1279,17 +1309,18 @@ int cluster_relationship_init()
     int bytes;
 
     bytes = sizeof(FSClusterServerDetectEntry) * CLUSTER_SERVER_ARRAY.count;
-    inactive_server_array.entries = (FSClusterServerDetectEntry *)fc_malloc(bytes);
-    if (inactive_server_array.entries == NULL) {
+    INACTIVE_SERVER_ARRAY.entries = (FSClusterServerDetectEntry *)
+        fc_malloc(bytes);
+    if (INACTIVE_SERVER_ARRAY.entries == NULL) {
         return ENOMEM;
     }
-    if ((result=init_pthread_lock(&inactive_server_array.lock)) != 0) {
+    if ((result=init_pthread_lock(&INACTIVE_SERVER_ARRAY.lock)) != 0) {
         logError("file: "__FILE__", line: %d, "
             "init_pthread_lock fail, errno: %d, error info: %s",
             __LINE__, result, STRERROR(result));
         return result;
     }
-    inactive_server_array.alloc = CLUSTER_SERVER_ARRAY.count;
+    INACTIVE_SERVER_ARRAY.alloc = CLUSTER_SERVER_ARRAY.count;
 
     if ((result=init_my_data_group_array()) != 0) {
         return result;
@@ -1308,13 +1339,13 @@ void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs)
 {
     FSClusterServerDetectEntry *entry;
 
-    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
-    if (inactive_server_array.count < inactive_server_array.alloc) {
-        entry = inactive_server_array.entries + inactive_server_array.count;
+    PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
+    if (INACTIVE_SERVER_ARRAY.count < INACTIVE_SERVER_ARRAY.alloc) {
+        entry = INACTIVE_SERVER_ARRAY.entries + INACTIVE_SERVER_ARRAY.count;
         SET_SERVER_DETECT_ENTRY(entry, cs);
-        inactive_server_array.count++;
+        INACTIVE_SERVER_ARRAY.count++;
     }
-    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+    PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
 }
 
 void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs)
@@ -1323,9 +1354,9 @@ void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs)
     FSClusterServerDetectEntry *p;
     FSClusterServerDetectEntry *end;
 
-    PTHREAD_MUTEX_LOCK(&inactive_server_array.lock);
-    end = inactive_server_array.entries + inactive_server_array.count;
-    for (entry=inactive_server_array.entries; entry<end; entry++) {
+    PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
+    end = INACTIVE_SERVER_ARRAY.entries + INACTIVE_SERVER_ARRAY.count;
+    for (entry=INACTIVE_SERVER_ARRAY.entries; entry<end; entry++) {
         if (entry->cs == cs) {
             break;
         }
@@ -1335,7 +1366,7 @@ void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs)
         for (p=entry+1; p<end; p++) {
             *(p - 1) = *p;
         }
-        inactive_server_array.count--;
+        INACTIVE_SERVER_ARRAY.count--;
     }
-    PTHREAD_MUTEX_UNLOCK(&inactive_server_array.lock);
+    PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
 }

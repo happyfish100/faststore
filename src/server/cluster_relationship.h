@@ -12,8 +12,6 @@
 extern "C" {
 #endif
 
-extern FSClusterServerInfo *g_next_leader;
-
 int cluster_relationship_init();
 int cluster_relationship_destroy();
 
@@ -37,8 +35,8 @@ static inline bool cluster_relationship_set_ds_status(
 int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         const int status, const uint64_t data_version);
 
-void cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
-        const int source);
+int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status, const int source);
 
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status, const int source);

@@ -241,7 +241,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
         {
             data_version = buff2long(body_part->data_version);
             if (set_ds_status_and_data_version(ds, body_part->status,
-                        data_version, false, FS_EVENT_SOURCE_DS_SELF))
+                        data_version, false, FS_EVENT_SOURCE_SELF_PING))
             {
                 ++change_count;
             }
@@ -337,7 +337,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
 
     old_status = __sync_fetch_and_add(&ds->status, 0);
     if (my_server_id == ds_server_id) {
-        source = FS_EVENT_SOURCE_DS_SELF;
+        source = FS_EVENT_SOURCE_SELF_REPORT;
         notify_self = false;
     } else {
         FSClusterDataServerInfo *master;
@@ -371,7 +371,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
             return EINVAL;
         }
 
-        source = FS_EVENT_SOURCE_DS_MASTER;
+        source = FS_EVENT_SOURCE_MASTER_REPORT;
         notify_self = true;
     }
 

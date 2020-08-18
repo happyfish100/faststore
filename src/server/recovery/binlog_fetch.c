@@ -341,7 +341,8 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 }
                 cluster_relationship_swap_report_ds_status(
                         ctx->master->dg->myself, old_status,
-                        FS_SERVER_STATUS_ONLINE, FS_EVENT_SOURCE_DS_SELF);
+                        FS_SERVER_STATUS_ONLINE,
+                        FS_EVENT_SOURCE_SELF_REPORT);
             }
         }
 
