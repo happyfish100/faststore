@@ -13,6 +13,8 @@
 extern "C" {
 #endif
 
+FSServerContext *du_handler_alloc_server_context();
+
 #define du_handler_parse_check_readable_block_slice(task, bs) \
     du_handler_parse_check_block_slice(task, &SLICE_OP_CTX, bs, false)
 

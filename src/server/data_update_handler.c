@@ -368,7 +368,7 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
 
     op_ctx->info.write_data_binlog = true;
     if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
-                        task->thread_data->arg)->service.slice_ptr_array,
+                        task->thread_data->arg)->slice_ptr_array,
                     &op_ctx->write.inc_alloc)) != 0)
     {
         du_handler_set_slice_op_error_msg(task, op_ctx, "allocate", result);
@@ -434,4 +434,21 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     }
 
     return do_replica(task, FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
+}
+
+FSServerContext *du_handler_alloc_server_context()
+{
+    int bytes;
+    FSServerContext *server_context;
+
+    bytes = sizeof(FSServerContext) + sizeof(struct ob_slice_ptr_array);
+    server_context = (FSServerContext *)fc_malloc(bytes);
+    if (server_context == NULL) {
+        return NULL;
+    }
+    memset(server_context, 0, bytes);
+
+    server_context->slice_ptr_array = (struct ob_slice_ptr_array *)
+        (server_context + 1);
+    return server_context;
 }

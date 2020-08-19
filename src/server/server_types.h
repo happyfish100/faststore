@@ -324,7 +324,6 @@ struct ob_slice_ptr_array;
 typedef struct fs_server_context {
     union {
         struct {
-            struct ob_slice_ptr_array *slice_ptr_array;
         } service;
 
         struct {
@@ -339,6 +338,7 @@ typedef struct fs_server_context {
         } replica;
     };
 
+    struct ob_slice_ptr_array *slice_ptr_array;  //must be the last
 } FSServerContext;
 
 #endif

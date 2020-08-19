@@ -183,7 +183,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     OP_CTX_NOTIFY.func = slice_read_done_notify;
     OP_CTX_NOTIFY.arg = task;
     result = fs_slice_read_ex(&SLICE_OP_CTX, buff,
-            SERVER_CTX->service.slice_ptr_array);
+            SERVER_CTX->slice_ptr_array);
     if (result != 0) {
         du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX, "read", result);
         return result;
@@ -485,17 +485,5 @@ int service_deal_task(struct fast_task_info *task)
 
 void *service_alloc_thread_extra_data(const int thread_index)
 {
-    int bytes;
-    FSServerContext *server_context;
-
-    bytes = sizeof(FSServerContext) + sizeof(struct ob_slice_ptr_array);
-    server_context = (FSServerContext *)fc_malloc(bytes);
-    if (server_context == NULL) {
-        return NULL;
-    }
-    memset(server_context, 0, bytes);
-
-    server_context->service.slice_ptr_array = (struct ob_slice_ptr_array *)
-        (server_context + 1);
-    return server_context;
+    return du_handler_alloc_server_context();
 }

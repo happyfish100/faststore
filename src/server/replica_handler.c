@@ -794,11 +794,9 @@ void *replica_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
 
-    server_context = (FSServerContext *)fc_malloc(sizeof(FSServerContext));
-    if (server_context == NULL) {
+    if ((server_context=du_handler_alloc_server_context()) == NULL) {
         return NULL;
     }
-    memset(server_context, 0, sizeof(FSServerContext));
 
     if (replication_alloc_connection_ptr_arrays(server_context) != 0) {
         return NULL;

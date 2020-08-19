@@ -300,8 +300,8 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     uint64_t sns[2 * SLICE_MAX_HOLES];
 
     *inc_alloc = 0;
-    if ((result=get_slice_index_holes(&op_ctx->info.bs_key, sarray, ssizes,
-                    SLICE_MAX_HOLES, &count)) != 0)
+    if ((result=get_slice_index_holes(&op_ctx->info.bs_key, sarray,
+                    ssizes, SLICE_MAX_HOLES, &count)) != 0)
     {
         return result;
     }
