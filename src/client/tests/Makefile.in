@@ -1,8 +1,8 @@
 .SUFFIXES: .c .o .lo
 
 COMPILE = $(CC) $(CFLAGS)
-INC_PATH = -I/usr/local/include
-LIB_PATH = $(LIBS) -lfsclient -lfastcommon
+INC_PATH = -I/usr/local/include -I../../common -L../../include
+LIB_PATH = -L.. $(LIBS) -lfsclient -lfastcommon
 TARGET_PATH = $(TARGET_PREFIX)/bin
 
 STATIC_OBJS =

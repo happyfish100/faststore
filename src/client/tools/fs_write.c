@@ -7,7 +7,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include "fastcommon/logger.h"
-#include "faststore/fs_func.h"
 #include "faststore/fs_client.h"
 
 static void usage(char *argv[])

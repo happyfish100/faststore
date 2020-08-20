@@ -1,8 +1,8 @@
 .SUFFIXES: .c .o .lo
 
 COMPILE = $(CC) $(CFLAGS)
-INC_PATH = -I../common
-LIB_PATH = $(LIBS) -lfsclient -lfdirclient -lfastcommon
+INC_PATH = -I../common -I../include
+LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
 FAST_SHARED_OBJS = fs_api.lo fs_api_file.lo fs_api_util.lo
