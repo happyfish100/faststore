@@ -159,7 +159,7 @@ static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
     return safeWriteToFile(filename, buff, len);
 }
 
-static int data_recovery_unlink_sys_data(DataRecoveryContext *ctx)
+int data_recovery_unlink_sys_data(DataRecoveryContext *ctx)
 {
     char filename[PATH_MAX];
 

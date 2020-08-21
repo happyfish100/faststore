@@ -382,10 +382,57 @@ static void calc_replay_stat(BinlogReplayContext *replay_ctx,
     }
 }
 
-static int do_replay_binlog(DataRecoveryContext *ctx)
+static void waiting_replay_threads_exit(DataRecoveryContext *ctx)
 {
     BinlogReplayContext *replay_ctx;
-    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
+    replay_ctx->continue_flag = false;
+    while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
+        logInfo("data group id: %d, replay running threads: %d",
+                ctx->ds->dg->id, __sync_add_and_fetch(
+                    &replay_ctx->running_count, 0));
+        usleep(10000);
+    }
+}
+
+static void replay_finish(DataRecoveryContext *ctx, const int err_no)
+{
+#define REPLAY_WAIT_TIMES  30
+    BinlogReplayContext *replay_ctx;
+    ReplayStatInfo stat;
+    int64_t total_count;
+    int i;
+
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
+    if (err_no == 0) {
+        for (i=0; i<REPLAY_WAIT_TIMES; i++) {
+            usleep(100000);
+            calc_replay_stat(replay_ctx, &stat);
+            total_count = stat.write.total + stat.allocate.total +
+                stat.remove.total;
+            if (total_count == replay_ctx->total_count) {
+                break;
+            }
+        }
+
+        if (i == REPLAY_WAIT_TIMES) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "data group id: %d, replay running threads: %d, "
+                    "waiting thread ready timeout, input record "
+                    "count: %"PRId64", current deal count: %"PRId64,
+                    __LINE__, ctx->ds->dg->id, __sync_add_and_fetch(
+                        &replay_ctx->running_count, 0),
+                    replay_ctx->total_count, total_count);
+        }
+    }
+
+    waiting_replay_threads_exit(ctx);
+}
+
+static int replay_output(DataRecoveryContext *ctx, const int err_no)
+{
+    BinlogReplayContext *replay_ctx;
     ReplayStatInfo stat;
     char prompt[32];
     char time_buff[32];
@@ -397,11 +444,56 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     int result;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
+    calc_replay_stat(replay_ctx, &stat);
+    total_count = stat.write.total + stat.allocate.total + stat.remove.total;
+    success_count = stat.write.success + stat.allocate.success + stat.remove.success;
+    fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
+    ignore_count = stat.write.ignore + stat.remove.ignore;
+
+    result = fail_count == 0 ? err_no : EBUSY;
+    if (result == 0) {
+        strcpy(prompt, "success");
+    } else {
+        strcpy(prompt, "fail");
+    }
+
+    end_time = get_current_time_ms();
+    long_to_comma_str(end_time - ctx->start_time, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, data recovery %s, time used: %s ms. "
+            "all : {total : %"PRId64", success : %"PRId64", "
+            "fail : %"PRId64", ignore : %"PRId64"}, "
+            "write : {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "allocate: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "remove: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}", __LINE__, ctx->ds->dg->id, prompt,
+            time_buff, total_count, success_count, fail_count, ignore_count,
+            stat.write.total, stat.write.success, stat.write.ignore,
+            stat.allocate.total, stat.allocate.success, stat.allocate.ignore,
+            stat.remove.total, stat.remove.success, stat.remove.ignore);
+
+    return result;
+}
+
+static int do_replay_binlog(DataRecoveryContext *ctx)
+{
+    BinlogReplayContext *replay_ctx;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    int result;
+
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
     if ((result=binlog_read_thread_init(&replay_ctx->rdthread_ctx, subdir_name,
                     NULL, NULL, BINLOG_BUFFER_SIZE)) != 0)
     {
+        if (result == ENOENT) {
+            data_recovery_unlink_sys_data(ctx);  //cleanup
+        }
+
+        waiting_replay_threads_exit(ctx);
         return result;
     }
 
@@ -439,73 +531,8 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     }
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
 
-    if (result == 0) {
-#define REPLAY_WAIT_TIMES  30
-        int i;
-        for (i=0; i<REPLAY_WAIT_TIMES; i++) {
-            usleep(100000);
-            calc_replay_stat(replay_ctx, &stat);
-            total_count = stat.write.total + stat.allocate.total +
-                stat.remove.total;
-            if (total_count == replay_ctx->total_count) {
-                break;
-            }
-        }
-
-        if (i == REPLAY_WAIT_TIMES) {
-            logWarning("file: "__FILE__", line: %d, "
-                    "data group id: %d, replay running threads: %d, "
-                    "waiting thread ready timeout, input record "
-                    "count: %"PRId64", current deal count: %"PRId64,
-                    __LINE__, ctx->ds->dg->id, __sync_add_and_fetch(
-                        &replay_ctx->running_count, 0),
-                    replay_ctx->total_count, total_count);
-        }
-    }
-
-    replay_ctx->continue_flag = false;
-    while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
-        logInfo("data group id: %d, replay running threads: %d",
-                ctx->ds->dg->id, __sync_add_and_fetch(
-                    &replay_ctx->running_count, 0));
-        usleep(10000);
-    }
-
-    calc_replay_stat(replay_ctx, &stat);
-    total_count = stat.write.total + stat.allocate.total + stat.remove.total;
-    success_count = stat.write.success + stat.allocate.success + stat.remove.success;
-    fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
-    ignore_count = stat.write.ignore + stat.remove.ignore;
-
-    if (fail_count > 0) {
-        if (result == 0) {
-            result = EBUSY;
-        }
-    }
-    if (result == 0) {
-        strcpy(prompt, "success");
-    } else {
-        strcpy(prompt, "fail");
-    }
-
-    end_time = get_current_time_ms();
-    long_to_comma_str(end_time - ctx->start_time, time_buff);
-    logInfo("file: "__FILE__", line: %d, "
-            "data group id: %d, data recovery %s, time used: %s ms. "
-            "all : {total : %"PRId64", success : %"PRId64", "
-            "fail : %"PRId64", ignore : %"PRId64"}, "
-            "write : {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}, "
-            "allocate: {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}, "
-            "remove: {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}", __LINE__, ctx->ds->dg->id, prompt,
-            time_buff, total_count, success_count, fail_count, ignore_count,
-            stat.write.total, stat.write.success, stat.write.ignore,
-            stat.allocate.total, stat.allocate.success, stat.allocate.ignore,
-            stat.remove.total, stat.remove.success, stat.remove.ignore);
-
-    return result;
+    replay_finish(ctx, result);
+    return replay_output(ctx, result);
 }
 
 static int init_rthread_context(ReplayThreadContext *thread_ctx,

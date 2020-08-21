@@ -20,6 +20,8 @@ void data_recovery_destroy();
 
 int data_recovery_start(FSClusterDataServerInfo *ds);
 
+int data_recovery_unlink_sys_data(DataRecoveryContext *ctx);
+
 static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
         const char *subdir, char *subdir_name)
 {
