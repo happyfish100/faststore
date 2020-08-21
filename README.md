@@ -1,1 +1,1 @@
-a high performance distributed file storage service.
+A high performance distributed file storage service.
