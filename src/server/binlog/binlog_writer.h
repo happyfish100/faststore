@@ -4,6 +4,7 @@
 #define _BINLOG_WRITER_H_
 
 #include "fastcommon/fc_queue.h"
+#include "../server_global.h"
 #include "binlog_types.h"
 
 #define FS_BINLOG_WRITER_TYPE_ORDER_BY_NONE     0

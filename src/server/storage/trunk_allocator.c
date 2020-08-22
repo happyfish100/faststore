@@ -22,6 +22,7 @@ static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 #define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
 #define G_FREE_NODE_ALLOCATOR g_trunk_allocator_vars.free_node_allocator
 #define G_SKIPLIST_FACTORY    g_trunk_allocator_vars.skiplist_factory
+#define TRUNK_AVAIL_SPACE_SIZE(trunk) ((trunk)->size - (trunk)->free_start)
 
 static int compare_trunk_info(const void *p1, const void *p2)
 {
@@ -322,7 +323,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
     do {
         if (freelist->head != NULL) {
             trunk_info = freelist->head->trunk_info;
-            remain_bytes = trunk_info->size - trunk_info->free_start;
+            remain_bytes = TRUNK_AVAIL_SPACE_SIZE(trunk_info);
             if (remain_bytes < aligned_size) {
                 if (!blocked && freelist->count <= 1) {
                     result = EAGAIN;
@@ -351,11 +352,11 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
             break;
         }
 
-        TRUNK_ALLOC_SPACE(allocator, freelist->head->trunk_info,
-                space_info, aligned_size);
+        trunk_info = freelist->head->trunk_info;
+        TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, aligned_size);
         space_info++;
-        if (freelist->head->trunk_info->size - freelist->head->trunk_info->
-                free_start < STORAGE_CFG.discard_remain_space_size)
+        if (TRUNK_AVAIL_SPACE_SIZE(trunk_info) <
+                STORAGE_CFG.discard_remain_space_size)
         {
             remove_trunk_from_freelist(allocator, freelist);
         }
@@ -453,7 +454,7 @@ const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
     end = allocator->priority_array.trunks + count;
     uniq_skiplist_iterator(allocator->sl_trunks, &it);
     while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
-        remain_size = trunk_info->size - trunk_info->free_start;
+        remain_size = TRUNK_AVAIL_SPACE_SIZE(trunk_info);
         if (remain_size < FS_FILE_BLOCK_SIZE) {
             continue;
         }
@@ -467,14 +468,14 @@ const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
             allocator->priority_array.trunks[allocator->
                 priority_array.count++] = trunk_info;
             continue;
-        } else if (remain_size <= allocator->priority_array.trunks[0]->size -
-                allocator->priority_array.trunks[0]->free_start)
+        } else if (remain_size <= TRUNK_AVAIL_SPACE_SIZE(
+                    allocator->priority_array.trunks[0]))
         {
             continue;
         }
 
         pp = allocator->priority_array.trunks + 1;
-        while ((pp < end) && (remain_size > (*pp)->size - (*pp)->free_start)) {
+        while ((pp < end) && (remain_size > TRUNK_AVAIL_SPACE_SIZE(*pp))) {
             *(pp - 1) = *pp;
             pp++;
         }
