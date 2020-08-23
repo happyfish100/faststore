@@ -2,6 +2,7 @@
 #ifndef _REPLICA_BINLOG_H
 #define _REPLICA_BINLOG_H
 
+#include "fastcommon/sched_thread.h"
 #include "../storage/object_block_index.h"
 
 #define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  'w'
@@ -76,47 +77,51 @@ extern "C" {
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
 
-    int replica_binlog_log_slice(const int data_group_id,
-            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key,
-            const int op_type);
+    int replica_binlog_log_slice(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key, const int op_type);
 
-    int replica_binlog_log_block(const int data_group_id,
-            const int64_t data_version, const FSBlockKey *bkey,
-            const int op_type);
+    int replica_binlog_log_block(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockKey *bkey, const int op_type);
 
-    static inline int replica_binlog_log_del_block(const int data_group_id,
-            const int64_t data_version, const FSBlockKey *bkey)
+    static inline int replica_binlog_log_del_block(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockKey *bkey)
     {
-        return replica_binlog_log_block(data_group_id, data_version, bkey,
-                REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
+        return replica_binlog_log_block(current_time, data_group_id,
+                data_version, bkey, REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
     }
 
     static inline int replica_binlog_log_no_op(const int data_group_id,
             const int64_t data_version, const FSBlockKey *bkey)
     {
-        return replica_binlog_log_block(data_group_id, data_version, bkey,
-                REPLICA_BINLOG_OP_TYPE_NO_OP);
+        return replica_binlog_log_block(g_current_time, data_group_id,
+                data_version, bkey, REPLICA_BINLOG_OP_TYPE_NO_OP);
     }
 
-    static inline int replica_binlog_log_write_slice(const int data_group_id,
-            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
+    static inline int replica_binlog_log_write_slice(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key)
     {
-        return replica_binlog_log_slice(data_group_id, data_version,
-                bs_key, REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
+        return replica_binlog_log_slice(current_time, data_group_id,
+                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
     }
 
-    static inline int replica_binlog_log_alloc_slice(const int data_group_id,
-            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
+    static inline int replica_binlog_log_alloc_slice(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key)
     {
-        return replica_binlog_log_slice(data_group_id, data_version,
-                bs_key, REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
+        return replica_binlog_log_slice(current_time, data_group_id,
+                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
     }
 
-    static inline int replica_binlog_log_del_slice(const int data_group_id,
-            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key)
+    static inline int replica_binlog_log_del_slice(const time_t current_time,
+            const int data_group_id, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key)
     {
-        return replica_binlog_log_slice(data_group_id, data_version,
-                bs_key, REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
+        return replica_binlog_log_slice(current_time, data_group_id,
+                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
     }
 
     const char *replica_binlog_get_op_type_caption(const int op_type);

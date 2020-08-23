@@ -14,10 +14,6 @@
 #include "binlog_loader.h"
 #include "slice_binlog.h"
 
-#define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
-#define BINLOG_COMMON_FIELD_DATA_VERSION       1
-#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      2
-
 #define ADD_SLICE_FIELD_INDEX_SLICE_TYPE       3
 #define ADD_SLICE_FIELD_INDEX_BLOCK_OID        4
 #define ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET     5
@@ -299,7 +295,8 @@ void slice_binlog_destroy()
 }
 
 int slice_binlog_log_add_slice(const OBSliceEntry *slice,
-        const uint64_t sn, const uint64_t data_version)
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -309,9 +306,9 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 
     wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
+            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
-            (int)g_current_time, data_version,
+            (int64_t)current_time, data_version,
             SLICE_BINLOG_OP_TYPE_ADD_SLICE, slice->type,
             slice->ob->bkey.oid, slice->ob->bkey.offset,
             slice->ssize.offset, slice->ssize.length,
@@ -323,7 +320,8 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 }
 
 int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
-        const uint64_t sn, const uint64_t data_version)
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -333,8 +331,8 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
 
     wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-            (int)g_current_time, data_version,
+            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+            (int64_t)current_time, data_version,
             SLICE_BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
@@ -343,7 +341,8 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
 }
 
 int slice_binlog_log_del_block(const FSBlockKey *bkey,
-        const uint64_t sn, const uint64_t data_version)
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version)
 {
     BinlogWriterBuffer *wbuffer;
 
@@ -353,8 +352,8 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
 
     wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %"PRId64" %c %"PRId64" %"PRId64"\n",
-            (int)g_current_time, data_version,
+            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64"\n",
+            (int64_t)current_time, data_version,
             SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
     push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);

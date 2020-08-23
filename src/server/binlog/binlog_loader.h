@@ -37,6 +37,17 @@
     BINLOG_PARSE_INT_EX(subdir_name, var, #var, index, endchr, min_val)
 
 
+#define BINLOG_PARSE_INT_SILENCE(var, caption, index, endchr, min_val) \
+    do {   \
+        var = strtol(cols[index].str, &endptr, 10);  \
+        if (*endptr != endchr || var < min_val) {    \
+            sprintf(error_info, "invalid %s: %.*s",  \
+                    caption, cols[index].len, cols[index].str); \
+            return EINVAL;  \
+        }  \
+    } while (0)
+
+
 typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r, \
         string_t *line);
 

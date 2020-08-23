@@ -14,6 +14,24 @@
 #include "fastcommon/sockopt.h"
 #include "server_global.h"
 #include "server_binlog.h"
+#include "binlog/binlog_check.h"
+
+static int do_binlog_check()
+{
+    int flags;
+    int result;
+
+    if (BINLOG_CHECK_LAST_SECONDS <= 0) {
+        return 0;
+    }
+
+    if ((result=binlog_consistency_check(&flags)) != 0) {
+        return result;
+    }
+
+    //TODO
+    return 0;
+}
 
 int server_binlog_init()
 {
@@ -27,7 +45,7 @@ int server_binlog_init()
         return result;
     }
 
-	return 0;
+	return do_binlog_check();
 }
 
 void server_binlog_destroy()

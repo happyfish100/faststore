@@ -5,12 +5,14 @@
 
 #include "binlog_types.h"
 
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size);
+
+int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
+        uint64_t *data_version, char *error_info);
 
 static inline int binlog_buffer_init(ServerBinlogBuffer *buffer)
 {

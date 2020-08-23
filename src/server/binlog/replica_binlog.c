@@ -3,7 +3,6 @@
 #include <sys/stat.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
-#include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
@@ -15,10 +14,6 @@
 #include "binlog_writer.h"
 #include "binlog_loader.h"
 #include "replica_binlog.h"
-
-#define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP    0
-#define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION 1
-#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE      2
 
 #define SLICE_FIELD_INDEX_BLOCK_OID        3
 #define SLICE_FIELD_INDEX_BLOCK_OFFSET     4
@@ -32,16 +27,6 @@
 
 #define MAX_BINLOG_FIELD_COUNT  8
 #define MIN_EXPECT_FIELD_COUNT  BLOCK_EXPECT_FIELD_COUNT
-
-#define REPLICA_BINLOG_PARSE_INT(var, caption, index, endchr, min_val) \
-    do {   \
-        var = strtol(cols[index].str, &endptr, 10);  \
-        if (*endptr != endchr || var < min_val) {    \
-            sprintf(error_info, "invalid %s: %.*s",  \
-                    caption, cols[index].len, cols[index].str); \
-            return EINVAL;  \
-        }  \
-    } while (0)
 
 typedef struct {
     BinlogWriterInfo **writers;
@@ -348,13 +333,13 @@ static inline int unpack_slice_record(string_t *cols, const int count,
         return EINVAL;
     }
 
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.block.oid, "object ID",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
             SLICE_FIELD_INDEX_BLOCK_OID, ' ', 1);
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.block.offset, "block offset",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
             SLICE_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.slice.offset, "slice offset",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
             SLICE_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.slice.length, "slice length",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
             SLICE_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     return 0;
 }
@@ -370,9 +355,9 @@ static inline int unpack_block_record(string_t *cols, const int count,
         return EINVAL;
     }
 
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.block.oid, "object ID",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
             BLOCK_FIELD_INDEX_BLOCK_OID, ' ', 1);
-    REPLICA_BINLOG_PARSE_INT(record->bs_key.block.offset, "block offset",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
             BLOCK_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
     return 0;
 }
@@ -394,7 +379,7 @@ int replica_binlog_record_unpack(const string_t *line,
     }
 
     record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
-    REPLICA_BINLOG_PARSE_INT(record->data_version, "data version",
+    BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     switch (record->op_type) {
         case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
@@ -424,7 +409,8 @@ static BinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
     return binlog_writer_alloc_versioned_buffer(*writer, data_version);
 }
 
-int replica_binlog_log_slice(const int data_group_id, const int64_t data_version,
+int replica_binlog_log_slice(const time_t current_time,
+        const int data_group_id, const int64_t data_version,
         const FSBlockSliceKeyInfo *bs_key, const int op_type)
 {
     BinlogWriterInfo *writer;
@@ -437,17 +423,17 @@ int replica_binlog_log_slice(const int data_group_id, const int64_t data_version
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-            (int)g_current_time, data_version, op_type,
+            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
+            (int64_t)current_time, data_version, op_type,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }
 
-int replica_binlog_log_block(const int data_group_id,
-        const int64_t data_version, const FSBlockKey *bkey,
-        const int op_type)
+int replica_binlog_log_block(const time_t current_time,
+        const int data_group_id, const int64_t data_version,
+        const FSBlockKey *bkey, const int op_type)
 {
     BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
@@ -459,8 +445,8 @@ int replica_binlog_log_block(const int data_group_id,
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %"PRId64" %c %"PRId64" %"PRId64"\n",
-            (int)g_current_time, data_version,
+            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64"\n",
+            (int64_t)current_time, data_version,
             op_type, bkey->oid, bkey->offset);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;

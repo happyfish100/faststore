@@ -227,12 +227,14 @@ static void server_log_configs()
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
             "binlog_buffer_size = %d KB, "
+            "binlog_check_last_seconds = %d s, "
             "cluster server count = %d",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
             BINLOG_BUFFER_SIZE / 1024,
+            BINLOG_CHECK_LAST_SECONDS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
 
     logInfo("%s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
@@ -348,6 +350,10 @@ int server_load_config(const char *filename)
         RECOVERY_MAX_QUEUE_DEPTH =
             FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH;
     }
+
+    BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
+            "binlog_check_last_seconds", &ini_context,
+            FS_DEFAULT_BINLOG_CHECK_LAST_SECONDS);
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {
         return result;

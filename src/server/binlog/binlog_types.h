@@ -10,6 +10,10 @@
 #include "fastcommon/common_blocked_queue.h"
 #include "../server_types.h"
 
+#define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP      0
+#define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION   1
+#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE        2
+
 #define BINLOG_FILE_PREFIX     "binlog"
 #define BINLOG_FILE_EXT_FMT    ".%06d"
 
