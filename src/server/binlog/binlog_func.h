@@ -11,6 +11,10 @@ extern "C" {
 
 int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size);
 
+int binlog_get_first_timestamp(const char *filename, time_t *timestamp);
+
+int binlog_get_last_timestamp(const char *filename, time_t *timestamp);
+
 int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
         uint64_t *data_version, char *error_info);
 

@@ -10,6 +10,7 @@
 #include "../dio/trunk_io_thread.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
+#include "binlog_func.h"
 #include "binlog_reader.h"
 #include "binlog_writer.h"
 #include "binlog_loader.h"
@@ -46,10 +47,8 @@ static int get_first_data_version_from_file(const int data_group_id,
     char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
     char error_info[256];
     string_t line;
-    char *line_end;
     ReplicaBinlogRecord record;
     int result;
-    int64_t read_bytes;
 
     *data_version = 0;
     writer = binlog_writer_array.writers[data_group_id -
@@ -57,24 +56,12 @@ static int get_first_data_version_from_file(const int data_group_id,
     binlog_writer_get_filename(writer->cfg.subdir_name,
             binlog_index, filename, sizeof(filename));
 
-    read_bytes = FS_REPLICA_BINLOG_MAX_RECORD_SIZE - 1;
-    if ((result=getFileContentEx(filename, buff, 0, &read_bytes)) != 0) {
+    if ((result=fc_get_first_line(filename, buff,
+                    sizeof(buff), &line)) != 0)
+    {
         return result;
     }
-    if (read_bytes == 0) {
-        return ENOENT;
-    }
 
-    line_end = (char *)memchr(buff, '\n', read_bytes);
-    if (line_end == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: 1, "
-                "expect new line char \"\\n\"",
-                __LINE__, filename);
-        return EINVAL;
-    }
-    line.str = buff;
-    line.len = line_end - buff + 1;
     if ((result=replica_binlog_record_unpack(&line,
                     &record, error_info)) != 0)
     {
@@ -96,39 +83,17 @@ int replica_binlog_get_last_record_ex(const char *filename,
     char error_info[256];
     string_t line;
     int64_t file_size;
-    int64_t offset;
-    int64_t read_bytes;
     int result;
 
-    position->offset = 0;
-    *record_len = 0;
-    if ((result=getFileSize(filename, &file_size)) != 0) {
-        return result;
-    }
-
-    if (file_size == 0) {
-        return ENOENT;
-    }
-
-    if (file_size >= FS_REPLICA_BINLOG_MAX_RECORD_SIZE) {
-        offset = file_size - FS_REPLICA_BINLOG_MAX_RECORD_SIZE + 1;
-    } else {
-        offset = 0;
-    }
-    read_bytes = (file_size - offset) + 1;
-    if ((result=getFileContentEx(filename, buff,
-                    offset, &read_bytes)) != 0)
+    if ((result=fc_get_last_line(filename, buff,
+                    sizeof(buff), &file_size, &line)) != 0)
     {
+        *record_len = 0;
+        position->offset = 0;
         return result;
     }
 
-    line.str = (char *)fc_memrchr(buff, '\n', read_bytes - 1);
-    if (line.str == NULL) {
-        line.str = buff;
-    } else {
-        line.str += 1;  //skip \n
-    }
-    line.len = *record_len = (buff + read_bytes) - line.str;
+    *record_len = line.len;
     position->offset = file_size - *record_len;
     if ((result=replica_binlog_record_unpack(&line,
                     record, error_info)) != 0)
@@ -224,7 +189,7 @@ int replica_binlog_init()
     int min_id;
     uint64_t data_version;
     char filepath[PATH_MAX];
-    char subdir_name[64];
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
     int i;
     bool create;
@@ -523,7 +488,7 @@ static int find_position(const int data_group_id,
     uint64_t data_version;
     ServerBinlogReader reader;
     BinlogWriterInfo *writer;
-    char subdir_name[64];
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
 
     if ((result=get_last_data_version_from_file_ex(data_group_id,
                     &data_version, pos, &record_len)) != 0)
@@ -601,7 +566,7 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
         const int data_group_id, const uint64_t last_data_version)
 {
     int result;
-    char subdir_name[64];
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     BinlogWriterInfo *writer;
     FSBinlogFilePosition position;
 
