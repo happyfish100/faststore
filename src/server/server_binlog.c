@@ -20,17 +20,22 @@ static int do_binlog_check()
 {
     int flags;
     int result;
+    BinlogConsistencyContext ctx;
 
     if (BINLOG_CHECK_LAST_SECONDS <= 0) {
         return 0;
     }
 
-    if ((result=binlog_consistency_check(&flags)) != 0) {
+    if ((result=binlog_consistency_init(&ctx)) != 0) {
         return result;
     }
 
-    //TODO
-    return 0;
+    if ((result=binlog_consistency_check(&ctx, &flags)) == 0) {
+    }
+
+    logInfo("binlog_consistency_check result: %d, flags: %d", result, flags);
+    binlog_consistency_destroy(&ctx);
+    return result;
 }
 
 int server_binlog_init()

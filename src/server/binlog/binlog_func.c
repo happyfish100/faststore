@@ -19,7 +19,7 @@
 #include "binlog_func.h"
 
 #define MAX_BINLOG_FIELD_COUNT  24
-#define MIN_EXPECT_FIELD_COUNT   4
+#define MIN_EXPECT_FIELD_COUNT   5
 
 int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
 {
@@ -30,6 +30,37 @@ int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
 
     buffer->current = buffer->end = buffer->buff;
     buffer->size = size;
+    return 0;
+}
+
+int binlog_unpack_common_fields_ex(const string_t *line,
+        const int object_skip, BinlogCommonFields *fields,
+        char *error_info)
+{
+    int count;
+    int base_index;
+    char *endptr;
+    string_t cols[MAX_BINLOG_FIELD_COUNT];
+
+    count = split_string_ex(line, ' ', cols,
+            MAX_BINLOG_FIELD_COUNT, false);
+    if (count < MIN_EXPECT_FIELD_COUNT + object_skip) {
+        sprintf(error_info, "field count: %d < %d",
+                count, MIN_EXPECT_FIELD_COUNT + object_skip);
+        return EINVAL;
+    }
+
+    BINLOG_PARSE_INT_SILENCE(fields->timestamp, "timestamp",
+            BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
+    BINLOG_PARSE_INT_SILENCE(fields->data_version, "data version",
+            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
+    fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
+
+    base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE + object_skip;
+    BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
+            base_index + 1, ' ', 1);
+    BINLOG_PARSE_INT_SILENCE2(fields->bkey.offset, "block offset",
+            base_index + 2, ' ', '\n', 0);
     return 0;
 }
 
@@ -134,12 +165,72 @@ static int get_start_binlog_index_by_timestamp(const char *subdir_name,
     return 0;
 }
 
+static int find_timestamp(ServerBinlogReader *reader, const int length,
+        const time_t from_timestamp, int *offset)
+{
+    int result;
+    string_t line;
+    char *buff;
+    char *line_start;
+    char *buff_end;
+    char *line_end;
+    time_t timestamp;
+    uint64_t data_version;
+    char error_info[256];
+
+    result = 0;
+    buff = reader->binlog_buffer.buff;
+    line_start = buff;
+    buff_end = buff + length;
+    while (line_start < buff_end) {
+        line_end = (char *)memchr(line_start, '\n', buff_end - line_start);
+        if (line_end == NULL) {
+            result = EINVAL;
+            sprintf(error_info, "expect line end char (\\n)");
+            break;
+        }
+
+        line.str = line_start;
+        line.len = line_end - line_start;
+        if ((result=binlog_unpack_ts_and_dv(&line, &timestamp,
+                        &data_version, error_info)) != 0)
+        {
+            break;
+        }
+
+        if (timestamp >= from_timestamp) {
+            *offset = line_start - buff;
+            break;
+        }
+
+        line_start = line_end + 1;
+    }
+
+    if (result != 0) {
+        int64_t file_offset;
+        int64_t line_count;
+        int remain_bytes;
+
+        remain_bytes = length - (line_start - buff);
+        file_offset = reader->position.offset - remain_bytes;
+        fc_get_file_line_count_ex(reader->filename,
+                file_offset, &line_count);
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: %"PRId64", %s",
+                __LINE__, reader->filename, line_count, error_info);
+    }
+    return result;
+}
+
 int binlog_get_position_by_timestamp(const char *subdir_name,
         struct binlog_writer_info *writer, const time_t from_timestamp,
         FSBinlogFilePosition *pos)
 {
     int result;
+    int offset;
     int binlog_index;
+    int read_bytes;
+    int remain_bytes;
     ServerBinlogReader reader;
 
     binlog_index = binlog_get_current_write_index(writer);
@@ -155,7 +246,32 @@ int binlog_get_position_by_timestamp(const char *subdir_name,
         return result;
     }
 
-    //TODO
+    remain_bytes = 0;
+    offset = -1;
+    while ((result=binlog_reader_integral_read(&reader,
+                    reader.binlog_buffer.buff,
+                    reader.binlog_buffer.size,
+                    &read_bytes)) == 0)
+    {
+        if ((result=find_timestamp(&reader, read_bytes,
+                        from_timestamp, &offset)) != 0)
+        {
+            break;
+        }
+
+        if (offset >= 0) {  //found
+            remain_bytes = read_bytes - offset;
+            break;
+        }
+    }
+
+    if (result == ENOENT) {
+        result = 0;
+    }
+    if (result == 0) {
+        pos->index = reader.position.index;
+        pos->offset = reader.position.offset - remain_bytes;
+    }
 
     binlog_reader_destroy(&reader);
     return result;

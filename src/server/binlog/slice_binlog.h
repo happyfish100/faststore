@@ -18,6 +18,8 @@ extern "C" {
 
     int slice_binlog_get_current_write_index();
 
+    struct binlog_writer_info *slice_binlog_get_writer();
+
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version);

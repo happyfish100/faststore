@@ -272,6 +272,11 @@ static int init_binlog_writer()
             FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
+struct binlog_writer_info *slice_binlog_get_writer()
+{
+    return &binlog_writer.writer;
+}
+
 int slice_binlog_get_current_write_index()
 {
     return binlog_get_current_write_index(&binlog_writer.writer);

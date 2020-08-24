@@ -46,8 +46,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     }
 
     fs_calc_block_hashcode(&op_ctx->info.bs_key.block);
-    op_ctx->info.data_group_id = FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
-        FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1;
+    op_ctx->info.data_group_id = FS_DATA_GROUP_ID(op_ctx->info.bs_key.block);
 
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {

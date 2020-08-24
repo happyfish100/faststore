@@ -4,12 +4,13 @@
 
 #include "fastcommon/sched_thread.h"
 #include "../storage/object_block_index.h"
+#include "binlog_types.h"
 
 #define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  'w'
 #define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  'a'
 #define REPLICA_BINLOG_OP_TYPE_DEL_SLICE    'd'
 #define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    'D'
-#define REPLICA_BINLOG_OP_TYPE_NO_OP        'N'
+#define REPLICA_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
 
 struct binlog_writer_info;
 struct server_binlog_reader;

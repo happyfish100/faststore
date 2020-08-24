@@ -86,6 +86,9 @@ typedef struct server_global_vars {
 #define RECOVERY_MAX_QUEUE_DEPTH \
     g_server_global_vars.replica.recovery_max_queue_depth
 
+#define FS_DATA_GROUP_ID(bkey) (FS_BLOCK_HASH_CODE(bkey) % \
+       FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1)
+
 #define CLUSTER_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.cluster_group_index
 #define REPLICA_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.replica_group_index
 #define SERVICE_GROUP_INDEX  g_server_global_vars.cluster.config.ctx.service_group_index

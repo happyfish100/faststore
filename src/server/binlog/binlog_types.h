@@ -14,6 +14,8 @@
 #define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION   1
 #define BINLOG_COMMON_FIELD_INDEX_OP_TYPE        2
 
+#define BINLOG_OP_TYPE_NO_OP   'N'
+
 #define BINLOG_FILE_PREFIX     "binlog"
 #define BINLOG_FILE_EXT_FMT    ".%06d"
 
@@ -32,6 +34,13 @@ typedef struct server_binlog_buffer {
     char *end;     //data end ptr
     int size;      //the buffer size (capacity)
 } ServerBinlogBuffer;
+
+typedef struct binlog_common_fields {
+    time_t timestamp;
+    int op_type;
+    FSBlockKey bkey;
+    int64_t data_version;
+} BinlogCommonFields;
 
 #ifdef __cplusplus
 extern "C" {

@@ -47,6 +47,16 @@
         }  \
     } while (0)
 
+#define BINLOG_PARSE_INT_SILENCE2(var, caption, index, echr1, echr2, min_val) \
+    do {   \
+        var = strtol(cols[index].str, &endptr, 10);  \
+        if (!(*endptr == echr1 || *endptr == echr2) || (var < min_val)) { \
+            sprintf(error_info, "invalid %s: %.*s",  \
+                    caption, cols[index].len, cols[index].str); \
+            return EINVAL;  \
+        }  \
+    } while (0)
+
 
 typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r, \
         string_t *line);
