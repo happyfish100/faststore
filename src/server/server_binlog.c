@@ -15,6 +15,7 @@
 #include "server_global.h"
 #include "server_binlog.h"
 #include "binlog/binlog_check.h"
+#include "binlog/binlog_repair.h"
 
 static int do_binlog_check()
 {
@@ -31,6 +32,12 @@ static int do_binlog_check()
     }
 
     if ((result=binlog_consistency_check(&ctx, &flags)) == 0) {
+        if ((flags & BINLOG_CHECK_RESULT_REPLICA_DIRTY)) {
+            result = binlog_consistency_repair_replica(&ctx);
+        }
+        if (result == 0 && (flags & BINLOG_CHECK_RESULT_SLICE_DIRTY)) {
+            result = binlog_consistency_repair_slice(&ctx);
+        }
     }
 
     logInfo("binlog_consistency_check result: %d, flags: %d", result, flags);

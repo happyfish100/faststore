@@ -44,9 +44,9 @@ int binlog_unpack_common_fields_ex(const string_t *line,
 
     count = split_string_ex(line, ' ', cols,
             MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT + object_skip) {
+    if (count < MIN_EXPECT_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT + object_skip);
+                count, MIN_EXPECT_FIELD_COUNT);
         return EINVAL;
     }
 
@@ -56,7 +56,11 @@ int binlog_unpack_common_fields_ex(const string_t *line,
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
 
-    base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE + object_skip;
+    if (count > MIN_EXPECT_FIELD_COUNT) {
+        base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE + object_skip;
+    } else {
+        base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE;
+    }
     BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
             base_index + 1, ' ', 1);
     BINLOG_PARSE_INT_SILENCE2(fields->bkey.offset, "block offset",

@@ -91,17 +91,6 @@ static int binlog_check_get_last_timestamp(time_t *last_timestamp)
     return get_replica_last_timestamp(last_timestamp);
 }
 
-/*
-
-int binlog_get_position_by_timestamp(const char *subdir_name,
-        struct binlog_writer_info *writer, const time_t from_timestamp,
-        FSBinlogFilePosition *pos)
-
-            int binlog_reader_init_ex(ServerBinlogReader *reader, const char *subdir_name,
-        const char *fname_suffix, struct binlog_writer_info *writer,
-        const FSBinlogFilePosition *pos);
- */
-
 int binlog_consistency_init(BinlogConsistencyContext *ctx)
 {
     FSIdArray *id_array;
@@ -214,9 +203,12 @@ static int binlog_parse_buffer(ServerBinlogReader *reader, const int length,
         if ((result=check_alloc_version_array(varray)) != 0) {
             break;
         }
-        dg_version = varray->versions + varray->count++;
-        dg_version->data_version = fields.data_version;
-        dg_version->data_group_id = FS_DATA_GROUP_ID(fields.bkey);
+
+        if (!BINLOG_IS_INTERNAL_RECORD(fields.op_type, fields.data_version)) {
+            dg_version = varray->versions + varray->count++;
+            dg_version->data_version = fields.data_version;
+            dg_version->data_group_id = FS_DATA_GROUP_ID(fields.bkey);
+        }
 
         line_start = line_end + 1;
     }
@@ -254,6 +246,16 @@ static int do_load_data_versions(const char *subdir_name,
 
     if ((result=binlog_reader_init(&reader, subdir_name, writer, pos)) != 0) {
         return result;
+    }
+
+    {
+        int64_t line_count;
+
+        fc_get_file_line_count_ex(reader.filename,
+                reader.position.offset, &line_count);
+
+        logInfo("head -n %"PRId64" %s, index: %d, offset: %"PRId64,
+                line_count + 1, reader.filename, pos->index, pos->offset); 
     }
 
     while ((result=binlog_reader_integral_read(&reader,

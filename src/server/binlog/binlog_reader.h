@@ -41,9 +41,9 @@ static inline void binlog_reader_get_filename_ex(const char *subdir_name,
         const char *fname_suffix, const int binlog_index,
         char *full_filename, const int size)
 {
-    snprintf(full_filename, size, "%s/%s/%s%s"BINLOG_FILE_EXT_FMT,
+    snprintf(full_filename, size, "%s/%s/%s"BINLOG_FILE_EXT_FMT"%s",
             DATA_PATH_STR, subdir_name, BINLOG_FILE_PREFIX,
-            fname_suffix, binlog_index);
+            binlog_index, fname_suffix);
 }
 
 int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,

@@ -23,6 +23,9 @@
 #define BINLOG_BUFFER_LENGTH(buffer) ((buffer).end - (buffer).buff)
 #define BINLOG_BUFFER_REMAIN(buffer) ((buffer).end - (buffer).current)
 
+#define BINLOG_IS_INTERNAL_RECORD(op_type, data_version)  \
+    (op_type == BINLOG_OP_TYPE_NO_OP || data_version == 0)
+
 struct fs_binlog_record;
 
 typedef void (*data_thread_notify_func)(struct fs_binlog_record *record,
