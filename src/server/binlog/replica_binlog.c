@@ -240,9 +240,7 @@ int replica_binlog_init()
 
         writer->thread = &binlog_writer_thread;
         binlog_writer_array.writers[data_group_id - min_id] = writer;
-        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id);
-
+        replica_binlog_get_subdir_name(subdir_name, data_group_id);
         if ((result=binlog_writer_init_by_version(writer, subdir_name,
                         myself->replica.data_version + 1, 1024)) != 0)
         {
@@ -510,8 +508,7 @@ static int find_position(const int data_group_id,
         return EINVAL;
     }
 
-    sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-            data_group_id);
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
     writer = replica_binlog_get_writer(data_group_id);
     pos->offset = 0;
     if ((result=binlog_reader_init(&reader, subdir_name,
@@ -570,8 +567,7 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
     BinlogWriterInfo *writer;
     FSBinlogFilePosition position;
 
-    sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-            data_group_id);
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
     writer = replica_binlog_get_writer(data_group_id);
     if (last_data_version == 0) {
         return binlog_reader_init(reader, subdir_name, writer, NULL);

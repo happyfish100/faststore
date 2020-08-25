@@ -20,7 +20,6 @@
 #include "binlog_func.h"
 #include "binlog_writer.h"
 
-#define BINLOG_FILE_MAX_SIZE   (1024 * 1024 * 1024)
 #define BINLOG_INDEX_FILENAME  BINLOG_FILE_PREFIX"_index.dat"
 
 #define BINLOG_INDEX_ITEM_CURRENT_WRITE     "current_write"
@@ -248,6 +247,7 @@ static inline void binlog_writer_set_next_version(BinlogWriterInfo *writer,
         writer->version_ctx.ring.entries + next_version %
         writer->version_ctx.ring.size;
 }
+
 static inline int deal_binlog_one_record(BinlogWriterBuffer *wb)
 {
     int result;
@@ -695,4 +695,19 @@ int binlog_writer_change_next_version(BinlogWriterInfo *writer,
 
     push_to_binlog_write_queue(writer->thread, buffer);
     return 0;
+}
+
+int binlog_writer_set_binlog_index(BinlogWriterInfo *writer,
+        const int binlog_index)
+{
+    int result;
+
+    if (writer->binlog.index != binlog_index) {
+        writer->binlog.index = binlog_index;
+        if ((result=write_to_binlog_index_file(writer)) != 0) {
+            return result;
+        }
+    }
+
+    return open_writable_binlog(writer);
 }

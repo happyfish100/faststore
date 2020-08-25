@@ -10,6 +10,7 @@
 extern "C" {
 #endif
 
+int binlog_consistency_repair_finish();
 int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx);
 int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx);
 

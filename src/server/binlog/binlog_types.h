@@ -16,6 +16,7 @@
 
 #define BINLOG_OP_TYPE_NO_OP   'N'
 
+#define BINLOG_FILE_MAX_SIZE   (1024 * 1024 * 1024)  //for binlog rotating by size
 #define BINLOG_FILE_PREFIX     "binlog"
 #define BINLOG_FILE_EXT_FMT    ".%06d"
 
@@ -25,6 +26,12 @@
 
 #define BINLOG_IS_INTERNAL_RECORD(op_type, data_version)  \
     (op_type == BINLOG_OP_TYPE_NO_OP || data_version == 0)
+
+#define BINLOG_REPAIR_KEEP_RECORD(op_type, data_version)  \
+    (data_version == 0)
+
+#define BINLOG_REPAIR_DISCARD_RECORD(op_type, data_version)  \
+    (op_type == BINLOG_OP_TYPE_NO_OP)
 
 struct fs_binlog_record;
 

@@ -23,6 +23,10 @@ static int do_binlog_check()
     int result;
     BinlogConsistencyContext ctx;
 
+    if ((result=binlog_consistency_repair_finish()) != 0) {
+        return result;
+    }
+
     if (BINLOG_CHECK_LAST_SECONDS <= 0) {
         return 0;
     }

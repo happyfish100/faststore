@@ -39,6 +39,9 @@ typedef struct {
 extern "C" {
 #endif
 
+int binlog_compare_dg_version(const BinlogDataGroupVersion *p1,
+        const BinlogDataGroupVersion *p2);
+
 int binlog_consistency_init(BinlogConsistencyContext *ctx);
 
 int binlog_consistency_check(BinlogConsistencyContext *ctx, int *flags);

@@ -28,6 +28,13 @@ extern "C" {
     int replica_binlog_init();
     void replica_binlog_destroy();
 
+    static inline void replica_binlog_get_subdir_name(char *subdir_name,
+            const int data_group_id)
+    {
+        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
+                data_group_id);
+    }
+
     struct binlog_writer_info *replica_binlog_get_writer(
             const int data_group_id);
 

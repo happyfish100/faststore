@@ -157,6 +157,9 @@ static inline const char *binlog_writer_get_filename(const char *subdir_name,
     return filename;
 }
 
+int binlog_writer_set_binlog_index(BinlogWriterInfo *writer,
+        const int binlog_index);
+
 #define push_to_binlog_write_queue(thread, buffer) \
     fc_queue_push(&(thread)->queue, buffer)
 

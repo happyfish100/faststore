@@ -179,6 +179,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader, const int length,
     BinlogCommonFields fields;
     char error_info[256];
 
+    *error_info = '\0';
     result = 0;
     buff = reader->binlog_buffer.buff;
     line_start = buff;
@@ -192,7 +193,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader, const int length,
         }
 
         line.str = line_start;
-        line.len = line_end - line_start;
+        line.len = ++line_end - line_start;
         if ((result=binlog_unpack_common_fields_ex(&line, obj_filed_skip,
                         &fields, error_info)) != 0)
         {
@@ -210,7 +211,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader, const int length,
             dg_version->data_group_id = FS_DATA_GROUP_ID(fields.bkey);
         }
 
-        line_start = line_end + 1;
+        line_start = line_end;
     }
 
     if (result != 0) {
@@ -280,7 +281,7 @@ static int do_load_data_versions(const char *subdir_name,
     return result;
 }
 
-static int compare_dg_version(const BinlogDataGroupVersion *p1,
+int binlog_compare_dg_version(const BinlogDataGroupVersion *p1,
         const BinlogDataGroupVersion *p2)
 {
     int64_t sub;
@@ -308,7 +309,7 @@ static inline void sort_version_array(BinlogDataGroupVersionArray *varray)
         qsort(varray->versions, varray->count,
                 sizeof(BinlogDataGroupVersion),
                 (int (*)(const void *, const void *))
-                compare_dg_version);
+                binlog_compare_dg_version);
     }
 }
 
@@ -374,7 +375,7 @@ static int binlog_check(BinlogConsistencyContext *ctx,
             break;
         }
 
-        compr = compare_dg_version(rv, sv);
+        compr = binlog_compare_dg_version(rv, sv);
         if (compr < 0) {
             *flags |= BINLOG_CHECK_RESULT_REPLICA_DIRTY;
             if (*flags == BINLOG_CHECK_RESULT_ALL_DIRTY) {
