@@ -58,6 +58,9 @@ int binlog_unpack_common_fields_ex(const string_t *line,
 
     if (count > MIN_EXPECT_FIELD_COUNT) {
         base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE + object_skip;
+        if (!FC_IS_LETTER(cols[base_index].str[0])) {
+            base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE;
+        }
     } else {
         base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE;
     }

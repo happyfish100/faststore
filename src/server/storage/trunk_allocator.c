@@ -1,4 +1,5 @@
 #include <limits.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include "fastcommon/shared_func.h"
@@ -330,6 +331,14 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
                     break;
                 }
 
+                if (remain_bytes <= 0) {
+                    logInfo("allocator: %p, trunk_info: %p, trunk size: %"PRId64", "
+                            "free start: %"PRId64", remain_bytes: %d",
+                            allocator, trunk_info, trunk_info->size,
+                            trunk_info->free_start, remain_bytes);
+                }
+                assert(remain_bytes > 0);
+
                 TRUNK_ALLOC_SPACE(allocator, trunk_info,
                         space_info, remain_bytes);
                 space_info++;
@@ -541,4 +550,15 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
     PTHREAD_MUTEX_UNLOCK(&allocator->lock);
 
     return result;
+}
+
+void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)
+{
+    logInfo("trunk id: %"PRId64", subdir: %"PRId64", status: %d, "
+            "slice count: %d, used bytes: %"PRId64", trunk size: %"PRId64", "
+            "free start: %"PRId64", remain bytes: %"PRId64,
+            trunk_info->id_info.id, trunk_info->id_info.subdir,
+            trunk_info->status, trunk_info->used.count, trunk_info->used.bytes,
+            trunk_info->size, trunk_info->free_start,
+            TRUNK_AVAIL_SPACE_SIZE(trunk_info));
 }

@@ -54,10 +54,13 @@ static inline int replica_alloc_reader(struct fast_task_info *task)
     return 0;
 }
 
-static inline void replica_release_reader(struct fast_task_info *task)
+static inline void replica_release_reader(struct fast_task_info *task,
+        const bool reader_inited)
 {
     if (REPLICA_READER != NULL) {
-        binlog_reader_destroy(REPLICA_READER);
+        if (reader_inited) {
+            binlog_reader_destroy(REPLICA_READER);
+        }
         free(REPLICA_READER);
         REPLICA_READER = NULL;
     }
@@ -109,7 +112,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
             SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
             break;
         case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
-            replica_release_reader(task);
+            replica_release_reader(task, true);
             break;
         default:
             break;
@@ -294,7 +297,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     if ((result=replica_binlog_reader_init(REPLICA_READER,
                     data_group_id, last_data_version)) != 0)
     {
-        replica_release_reader(task);
+        replica_release_reader(task, false);
         return result;
     }
 

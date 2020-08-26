@@ -106,6 +106,8 @@ extern "C" {
     const FSTrunkInfoPtrArray *trunk_allocator_avail_space_top_n(
             FSTrunkAllocator *allocator, const int count);
 
+    void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
+
 #ifdef __cplusplus
 }
 #endif

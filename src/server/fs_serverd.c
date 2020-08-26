@@ -151,6 +151,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=storage_allocator_prealloc_trunk_freelists()) != 0) {
+            return result;
+        }
+
         if ((result=server_recovery_init()) != 0) {
             break;
         }

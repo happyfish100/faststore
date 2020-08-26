@@ -383,8 +383,10 @@ static int binlog_check(BinlogConsistencyContext *ctx,
             }
             rv++;
         } else if (compr == 0) {
+            do {
+                sv++;
+            } while (sv < send && binlog_compare_dg_version(rv, sv) == 0);
             rv++;
-            sv++;
         } else {
             *flags |= BINLOG_CHECK_RESULT_SLICE_DIRTY;
             if (*flags == BINLOG_CHECK_RESULT_ALL_DIRTY) {

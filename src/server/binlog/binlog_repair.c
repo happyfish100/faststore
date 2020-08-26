@@ -447,6 +447,7 @@ static int binlog_repair_finish(const int data_group_id,
     char src_filename[PATH_MAX];
     char dest_filename[PATH_MAX];
     int index;
+    int rename_count;
     int result;
 
     if (data_group_id == 0) {
@@ -457,6 +458,7 @@ static int binlog_repair_finish(const int data_group_id,
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
     }
 
+    rename_count = 0;
     for (index=start_binlog_index; index<=end_binlog_index; index++) {
         binlog_reader_get_filename_ex(subdir_name,
                 BINLOG_REPAIR_FILE_EXT_NAME,
@@ -475,6 +477,10 @@ static int binlog_repair_finish(const int data_group_id,
 
         binlog_reader_get_filename(subdir_name, index,
                 dest_filename, sizeof(dest_filename));
+
+        logError("file: "__FILE__", line: %d, "
+                "rename binlog from %s to %s", __LINE__,
+                src_filename, dest_filename);
         if (rename(src_filename, dest_filename) != 0) {
             result = errno != 0 ? errno : EPERM;
             if (result == ENOENT) {
@@ -487,9 +493,28 @@ static int binlog_repair_finish(const int data_group_id,
                     result, STRERROR(result));
             return result;
         }
+
+        rename_count++;
     }
 
-    return binlog_writer_set_binlog_index(writer, end_binlog_index);
+    if ((rename_count > 0) || (end_binlog_index !=
+                binlog_get_current_write_index(writer)))
+    {
+        if ((result=binlog_writer_set_binlog_index(writer,
+                        end_binlog_index)) != 0)
+        {
+            return result;
+        }
+        if (data_group_id > 0) {
+            if ((result=replica_binlog_set_my_data_version(
+                            data_group_id)) != 0)
+            {
+                return result;
+            }
+        }
+    }
+
+    return 0;
 }
 
 static int do_repair(BinlogRepairContext *ctx)

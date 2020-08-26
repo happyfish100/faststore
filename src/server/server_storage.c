@@ -29,10 +29,6 @@ int server_storage_init()
         return result;
     }
 
-    if ((result=storage_allocator_prealloc_trunk_freelists()) != 0) {
-        return result;
-    }
-
 	return 0;
 }
 
