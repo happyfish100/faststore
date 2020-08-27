@@ -262,22 +262,53 @@ static void destroy_data_recovery_ctx(DataRecoveryContext *ctx)
 {
 }
 
+static int waiting_binlog_write_done(DataRecoveryContext *ctx)
+{
+    int result;
+    int i;
+    uint64_t data_version;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char filename[PATH_MAX];
+
+    result = 0;
+    replica_binlog_get_subdir_name(subdir_name, ctx->ds->dg->id);
+    for (i=0; i<100 && SF_G_CONTINUE_FLAG; i++) {
+        binlog_writer_get_filename(subdir_name,
+                replica_binlog_get_current_write_index(
+                    ctx->ds->dg->id), filename, sizeof(filename));
+        if ((result=replica_binlog_get_last_data_version(
+                        filename, &data_version)) != 0)
+        {
+            break;
+        }
+
+        if (data_version >= ctx->fetch.last_data_version) {
+            break;
+        }
+        usleep(10 * 1000);
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "waiting binlog write done time count: %d",
+            __LINE__, i);
+    return result;
+}
+
 static int replica_binlog_log_padding(DataRecoveryContext *ctx)
 {
     int result;
     uint64_t current_version;
-    FSClusterDataServerInfo *myself;
 
-    myself = ctx->master->dg->myself;
-    current_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
+    current_version = __sync_fetch_and_add(&ctx->ds->replica.data_version, 0);
     if (ctx->fetch.last_data_version > current_version) {
-        replica_binlog_set_data_version(myself,
+        replica_binlog_set_data_version(ctx->ds,
                 ctx->fetch.last_data_version - 1);
-        if ((result=replica_binlog_log_no_op(ctx->master->dg->id,
+        if ((result=replica_binlog_log_no_op(ctx->ds->dg->id,
                         ctx->fetch.last_data_version,
                         &ctx->fetch.last_bkey)) == 0)
         {
-            __sync_fetch_and_add(&myself->replica.data_version, 1);
+            __sync_fetch_and_add(&ctx->ds->replica.data_version, 1);
+            result = waiting_binlog_write_done(ctx);
         }
     } else {
         result = 0;
@@ -339,14 +370,14 @@ static int active_me(DataRecoveryContext *ctx)
         return result;
     }
 
-    if (cluster_relationship_swap_report_ds_status(ctx->master->dg->myself,
+    if (cluster_relationship_swap_report_ds_status(ctx->ds,
                 FS_SERVER_STATUS_ONLINE, FS_SERVER_STATUS_ACTIVE,
                 FS_EVENT_SOURCE_SELF_REPORT))
     {
         return 0;
     } else {
         int status;
-        status = __sync_add_and_fetch(&ctx->master->dg->myself->status, 0);
+        status = __sync_add_and_fetch(&ctx->ds->status, 0);
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, change my status to ACTIVE fail, "
                 "current status is %d (%s)", __LINE__, ctx->ds->dg->id,

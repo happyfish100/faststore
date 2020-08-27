@@ -63,6 +63,17 @@ static inline FSClusterDataServerInfo *fs_get_my_data_server(
     return group->myself;
 }
 
+static inline uint64_t fs_get_my_ds_data_version(const int data_group_id)
+{
+    FSClusterDataServerInfo *ds;
+
+    if ((ds=fs_get_my_data_server(data_group_id)) == NULL) {
+        return 0;
+    }
+
+    return __sync_add_and_fetch(&ds->replica.data_version, 0);
+}
+
 static inline void server_group_info_set_status(FSClusterServerInfo *cs,
         const int status)
 {

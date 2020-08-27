@@ -350,6 +350,16 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
     return 0;
 }
 
+#define SET_BINLOG_CHECK_FLAGS(f) \
+    do { \
+        if ((*flags & f) == 0) {  \
+            *flags |= f;  \
+            if (*flags == BINLOG_CHECK_RESULT_ALL_DIRTY) {  \
+                return 0;  \
+            }  \
+        }  \
+    } while (0)
+
 static int binlog_check(BinlogConsistencyContext *ctx,
         const time_t from_timestamp, int *flags)
 {
@@ -359,6 +369,7 @@ static int binlog_check(BinlogConsistencyContext *ctx,
     BinlogDataGroupVersion *rend;
     BinlogDataGroupVersion *sv;
     BinlogDataGroupVersion *send;
+    BinlogDataGroupVersion *current;
 
     if ((result=binlog_load_data_versions(ctx, from_timestamp)) != 0) {
         return result;
@@ -377,21 +388,19 @@ static int binlog_check(BinlogConsistencyContext *ctx,
 
         compr = binlog_compare_dg_version(rv, sv);
         if (compr < 0) {
-            *flags |= BINLOG_CHECK_RESULT_REPLICA_DIRTY;
-            if (*flags == BINLOG_CHECK_RESULT_ALL_DIRTY) {
-                return 0;
-            }
+            SET_BINLOG_CHECK_FLAGS(BINLOG_CHECK_RESULT_REPLICA_DIRTY);
             rv++;
         } else if (compr == 0) {
+            current = rv;
+            do {
+                rv++;
+            } while (rv < rend && binlog_compare_dg_version(rv, current) == 0);
+
             do {
                 sv++;
-            } while (sv < send && binlog_compare_dg_version(rv, sv) == 0);
-            rv++;
+            } while (sv < send && binlog_compare_dg_version(sv, current) == 0);
         } else {
-            *flags |= BINLOG_CHECK_RESULT_SLICE_DIRTY;
-            if (*flags == BINLOG_CHECK_RESULT_ALL_DIRTY) {
-                return 0;
-            }
+            SET_BINLOG_CHECK_FLAGS(BINLOG_CHECK_RESULT_SLICE_DIRTY);
             sv++;
         }
     }

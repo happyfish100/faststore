@@ -24,7 +24,6 @@ typedef struct data_recovery_context {
         uint64_t last_data_version;
         FSBlockKey last_bkey;
     } fetch;
-    //ServerBinlogReader reader;
     FSServerContext *server_ctx;
     FSClusterDataServerInfo *master;
     void *arg;

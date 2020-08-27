@@ -171,7 +171,6 @@ static int copy_binlog_front_part(BinlogRepairContext *ctx)
 
     binlog_reader_get_filename(ctx->input.subdir_name,
             ctx->out_writer.binlog_index, filename, sizeof(filename));
-
     fd = open(filename, O_RDONLY, 0644);
     if (fd < 0) {
         logError("file: "__FILE__", line: %d, "
@@ -193,21 +192,21 @@ static int copy_binlog_front_part(BinlogRepairContext *ctx)
         if (read_bytes < 0) {
             result = errno != 0 ? errno : EACCES;
             logError("file: "__FILE__", line: %d, "
-                    "read from file\"%s\" fail, "
+                    "read from file \"%s\" fail, "
                     "errno: %d, error info: %s", __LINE__,
                     filename, result, STRERROR(result));
             break;
         } else if (read_bytes == 0) {
             result = EIO;
             logError("file: "__FILE__", line: %d, "
-                    "read from file\"%s\" fail, "
+                    "read from file \"%s\" fail, "
                     "expect bytes: %"PRId64", but EOF (0 byte read)",
                     __LINE__, filename, remain_bytes);
             break;
         } else if (read_bytes != current_bytes) {
             result = EIO;
             logError("file: "__FILE__", line: %d, "
-                    "read from file\"%s\" fail, "
+                    "read from file \"%s\" fail, "
                     "current expect bytes: %d, but read %d bytes",
                     __LINE__, filename, current_bytes, read_bytes);
             break;
@@ -218,7 +217,7 @@ static int copy_binlog_front_part(BinlogRepairContext *ctx)
         {
             result = errno != 0 ? errno : EACCES;
             logError("file: "__FILE__", line: %d, "
-                    "write to file\"%s\" fail, "
+                    "write to file \"%s\" fail, "
                     "errno: %d, error info: %s",
                     __LINE__, ctx->out_writer.filename,
                     result, STRERROR(result));
@@ -333,10 +332,6 @@ static int binlog_filter_buffer(BinlogRepairContext *ctx,
         fs_calc_block_hashcode(&fields.bkey);
         if (BINLOG_REPAIR_KEEP_RECORD(fields.op_type, fields.data_version)) {
             keep = true;
-        } else if (BINLOG_REPAIR_DISCARD_RECORD(fields.op_type,
-                    fields.data_version))
-        {
-            keep = false;
         } else {
             dg_version.data_version = fields.data_version;
             dg_version.data_group_id = FS_DATA_GROUP_ID(fields.bkey);
@@ -497,6 +492,11 @@ static int binlog_repair_finish(const int data_group_id,
         rename_count++;
     }
 
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "===== data_group_id: %d, rename_count: %d, end_binlog_index: %d",
+            __LINE__, __FUNCTION__, data_group_id,
+            rename_count, end_binlog_index);
+
     if ((rename_count > 0) || (end_binlog_index !=
                 binlog_get_current_write_index(writer)))
     {
@@ -511,6 +511,9 @@ static int binlog_repair_finish(const int data_group_id,
             {
                 return result;
             }
+        }
+        if (result == 0) {
+            usleep(100 * 1000);
         }
     }
 

@@ -28,10 +28,7 @@
     (op_type == BINLOG_OP_TYPE_NO_OP || data_version == 0)
 
 #define BINLOG_REPAIR_KEEP_RECORD(op_type, data_version)  \
-    (data_version == 0)
-
-#define BINLOG_REPAIR_DISCARD_RECORD(op_type, data_version)  \
-    (op_type == BINLOG_OP_TYPE_NO_OP)
+    BINLOG_IS_INTERNAL_RECORD(op_type, data_version)
 
 struct fs_binlog_record;
 

@@ -5,6 +5,7 @@
 #include "fastcommon/sched_thread.h"
 #include "../storage/object_block_index.h"
 #include "binlog_types.h"
+#include "binlog_writer.h"
 
 #define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  'w'
 #define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  'a'
@@ -39,6 +40,26 @@ extern "C" {
             const int data_group_id);
 
     int replica_binlog_get_current_write_index(const int data_group_id);
+
+    int replica_binlog_get_first_record(const char *filename,
+            ReplicaBinlogRecord *record);
+
+    static inline int replica_binlog_get_first_data_version(
+            const char *filename, uint64_t *data_version)
+    {
+        ReplicaBinlogRecord record;
+        int result;
+
+        if ((result=replica_binlog_get_first_record(
+                        filename, &record)) == 0)
+        {
+            *data_version = record.data_version;
+        } else {
+            *data_version = 0;
+        }
+
+        return result;
+    }
 
     int replica_binlog_get_last_record_ex(const char *filename,
             ReplicaBinlogRecord *record, FSBinlogFilePosition *position,
@@ -81,6 +102,10 @@ extern "C" {
         return replica_binlog_get_last_data_version_ex(filename,
                 data_version, &position, &record_len);
     }
+
+    int replica_binlog_get_position_by_dv(const char *subdir_name,
+            BinlogWriterInfo *writer, const uint64_t last_data_version,
+            FSBinlogFilePosition *pos);
 
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);

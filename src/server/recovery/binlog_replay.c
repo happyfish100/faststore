@@ -146,7 +146,9 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
     int read_bytes;
     int inc_alloc;
     int dec_alloc;
+    bool log_padding;
 
+    log_padding = false;
     switch (task->op_type) {
         case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
             task->thread_ctx->notify.done = false;
@@ -202,6 +204,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                         task->op_ctx.info.bs_key.slice.offset,
                         task->op_ctx.info.bs_key.slice.length);
                 result = 0;
+                log_padding = true;
                 task->thread_ctx->stat.write.ignore++;
             }
             break;
@@ -219,6 +222,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 task->thread_ctx->stat.remove.success++;
             } else if (result == ENOENT) {
                 result = 0;
+                log_padding = true;
                 task->thread_ctx->stat.remove.ignore++;
             }
             break;
@@ -230,7 +234,14 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
             break;
     }
 
-    if (result != 0) {
+    if (result == 0) {
+        if (log_padding) {
+            result = replica_binlog_log_no_op(task->thread_ctx->
+                    replay_ctx->recovery_ctx->ds->dg->id,
+                    task->op_ctx.info.data_version,
+                    &task->op_ctx.info.bs_key.block);
+        }
+    } else {
         __sync_add_and_fetch(&task->thread_ctx->replay_ctx->fail_count, 1);
         task->thread_ctx->replay_ctx->continue_flag = false;
         logError("file: "__FILE__", line: %d, "
@@ -482,23 +493,35 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     BinlogReplayContext *replay_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
+    uint64_t last_data_version;
+    FSBinlogFilePosition position;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
+    last_data_version = __sync_add_and_fetch(
+            &ctx->ds->replica.data_version, 0);
+    data_recovery_get_subdir_name(ctx,
+            RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
-    if ((result=binlog_read_thread_init(&replay_ctx->rdthread_ctx, subdir_name,
-                    NULL, NULL, BINLOG_BUFFER_SIZE)) != 0)
+    if ((result=replica_binlog_get_position_by_dv(subdir_name,
+                    NULL, last_data_version, &position)) == 0)
     {
-        if (result == ENOENT) {
-            data_recovery_unlink_sys_data(ctx);  //cleanup
+        if ((result=binlog_read_thread_init(&replay_ctx->
+                        rdthread_ctx, subdir_name, NULL,
+                        &position, BINLOG_BUFFER_SIZE)) != 0)
+        {
+            if (result == ENOENT) {
+                data_recovery_unlink_sys_data(ctx);  //cleanup
+            }
         }
+    }
 
+    if (result != 0) {
         waiting_replay_threads_exit(ctx);
         return result;
     }
 
     logInfo("file: "__FILE__", line: %d, "
-            "dedup %s data ...", __LINE__, subdir_name);
+            "replay %s data ...", __LINE__, subdir_name);
 
     result = 0;
     while (SF_G_CONTINUE_FLAG) {
