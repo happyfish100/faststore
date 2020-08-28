@@ -93,7 +93,6 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
 {
     int result;
     FSTrunkSpaceInfo space;
-    string_t data;
 
     if (task->freelist->count >= task->target_count) {
         return 0;
@@ -121,8 +120,6 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
     space.offset = 0;
     space.size = STORAGE_CFG.trunk_file_size;
 
-    data.str = NULL;
-    data.len = 0;
     return io_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK, &space,
             create_trunk_done, task);
 }

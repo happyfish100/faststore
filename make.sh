@@ -175,8 +175,8 @@ if [ "$1" = "install" ]; then
         cp -f conf/server.conf $TARGET_CONF_PATH/server.conf.sample
         cp -f conf/client.conf $TARGET_CONF_PATH/client.conf.sample
       fi
-      mkdir -p $TARGET_INIT_PATH
-      cp -f init.d/fdir_serverd $TARGET_INIT_PATH
+#      mkdir -p $TARGET_INIT_PATH
+#      cp -f init.d/fdir_serverd $TARGET_INIT_PATH
 #      /sbin/chkconfig --add fdir_serverd 
     fi
   fi
