@@ -14,26 +14,14 @@
 #include "binlog_loader.h"
 #include "slice_binlog.h"
 
-#define ADD_SLICE_FIELD_INDEX_SLICE_TYPE       3
-#define ADD_SLICE_FIELD_INDEX_BLOCK_OID        4
-#define ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET     5
-#define ADD_SLICE_FIELD_INDEX_SLICE_OFFSET     6
-#define ADD_SLICE_FIELD_INDEX_SLICE_LENGTH     7
-#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 8
-#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   9
-#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR    10 
-#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    11
-#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      12
-#define ADD_SLICE_EXPECT_FIELD_COUNT          13
+#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 7
+#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   8
+#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR     9
+#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    10
+#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      11
+#define ADD_SLICE_EXPECT_FIELD_COUNT          12
 
-#define DEL_SLICE_FIELD_INDEX_BLOCK_OID        3
-#define DEL_SLICE_FIELD_INDEX_BLOCK_OFFSET     4
-#define DEL_SLICE_FIELD_INDEX_SLICE_OFFSET     5
-#define DEL_SLICE_FIELD_INDEX_SLICE_LENGTH     6
 #define DEL_SLICE_EXPECT_FIELD_COUNT           7
-
-#define DEL_BLOCK_FIELD_INDEX_BLOCK_OID        3
-#define DEL_BLOCK_FIELD_INDEX_BLOCK_OFFSET     4
 #define DEL_BLOCK_EXPECT_FIELD_COUNT           5
 
 #define MAX_BINLOG_FIELD_COUNT  16
@@ -55,7 +43,7 @@ static BinlogWriterContext binlog_writer;
             index, endchr, min_val)
 
 static int add_slice(BinlogReadThreadResult *r, string_t *line,
-        string_t *cols, const int count)
+        string_t *cols, const int count, const OBSliceType slice_type)
 {
     FSBlockKey bkey;
     OBSliceEntry *slice;
@@ -63,7 +51,6 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
     char binlog_filename[PATH_MAX];
     char *endptr;
     int path_index;
-    char slice_type;
 
     if (count != ADD_SLICE_EXPECT_FIELD_COUNT) {
         SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
@@ -76,23 +63,10 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
         return EINVAL;
     }
 
-    slice_type = cols[ADD_SLICE_FIELD_INDEX_SLICE_TYPE].str[0];
-    if (!(slice_type == OB_SLICE_TYPE_FILE ||
-                slice_type == OB_SLICE_TYPE_ALLOC))
-    {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "invalid slice type: %c (0x%02x)", __LINE__,
-                binlog_filename, line_count, slice_type, slice_type);
-        return EINVAL;
-    }
-
     SLICE_PARSE_INT_EX(bkey.oid, "object ID",
-            ADD_SLICE_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
-            ADD_SLICE_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
     fs_calc_block_hashcode(&bkey);
     if ((slice=ob_index_alloc_slice(&bkey)) == NULL) {
         return ENOMEM;
@@ -101,9 +75,9 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
     slice->read_offset = 0;
     slice->type = slice_type;
     SLICE_PARSE_INT_EX(slice->ssize.offset, "slice offset",
-            ADD_SLICE_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     SLICE_PARSE_INT_EX(slice->ssize.length, "slice length",
-            ADD_SLICE_FIELD_INDEX_SLICE_LENGTH, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, ' ', 1);
 
     SLICE_PARSE_INT(path_index, ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX, ' ', 0);
     if (path_index > STORAGE_CFG.max_store_path_index) {
@@ -159,13 +133,13 @@ static int del_slice(BinlogReadThreadResult *r, string_t *line,
     }
 
     SLICE_PARSE_INT_EX(bs_key.block.oid, "object ID",
-            DEL_SLICE_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bs_key.block.offset, "block offset",
-            DEL_SLICE_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
     SLICE_PARSE_INT_EX(bs_key.slice.offset, "slice offset",
-            DEL_SLICE_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     SLICE_PARSE_INT_EX(bs_key.slice.length, "slice length",
-            DEL_SLICE_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     fs_calc_block_hashcode(&bs_key.block);
     return ob_index_delete_slices_by_binlog(&bs_key);
 }
@@ -190,9 +164,9 @@ static int del_block(BinlogReadThreadResult *r, string_t *line,
     }
 
     SLICE_PARSE_INT_EX(bkey.oid, "object ID",
-            DEL_BLOCK_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
-            DEL_BLOCK_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
     fs_calc_block_hashcode(&bkey);
     return ob_index_delete_block_by_binlog(&bkey);
 }
@@ -221,8 +195,11 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line)
 
     op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     switch (op_type) {
-        case SLICE_BINLOG_OP_TYPE_ADD_SLICE:
-            result = add_slice(r, line, cols, count);
+        case SLICE_BINLOG_OP_TYPE_WRITE_SLICE:
+        case SLICE_BINLOG_OP_TYPE_ALLOC_SLICE:
+            result = add_slice(r, line, cols, count,
+                    op_type == SLICE_BINLOG_OP_TYPE_WRITE_SLICE ?
+                    OB_SLICE_TYPE_FILE : OB_SLICE_TYPE_ALLOC);
             break;
         case SLICE_BINLOG_OP_TYPE_DEL_SLICE:
             result = del_slice(r, line, cols, count);
@@ -311,10 +288,12 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 
     wbuffer->version = sn;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
+            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version,
-            SLICE_BINLOG_OP_TYPE_ADD_SLICE, slice->type,
+            slice->type == OB_SLICE_TYPE_FILE ?
+            SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
+            SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
             slice->ob->bkey.oid, slice->ob->bkey.offset,
             slice->ssize.offset, slice->ssize.length,
             slice->space.store->index, slice->space.id_info.id,

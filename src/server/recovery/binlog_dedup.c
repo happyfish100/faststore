@@ -573,7 +573,7 @@ static int dedup_binlog(DataRecoveryContext *ctx)
     }
 
     if (dedup_ctx->rstat.create.success > 0) {
-        dedup_ctx->out.current_op_type = SLICE_BINLOG_OP_TYPE_ADD_SLICE;
+        dedup_ctx->out.current_op_type = SLICE_BINLOG_OP_TYPE_WRITE_SLICE;
         result = htable_dump(dedup_ctx, &dedup_ctx->htables.create,
                 &dedup_ctx->out.binlog_counts.create);
     }

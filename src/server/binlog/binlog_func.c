@@ -18,9 +18,6 @@
 #include "binlog_writer.h"
 #include "binlog_func.h"
 
-#define MAX_BINLOG_FIELD_COUNT  24
-#define MIN_EXPECT_FIELD_COUNT   5
-
 int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
 {
     buffer->buff = (char *)fc_malloc(size);
@@ -33,20 +30,18 @@ int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
     return 0;
 }
 
-int binlog_unpack_common_fields_ex(const string_t *line,
-        const int object_skip, BinlogCommonFields *fields,
-        char *error_info)
+int binlog_unpack_common_fields(const string_t *line,
+        BinlogCommonFields *fields, char *error_info)
 {
     int count;
-    int base_index;
     char *endptr;
-    string_t cols[MAX_BINLOG_FIELD_COUNT];
+    string_t cols[BINLOG_MAX_FIELD_COUNT];
 
     count = split_string_ex(line, ' ', cols,
-            MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+            BINLOG_MAX_FIELD_COUNT, false);
+    if (count < BINLOG_MIN_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT);
+                count, BINLOG_MIN_FIELD_COUNT);
         return EINVAL;
     }
 
@@ -55,19 +50,10 @@ int binlog_unpack_common_fields_ex(const string_t *line,
     BINLOG_PARSE_INT_SILENCE(fields->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
-
-    if (count > MIN_EXPECT_FIELD_COUNT) {
-        base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE + object_skip;
-        if (!FC_IS_LETTER(cols[base_index].str[0])) {
-            base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE;
-        }
-    } else {
-        base_index = BINLOG_COMMON_FIELD_INDEX_OP_TYPE;
-    }
     BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
-            base_index + 1, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE2(fields->bkey.offset, "block offset",
-            base_index + 2, ' ', '\n', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', '\n', 0);
     return 0;
 }
 
@@ -76,13 +62,13 @@ int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
 {
     int count;
     char *endptr;
-    string_t cols[MAX_BINLOG_FIELD_COUNT];
+    string_t cols[BINLOG_MAX_FIELD_COUNT];
 
     count = split_string_ex(line, ' ', cols,
-            MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+            BINLOG_MAX_FIELD_COUNT, false);
+    if (count < BINLOG_MIN_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT);
+                count, BINLOG_MIN_FIELD_COUNT);
         return EINVAL;
     }
 

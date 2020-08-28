@@ -15,14 +15,7 @@
 #include "binlog_loader.h"
 #include "replica_binlog.h"
 
-#define SLICE_FIELD_INDEX_BLOCK_OID        3
-#define SLICE_FIELD_INDEX_BLOCK_OFFSET     4
-#define SLICE_FIELD_INDEX_SLICE_OFFSET     5
-#define SLICE_FIELD_INDEX_SLICE_LENGTH     6
 #define SLICE_EXPECT_FIELD_COUNT           7
-
-#define BLOCK_FIELD_INDEX_BLOCK_OID        3
-#define BLOCK_FIELD_INDEX_BLOCK_OFFSET     4
 #define BLOCK_EXPECT_FIELD_COUNT           5
 
 #define MAX_BINLOG_FIELD_COUNT  8
@@ -334,13 +327,13 @@ static inline int unpack_slice_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            SLICE_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            SLICE_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
-            SLICE_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
-            SLICE_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
+            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     return 0;
 }
 
@@ -356,9 +349,9 @@ static inline int unpack_block_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BLOCK_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BLOCK_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
     return 0;
 }
 

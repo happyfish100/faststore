@@ -40,7 +40,6 @@ typedef struct {
     struct {
         const char *subdir_name;
         int data_group_id;
-        int obj_filed_skip;
         struct binlog_writer_info *writer;
         FSBinlogFilePosition *pos;
         BinlogDataGroupVersionArray *varray;
@@ -322,8 +321,7 @@ static int binlog_filter_buffer(BinlogRepairContext *ctx,
 
         line.str = line_start;
         line.len = ++line_end - line_start;
-        if ((result=binlog_unpack_common_fields_ex(&line,
-                        ctx->input.obj_filed_skip,
+        if ((result=binlog_unpack_common_fields(&line,
                         &fields, error_info)) != 0)
         {
             break;
@@ -568,9 +566,8 @@ static int binlog_repair(BinlogRepairContext *ctx)
 }
 
 static int repair_context_init(BinlogRepairContext *ctx,
-        const int obj_filed_skip, BinlogDataGroupVersionArray *varray)
+        BinlogDataGroupVersionArray *varray)
 {
-    ctx->input.obj_filed_skip = obj_filed_skip;
     ctx->input.varray = varray;
     return binlog_buffer_init(&ctx->out_writer.buffer);
 }
@@ -590,7 +587,7 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     FSBinlogFilePosition *replica;
     FSBinlogFilePosition *end;
 
-    if ((result=repair_context_init(&repair_ctx, 0,
+    if ((result=repair_context_init(&repair_ctx,
                     &ctx->version_arrays.slice)) != 0)
     {
         return result;
@@ -621,7 +618,7 @@ int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx)
     int result;
     BinlogRepairContext repair_ctx;
 
-    if ((result=repair_context_init(&repair_ctx, 1,
+    if ((result=repair_context_init(&repair_ctx,
                     &ctx->version_arrays.replica)) != 0)
     {
         return result;

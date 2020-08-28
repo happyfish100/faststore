@@ -5,9 +5,10 @@
 #include "fastcommon/sched_thread.h"
 #include "../storage/object_block_index.h"
 
-#define SLICE_BINLOG_OP_TYPE_ADD_SLICE  'a'
-#define SLICE_BINLOG_OP_TYPE_DEL_SLICE  'd'
-#define SLICE_BINLOG_OP_TYPE_DEL_BLOCK  'D'
+#define SLICE_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
+#define SLICE_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
+#define SLICE_BINLOG_OP_TYPE_DEL_SLICE    BINLOG_OP_TYPE_DEL_SLICE
+#define SLICE_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
 
 #ifdef __cplusplus
 extern "C" {
