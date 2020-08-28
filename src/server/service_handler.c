@@ -33,25 +33,8 @@
 #include "data_update_handler.h"
 #include "service_handler.h"
 
-//TODO
-//static int write_fd =  -1;
-
 int service_handler_init()
 {
-    //TODO
-    /*
-    {
-    const char *filename = "/tmp/fuse.dat";
-    write_fd = open(filename, O_CREAT | O_WRONLY | O_TRUNC, 0775);
-    if (write_fd < 0) {
-        logInfo("file: "__FILE__", line: %d, func: %s, "
-                "open file %s fail, errno: %d, error info: %s",
-                __LINE__, __FUNCTION__, filename, errno, strerror(errno));
-        return errno != 0 ? errno : EPERM;
-    }
-    }
-    */
-
     return 0;
 }
 

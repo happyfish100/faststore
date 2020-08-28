@@ -455,17 +455,12 @@ static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)
     if ((result=fetch_binlog_first_to_local(conn, ctx, &is_last)) != 0) {
         return result;
     }
-    if (is_last) {
-        return 0;
-    }
 
-    do {
+    while (!is_last) {
         if ((result=fetch_binlog_next_to_local(conn, ctx, &is_last)) != 0) {
             return result;
         }
-    } while (!is_last);
-
-    //TODO
+    }
 
     return 0;
 }

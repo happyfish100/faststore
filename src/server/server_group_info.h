@@ -74,18 +74,6 @@ static inline uint64_t fs_get_my_ds_data_version(const int data_group_id)
     return __sync_add_and_fetch(&ds->replica.data_version, 0);
 }
 
-static inline void server_group_info_set_status(FSClusterServerInfo *cs,
-        const int status)
-{
-    //TODO
-    /*
-    if (cs->status != status) {
-        cs->status = status;
-        __sync_add_and_fetch(&CLUSTER_SERVER_ARRAY.change_version, 1);
-    }
-    */
-}
-
 #ifdef __cplusplus
 }
 #endif

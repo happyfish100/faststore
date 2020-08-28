@@ -314,7 +314,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     }
     op_ctx->notify.arg = task;
 
-    //TODO
     /*
     {
         int64_t offset = op_ctx->info.bs_key.block.offset + op_ctx->info.bs_key.slice.offset;

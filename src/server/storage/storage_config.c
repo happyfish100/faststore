@@ -388,7 +388,7 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
 }
 
 static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
-        bool *changed)
+        int *change_count)
 {
     int result;
     bool regenerated;
@@ -405,7 +405,7 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
                 return result;
             }
             if (regenerated) {
-                *changed = true;
+                ++(*change_count);
             }
         } else {
             if ((result=store_path_index_add(p->store.path.str,
@@ -413,7 +413,7 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
             {
                 return result;
             }
-            *changed = true;
+            ++(*change_count);
         }
     }
 
@@ -454,37 +454,43 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
 {
     int result;
     int old_count;
-    bool changed;
+    int change_count;
 
     if ((result=store_path_index_init()) != 0) {
         return result;
     }
 
     old_count = store_path_index_count();
-    changed = false;
-    if ((result=load_path_indexes(&storage_cfg->write_cache,
-                    "write cache paths", &changed)) != 0)
-    {
-        return result;
-    }
-    if ((result=load_path_indexes(&storage_cfg->store_path,
-                    "store paths", &changed)) != 0)
-    {
-        return result;
-    }
+    change_count = 0;
+    do {
+        if ((result=load_path_indexes(&storage_cfg->write_cache,
+                        "write cache paths", &change_count)) != 0)
+        {
+            break;
+        }
+        if ((result=load_path_indexes(&storage_cfg->store_path,
+                        "store paths", &change_count)) != 0)
+        {
+            break;
+        }
+
+    } while (0);
 
     storage_cfg->max_store_path_index = store_path_index_max();
-    if (changed) {
-        result = store_path_index_save();
+    if (change_count > 0) {
+        int r;
+        r = store_path_index_save();
+        if (result == 0) {
+            result = r;
+        }
     }
-
     if (result == 0) {
         result = set_paths_by_index(storage_cfg);
     }
 
-    logInfo("old_count: %d, new_count: %d, changed: %d, "
+    logInfo("old_count: %d, new_count: %d, change_count: %d, "
             "max_store_path_index: %d", old_count,
-            store_path_index_count(), changed,
+            store_path_index_count(), change_count,
             storage_cfg->max_store_path_index);
 
     store_path_index_destroy();
