@@ -516,7 +516,8 @@ static int find_position_by_reader(ServerBinlogReader *reader,
 }
 
 static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
-        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+        const uint64_t last_data_version, FSBinlogFilePosition *pos,
+        const bool ignore_dv_overflow)
 {
     int result;
     int record_len;
@@ -549,12 +550,17 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
             return 0;
         }
 
+        if (ignore_dv_overflow) {
+            pos->offset += record_len;
+            return 0;
+        }
+
         logError("file: "__FILE__", line: %d, subdir_name: %s, "
                 "last_data_version: %"PRId64" is too large, which "
                 " > the last data version %"PRId64" in the binlog file %s, "
                 "binlog index: %d", __LINE__, subdir_name,
                 last_data_version, data_version, filename, pos->index);
-        return EINVAL;
+        return EOVERFLOW;
     }
 
     pos->offset = 0;
@@ -571,7 +577,7 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
 
 int replica_binlog_get_position_by_dv(const char *subdir_name,
             BinlogWriterInfo *writer, const uint64_t last_data_version,
-            FSBinlogFilePosition *pos)
+            FSBinlogFilePosition *pos, const bool ignore_dv_overflow)
 {
     int result;
     int binlog_index;
@@ -596,8 +602,8 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
         if (last_data_version >= first_data_version) {
             pos->index = binlog_index;
             pos->offset = 0;
-            return find_position(subdir_name, writer,
-                    last_data_version, pos);
+            return find_position(subdir_name, writer, last_data_version,
+                    pos, ignore_dv_overflow);
         }
 
         --binlog_index;
@@ -623,7 +629,7 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
     }
 
     if ((result=replica_binlog_get_position_by_dv(subdir_name,
-                    writer, last_data_version, &position)) != 0)
+                    writer, last_data_version, &position, false)) != 0)
     {
         return result;
     }

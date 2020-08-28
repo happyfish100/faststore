@@ -473,9 +473,10 @@ static int binlog_repair_finish(const int data_group_id,
         binlog_reader_get_filename(subdir_name, index,
                 dest_filename, sizeof(dest_filename));
 
-        logError("file: "__FILE__", line: %d, "
+        logInfo("file: "__FILE__", line: %d, "
                 "rename binlog from %s to %s", __LINE__,
                 src_filename, dest_filename);
+
         if (rename(src_filename, dest_filename) != 0) {
             result = errno != 0 ? errno : EPERM;
             if (result == ENOENT) {

@@ -503,7 +503,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
     if ((result=replica_binlog_get_position_by_dv(subdir_name,
-                    NULL, last_data_version, &position)) == 0)
+                    NULL, last_data_version, &position, true)) == 0)
     {
         if ((result=binlog_read_thread_init(&replay_ctx->
                         rdthread_ctx, subdir_name, NULL,
@@ -521,7 +521,8 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     }
 
     logInfo("file: "__FILE__", line: %d, "
-            "replay %s data ...", __LINE__, subdir_name);
+            "%s, replay start offset: %"PRId64" ...",
+            __LINE__, subdir_name, position.offset);
 
     result = 0;
     while (SF_G_CONTINUE_FLAG) {

@@ -105,7 +105,7 @@ extern "C" {
 
     int replica_binlog_get_position_by_dv(const char *subdir_name,
             BinlogWriterInfo *writer, const uint64_t last_data_version,
-            FSBinlogFilePosition *pos);
+            FSBinlogFilePosition *pos, const bool ignore_dv_overflow);
 
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
