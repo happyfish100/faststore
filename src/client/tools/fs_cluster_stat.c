@@ -34,12 +34,14 @@ static void output(FSClientClusterStatEntry *stats, const int count)
         }
         printf( "\tserver_id: %d, host: %s:%d, "
                 "status: %d (%s), "
+                "is_preseted: %d, "
                 "is_master: %d, "
                 "data_version: %"PRId64"\n",
                 stat->server_id,
                 stat->ip_addr, stat->port,
                 stat->status,
                 fs_get_server_status_caption(stat->status),
+                stat->is_preseted,
                 stat->is_master,
                 stat->data_version
               );

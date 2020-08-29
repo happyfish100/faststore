@@ -11,17 +11,15 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c fdir_config_filename] "
-            "[-C fs_config_filename] -n [namespace=fs] \n\t"
-            "[-o offset=0] [-l length=0 for auto] [-A append mode] \n\t"
-            "[-T truncate mode] [-S set file size = -1] "
+    fprintf(stderr, "Usage: %s [-c config_filename] "
+            "-n [namespace=fs] \n\t[-o offset=0] [-l length=0 for auto] "
+            "[-A append mode] \n\t[-T truncate mode] [-S set file size = -1] "
             "-i <input_filename> <filename>\n\n", argv[0]);
 }
 
 int main(int argc, char *argv[])
 {
-    const char *fdir_config_filename = "/etc/fdir/client.conf";
-    const char *fs_config_filename = "/etc/fstore/client.conf";
+    const char *config_filename = "/etc/fsapi/fuse.conf";
 	int ch;
 	int result;
     int open_flags;
@@ -46,16 +44,13 @@ int main(int argc, char *argv[])
 
     open_flags = 0;
     file_size_to_set = -1;
-    while ((ch=getopt(argc, argv, "hc:C:o:n:i:l:S:AT")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:o:n:i:l:S:AT")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
                 break;
             case 'c':
-                fdir_config_filename = optarg;
-                break;
-            case 'C':
-                fs_config_filename = optarg;
+                config_filename = optarg;
                 break;
             case 'i':
                 input_filename = optarg;
@@ -112,9 +107,7 @@ int main(int argc, char *argv[])
         length = file_size;
     }
 
-    if ((result=fs_api_pooled_init(ns, fdir_config_filename,
-                    fs_config_filename)) != 0)
-    {
+    if ((result=fs_api_pooled_init(ns, config_filename)) != 0) {
         return result;
     }
 

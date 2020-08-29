@@ -529,6 +529,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         for (stat=stats; body_part<body_end; body_part++, stat++) {
             stat->data_group_id = buff2int(body_part->data_group_id);
             stat->server_id = buff2int(body_part->server_id);
+            stat->is_preseted = body_part->is_preseted;
             stat->is_master = body_part->is_master;
             stat->status = body_part->status;
             memcpy(stat->ip_addr, body_part->ip_addr, IP_ADDRESS_SIZE);

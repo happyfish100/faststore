@@ -9,6 +9,7 @@
 typedef struct fs_client_cluster_stat_entry {
     int data_group_id;
     int server_id;
+    bool is_preseted;
     bool is_master;
     char status;
     short port;

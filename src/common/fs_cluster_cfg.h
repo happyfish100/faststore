@@ -67,8 +67,26 @@ extern "C" {
     int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
             const char *cluster_filename);
 
-    int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
-            IniContext *ini_context, const char *cfg_filename);
+    int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
+            IniFullContext *ini_ctx);
+
+    static inline int fs_cluster_cfg_load_from_ini_ex(FSClusterConfig *
+            cluster_cfg, IniContext *ini_context, const char *cfg_filename,
+            const char *section_name)
+    {
+        IniFullContext ini_ctx;
+        FAST_INI_SET_FULL_CTX_EX(ini_ctx, cfg_filename,
+                section_name, ini_context);
+        return fs_cluster_cfg_load_from_ini_ex1(cluster_cfg, &ini_ctx);
+    }
+
+    static inline int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
+            IniContext *ini_context, const char *cfg_filename)
+    {
+        const char *section_name = NULL;
+        return fs_cluster_cfg_load_from_ini_ex(cluster_cfg,
+                ini_context, cfg_filename, section_name);
+    }
 
     void fs_cluster_cfg_destroy(FSClusterConfig *cluster_cfg);
 

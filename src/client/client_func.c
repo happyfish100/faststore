@@ -9,12 +9,12 @@
 #include "client_func.h"
 
 static int fs_client_do_init_ex(FSClientContext *client_ctx,
-        const char *conf_filename, IniContext *iniContext)
+        IniFullContext *ini_ctx)
 {
     char *pBasePath;
     int result;
 
-    pBasePath = iniGetStrValue(NULL, "base_path", iniContext);
+    pBasePath = iniGetStrValue(NULL, "base_path", ini_ctx->context);
     if (pBasePath == NULL) {
         strcpy(g_fs_client_vars.base_path, "/tmp");
     } else {
@@ -37,20 +37,20 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         }
     }
 
-    g_fs_client_vars.connect_timeout = iniGetIntValue(NULL,
-            "connect_timeout", iniContext, DEFAULT_CONNECT_TIMEOUT);
+    g_fs_client_vars.connect_timeout = iniGetIntValue(ini_ctx->section_name,
+            "connect_timeout", ini_ctx->context, DEFAULT_CONNECT_TIMEOUT);
     if (g_fs_client_vars.connect_timeout <= 0) {
         g_fs_client_vars.connect_timeout = DEFAULT_CONNECT_TIMEOUT;
     }
 
-    g_fs_client_vars.network_timeout = iniGetIntValue(NULL,
-            "network_timeout", iniContext, DEFAULT_NETWORK_TIMEOUT);
+    g_fs_client_vars.network_timeout = iniGetIntValue(ini_ctx->section_name,
+            "network_timeout", ini_ctx->context, DEFAULT_NETWORK_TIMEOUT);
     if (g_fs_client_vars.network_timeout <= 0) {
         g_fs_client_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
-    if ((result=fs_cluster_cfg_load_from_ini(client_ctx->cluster_cfg.ptr,
-                    iniContext, conf_filename)) != 0)
+    if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
+                    cluster_cfg.ptr, ini_ctx)) != 0)
     {
         return result;
     }
@@ -75,22 +75,28 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     return 0;
 }
 
-int fs_client_load_from_file_ex(FSClientContext *client_ctx,
-        const char *conf_filename)
+int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
+        IniFullContext *ini_ctx)
 {
     IniContext iniContext;
     int result;
 
-    if ((result=iniLoadFromFile(conf_filename, &iniContext)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-            "load conf file \"%s\" fail, ret code: %d",
-            __LINE__, conf_filename, result);
-        return result;
+    if (ini_ctx->context == NULL) {
+        if ((result=iniLoadFromFile(ini_ctx->filename, &iniContext)) != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "load conf file \"%s\" fail, ret code: %d",
+                    __LINE__, ini_ctx->filename, result);
+            return result;
+        }
+        ini_ctx->context = &iniContext;
     }
 
-    result = fs_client_do_init_ex(client_ctx, conf_filename,
-                &iniContext);
-    iniFreeContext(&iniContext);
+    result = fs_client_do_init_ex(client_ctx, ini_ctx);
+
+    if (ini_ctx->context == &iniContext) {
+        iniFreeContext(&iniContext);
+        ini_ctx->context = NULL;
+    }
 
     if (result == 0) {
         client_ctx->inited = true;
@@ -98,15 +104,13 @@ int fs_client_load_from_file_ex(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_init_ex(FSClientContext *client_ctx,
-        const char *conf_filename, const FSConnectionManager *conn_manager)
+int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
+        const FSConnectionManager *conn_manager)
 {
     int result;
 
     client_ctx->cluster_cfg.ptr = &client_ctx->cluster_cfg.holder;
-    if ((result=fs_client_load_from_file_ex(
-                    client_ctx, conf_filename)) != 0)
-    {
+    if ((result=fs_client_load_from_file_ex1(client_ctx, ini_ctx)) != 0) {
         return result;
     }
 

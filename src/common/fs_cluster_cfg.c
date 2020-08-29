@@ -1164,22 +1164,30 @@ int fs_cluster_cfg_get_assoc_group_info(FSClusterConfig *cluster_cfg,
             servers, size, count);
 }
 
-int fs_cluster_cfg_load_from_ini(FSClusterConfig *cluster_cfg,
-        IniContext *ini_context, const char *cfg_filename)
+int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
+        IniFullContext *ini_ctx)
 {
     char *cluster_cfg_filename;
     char cluster_full_filename[PATH_MAX];
 
-    cluster_cfg_filename = iniGetStrValue(NULL,
-            "cluster_config_filename", ini_context);
+    cluster_cfg_filename = iniGetStrValue(ini_ctx->section_name,
+            "cluster_config_filename", ini_ctx->context);
     if (cluster_cfg_filename == NULL || *cluster_cfg_filename == '\0') {
+        char section_prompt[256];
+        if (ini_ctx->section_name != NULL && *ini_ctx->section_name != '\0') {
+            snprintf(section_prompt, sizeof(section_prompt),
+                    "section: %s, ", ini_ctx->section_name);
+        } else {
+            *section_prompt = '\0';
+        }
         logError("file: "__FILE__", line: %d, "
-                "config file: %s, item \"cluster_config_filename\" "
-                "not exist or empty", __LINE__, cfg_filename);
+                "config file: %s, %sitem \"cluster_config_filename\" "
+                "not exist or empty", __LINE__, ini_ctx->filename,
+                section_prompt);
         return ENOENT;
     }
 
-    resolve_path(cfg_filename, cluster_cfg_filename,
+    resolve_path(ini_ctx->filename, cluster_cfg_filename,
             cluster_full_filename, sizeof(cluster_full_filename));
     return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename);
 }

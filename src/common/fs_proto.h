@@ -210,6 +210,7 @@ typedef struct fs_proto_cluster_stat_resp_body_part {
     char data_version[8];
     char ip_addr[IP_ADDRESS_SIZE];
     char port[2];
+    char is_preseted;
     char is_master;
     char status;
     char padding[4];
