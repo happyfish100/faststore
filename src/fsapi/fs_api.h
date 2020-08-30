@@ -21,6 +21,11 @@
             FS_API_DEFAULT_FASTDIR_SECTION_NAME,  \
             FS_API_DEFAULT_FASTSTORE_SECTION_NAME)
 
+#define fs_api_pooled_init1(ns, ini_ctx) \
+    fs_api_pooled_init_ex1(&g_fs_api_ctx, ns, ini_ctx, \
+            FS_API_DEFAULT_FASTDIR_SECTION_NAME,  \
+            FS_API_DEFAULT_FASTSTORE_SECTION_NAME)
+
 #define fs_api_destroy()  fs_api_destroy_ex(&g_fs_api_ctx)
 
 #define fs_api_default_mode()  g_fs_api_ctx.default_mode

@@ -1,11 +1,11 @@
 .SUFFIXES: .c .o .lo
 
 COMPILE = $(CC) $(CFLAGS)
-INC_PATH = -I/usr/local/include
-LIB_PATH = $(LIBS) -lfuse3 -lfsapi -lfdirclient -lfsclient -lfastcommon
+INC_PATH = -I/usr/local/include -I..
+LIB_PATH = $(LIBS) -lfuse3 -lfsapi -lfdirclient -lfsclient -lfastcommon -lserverframe
 TARGET_PATH = $(TARGET_PREFIX)/bin
 
-STATIC_OBJS = fs_fuse_wrapper.o
+STATIC_OBJS = fs_fuse_wrapper.o fs_fuse_global.o
 
 ALL_PRGS = fs_fused
 
