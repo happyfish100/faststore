@@ -41,6 +41,18 @@ static int load_fuse_config(IniFullContext *ini_ctx)
                 ini_ctx->section_name);
         return ENOENT;
     }
+    if (!fileExists(mountpoint.str)) {
+        logError("file: "__FILE__", line: %d, "
+                "mountpoint: %s can't be accessed, error info: %s",
+                __LINE__, mountpoint.str, STRERROR(errno));
+        return errno != 0 ? errno : ENOENT;
+    }
+    if (!isDir(mountpoint.str)) {
+        logError("file: "__FILE__", line: %d, "
+                "mountpoint: %s is not a directory!",
+                __LINE__, mountpoint.str);
+        return ENOTDIR;
+    }
 
     ns.len = strlen(ns.str);
     mountpoint.len = strlen(mountpoint.str);

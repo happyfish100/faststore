@@ -971,6 +971,7 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     }
     */
 
+    memset(ops, 0, sizeof(*ops));
     ops->lookup  = fs_do_lookup;
     ops->getattr = fs_do_getattr;
     ops->setattr = fs_do_setattr;

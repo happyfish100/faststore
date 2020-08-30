@@ -14,9 +14,12 @@
 #include "fs_fuse_wrapper.h"
 
 static bool daemon_mode = true;
+static struct fuse_session *fuse_instance;
+
 static int setup_server_env(const char *config_filename);
 static struct fuse_session *create_fuse_session(char *argv0,
         struct fuse_lowlevel_ops *ops);
+static void fuse_exit_handler(int sig);
 
 int main(int argc, char *argv[])
 {
@@ -83,13 +86,16 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=fuse_set_signal_handlers(se)) != 0) {
-            break;
-        }
+        fuse_instance = se;
+        sf_set_sig_quit_handler(fuse_exit_handler);
 
         if ((result=fuse_session_mount(se, g_fuse_global_vars.
                         mountpoint)) != 0)
         {
+            break;
+        }
+
+        if ((result=write_to_pid_file(pid_filename)) != 0) {
             break;
         }
 
@@ -112,8 +118,8 @@ int main(int argc, char *argv[])
 
     wait_count = 0;
     while (g_schedule_flag) {
-        usleep(10000);
-        if (++wait_count > 1000) {
+        usleep(100000);
+        if (++wait_count > 100) {
             lwarning("waiting timeout, exit!");
             break;
         }
@@ -144,7 +150,6 @@ static int setup_server_env(const char *config_filename)
     umask(0);
 
     result = sf_setup_signal_handler();
-
     log_set_cache(true);
     return result;
 }
@@ -180,4 +185,12 @@ static struct fuse_session *create_fuse_session(char *argv0,
     args.argv = argv;
     args.allocated = 0;
     return fuse_session_new(&args, ops, sizeof(*ops), NULL);
+}
+
+static void fuse_exit_handler(int sig)
+{
+    if (fuse_instance != NULL) {
+        fuse_session_exit(fuse_instance);
+        fuse_instance = NULL;
+    }
 }
