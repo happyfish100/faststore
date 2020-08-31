@@ -33,7 +33,6 @@ int main(int argc, char *argv[])
 	struct fuse_session *se;
 	int result;
 
-        stop = false;
     if (argc < 2) {
         sf_usage(argv[0]);
         return 1;
@@ -53,6 +52,7 @@ int main(int argc, char *argv[])
     snprintf(pid_filename, sizeof(pid_filename),
              "%s/serverd.pid", SF_G_BASE_PATH);
 
+    stop = false;
     sf_parse_daemon_mode_and_action(argc, argv, &daemon_mode, &action);
     result = process_action(pid_filename, action, &stop);
     if (result != 0) {
@@ -69,7 +69,13 @@ int main(int argc, char *argv[])
     }
 
     do {
+        log_set_use_file_write_lock(true);
         if ((result=setup_server_env(config_filename)) != 0) {
+            if (result == EAGAIN || result == EACCES) {
+                logCrit("file: "__FILE__", line: %d, "
+                        "the process already running, "
+                        "please kill the old process first!", __LINE__);
+            }
             break;
         }
 
@@ -110,6 +116,7 @@ int main(int argc, char *argv[])
         }
 
         fuse_session_unmount(se);
+        delete_pid_file(pid_filename);
     } while (0);
 
     if (g_schedule_flag) {
@@ -125,10 +132,13 @@ int main(int argc, char *argv[])
         }
     }
 
-    delete_pid_file(pid_filename);
     if (result == 0) {
         logInfo("file: "__FILE__", line: %d, "
                 "program exit normally.\n", __LINE__);
+    } else {
+        logCrit("file: "__FILE__", line: %d, "
+                "program exit abnormally with errno: %d!\n",
+                __LINE__, result);
     }
     log_destroy();
 
