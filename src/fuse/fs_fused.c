@@ -69,13 +69,7 @@ int main(int argc, char *argv[])
     }
 
     do {
-        log_set_use_file_write_lock(true);
         if ((result=setup_server_env(config_filename)) != 0) {
-            if (result == EAGAIN || result == EACCES) {
-                logCrit("file: "__FILE__", line: %d, "
-                        "the process already running, "
-                        "please kill the old process first!", __LINE__);
-            }
             break;
         }
 
@@ -158,6 +152,16 @@ static int setup_server_env(const char *config_filename)
         daemon_init(false);
     }
     umask(0);
+
+    log_set_use_file_write_lock(true);
+    if ((result=log_reopen()) != 0) {
+        if (result == EAGAIN || result == EACCES) {
+            logCrit("file: "__FILE__", line: %d, "
+                    "the process already running, please kill "
+                    "the old process then try again!", __LINE__);
+        }
+        return result;
+    }
 
     result = sf_setup_signal_handler();
     log_set_cache(true);
