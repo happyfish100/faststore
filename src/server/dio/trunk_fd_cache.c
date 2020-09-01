@@ -39,10 +39,9 @@ int trunk_fd_cache_init(TrunkFDCacheContext *cache_ctx, const int capacity)
     } else {
         alloc_elements_once = 8 * 1024;
     }
-    if ((result=fast_mblock_init_ex2(&cache_ctx->allocator,
+    if ((result=fast_mblock_init_ex1(&cache_ctx->allocator,
                     "trunk_fd_cache", sizeof(TrunkFDCacheEntry),
-                    alloc_elements_once, NULL, NULL, false,
-                    NULL, NULL, NULL)) != 0)
+                    alloc_elements_once, 0, NULL, NULL, false)) != 0)
     {
         return result;
     }

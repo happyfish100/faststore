@@ -124,10 +124,9 @@ int trunk_id_info_init()
         return result;
     }
 
-    if ((result=fast_mblock_init_ex2(&id_info_context.subdir_allocator,
+    if ((result=fast_mblock_init_ex1(&id_info_context.subdir_allocator,
                     "subdir_info", sizeof(StoreSubdirInfo),
-                    alloc_elements_once, NULL, NULL, false,
-                    NULL, NULL, NULL)) != 0)
+                    alloc_elements_once, 0, NULL, NULL, false)) != 0)
     {
         return result;
     }

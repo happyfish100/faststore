@@ -37,9 +37,9 @@ int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
     ctx->ring.size = alloc_size;
 
     ctx->queue.head = ctx->queue.tail = NULL;
-    return fast_mblock_init_ex2(&ctx->queue.rentry_allocator,
+    return fast_mblock_init_ex1(&ctx->queue.rentry_allocator,
         "push_result", sizeof(FSReplicaRPCResultEntry), 4096,
-        NULL, NULL, false, NULL, NULL, NULL);
+        0, NULL, NULL, false);
 }
 
 static inline void desc_task_waiting_rpc_count(

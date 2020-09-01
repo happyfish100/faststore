@@ -35,9 +35,9 @@ int replication_caller_init()
 
     element_size = sizeof(ReplicationRPCEntry) +
         sizeof(ReplicationRPCEntry *) * CLUSTER_SERVER_ARRAY.count;
-    if ((result=fast_mblock_init_ex2(&repl_mctx.rpc_allocator,
-                    "rpc_entry", element_size, 1024, NULL, NULL,
-                    true, NULL, NULL, NULL)) != 0)
+    if ((result=fast_mblock_init_ex1(&repl_mctx.rpc_allocator,
+                    "rpc_entry", element_size, 1024, 0, NULL,
+                    NULL, true)) != 0)
     {
         return result;
     }

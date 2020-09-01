@@ -193,9 +193,9 @@ int trunk_prealloc_init()
             return result;
         }
 
-        if ((result=fast_mblock_init_ex2(&ctx->mblock,
+        if ((result=fast_mblock_init_ex1(&ctx->mblock,
                         "trunk_prealloc_task", sizeof(TrunkPreallocTask),
-                        1024, NULL, NULL, false, NULL, NULL, NULL)) != 0)
+                        1024, 0, NULL, NULL, false)) != 0)
         {
             return result;
         }

@@ -657,10 +657,10 @@ int binlog_writer_init_thread_ex(BinlogWriterThread *thread,
     thread->order_by = order_by;
     writer->cfg.max_record_size = max_record_size;
     writer->thread = thread;
-    if ((result=fast_mblock_init_ex2(&thread->mblock, "binlog_wbuffer",
+    if ((result=fast_mblock_init_ex1(&thread->mblock, "binlog_wbuffer",
                     sizeof(BinlogWriterBuffer) + max_record_size,
-                    alloc_elements_once, binlog_wbuffer_alloc_init,
-                    writer, true, NULL, NULL, NULL)) != 0)
+                    alloc_elements_once, 0, binlog_wbuffer_alloc_init,
+                    writer, true)) != 0)
     {
         return result;
     }

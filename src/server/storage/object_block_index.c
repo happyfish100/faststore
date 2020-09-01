@@ -254,14 +254,14 @@ static int init_ob_shared_ctx_array()
 
         if ((result=fast_mblock_init_ex1(&ctx->ob_allocator,
                         "ob_entry", sizeof(OBEntry), 16 * 1024,
-                        NULL, NULL, false)) != 0)
+                        0, NULL, NULL, false)) != 0)
         {
             return result;
         }
 
         if ((result=fast_mblock_init_ex1(&ctx->slice_allocator,
                         "slice_entry", sizeof(OBSliceEntry),
-                        64 * 1024, NULL, NULL, true)) != 0)
+                        64 * 1024, 0, NULL, NULL, true)) != 0)
         {
             return result;
         }

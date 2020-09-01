@@ -74,16 +74,16 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
 
     if (!g_trunk_allocator_vars.allocator_inited) {
         g_trunk_allocator_vars.allocator_inited = true;
-        if ((result=fast_mblock_init_ex2(&G_TRUNK_ALLOCATOR,
+        if ((result=fast_mblock_init_ex1(&G_TRUNK_ALLOCATOR,
                         "trunk_file_info", sizeof(FSTrunkFileInfo),
-                        16384, NULL, NULL, true, NULL, NULL, NULL)) != 0)
+                        16384, 0, NULL, NULL, true)) != 0)
         {
             return result;
         }
 
-        if ((result=fast_mblock_init_ex2(&G_FREE_NODE_ALLOCATOR,
+        if ((result=fast_mblock_init_ex1(&G_FREE_NODE_ALLOCATOR,
                         "trunk_free_node", sizeof(FSTrunkFreeNode),
-                        8 * 1024, NULL, NULL, true, NULL, NULL, NULL)) != 0)
+                        8 * 1024, 0, NULL, NULL, true)) != 0)
         {
             return result;
         }

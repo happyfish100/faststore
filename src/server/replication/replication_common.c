@@ -73,11 +73,10 @@ static int init_replication_context(FSReplication *replication)
         return result;
     }
 
-    if ((result=fast_mblock_init_ex2(&replication->context.callee.
+    if ((result=fast_mblock_init_ex1(&replication->context.callee.
                     result_allocator, "rpc_result",
-                    sizeof(ReplicationRPCResult), 256,
-                    rpc_result_alloc_init_func, replication,
-                    true, NULL, NULL, NULL)) != 0)
+                    sizeof(ReplicationRPCResult), 256, 0,
+                    rpc_result_alloc_init_func, replication, true)) != 0)
     {
         return result;
     }

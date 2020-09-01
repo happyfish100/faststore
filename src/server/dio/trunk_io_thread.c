@@ -93,9 +93,8 @@ static int init_thread_context(TrunkIOThreadContext *ctx)
         return result;
     }
 
-    if ((result=fast_mblock_init_ex2(&ctx->mblock, "trunk_io_buffer",
-                    sizeof(TrunkIOBuffer), 1024, NULL, NULL, false,
-                    NULL, NULL, NULL)) != 0)
+    if ((result=fast_mblock_init_ex1(&ctx->mblock, "trunk_io_buffer",
+                    sizeof(TrunkIOBuffer), 1024, 0, NULL, NULL, false)) != 0)
     {
         return result;
     }

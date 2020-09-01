@@ -50,9 +50,9 @@ int replication_callee_init_allocator(FSServerContext *server_context)
     int element_size;
 
     element_size = sizeof(FSSliceOpBufferContext);
-    if ((result=fast_mblock_init_ex2(&server_context->replica.
+    if ((result=fast_mblock_init_ex1(&server_context->replica.
                     op_ctx_allocator, "slice_op_ctx", element_size,
-                    1024, NULL, NULL, true, NULL, NULL, NULL)) != 0)
+                    1024, 0, NULL, NULL, true)) != 0)
     {
         return result;
     }
