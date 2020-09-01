@@ -221,9 +221,12 @@ int fs_fuse_global_init(const char *config_filename)
         return result;
     }
 
-    logInfo("FUSE library version %s, FastDIR namespace: %s, "
-            "FUSE mountpoint: %s, singlethread: %d, clone_fd: %d, "
-            "max_idle_threads: %d, allow_others: %s, auto_unmount: %d",
+    logInfo("FastStore V%d.%02d, FUSE library version %s, "
+            "FastDIR namespace: %s, FUSE mountpoint: %s, "
+            "singlethread: %d, clone_fd: %d, max_idle_threads: %d, "
+            "allow_others: %s, auto_unmount: %d",
+            g_fs_global_vars.version.major,
+            g_fs_global_vars.version.minor,
             fuse_pkgversion(), g_fuse_global_vars.ns,
             g_fuse_global_vars.mountpoint, g_fuse_global_vars.singlethread,
             g_fuse_global_vars.clone_fd, g_fuse_global_vars.max_idle_threads,
