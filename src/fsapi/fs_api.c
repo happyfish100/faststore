@@ -27,10 +27,9 @@ static int fs_api_common_init(FSAPIContext *ctx, FDIRClientContext *fdir,
 {
     int result;
 
-    if ((result=fast_mblock_init_ex2(&ctx->opendir_session_pool,
-                    "opendir_session", sizeof(FSAPIOpendirSession),
-                    64, opendir_session_alloc_init, NULL, need_lock,
-                    NULL, NULL, NULL)) != 0)
+    if ((result=fast_mblock_init_ex1(&ctx->opendir_session_pool,
+                    "opendir_session", sizeof(FSAPIOpendirSession), 64,
+                    0, opendir_session_alloc_init, NULL, need_lock)) != 0)
     {
         return result;
     }
