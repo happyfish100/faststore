@@ -48,7 +48,7 @@ static int init_htable(ChannelHashtable *htable, const int hint_capacity)
         htable->capacity = fc_ceil_prime(hint_capacity);
     }
     bytes = sizeof(FSChannelInfo *) * htable->capacity;
-    htable->buckets = fc_malloc(bytes);
+    htable->buckets = (FSChannelInfo **)fc_malloc(bytes);
     if (htable->buckets == NULL) {
         return ENOMEM;
     }
@@ -60,19 +60,30 @@ static int init_htable(ChannelHashtable *htable, const int hint_capacity)
 
 static int channel_info_alloc_init(void *element, void *args)
 {
-    ((FSChannelInfo *)element)->id = ++channel_context.channel_ids.current;
+    FSChannelInfo *channel;
+
+    channel = (FSChannelInfo *)element;
+    channel->id = ++channel_context.channel_ids.current;
+    channel->request_htable.buckets = (IdempotencyRequest **)(channel + 1);
     return 0;
 }
 
 int channel_info_init(const uint32_t max_channel_id,
+        const int request_hint_capacity,
         const uint32_t reserve_interval)
 {
     int result;
+    int request_htable_capacity;
+    int element_size;
 
+    request_htable_capacity = fc_ceil_prime(request_hint_capacity);
+    idempotency_request_init(request_htable_capacity);
+
+    element_size = sizeof(FSChannelInfo) + sizeof(IdempotencyRequest *) *
+        request_htable_capacity;
     if ((result=fast_mblock_init_ex1(&channel_context.channel_allocator,
-                    "channel_info", sizeof(FSChannelInfo), 1024,
-                    max_channel_id, channel_info_alloc_init,
-                    NULL, true)) != 0)
+                    "channel_info", element_size, 1024, max_channel_id,
+                    channel_info_alloc_init, NULL, true)) != 0)
     {
         return result;
     }
