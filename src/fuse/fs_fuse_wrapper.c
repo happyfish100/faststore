@@ -953,9 +953,8 @@ static void fs_do_fallocate(fuse_req_t req, fuse_ino_t ino, int mode,
 int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
 {
     int result;
-    if ((result=fast_mblock_init_ex2(&fh_allocator, "fuse_fh",
-                    sizeof(FSAPIFileInfo), 4096, NULL, NULL,
-                    true, NULL, NULL, NULL)) != 0)
+    if ((result=fast_mblock_init_ex1(&fh_allocator, "fuse_fh",
+                    sizeof(FSAPIFileInfo), 4096, 0, NULL, NULL, true)) != 0)
     {
         return result;
     }
