@@ -1,18 +1,9 @@
 
-#ifndef _IDEMPOTENCY_REQUEST_H
-#define _IDEMPOTENCY_REQUEST_H
+#ifndef _IDEMPOTENCY_REQUEST_HTABLE_H
+#define _IDEMPOTENCY_REQUEST_HTABLE_H
 
 #include "../../common/fs_types.h"
-
-typedef struct idempotency_request {
-    uint64_t req_id;
-    struct idempotency_request *next;
-} IdempotencyRequest;
-
-typedef struct idempotency_request_htable {
-    IdempotencyRequest **buckets;
-    int count;
-} IdempotencyRequestHTable;
+#include "idempotency_types.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -7,7 +7,7 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
-#include "request.h"
+#include "request_htable.h"
 
 typedef struct idempotency_request_context {
     uint32_t htable_capacity;
@@ -23,17 +23,22 @@ void idempotency_request_init(const uint32_t htable_capacity)
 int idempotency_request_htable_add(IdempotencyRequestHTable *htable,
         IdempotencyRequest *request)
 {
+    int result;
     IdempotencyRequest **bucket;
     IdempotencyRequest *previous;
     IdempotencyRequest *current;
 
     bucket = htable->buckets + request->req_id % request_ctx.htable_capacity;
     previous = NULL;
+    result = 0;
+
+    PTHREAD_MUTEX_LOCK(&htable->lock);
     current = *bucket;
     while (current != NULL) {
         if (current->req_id == request->req_id) {
             *request = *current;
-            return EEXIST;
+            result = EEXIST;
+            break;
         } else if (current->req_id > request->req_id) {
             break;
         }
@@ -42,16 +47,19 @@ int idempotency_request_htable_add(IdempotencyRequestHTable *htable,
         current = current->next;
     }
 
-    if (previous == NULL) {
-        request->next = *bucket;
-        *bucket = request;
-    } else {
-        request->next = previous->next;
-        previous->next = request;
+    if (result == 0) {
+        if (previous == NULL) {
+            request->next = *bucket;
+            *bucket = request;
+        } else {
+            request->next = previous->next;
+            previous->next = request;
+        }
+        htable->count++;
     }
-    htable->count++;
+    PTHREAD_MUTEX_UNLOCK(&htable->lock);
 
-    return 0;
+    return result;
 }
 
 IdempotencyRequest *idempotency_request_htable_remove(
@@ -63,6 +71,8 @@ IdempotencyRequest *idempotency_request_htable_remove(
 
     bucket = htable->buckets + req_id % request_ctx.htable_capacity;
     previous = NULL;
+
+    PTHREAD_MUTEX_LOCK(&htable->lock);
     current = *bucket;
     while (current != NULL) {
         if (current->req_id == req_id) {
@@ -72,16 +82,18 @@ IdempotencyRequest *idempotency_request_htable_remove(
                 previous->next = current->next;
             }
             htable->count--;
-            return current;
+            break;
         } else if (current->req_id > req_id) {
+            current = NULL;
             break;
         }
 
         previous = current;
         current = current->next;
     }
+    PTHREAD_MUTEX_UNLOCK(&htable->lock);
 
-    return NULL;
+    return current;
 }
 
 IdempotencyRequest *idempotency_request_htable_clear(
@@ -93,35 +105,41 @@ IdempotencyRequest *idempotency_request_htable_clear(
     IdempotencyRequest *previous;
     IdempotencyRequest *current;
 
-    if (htable->count == 0) {
-        return NULL;
-    }
-
-    head = previous = NULL;
-    end = htable->buckets + request_ctx.htable_capacity;
-    for (bucket=htable->buckets; bucket<end; bucket++) {
-        if (*bucket == NULL) {
-            continue;
+    head = NULL;
+    PTHREAD_MUTEX_LOCK(&htable->lock);
+    do {
+        if (htable->count == 0) {
+            break;
         }
 
-        current = *bucket;
-        do {
-            if (previous == NULL) {
-                head = current;
-            } else {
-                previous->next = current;
+        previous = NULL;
+        end = htable->buckets + request_ctx.htable_capacity;
+        for (bucket=htable->buckets; bucket<end; bucket++) {
+            if (*bucket == NULL) {
+                continue;
             }
-            previous = current;
-            current = current->next;
-        } while (current != NULL);
 
-        *bucket = NULL;
-    }
+            current = *bucket;
+            do {
+                if (previous == NULL) {
+                    head = current;
+                } else {
+                    previous->next = current;
+                }
+                previous = current;
+                current = current->next;
+            } while (current != NULL);
 
-    if (previous != NULL) {
-        previous->next = NULL;
-    }
+            *bucket = NULL;
+        }
 
-    htable->count = 0;
+        if (previous != NULL) {
+            previous->next = NULL;
+        }
+
+        htable->count = 0;
+    } while (0);
+
+    PTHREAD_MUTEX_UNLOCK(&htable->lock);
     return head;
 }

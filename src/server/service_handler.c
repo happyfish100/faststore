@@ -36,7 +36,10 @@
 
 int service_handler_init()
 {
-    return 0;
+    return idempotency_channel_init(FS_IDEMPOTENCY_MAX_CHANNEL_ID,
+            FS_IDEMPOTENCY_REQUEST_HINT_CAPACITY,
+            FS_IDEMPOTENCY_CHANNEL_RESERVE_INTERVAL,
+            FS_IDEMPOTENCY_CHANNEL_SHARED_LOCK_COUNT);
 }
 
 int service_handler_destroy()
@@ -44,23 +47,16 @@ int service_handler_destroy()
     return 0;
 }
 
-static inline void close_idempotency_channel(struct fast_task_info *task)
-{
-    if (IDEMPOTENCY_CHANNEL != NULL) {
-        idempotency_channel_free(IDEMPOTENCY_CHANNEL);
-        IDEMPOTENCY_CHANNEL = NULL;
-    }
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
-}
-
 void service_task_finish_cleanup(struct fast_task_info *task)
 {
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_CHANNEL_HOLDER:
-            close_idempotency_channel(task);
-            break;
         case FS_SERVER_TASK_TYPE_CHANNEL_USER:
-            //TODO
+            if (IDEMPOTENCY_CHANNEL != NULL) {
+                idempotency_channel_release(IDEMPOTENCY_CHANNEL,
+                        SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_HOLDER);
+                IDEMPOTENCY_CHANNEL = NULL;
+            }
             SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
             break;
         default:
@@ -422,7 +418,8 @@ static int check_holder_channel(struct fast_task_info *task)
     }
 
     if (IDEMPOTENCY_CHANNEL == NULL) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
                 "channel not exist");
         return ENOENT;
     }
@@ -437,7 +434,9 @@ static int service_deal_close_channel(struct fast_task_info *task)
         return result;
     }
 
-    close_idempotency_channel(task);
+    idempotency_channel_free(IDEMPOTENCY_CHANNEL);
+    IDEMPOTENCY_CHANNEL = NULL;
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
     return 0;
 }
 
@@ -569,6 +568,12 @@ int service_deal_task(struct fast_task_info *task)
     }
 }
 
+static int idempotency_request_alloc_init(void *element, void *args)
+{
+    ((IdempotencyRequest *)element)->allocator = (struct fast_mblock_man *)args;
+    return 0;
+}
+
 void *service_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
@@ -579,7 +584,8 @@ void *service_alloc_thread_extra_data(const int thread_index)
 
     if (fast_mblock_init_ex1(&server_context->service.request_allocator,
                 "idempotency_request", sizeof(IdempotencyRequest),
-                1024, 0, NULL, NULL, false) != 0)
+                1024, 0, idempotency_request_alloc_init,
+                &server_context->service.request_allocator, true) != 0)
     {
         return NULL;
     }

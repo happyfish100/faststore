@@ -228,14 +228,16 @@ static void server_log_configs()
             "recovery_max_queue_depth = %d, "
             "binlog_buffer_size = %d KB, "
             "binlog_check_last_seconds = %d s, "
-            "cluster server count = %d",
+            "cluster server count = %d, "
+            "idempotency_max_channel_count: %d",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
             BINLOG_BUFFER_SIZE / 1024,
             BINLOG_CHECK_LAST_SECONDS,
-            FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX));
+            FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
+            FS_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
     logInfo("%s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
             sz_global_config, sz_service_config, sz_cluster_config,

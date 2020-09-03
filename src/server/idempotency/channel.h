@@ -4,17 +4,7 @@
 
 #include "fastcommon/fast_timer.h"
 #include "../../common/fs_types.h"
-#include "request.h"
-
-typedef void (*free_idempotency_requests_func)(IdempotencyRequest *head);
-
-typedef struct idempotency_channel {
-    FastTimerEntry timer;  //must be the first
-    uint32_t id;
-    volatile int ref_count;
-    IdempotencyRequestHTable request_htable;
-    struct idempotency_channel *next;
-} IdempotencyChannel;
+#include "request_htable.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,13 +13,15 @@ extern "C" {
     int idempotency_channel_init(const uint32_t max_channel_id,
             const int request_hint_capacity,
             const uint32_t reserve_interval,
-            free_idempotency_requests_func free_func);
+            const uint32_t shared_lock_count);
 
     IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id);
 
-    IdempotencyChannel *idempotency_channel_find(const uint32_t channel_id);
+    void idempotency_channel_release(IdempotencyChannel *channel,
+            const bool is_holder);
 
-    void idempotency_channel_release(IdempotencyChannel *channel);
+    IdempotencyChannel *idempotency_channel_find_and_hold(
+            const uint32_t channel_id);
 
     void idempotency_channel_free(IdempotencyChannel *channel);
 

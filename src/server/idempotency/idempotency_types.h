@@ -1,0 +1,38 @@
+
+#ifndef _IDEMPOTENCY_TYPES_H
+#define _IDEMPOTENCY_TYPES_H
+
+#include "fastcommon/fast_timer.h"
+#include "../../common/fs_types.h"
+
+typedef struct idempotency_request {
+    uint64_t req_id;
+    struct fast_mblock_man *allocator;  //for free
+    struct idempotency_request *next;
+} IdempotencyRequest;
+
+typedef struct idempotency_request_htable {
+    IdempotencyRequest **buckets;
+    int count;
+    pthread_mutex_t lock;
+} IdempotencyRequestHTable;
+
+typedef struct idempotency_channel {
+    FastTimerEntry timer;  //must be the first
+    uint32_t id;
+    volatile int ref_count;
+    IdempotencyRequestHTable request_htable;
+    struct idempotency_channel *next;
+} IdempotencyChannel;
+
+typedef void (*free_idempotency_requests_func)(IdempotencyRequest *head);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

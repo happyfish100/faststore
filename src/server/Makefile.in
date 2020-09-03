@@ -33,7 +33,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               recovery/binlog_fetch.o recovery/binlog_dedup.o   \
               recovery/binlog_replay.o recovery/data_recovery.o \
               recovery/recovery_thread.o idempotency/channel.o  \
-              idempotency/request.o
+              idempotency/request_htable.o idempotency/channel_htable.o
 
 
 ALL_OBJS = $(COMMON_OBJS) $(CLIENT_OBJS) $(SERVER_OBJS)
