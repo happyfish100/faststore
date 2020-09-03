@@ -32,6 +32,8 @@
 #define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
 #define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
 #define FS_SERVER_TASK_TYPE_REPLICATION         3
+#define FS_SERVER_TASK_TYPE_CHANNEL_HOLDER      4   //for request idempotency
+#define FS_SERVER_TASK_TYPE_CHANNEL_USER        5   //for request idempotency
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
@@ -82,12 +84,17 @@
 #define CLUSTER_PEER      TASK_CTX.cluster.peer
 #define REPLICA_REPLICATION  TASK_CTX.replica.replication
 #define REPLICA_READER       TASK_CTX.replica.reader
+#define IDEMPOTENCY_CHANNEL  TASK_CTX.service.idempotency_channel
 #define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
 #define OP_CTX_NOTIFY     TASK_CTX.slice_op_ctx.notify
 
 #define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
+
+#define FS_IDEMPOTENCY_CHANNEL_ID_BITS  16
+#define FS_IDEMPOTENCY_REQUEST_ID_BITS  (64 - FS_IDEMPOTENCY_CHANNEL_ID_BITS)
+#define FS_IDEMPOTENCY_MAX_CHANNEL_ID  ((1 << FS_IDEMPOTENCY_CHANNEL_ID_BITS) - 1)
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -295,6 +302,7 @@ typedef struct {
 
     union {
         struct {
+            struct idempotency_channel *idempotency_channel;
             volatile int waiting_rpc_count;
         } service;
 
@@ -326,6 +334,7 @@ struct ob_slice_ptr_array;
 typedef struct fs_server_context {
     union {
         struct {
+            struct fast_mblock_man request_allocator; //for idempotency_request
         } service;
 
         struct {

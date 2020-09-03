@@ -316,6 +316,18 @@ const char *fs_get_cmd_caption(const int cmd)
             return "ACTIVE_CONFIRM_REQ";
         case FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP:
             return "ACTIVE_CONFIRM_RESP";
+        case FS_SERVICE_PROTO_SETUP_CHANNEL_REQ:
+            return "SETUP_CHANNEL_REQ";
+        case FS_SERVICE_PROTO_SETUP_CHANNEL_RESP:
+            return "SETUP_CHANNEL_RESP";
+        case FS_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
+            return "CLOSE_CHANNEL_REQ";
+        case FS_SERVICE_PROTO_CLOSE_CHANNEL_RESP:
+            return "CLOSE_CHANNEL_RESP";
+        case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
+            return "REPORT_REQ_RECEIPT_REQ";
+        case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP:
+            return "REPORT_REQ_RECEIPT_RESP";
         default:
             return "UNKOWN";
     }

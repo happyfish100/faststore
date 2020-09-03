@@ -129,6 +129,29 @@ static void htable_add(IdempotencyChannel *channel)
     PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
 }
 
+/*
+IdempotencyChannel *idempotency_channel_find(const uint32_t channel_id)
+{
+    IdempotencyChannel **bucket;
+    IdempotencyChannel *channel;
+
+    bucket = channel_context.htable.buckets + channel_id %
+        channel_context.htable.capacity;
+    PTHREAD_MUTEX_LOCK(&channel_context.htable.lock);
+    channel = *bucket;
+    while (channel != NULL) {
+        if (channel->id == channel_id) {
+            break;
+        }
+
+        channel = channel->next;
+    }
+
+    PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
+    return channel;
+}
+*/
+
 static IdempotencyChannel *htable_remove(const uint32_t channel_id,
         const bool need_lock, const bool remove_timer)
 {

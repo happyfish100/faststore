@@ -40,6 +40,14 @@
 #define FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ  49
 #define FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP 50
 
+//for request idempotency
+#define FS_SERVICE_PROTO_SETUP_CHANNEL_REQ        51
+#define FS_SERVICE_PROTO_SETUP_CHANNEL_RESP       52
+#define FS_SERVICE_PROTO_CLOSE_CHANNEL_REQ        53
+#define FS_SERVICE_PROTO_CLOSE_CHANNEL_RESP       54
+#define FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ   55
+#define FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP  56
+
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP  62
@@ -336,6 +344,25 @@ typedef struct fs_proto_replica_rpc_resp_body_part {
     char err_no[2];
     char padding[6];
 } FSProtoReplicaRPCRespBodyPart;
+
+typedef struct fs_proto_setup_channel_req {
+    char channel_id[4];  //for hint
+    char padding[4];
+} FSProtoSetupChannelReq;
+
+typedef struct fs_proto_setup_channel_resp {
+    char channel_id[4];
+    char padding[4];
+} FSProtoSetupChannelResp;
+
+typedef struct fs_proto_report_req_receipt_header {
+    char count[4];
+    char padding[4];
+} FSProtoReportReqReceiptHeader;
+
+typedef struct fs_proto_report_req_receipt_body {
+    char req_id[8];
+} FSProtoReportReqReceiptBody;
 
 #ifdef __cplusplus
 extern "C" {

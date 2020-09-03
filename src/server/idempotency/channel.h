@@ -11,6 +11,7 @@ typedef void (*free_idempotency_requests_func)(IdempotencyRequest *head);
 typedef struct idempotency_channel {
     FastTimerEntry timer;  //must be the first
     uint32_t id;
+    volatile int ref_count;
     IdempotencyRequestHTable request_htable;
     struct idempotency_channel *next;
 } IdempotencyChannel;
@@ -26,10 +27,11 @@ extern "C" {
 
     IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id);
 
+    IdempotencyChannel *idempotency_channel_find(const uint32_t channel_id);
+
     void idempotency_channel_release(IdempotencyChannel *channel);
 
     void idempotency_channel_free(IdempotencyChannel *channel);
-
 
     static inline int idempotency_channel_add_request(IdempotencyChannel *
             channel, IdempotencyRequest *request)

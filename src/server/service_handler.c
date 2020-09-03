@@ -25,6 +25,7 @@
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
 #include "replication/replication_common.h"
+#include "idempotency/channel.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -43,8 +44,29 @@ int service_handler_destroy()
     return 0;
 }
 
+static inline void close_idempotency_channel(struct fast_task_info *task)
+{
+    if (IDEMPOTENCY_CHANNEL != NULL) {
+        idempotency_channel_free(IDEMPOTENCY_CHANNEL);
+        IDEMPOTENCY_CHANNEL = NULL;
+    }
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+}
+
 void service_task_finish_cleanup(struct fast_task_info *task)
 {
+    switch (SERVER_TASK_TYPE) {
+        case FS_SERVER_TASK_TYPE_CHANNEL_HOLDER:
+            close_idempotency_channel(task);
+            break;
+        case FS_SERVER_TASK_TYPE_CHANNEL_USER:
+            //TODO
+            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+            break;
+        default:
+            break;
+    }
+
     __sync_add_and_fetch(&((FSServerTaskArg *)task->arg)->task_version, 1);
     sf_task_finish_clean_up(task);
 }
@@ -358,6 +380,77 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     return 0;
 }
 
+static int service_deal_setup_channel(struct fast_task_info *task)
+{
+    int result;
+    FSProtoSetupChannelReq *req;
+    uint32_t channel_id;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoSetupChannelReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoSetupChannelReq *)REQUEST.body;
+    channel_id = buff2int(req->channel_id);
+
+    if (IDEMPOTENCY_CHANNEL != NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "channel already setup, the channel id: %d",
+                IDEMPOTENCY_CHANNEL->id);
+        return EEXIST;
+    }
+
+    IDEMPOTENCY_CHANNEL = idempotency_channel_alloc(channel_id);
+    if (IDEMPOTENCY_CHANNEL == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "alloc channel fail, hint channel id: %d", channel_id);
+        return ENOMEM;
+    }
+
+    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_HOLDER;
+    return 0;
+}
+
+static int check_holder_channel(struct fast_task_info *task)
+{
+    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_CHANNEL_HOLDER) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "unexpect task type: %d", SERVER_TASK_TYPE);
+        return EINVAL;
+    }
+
+    if (IDEMPOTENCY_CHANNEL == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "channel not exist");
+        return ENOENT;
+    }
+
+    return 0;
+}
+
+static int service_deal_close_channel(struct fast_task_info *task)
+{
+    int result;
+    if ((result=check_holder_channel(task)) != 0) {
+        return result;
+    }
+
+    close_idempotency_channel(task);
+    return 0;
+}
+
+static int service_deal_report_req_receipt(struct fast_task_info *task)
+{
+    int result;
+    if ((result=check_holder_channel(task)) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
 #define  SERVICE_SET_TASK_CTX() \
     do {  \
         TASK_CTX.which_side = FS_WHICH_SIDE_MASTER; \
@@ -450,6 +543,15 @@ int service_deal_task(struct fast_task_info *task)
             case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
                 result = service_deal_cluster_stat(task);
                 break;
+            case FS_SERVICE_PROTO_SETUP_CHANNEL_REQ:
+                result = service_deal_setup_channel(task);
+                break;
+            case FS_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
+                result = service_deal_close_channel(task);
+                break;
+            case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
+                result = service_deal_report_req_receipt(task);
+                break;
             default:
                 RESPONSE.error.length = sprintf(
                         RESPONSE.error.message,
@@ -469,5 +571,17 @@ int service_deal_task(struct fast_task_info *task)
 
 void *service_alloc_thread_extra_data(const int thread_index)
 {
-    return du_handler_alloc_server_context();
+    FSServerContext *server_context;
+
+    if ((server_context=du_handler_alloc_server_context()) == NULL) {
+        return NULL;
+    }
+
+    if (fast_mblock_init_ex1(&server_context->service.request_allocator,
+                "idempotency_request", sizeof(IdempotencyRequest),
+                1024, 0, NULL, NULL, false) != 0)
+    {
+        return NULL;
+    }
+    return server_context;
 }
