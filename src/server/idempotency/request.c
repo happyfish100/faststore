@@ -49,6 +49,7 @@ int idempotency_request_htable_add(IdempotencyRequestHTable *htable,
         request->next = previous->next;
         previous->next = request;
     }
+    htable->count++;
 
     return 0;
 }
@@ -70,6 +71,7 @@ IdempotencyRequest *idempotency_request_htable_remove(
             } else {
                 previous->next = current->next;
             }
+            htable->count--;
             return current;
         } else if (current->req_id > req_id) {
             break;
@@ -80,4 +82,46 @@ IdempotencyRequest *idempotency_request_htable_remove(
     }
 
     return NULL;
+}
+
+IdempotencyRequest *idempotency_request_htable_clear(
+        IdempotencyRequestHTable *htable)
+{
+    IdempotencyRequest **bucket;
+    IdempotencyRequest **end;
+    IdempotencyRequest *head;
+    IdempotencyRequest *previous;
+    IdempotencyRequest *current;
+
+    if (htable->count == 0) {
+        return NULL;
+    }
+
+    head = previous = NULL;
+    end = htable->buckets + request_ctx.htable_capacity;
+    for (bucket=htable->buckets; bucket<end; bucket++) {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        current = *bucket;
+        do {
+            if (previous == NULL) {
+                head = current;
+            } else {
+                previous->next = current;
+            }
+            previous = current;
+            current = current->next;
+        } while (current != NULL);
+
+        *bucket = NULL;
+    }
+
+    if (previous != NULL) {
+        previous->next = NULL;
+    }
+
+    htable->count = 0;
+    return head;
 }

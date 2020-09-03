@@ -7,10 +7,10 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
-#include "channel_info.h"
+#include "channel.h"
 
 typedef struct {
-    FSChannelInfo **buckets;
+    IdempotencyChannel **buckets;
     uint32_t capacity;
     uint32_t count;
     pthread_mutex_t lock;
@@ -29,9 +29,11 @@ typedef struct {
         time_t last_check_time;
         FastTimer timer;
     } timeout_ctx;
-} ChannelInfoContext;
 
-static ChannelInfoContext channel_context;
+    free_idempotency_requests_func free_requests_func;
+} ChannelContext;
+
+static ChannelContext channel_context;
 
 static int init_htable(ChannelHashtable *htable, const int hint_capacity)
 {
@@ -47,8 +49,8 @@ static int init_htable(ChannelHashtable *htable, const int hint_capacity)
     } else {
         htable->capacity = fc_ceil_prime(hint_capacity);
     }
-    bytes = sizeof(FSChannelInfo *) * htable->capacity;
-    htable->buckets = (FSChannelInfo **)fc_malloc(bytes);
+    bytes = sizeof(IdempotencyChannel *) * htable->capacity;
+    htable->buckets = (IdempotencyChannel **)fc_malloc(bytes);
     if (htable->buckets == NULL) {
         return ENOMEM;
     }
@@ -58,19 +60,20 @@ static int init_htable(ChannelHashtable *htable, const int hint_capacity)
     return 0;
 }
 
-static int channel_info_alloc_init(void *element, void *args)
+static int idempotency_channel_alloc_init(void *element, void *args)
 {
-    FSChannelInfo *channel;
+    IdempotencyChannel *channel;
 
-    channel = (FSChannelInfo *)element;
+    channel = (IdempotencyChannel *)element;
     channel->id = ++channel_context.channel_ids.current;
     channel->request_htable.buckets = (IdempotencyRequest **)(channel + 1);
     return 0;
 }
 
-int channel_info_init(const uint32_t max_channel_id,
+int idempotency_channel_init(const uint32_t max_channel_id,
         const int request_hint_capacity,
-        const uint32_t reserve_interval)
+        const uint32_t reserve_interval,
+        free_idempotency_requests_func free_func)
 {
     int result;
     int request_htable_capacity;
@@ -79,11 +82,11 @@ int channel_info_init(const uint32_t max_channel_id,
     request_htable_capacity = fc_ceil_prime(request_hint_capacity);
     idempotency_request_init(request_htable_capacity);
 
-    element_size = sizeof(FSChannelInfo) + sizeof(IdempotencyRequest *) *
+    element_size = sizeof(IdempotencyChannel) + sizeof(IdempotencyRequest *) *
         request_htable_capacity;
     if ((result=fast_mblock_init_ex1(&channel_context.channel_allocator,
                     "channel_info", element_size, 1024, max_channel_id,
-                    channel_info_alloc_init, NULL, true)) != 0)
+                    idempotency_channel_alloc_init, NULL, true)) != 0)
     {
         return result;
     }
@@ -99,17 +102,19 @@ int channel_info_init(const uint32_t max_channel_id,
     channel_context.channel_ids.current = 0;
     channel_context.timeout_ctx.last_check_time = get_current_time();
     channel_context.timeout_ctx.reserve_interval = reserve_interval;
+    channel_context.free_requests_func = free_func;
     if ((result=init_htable(&channel_context.htable,
                     max_channel_id / 100)) != 0)
     {
         return result;
     }
+
     return 0;
 }
 
-static void htable_add(FSChannelInfo *channel)
+static void htable_add(IdempotencyChannel *channel)
 {
-    FSChannelInfo **bucket;
+    IdempotencyChannel **bucket;
 
     bucket = channel_context.htable.buckets + channel->id %
         channel_context.htable.capacity;
@@ -124,12 +129,12 @@ static void htable_add(FSChannelInfo *channel)
     PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
 }
 
-static FSChannelInfo *htable_remove(const uint32_t channel_id,
+static IdempotencyChannel *htable_remove(const uint32_t channel_id,
         const bool need_lock, const bool remove_timer)
 {
-    FSChannelInfo **bucket;
-    FSChannelInfo *previous;
-    FSChannelInfo *channel;
+    IdempotencyChannel **bucket;
+    IdempotencyChannel *previous;
+    IdempotencyChannel *channel;
 
     bucket = channel_context.htable.buckets + channel_id %
         channel_context.htable.capacity;
@@ -168,7 +173,7 @@ static void recycle_timeout_entries()
     uint32_t channel_id;
     FastTimerEntry head;
     FastTimerEntry *entry;
-    FSChannelInfo *channel;
+    IdempotencyChannel *channel;
 
     PTHREAD_MUTEX_LOCK(&channel_context.htable.lock);
     if (g_current_time - channel_context.timeout_ctx.last_check_time <= 10) {
@@ -181,21 +186,20 @@ static void recycle_timeout_entries()
             g_current_time, &head);
     entry = head.next;
     while (entry != NULL) {
-        channel_id = ((FSChannelInfo *)entry)->id;
+        channel_id = ((IdempotencyChannel *)entry)->id;
         entry = entry->next;
 
         if ((channel=htable_remove(channel_id, false, false)) != NULL) {
-            fast_mblock_free_object(&channel_context.
-                    channel_allocator, channel);
+            idempotency_channel_free(channel);
         }
     }
 
     PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
 }
 
-FSChannelInfo *channel_info_alloc(const uint32_t channel_id)
+IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id)
 {
-    FSChannelInfo *channel;
+    IdempotencyChannel *channel;
 
     if (channel_id != 0) {
         if ((channel=htable_remove(channel_id, true, true)) != NULL) {
@@ -209,16 +213,22 @@ FSChannelInfo *channel_info_alloc(const uint32_t channel_id)
         recycle_timeout_entries();
     }
 
-    return (FSChannelInfo *)fast_mblock_alloc_object(
+    return (IdempotencyChannel *)fast_mblock_alloc_object(
             &channel_context.channel_allocator);
 }
 
-void channel_info_release(FSChannelInfo *channel)
+void idempotency_channel_release(IdempotencyChannel *channel)
 {
     htable_add(channel);
 }
 
-void channel_info_free(FSChannelInfo *channel)
+void idempotency_channel_free(IdempotencyChannel *channel)
 {
+    IdempotencyRequest *head;
+
+    head = idempotency_request_htable_clear(&channel->request_htable);
+    if (head != NULL) {
+        channel_context.free_requests_func(head);
+    }
     fast_mblock_free_object(&channel_context.channel_allocator, channel);
 }

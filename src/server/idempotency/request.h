@@ -11,6 +11,7 @@ typedef struct idempotency_request {
 
 typedef struct idempotency_request_htable {
     IdempotencyRequest **buckets;
+    int count;
 } IdempotencyRequestHTable;
 
 #ifdef __cplusplus
@@ -24,6 +25,9 @@ extern "C" {
 
     IdempotencyRequest *idempotency_request_htable_remove(
             IdempotencyRequestHTable *htable, const uint64_t req_id);
+
+    IdempotencyRequest *idempotency_request_htable_clear(
+            IdempotencyRequestHTable *htable);
 
 #ifdef __cplusplus
 }
