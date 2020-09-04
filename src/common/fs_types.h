@@ -28,6 +28,8 @@
 #define FS_SERVER_STATUS_ONLINE     4
 #define FS_SERVER_STATUS_ACTIVE     5
 
+#define FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST    1
+
 #define FS_FILE_BLOCK_ALIGN(offset) \
     (offset & (~(FS_FILE_BLOCK_SIZE - 1)))
 

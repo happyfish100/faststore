@@ -71,6 +71,10 @@ static int service_deal_client_join(struct fast_task_info *task)
 {
     int result;
     int data_group_count;
+    int file_block_size;
+    uint32_t channel_id;
+    int key;
+    int flags;
     FSProtoClientJoinReq *req;
     FSProtoClientJoinResp *join_resp;
 
@@ -82,11 +86,40 @@ static int service_deal_client_join(struct fast_task_info *task)
 
     req = (FSProtoClientJoinReq *)REQUEST.body;
     data_group_count = buff2int(req->data_group_count);
+    file_block_size = buff2int(req->file_block_size);
+    flags = buff2int(req->flags);
+    channel_id = buff2int(req->idempotency.channel_id);
+    key = buff2int(req->idempotency.key);
     if (data_group_count != FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "client data group count: %d != mine: %d",
                 data_group_count, FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX));
         return EINVAL;
+    }
+    if (file_block_size != FS_FILE_BLOCK_SIZE) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "file block size: %d != mine: %d",
+                file_block_size, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+
+    if ((flags & FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST) != 0) {
+        if (IDEMPOTENCY_CHANNEL != NULL) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "channel already exist, the channel id: %d",
+                    IDEMPOTENCY_CHANNEL->id);
+            return EEXIST;
+        }
+
+        IDEMPOTENCY_CHANNEL = idempotency_channel_find_and_hold(
+                channel_id, key);
+        if (IDEMPOTENCY_CHANNEL == NULL) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "find channel fail, channel id: %d", channel_id);
+            return ENOENT;
+        }
+
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_USER;
     }
 
     join_resp = (FSProtoClientJoinResp *)REQUEST.body;
@@ -380,7 +413,9 @@ static int service_deal_setup_channel(struct fast_task_info *task)
 {
     int result;
     FSProtoSetupChannelReq *req;
+    FSProtoSetupChannelResp *resp;
     uint32_t channel_id;
+    int key;
 
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoSetupChannelReq))) != 0)
@@ -390,7 +425,7 @@ static int service_deal_setup_channel(struct fast_task_info *task)
 
     req = (FSProtoSetupChannelReq *)REQUEST.body;
     channel_id = buff2int(req->channel_id);
-
+    key = buff2int(req->key);
     if (IDEMPOTENCY_CHANNEL != NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "channel already setup, the channel id: %d",
@@ -398,7 +433,7 @@ static int service_deal_setup_channel(struct fast_task_info *task)
         return EEXIST;
     }
 
-    IDEMPOTENCY_CHANNEL = idempotency_channel_alloc(channel_id);
+    IDEMPOTENCY_CHANNEL = idempotency_channel_alloc(channel_id, key);
     if (IDEMPOTENCY_CHANNEL == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "alloc channel fail, hint channel id: %d", channel_id);
@@ -406,6 +441,13 @@ static int service_deal_setup_channel(struct fast_task_info *task)
     }
 
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_HOLDER;
+
+    resp = (FSProtoSetupChannelResp *)REQUEST.body;
+    int2buff(IDEMPOTENCY_CHANNEL->id, resp->channel_id);
+    int2buff(IDEMPOTENCY_CHANNEL->key, resp->key);
+    RESPONSE.header.body_len = sizeof(FSProtoSetupChannelResp);
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SETUP_CHANNEL_RESP;
+    TASK_ARG->context.response_done = true;
     return 0;
 }
 
@@ -450,35 +492,73 @@ static int service_deal_report_req_receipt(struct fast_task_info *task)
     return 0;
 }
 
-#define  SERVICE_SET_TASK_CTX() \
-    do {  \
-        TASK_CTX.which_side = FS_WHICH_SIDE_MASTER; \
-        OP_CTX_INFO.data_version = 0;     \
-        OP_CTX_INFO.body = REQUEST.body;  \
-        OP_CTX_INFO.body_len = REQUEST.header.body_len; \
-    } while (0)
+static int service_update_prepare_and_check(struct fast_task_info *task,
+        bool *deal_done)
+{
+    FSProtoIdempotencyAdditionalHeader *idempotency_header;
+
+    idempotency_header = (FSProtoIdempotencyAdditionalHeader *)REQUEST.body;
+
+    TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    OP_CTX_INFO.data_version = 0;
+    OP_CTX_INFO.body = REQUEST.body;
+    OP_CTX_INFO.body_len = REQUEST.header.body_len;
+
+    *deal_done = false;
+
+    //TASK_ARG->context.response_done
+    return 0;
+}
 
 static inline int service_deal_slice_write(struct fast_task_info *task)
 {
-    SERVICE_SET_TASK_CTX();
+    int result;
+    bool deal_done;
+
+    result = service_update_prepare_and_check(task, &deal_done);
+    if (result != 0 || deal_done) {
+        return result;
+    }
+
     return du_handler_deal_slice_write(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_slice_allocate(struct fast_task_info *task)
 {
-    SERVICE_SET_TASK_CTX();
+    int result;
+    bool deal_done;
+
+    result = service_update_prepare_and_check(task, &deal_done);
+    if (result != 0 || deal_done) {
+        return result;
+    }
+
     return du_handler_deal_slice_allocate(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_slice_delete(struct fast_task_info *task)
 {
-    SERVICE_SET_TASK_CTX();
+    int result;
+    bool deal_done;
+
+    result = service_update_prepare_and_check(task, &deal_done);
+    if (result != 0 || deal_done) {
+        return result;
+    }
+
     return du_handler_deal_slice_delete(task, &SLICE_OP_CTX);
 }
 
 static inline int service_deal_block_delete(struct fast_task_info *task)
 {
-    SERVICE_SET_TASK_CTX();
+    int result;
+    bool deal_done;
+
+    result = service_update_prepare_and_check(task, &deal_done);
+    if (result != 0 || deal_done) {
+        return result;
+    }
+
     return du_handler_deal_block_delete(task, &SLICE_OP_CTX);
 }
 

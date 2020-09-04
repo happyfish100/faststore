@@ -20,7 +20,9 @@ typedef struct idempotency_request_htable {
 typedef struct idempotency_channel {
     FastTimerEntry timer;  //must be the first
     uint32_t id;
+    int key;      //for retrieve validation
     volatile int ref_count;
+    volatile char is_valid;
     IdempotencyRequestHTable request_htable;
     struct idempotency_channel *next;
 } IdempotencyChannel;

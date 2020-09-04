@@ -350,11 +350,23 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     FSProtoClientJoinResp join_resp;
     FSResponseInfo response;
     int result;
+    int flags;
 
     proto_header = (FSProtoHeader *)out_buff;
     req = (FSProtoClientJoinReq *)(proto_header + 1);
+
+    if (client_ctx->idempotency.enabled) {
+        flags = FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST;
+    } else {
+        flags = 0;
+    }
     int2buff(FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             req->data_group_count);
+    int2buff(FS_FILE_BLOCK_SIZE, req->file_block_size);
+    int2buff(flags, req->flags);
+    int2buff(client_ctx->idempotency.channel_id, req->idempotency.channel_id);
+    int2buff(client_ctx->idempotency.key, req->idempotency.key);
+
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),

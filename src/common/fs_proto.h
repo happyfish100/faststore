@@ -121,6 +121,12 @@ typedef struct fs_proto_header {
 
 typedef struct fs_proto_client_join_req {
     char data_group_count[4];
+    char file_block_size[4];
+    char flags[4];
+    struct {
+        char channel_id[4];
+        char key[4];
+    } idempotency;
     char padding[4];
 } FSProtoClientJoinReq;
 
@@ -143,6 +149,10 @@ typedef struct fs_proto_block_slice {
     FSProtoBlockKey  bkey;
     FSProtoSliceSize slice_size;
 } FSProtoBlockSlice;
+
+typedef struct fs_proto_idempotency_additional_header {
+    char req_id[8];
+} FSProtoIdempotencyAdditionalHeader;
 
 typedef struct fs_proto_slice_write_req_header {
     FSProtoBlockSlice bs;
@@ -346,13 +356,13 @@ typedef struct fs_proto_replica_rpc_resp_body_part {
 } FSProtoReplicaRPCRespBodyPart;
 
 typedef struct fs_proto_setup_channel_req {
-    char channel_id[4];  //for hint
-    char padding[4];
+    char channel_id[4]; //for hint
+    char key[4];        //for validate when channel_id > 0
 } FSProtoSetupChannelReq;
 
 typedef struct fs_proto_setup_channel_resp {
     char channel_id[4];
-    char padding[4];
+    char key[4];
 } FSProtoSetupChannelResp;
 
 typedef struct fs_proto_report_req_receipt_header {

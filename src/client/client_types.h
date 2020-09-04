@@ -83,6 +83,12 @@ typedef struct fs_client_context {
     FSConnectionManager conn_manager;
     bool inited;
     bool is_simple_conn_mananger;
+    struct {
+        bool enabled;
+        uint32_t channel_id;
+        int key;
+        volatile uint64_t current_req_id;
+    } idempotency;
 } FSClientContext;
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \

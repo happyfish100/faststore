@@ -129,7 +129,7 @@ static void add_to_delay_free_htable(IdempotencyChannel *channel)
 }
 
 IdempotencyChannel *idempotency_channel_find_and_hold(
-        const uint32_t channel_id)
+        const uint32_t channel_id, const int key)
 {
     IdempotencyChannel *channel;
     if ((channel=idempotency_channel_htable_find(&channel_context.
@@ -138,6 +138,9 @@ IdempotencyChannel *idempotency_channel_find_and_hold(
         return NULL;
     }
 
+    if (channel->key != key) {
+        return NULL;
+    }
     __sync_add_and_fetch(&channel->ref_count, 1);
     return channel;
 }
@@ -225,14 +228,19 @@ static void recycle_timeout_entries()
     PTHREAD_MUTEX_UNLOCK(&channel_context.delay_free_htable.lock);
 }
 
-IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id)
+IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id,
+        const int key)
 {
     IdempotencyChannel *channel;
 
     do {
         if (channel_id != 0) {
             if ((channel=htable_remove(channel_id, true, true)) != NULL) {
-                break;
+                if (channel->key == key) {
+                    break;
+                } else {
+                    add_to_delay_free_htable(channel);
+                }
             }
         }
 
@@ -247,8 +255,10 @@ IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id)
         {
             return NULL;
         }
+        channel->key = rand();
     } while (0);
 
+    __sync_bool_compare_and_swap(&channel->is_valid, 0, 1);
     __sync_add_and_fetch(&channel->ref_count, 1);
     return channel;
 }
@@ -259,6 +269,7 @@ void idempotency_channel_release(IdempotencyChannel *channel,
     if (is_holder) {
         channel->timer.expires = g_current_time +
             channel_context.timeout_ctx.reserve_interval;
+        __sync_bool_compare_and_swap(&channel->is_valid, 1, 0);
     }
 
     if (__sync_sub_and_fetch(&channel->ref_count, 1) == 0) {
@@ -272,6 +283,7 @@ void idempotency_channel_release(IdempotencyChannel *channel,
 
 void idempotency_channel_free(IdempotencyChannel *channel)
 {
+    __sync_bool_compare_and_swap(&channel->is_valid, 1, 0);
     if (__sync_sub_and_fetch(&channel->ref_count, 1) == 0) {
         do_free_channel(channel);
     } else {
