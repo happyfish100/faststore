@@ -364,11 +364,13 @@ static void do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
     }
 }
 
+/*
 static void fs_do_readdir(fuse_req_t req, fuse_ino_t ino, size_t size,
         off_t offset, struct fuse_file_info *fi)
 {
     do_readdir(req, ino, size, offset, fi, FS_READDIR_BUFFER_INIT_NORMAL);
 }
+*/
 
 static void fs_do_readdirplus(fuse_req_t req, fuse_ino_t ino, size_t size,
 		off_t offset, struct fuse_file_info *fi)
@@ -975,7 +977,7 @@ int fs_fuse_wrapper_init(struct fuse_lowlevel_ops *ops)
     ops->getattr = fs_do_getattr;
     ops->setattr = fs_do_setattr;
     ops->opendir = fs_do_opendir;
-    ops->readdir = fs_do_readdir;
+    //ops->readdir = fs_do_readdir;
     ops->readdirplus = fs_do_readdirplus;
     ops->releasedir  = fs_do_releasedir;
     ops->create  = fs_do_create;
