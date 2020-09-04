@@ -24,6 +24,7 @@
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
+#include "idempotency/channel.h"
 #include "server_replication.h"
 #include "server_global.h"
 #include "server_func.h"
@@ -120,7 +121,7 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
     return 0;
 }
 
-static inline void fill_slice_update_response(struct fast_task_info *task,
+void du_handler_fill_slice_update_response(struct fast_task_info *task,
         const int inc_alloc)
 {
     FSProtoSliceUpdateResp *resp;
@@ -131,10 +132,27 @@ static inline void fill_slice_update_response(struct fast_task_info *task,
     TASK_ARG->context.response_done = true;
 }
 
+void du_handler_idempotency_request_finish(struct fast_task_info *task,
+        const int result)
+{
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_USER &&
+            IDEMPOTENCY_REQUEST != NULL)
+    {
+        IDEMPOTENCY_REQUEST->finished = true;
+        IDEMPOTENCY_REQUEST->output.result = result;
+        IDEMPOTENCY_REQUEST->output.inc_alloc = SLICE_OP_CTX.write.inc_alloc;
+        idempotency_request_release(IDEMPOTENCY_REQUEST);
+        IDEMPOTENCY_REQUEST = NULL;
+    }
+}
+
 static int handle_master_replica_done(struct fast_task_info *task)
 {
     TASK_ARG->context.deal_func = NULL;
-    fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
+
+    du_handler_idempotency_request_finish(task, RESPONSE_STATUS);
+    du_handler_fill_slice_update_response(task,
+            SLICE_OP_CTX.write.inc_alloc);
 
     logInfo("file: "__FILE__", line: %d, "
             "response cmd: %d, inc_alloc: %d, status: %d", __LINE__,
@@ -154,7 +172,8 @@ static inline int do_replica(struct fast_task_info *task,
         {
             TASK_ARG->context.deal_func = handle_master_replica_done;
         } else {
-            fill_slice_update_response(task, SLICE_OP_CTX.write.inc_alloc);
+            du_handler_fill_slice_update_response(task,
+                    SLICE_OP_CTX.write.inc_alloc);
         }
         return result;
     } else {
@@ -199,6 +218,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
     }
 
     if (result != TASK_STATUS_CONTINUE) {
+        du_handler_idempotency_request_finish(task, result);
         sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
     }
 }

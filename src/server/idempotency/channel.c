@@ -186,16 +186,7 @@ static IdempotencyChannel *htable_remove(const uint32_t channel_id,
 
 static void do_free_channel(IdempotencyChannel *channel)
 {
-    IdempotencyRequest *head;
-    IdempotencyRequest *deleted;
-
-    head = idempotency_request_htable_clear(&channel->request_htable);
-    while (head != NULL) {
-        deleted = head;
-        head = head->next;
-
-        fast_mblock_free_object(deleted->allocator, deleted);
-    }
+    idempotency_request_htable_clear(&channel->request_htable);
     fast_mblock_free_object(&channel_context.channel_allocator, channel);
 }
 

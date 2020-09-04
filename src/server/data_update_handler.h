@@ -22,6 +22,12 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const FSProtoBlockSlice *bs,
         const bool master_only);
 
+void du_handler_fill_slice_update_response(struct fast_task_info *task,
+        const int inc_alloc);
+
+void du_handler_idempotency_request_finish(struct fast_task_info *task,
+        const int result);
+
 int du_handler_deal_slice_write(struct fast_task_info *task,
         FSSliceOpContext *op_ctx);
 

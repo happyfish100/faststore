@@ -85,6 +85,7 @@
 #define REPLICA_REPLICATION  TASK_CTX.replica.replication
 #define REPLICA_READER       TASK_CTX.replica.reader
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.service.idempotency_channel
+#define IDEMPOTENCY_REQUEST  TASK_CTX.service.idempotency_request
 #define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
@@ -307,6 +308,7 @@ typedef struct {
     union {
         struct {
             struct idempotency_channel *idempotency_channel;
+            struct idempotency_request *idempotency_request;
             volatile int waiting_rpc_count;
         } service;
 

@@ -10,6 +10,7 @@
 #include "fs_types.h"
 
 #define FS_STATUS_LEADER_INCONSISTENT     9999
+#define FS_STATUS_CHANNEL_INVALID         9001
 
 #define FS_PROTO_ACK                      6
 

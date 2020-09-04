@@ -11,14 +11,20 @@ extern "C" {
 
     void idempotency_request_init(const uint32_t hint_capacity);
 
-    int idempotency_request_htable_add(IdempotencyRequestHTable *htable,
-            IdempotencyRequest *request);
+    int idempotency_request_htable_add(IdempotencyRequestHTable
+            *htable, IdempotencyRequest *request);
 
-    IdempotencyRequest *idempotency_request_htable_remove(
-            IdempotencyRequestHTable *htable, const uint64_t req_id);
+    int idempotency_request_htable_remove(IdempotencyRequestHTable *htable,
+            const uint64_t req_id);
 
-    IdempotencyRequest *idempotency_request_htable_clear(
-            IdempotencyRequestHTable *htable);
+    void idempotency_request_htable_clear(IdempotencyRequestHTable *htable);
+
+    static inline void idempotency_request_release(IdempotencyRequest *request)
+    {
+        if (__sync_sub_and_fetch(&request->ref_count, 1) == 0) {
+            fast_mblock_free_object(request->allocator, request);
+        }
+    }
 
 #ifdef __cplusplus
 }

@@ -33,7 +33,7 @@ extern "C" {
                 &channel->request_htable, request);
     }
 
-    static inline IdempotencyRequest *idempotency_channel_remove_request(
+    static inline int idempotency_channel_remove_request(
             IdempotencyChannel *channel, const uint64_t req_id)
     {
         return idempotency_request_htable_remove(

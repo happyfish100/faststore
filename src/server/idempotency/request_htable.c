@@ -59,11 +59,14 @@ int idempotency_request_htable_add(IdempotencyRequestHTable *htable,
     }
     PTHREAD_MUTEX_UNLOCK(&htable->lock);
 
+    if (result == 0) {
+        __sync_add_and_fetch(&request->ref_count, 2);
+    }
     return result;
 }
 
-IdempotencyRequest *idempotency_request_htable_remove(
-        IdempotencyRequestHTable *htable, const uint64_t req_id)
+int idempotency_request_htable_remove(IdempotencyRequestHTable *htable,
+        const uint64_t req_id)
 {
     IdempotencyRequest **bucket;
     IdempotencyRequest *previous;
@@ -93,17 +96,22 @@ IdempotencyRequest *idempotency_request_htable_remove(
     }
     PTHREAD_MUTEX_UNLOCK(&htable->lock);
 
-    return current;
+    if (current != NULL) {
+        idempotency_request_release(current);
+        return 0;
+    } else {
+        return ENOENT;
+    }
 }
 
-IdempotencyRequest *idempotency_request_htable_clear(
-        IdempotencyRequestHTable *htable)
+void idempotency_request_htable_clear(IdempotencyRequestHTable *htable)
 {
     IdempotencyRequest **bucket;
     IdempotencyRequest **end;
     IdempotencyRequest *head;
     IdempotencyRequest *previous;
     IdempotencyRequest *current;
+    IdempotencyRequest *deleted;
 
     head = NULL;
     PTHREAD_MUTEX_LOCK(&htable->lock);
@@ -126,6 +134,7 @@ IdempotencyRequest *idempotency_request_htable_clear(
                 } else {
                     previous->next = current;
                 }
+
                 previous = current;
                 current = current->next;
             } while (current != NULL);
@@ -139,7 +148,12 @@ IdempotencyRequest *idempotency_request_htable_clear(
 
         htable->count = 0;
     } while (0);
-
     PTHREAD_MUTEX_UNLOCK(&htable->lock);
-    return head;
+
+    while (head != NULL) {
+        deleted = head;
+        head = head->next;
+
+        idempotency_request_release(deleted);
+    }
 }

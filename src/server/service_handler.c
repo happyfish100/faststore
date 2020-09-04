@@ -495,18 +495,57 @@ static int service_deal_report_req_receipt(struct fast_task_info *task)
 static int service_update_prepare_and_check(struct fast_task_info *task,
         bool *deal_done)
 {
-    FSProtoIdempotencyAdditionalHeader *idempotency_header;
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_USER &&
+            IDEMPOTENCY_CHANNEL != NULL)
+    {
+        FSProtoIdempotencyAdditionalHeader *adheader;
+        IdempotencyRequest *request;
+        int result;
 
-    idempotency_header = (FSProtoIdempotencyAdditionalHeader *)REQUEST.body;
+        if (!__sync_add_and_fetch(&IDEMPOTENCY_CHANNEL->is_valid, 0)) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "channel: %d is invalid", IDEMPOTENCY_CHANNEL->id);
+            return FS_STATUS_CHANNEL_INVALID;
+        }
+
+        adheader = (FSProtoIdempotencyAdditionalHeader *)REQUEST.body;
+        request = (IdempotencyRequest *)fast_mblock_alloc_object(
+                &SERVER_CTX->service.request_allocator);
+        if (request == NULL) {
+            return ENOMEM;
+        }
+        request->finished = false;
+        request->req_id = buff2long(adheader->req_id);
+        result = idempotency_channel_add_request(
+                IDEMPOTENCY_CHANNEL, request);
+        if (result == EEXIST) {
+            if (!request->finished) {
+                result = EAGAIN;
+            } else {
+                du_handler_fill_slice_update_response(task,
+                        request->output.inc_alloc);
+                result = request->output.result;
+            }
+            fast_mblock_free_object(&SERVER_CTX->service.
+                    request_allocator, request);
+            *deal_done = true;
+            return result;
+        }
+
+        IDEMPOTENCY_REQUEST = request;
+        *deal_done = false;
+        OP_CTX_INFO.body = REQUEST.body + sizeof(*adheader);
+        OP_CTX_INFO.body_len = REQUEST.header.body_len - sizeof(*adheader);
+    } else {
+        *deal_done = false;
+        OP_CTX_INFO.body = REQUEST.body;
+        OP_CTX_INFO.body_len = REQUEST.header.body_len;
+    }
 
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
     OP_CTX_INFO.data_version = 0;
-    OP_CTX_INFO.body = REQUEST.body;
-    OP_CTX_INFO.body_len = REQUEST.header.body_len;
+    SLICE_OP_CTX.write.inc_alloc = 0;
 
-    *deal_done = false;
-
-    //TASK_ARG->context.response_done
     return 0;
 }
 
@@ -520,7 +559,12 @@ static inline int service_deal_slice_write(struct fast_task_info *task)
         return result;
     }
 
-    return du_handler_deal_slice_write(task, &SLICE_OP_CTX);
+    if ((result=du_handler_deal_slice_write(task, &SLICE_OP_CTX)) !=
+            TASK_STATUS_CONTINUE)
+    {
+        du_handler_idempotency_request_finish(task, result);
+    }
+    return result;
 }
 
 static inline int service_deal_slice_allocate(struct fast_task_info *task)
@@ -533,7 +577,12 @@ static inline int service_deal_slice_allocate(struct fast_task_info *task)
         return result;
     }
 
-    return du_handler_deal_slice_allocate(task, &SLICE_OP_CTX);
+    if ((result=du_handler_deal_slice_allocate(task, &SLICE_OP_CTX)) !=
+            TASK_STATUS_CONTINUE)
+    {
+        du_handler_idempotency_request_finish(task, result);
+    }
+    return result;
 }
 
 static inline int service_deal_slice_delete(struct fast_task_info *task)
@@ -546,7 +595,12 @@ static inline int service_deal_slice_delete(struct fast_task_info *task)
         return result;
     }
 
-    return du_handler_deal_slice_delete(task, &SLICE_OP_CTX);
+    if ((result=du_handler_deal_slice_delete(task, &SLICE_OP_CTX)) !=
+            TASK_STATUS_CONTINUE)
+    {
+        du_handler_idempotency_request_finish(task, result);
+    }
+    return result;
 }
 
 static inline int service_deal_block_delete(struct fast_task_info *task)
@@ -559,7 +613,12 @@ static inline int service_deal_block_delete(struct fast_task_info *task)
         return result;
     }
 
-    return du_handler_deal_block_delete(task, &SLICE_OP_CTX);
+    if ((result=du_handler_deal_block_delete(task, &SLICE_OP_CTX)) !=
+            TASK_STATUS_CONTINUE)
+    {
+        du_handler_idempotency_request_finish(task, result);
+    }
+    return result;
 }
 
 int service_deal_task(struct fast_task_info *task)
