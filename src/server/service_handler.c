@@ -476,6 +476,7 @@ static int service_deal_close_channel(struct fast_task_info *task)
         return result;
     }
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_CLOSE_CHANNEL_RESP;
     idempotency_channel_free(IDEMPOTENCY_CHANNEL);
     IDEMPOTENCY_CHANNEL = NULL;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
@@ -485,10 +486,48 @@ static int service_deal_close_channel(struct fast_task_info *task)
 static int service_deal_report_req_receipt(struct fast_task_info *task)
 {
     int result;
+    int count;
+    int success;
+    int calc_body_len;
+    int64_t req_id;
+    FSProtoReportReqReceiptHeader *body_header;
+    FSProtoReportReqReceiptBody *body_part;
+    FSProtoReportReqReceiptBody *body_end;
+
     if ((result=check_holder_channel(task)) != 0) {
         return result;
     }
 
+    if ((result=server_check_min_body_length(task,
+                    sizeof(FSProtoReportReqReceiptHeader))) != 0)
+    {
+        return result;
+    }
+
+    body_header = (FSProtoReportReqReceiptHeader *)REQUEST.body;
+    count = buff2int(body_header->count);
+    calc_body_len = sizeof(FSProtoReportReqReceiptHeader) +
+        sizeof(FSProtoReportReqReceiptBody) * count;
+    if (REQUEST.header.body_len != calc_body_len) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "body length: %d != calculated body length: %d",
+                REQUEST.header.body_len, calc_body_len);
+        return EINVAL;
+    }
+
+    success = 0;
+    body_part = (FSProtoReportReqReceiptBody *)(body_header + 1);
+    body_end = body_part + count;
+    for (; body_part < body_end; body_part++) {
+        req_id = buff2long(body_part->req_id);
+        if (idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL, req_id) == 0) {
+            success++;
+        }
+    }
+
+    logInfo("receipt count: %d, success: %d", count, success);
+
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP;
     return 0;
 }
 
@@ -514,6 +553,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         if (request == NULL) {
             return ENOMEM;
         }
+
         request->finished = false;
         request->req_id = buff2long(adheader->req_id);
         result = idempotency_channel_add_request(
