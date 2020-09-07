@@ -17,6 +17,7 @@ typedef struct idempotency_client_channel {
         int key;
     } channel;
     volatile int in_ioevent;
+    time_t last_connect_time;
     volatile uint64_t next_req_id;
     struct fast_mblock_man receipt_allocator;
     struct fast_task_info *task;

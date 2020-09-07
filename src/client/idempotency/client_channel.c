@@ -128,20 +128,30 @@ struct fast_task_info *alloc_channel_task(IdempotencyClientChannel *channel,
         free_queue_push(task);
         return NULL;
     }
+    channel->last_connect_time = get_current_time();
 
     return task;
 }
 
-static inline int idempotency_client_channel_check_reconnect(
+int idempotency_client_channel_check_reconnect(
         IdempotencyClientChannel *channel)
 {
     int result;
+    time_t current_time;
 
     if (!__sync_bool_compare_and_swap(&channel->in_ioevent, 0, 1)) {
         return 0;
     }
 
-    if ((result=sf_nio_notify(channel->task, SF_NIO_STAGE_CONNECT)) != 0) {
+    current_time = get_current_time();
+    if (channel->last_connect_time >= current_time) {
+        sleep(1);
+        channel->last_connect_time = ++current_time;
+    }
+
+    if ((result=sf_nio_notify(channel->task, SF_NIO_STAGE_CONNECT)) == 0) {
+        channel->last_connect_time = current_time;
+    } else {
         __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0); //rollback
     }
     return result;
@@ -152,6 +162,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
 {
     int r;
     int key_len;
+    bool found;
     char key[64];
     uint32_t hash_code;
     IdempotencyClientChannel **bucket;
@@ -165,6 +176,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
         hash_code % channel_context.htable.capacity;
     previous = NULL;
     channel = NULL;
+    found = false;
 
     PTHREAD_MUTEX_LOCK(&channel_context.htable.lock);
     do {
@@ -184,7 +196,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
         }
 
         if (channel != NULL) {
-            idempotency_client_channel_check_reconnect(channel);
+            found = true;
             break;
         }
 
@@ -214,6 +226,9 @@ struct idempotency_client_channel *idempotency_client_channel_get(
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
 
+    if (found) {
+        idempotency_client_channel_check_reconnect(channel);
+    }
     return channel;
 }
 
@@ -232,7 +247,11 @@ int idempotency_client_channel_push(struct idempotency_client_channel *channel,
     receipt->req_id = req_id;
     fc_queue_push_ex(&channel->queue, receipt, &notify);
     if (notify) {
-        return idempotency_client_channel_check_reconnect(channel);
+        if (__sync_add_and_fetch(&channel->in_ioevent, 0)) {
+            sf_nio_notify(channel->task, SF_NIO_STAGE_CONTINUE);
+        } else {
+            return idempotency_client_channel_check_reconnect(channel);
+        }
     }
 
     return 0;

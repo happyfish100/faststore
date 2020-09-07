@@ -35,11 +35,10 @@ static int receipt_init_task(struct fast_task_info *task)
 
 static int receipt_recv_timeout_callback(struct fast_task_info *task)
 {
-    //TODO
-    if (1) {
+    if (task->nio_stage == SF_NIO_STAGE_CONNECT) {
         logError("file: "__FILE__", line: %d, "
-                "server %s:%d, sock: %d, recv timeout",
-                __LINE__, task->server_ip, task->port, task->event.fd);
+                "connect to server %s:%d timeout",
+                __LINE__, task->server_ip, task->port);
         return ETIMEDOUT;
     }
 
@@ -57,24 +56,34 @@ static int receipt_deal_task(struct fast_task_info *task)
 {
     int result;
 
+    if (task->nio_stage == SF_NIO_STAGE_HANDSHAKE) {
+        //TODO setup channel
+        return 0;
+    } else if (task->nio_stage == SF_NIO_STAGE_CONTINUE) {
+        task->nio_stage = SF_NIO_STAGE_SEND;
+        //TODO  send receipt
+        return 0;
+    }
+
     result = 0;
     switch (((FSProtoHeader *)task->data)->cmd) {
-        case FS_PROTO_ACK:
-            //result = handler_deal_actvie_test(task);
-            break;
         case FS_SERVICE_PROTO_SETUP_CHANNEL_RESP:
             //result = receipt_deal_setup_channel(task);
             break;
-       case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP:
+        case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP:
             //result = receipt_deal_report_req_receipt(task);
             break;
         default:
             /*
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "unkown cmd: %d", ((FSProtoHeader *)task->data)->cmd);
-                    */
+               RESPONSE.error.length = sprintf(RESPONSE.error.message,
+               "unkown cmd: %d", ((FSProtoHeader *)task->data)->cmd);
+             */
             result = -EINVAL;
             break;
+    }
+
+    if (result == 0) {
+        //TODO send receipt
     }
 
     return result;
