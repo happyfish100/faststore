@@ -1,9 +1,9 @@
 
-#ifndef _IDEMPOTENCY_TYPES_H
-#define _IDEMPOTENCY_TYPES_H
+#ifndef _IDEMPOTENCY_SERVER_TYPES_H
+#define _IDEMPOTENCY_SERVER_TYPES_H
 
+#include "fastcommon/fast_mblock.h"
 #include "fastcommon/fast_timer.h"
-#include "../../common/fs_types.h"
 
 typedef struct idempotency_request {
     uint64_t req_id;
@@ -32,8 +32,6 @@ typedef struct idempotency_channel {
     IdempotencyRequestHTable request_htable;
     struct idempotency_channel *next;
 } IdempotencyChannel;
-
-typedef void (*free_idempotency_requests_func)(IdempotencyRequest *head);
 
 #ifdef __cplusplus
 extern "C" {

@@ -48,7 +48,9 @@ static int receipt_recv_timeout_callback(struct fast_task_info *task)
 
 static void receipt_task_finish_cleanup(struct fast_task_info *task)
 {
-    sf_task_finish_clean_up(task);
+    IdempotencyClientChannel *channel;
+    channel = (IdempotencyClientChannel *)task->arg;
+    __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0);
 }
 
 static int receipt_deal_task(struct fast_task_info *task)

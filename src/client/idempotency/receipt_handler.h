@@ -3,10 +3,7 @@
 #ifndef IDEMPOTENCY_RECEIPT_HANDLER_H
 #define IDEMPOTENCY_RECEIPT_HANDLER_H
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include "fastcommon/fast_task_queue.h"
+#include "client_types.h"
 
 #ifdef __cplusplus
 extern "C" {
