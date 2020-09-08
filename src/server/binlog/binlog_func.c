@@ -140,13 +140,13 @@ static int get_start_binlog_index_by_timestamp(const char *subdir_name,
     while (*binlog_index >= 0) {
         binlog_reader_get_filename(subdir_name, *binlog_index,
                 filename, sizeof(filename));
-
-        if ((result=binlog_get_first_timestamp(filename, &timestamp)) != 0) {
+        result = binlog_get_first_timestamp(filename, &timestamp);
+        if (result == 0) {
+            if (timestamp < from_timestamp) {
+                break;
+            }
+        } else if (result != ENOENT) {  //ENOENT for empty file
             return result;
-        }
-
-        if (timestamp < from_timestamp) {
-            break;
         }
 
         if (*binlog_index == 0) {
