@@ -35,7 +35,7 @@ static int receipt_init_task(struct fast_task_info *task)
 
 static int receipt_recv_timeout_callback(struct fast_task_info *task)
 {
-    if (task->nio_stage == SF_NIO_STAGE_CONNECT) {
+    if (SF_NIO_TASK_STAGE_FETCH(task) == SF_NIO_STAGE_CONNECT) {
         logError("file: "__FILE__", line: %d, "
                 "connect to server %s:%d timeout",
                 __LINE__, task->server_ip, task->port);
@@ -70,20 +70,36 @@ static int setup_channel_request(struct fast_task_info *task)
     return sf_send_add_event(task);
 }
 
-static int report_req_receipt_request(struct fast_task_info *task)
+static int check_report_req_receipt(struct fast_task_info *task,
+        int *count)
 {
     IdempotencyClientChannel *channel;
     FSProtoHeader *header;
     FSProtoReportReqReceiptHeader *rheader;
     FSProtoReportReqReceiptBody *rbody;
     FSProtoReportReqReceiptBody *rstart;
+    IdempotencyClientReceipt *last;
     IdempotencyClientReceipt *receipt;
     char *buff_end;
-    struct fc_queue_info qinfo;
+
+    if (task->length > 0) {
+        *count = 0;
+        logWarning("file: "__FILE__", line: %d, "
+                "server %s:%d, task length: %d != 0, skip check "
+                "and report receipt request!", __LINE__,
+                task->server_ip, task->port, task->length);
+        return 0;
+    }
 
     channel = (IdempotencyClientChannel *)task->arg;
-    fc_queue_pop_to_queue(&channel->queue, &qinfo);
-    if (qinfo.head == NULL) {
+    if (channel->waiting_resp_qinfo.head != NULL) {
+        *count = 0;
+        return 0;
+    }
+
+    fc_queue_pop_to_queue(&channel->queue, &channel->waiting_resp_qinfo);
+    if (channel->waiting_resp_qinfo.head == NULL) {
+        *count = 0;
         return 0;
     }
 
@@ -91,7 +107,8 @@ static int report_req_receipt_request(struct fast_task_info *task)
     rheader = (FSProtoReportReqReceiptHeader *)(header + 1);
     rbody = rstart = (FSProtoReportReqReceiptBody *)(rheader + 1);
     buff_end = task->data + task->size;
-    receipt = qinfo.head;
+    last = NULL;
+    receipt = channel->waiting_resp_qinfo.head;
     do {
         //check buffer remain space
         if (buff_end - (char *)rbody < sizeof(FSProtoReportReqReceiptBody)) {
@@ -100,23 +117,44 @@ static int report_req_receipt_request(struct fast_task_info *task)
 
         long2buff(receipt->req_id, rbody->req_id);
         rbody++;
+
+        last = receipt;
         receipt = receipt->next;
     } while (receipt != NULL);
 
     if (receipt != NULL) {  //repush to queue
+        struct fc_queue_info qinfo;
         bool notify;
+
         qinfo.head = receipt;
+        qinfo.tail = channel->waiting_resp_qinfo.tail;
         fc_queue_push_queue_to_head_ex(&channel->queue, &qinfo, &notify);
+
+        last->next = NULL;
+        channel->waiting_resp_qinfo.tail = last;
     }
 
-    //TODO: delay free
-    //fast_mblock_free_object(&channel->receipt_allocator, current);
-
-    int2buff(rbody - rstart, rheader->count);
+    *count = rbody - rstart;
+    int2buff(*count, rheader->count);
     task->length = (char *)rbody - task->data;
     int2buff(task->length - sizeof(FSProtoHeader), header->body_len);
     header->cmd = FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ;
     return sf_send_add_event(task);
+}
+
+static int report_req_receipt_request(struct fast_task_info *task)
+{
+    int result;
+    int count;
+
+    if ((result=check_report_req_receipt(task, &count)) != 0) {
+        return result;
+    }
+
+    if (count == 0) {
+        result = sf_set_read_event(task);
+    }
+    return result;
 }
 
 static inline int receipt_expect_body_length(struct fast_task_info *task,
@@ -149,31 +187,62 @@ static int deal_setup_channel_response(struct fast_task_info *task)
     resp = (FSProtoSetupChannelResp *)(task->data + sizeof(FSProtoHeader));
     channel->id = buff2int(resp->channel_id);
     channel->key = buff2int(resp->key);
+
+    if (channel->waiting_resp_qinfo.head != NULL) {
+        bool notify;
+        fc_queue_push_queue_to_head_ex(&channel->queue,
+                &channel->waiting_resp_qinfo, &notify);
+        channel->waiting_resp_qinfo.head = NULL;
+        channel->waiting_resp_qinfo.tail = NULL;
+    }
+
     return 0;
 }
 
 static inline int deal_report_req_receipt_response(struct fast_task_info *task)
 {
     int result;
+    IdempotencyClientChannel *channel;
+    IdempotencyClientReceipt *current;
+    IdempotencyClientReceipt *deleted;
 
     if ((result=receipt_expect_body_length(task, 0)) != 0) {
         return result;
     }
 
+    channel = (IdempotencyClientChannel *)task->arg;
+    if (channel->waiting_resp_qinfo.head == NULL) {
+        logWarning("file: "__FILE__", line: %d, "
+                "response from server %s:%d, unexpect cmd: "
+                "REPORT_REQ_RECEIPT_RESP", __LINE__,
+                task->server_ip, task->port);
+        return 0;
+    }
+
+    current = channel->waiting_resp_qinfo.head;
+    do {
+        deleted = current;
+        current = current->next;
+
+        fast_mblock_free_object(&channel->receipt_allocator, deleted);
+    } while (current != NULL);
+
+    channel->waiting_resp_qinfo.head = NULL;
+    channel->waiting_resp_qinfo.tail = NULL;
     return 0;
 }
 
 static int receipt_deal_task(struct fast_task_info *task)
 {
     int result;
+    int stage;
 
     do {
-        if (task->nio_stage == SF_NIO_STAGE_HANDSHAKE) {
-            task->nio_stage = SF_NIO_STAGE_SEND;
+        stage = SF_NIO_TASK_STAGE_FETCH(task);
+        if (stage == SF_NIO_STAGE_HANDSHAKE) {
             result = setup_channel_request(task);
             break;
-        } else if (task->nio_stage == SF_NIO_STAGE_CONTINUE) {
-            task->nio_stage = SF_NIO_STAGE_SEND;
+        } else if (stage == SF_NIO_STAGE_CONTINUE) {
             result = report_req_receipt_request(task);
             break;
         }
@@ -207,6 +276,7 @@ static int receipt_deal_task(struct fast_task_info *task)
         }
 
         if (result == 0) {
+            task->offset = task->length = 0;
             result = report_req_receipt_request(task);
         }
     } while (0);

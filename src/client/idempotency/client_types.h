@@ -20,6 +20,7 @@ typedef struct idempotency_client_channel {
     struct fast_mblock_man receipt_allocator;
     struct fast_task_info *task;
     struct fc_queue queue;
+    struct fc_queue_info waiting_resp_qinfo;
     struct idempotency_client_channel *next;
 } IdempotencyClientChannel;
 

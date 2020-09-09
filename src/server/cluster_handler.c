@@ -419,15 +419,18 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
 int cluster_deal_task(struct fast_task_info *task)
 {
     int result;
+    int stage;
+
+    stage = SF_NIO_TASK_STAGE_FETCH(task);
 
     /*
     logInfo("file: "__FILE__", line: %d, "
-            "nio_stage: %d, SF_NIO_STAGE_CONTINUE: %d", __LINE__,
-            task->nio_stage, SF_NIO_STAGE_CONTINUE);
+            "nio stage: %d, SF_NIO_STAGE_CONTINUE: %d", __LINE__,
+            stage, SF_NIO_STAGE_CONTINUE);
             */
 
-    if (task->nio_stage == SF_NIO_STAGE_CONTINUE) {
-        task->nio_stage = SF_NIO_STAGE_SEND;
+    if (stage == SF_NIO_STAGE_CONTINUE) {
+        sf_nio_swap_stage(task, stage, SF_NIO_STAGE_SEND);
         if (TASK_ARG->context.deal_func != NULL) {
             result = TASK_ARG->context.deal_func(task);
         } else {
