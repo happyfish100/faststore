@@ -4,6 +4,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/connection_pool.h"
+#include "idempotency/client_channel.h"
 #include "fs_proto.h"
 #include "client_global.h"
 #include "client_proto.h"
@@ -355,17 +356,17 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     proto_header = (FSProtoHeader *)out_buff;
     req = (FSProtoClientJoinReq *)(proto_header + 1);
 
-    if (client_ctx->idempotency.enabled) {
+    if (client_ctx->idempotency_enabled) {
         flags = FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST;
+        int2buff(conn_params->channel->id, req->idempotency.channel_id);
+        int2buff(conn_params->channel->key, req->idempotency.key);
     } else {
         flags = 0;
     }
+    int2buff(flags, req->flags);
     int2buff(FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             req->data_group_count);
     int2buff(FS_FILE_BLOCK_SIZE, req->file_block_size);
-    int2buff(flags, req->flags);
-    int2buff(client_ctx->idempotency.channel_id, req->idempotency.channel_id);
-    int2buff(client_ctx->idempotency.key, req->idempotency.key);
 
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
@@ -375,9 +376,10 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {
         fs_log_network_error(&response, conn, result);
+    } else {
+        conn_params->buffer_size = buff2int(join_resp.buffer_size);
     }
 
-    conn_params->buffer_size = buff2int(join_resp.buffer_size);
     return result;
 }
 
@@ -425,8 +427,10 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     ConnectionInfo *conn;
     FSProtoHeader *header;
     FSResponseInfo response;
+    FSProtoGetReadableServerReq *req;
     FSProtoGetServerResp server_resp;
-    char out_buff[sizeof(FSProtoHeader) + 4];
+    char out_buff[sizeof(FSProtoHeader) +
+        sizeof(FSProtoGetReadableServerReq)];
 
     conn = client_ctx->conn_manager.get_connection(client_ctx,
             data_group_index, &result);
@@ -435,7 +439,9 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     }
 
     header = (FSProtoHeader *)out_buff;
-    int2buff(data_group_index + 1, (char *)(header + 1));
+    req = (FSProtoGetReadableServerReq *)(header + 1);
+    int2buff(data_group_index + 1, req->data_group_id);
+    req->read_rule = client_ctx->read_rule;
     FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),

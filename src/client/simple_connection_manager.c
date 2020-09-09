@@ -5,6 +5,7 @@
 #include "client_global.h"
 #include "client_func.h"
 #include "client_proto.h"
+#include "idempotency/client_channel.h"
 #include "simple_connection_manager.h"
 
 static ConnectionInfo *get_spec_connection(FSClientContext *client_ctx,
@@ -209,8 +210,17 @@ static const struct fs_connection_parameters *get_connection_params(
 
 static int connect_done_callback(ConnectionInfo *conn, void *args)
 {
-    return fs_client_proto_join_server((FSClientContext *)args, conn,
-            (FSConnectionParameters *)conn->args);
+    FSConnectionParameters *params;
+
+    params = (FSConnectionParameters *)conn->args;
+    if (((FSClientContext *)args)->idempotency_enabled) {
+        params->channel = idempotency_client_channel_get(
+                conn->ip_addr, conn->port);
+        if (params->channel == NULL) {
+            return ENOMEM;
+        }
+    }
+    return fs_client_proto_join_server((FSClientContext *)args, conn, params);
 }
 
 static int validate_connection_callback(ConnectionInfo *conn, void *args)

@@ -6,6 +6,7 @@
 #include "fs_types.h"
 #include "fs_cluster_cfg.h"
 
+struct idempotency_client_channel;
 struct fs_connection_parameters;
 struct fs_client_context;
 
@@ -28,6 +29,7 @@ typedef const struct fs_connection_parameters * (*fs_get_connection_parameters)(
 typedef struct fs_connection_parameters {
     int buffer_size;
     int data_group_id;  //for master cache
+    struct idempotency_client_channel *channel;
 } FSConnectionParameters;
 
 typedef struct fs_client_server_entry {
@@ -83,12 +85,8 @@ typedef struct fs_client_context {
     FSConnectionManager conn_manager;
     bool inited;
     bool is_simple_conn_mananger;
-    struct {
-        bool enabled;
-        uint32_t channel_id;
-        int key;
-        volatile uint64_t current_req_id;
-    } idempotency;
+    bool idempotency_enabled;
+    char read_rule;  //the rule for read
 } FSClientContext;
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \

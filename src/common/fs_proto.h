@@ -235,6 +235,12 @@ typedef struct fs_proto_cluster_stat_resp_body_part {
     char padding[4];
 } FSProtoClusterStatRespBodyPart;
 
+typedef struct fs_proto_get_readable_server_req {
+    char data_group_id[4];
+    char read_rule;
+    char padding[3];
+} FSProtoGetReadableServerReq;
+
 /* for FS_SERVICE_PROTO_GET_MASTER_RESP and
    FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP
    */

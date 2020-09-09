@@ -903,13 +903,15 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         const FSProtoPushDataServerStatusBodyPart *body_part)
 {
     FSClusterDataServerInfo *old_master;
+    FSClusterDataServerInfo *new_master;
     int old_status;
+    int is_master;
 
+    is_master = __sync_add_and_fetch(&ds->is_master, 0);
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
         old_status = __sync_add_and_fetch(&ds->status, 0);
         if ((body_part->status == FS_SERVER_STATUS_OFFLINE) &&
-                (!ds->is_master) &&
-                (old_status == FS_SERVER_STATUS_ACTIVE))
+                (!is_master) && (old_status == FS_SERVER_STATUS_ACTIVE))
         {
             cluster_relationship_set_ds_status_ex(ds, old_status,
                     FS_SERVER_STATUS_OFFLINE);
@@ -919,28 +921,38 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         ds->replica.data_version = buff2long(body_part->data_version);
     }
 
-    if (ds->is_master == body_part->is_master) { //master NOT changed
+    if (is_master == body_part->is_master) { //master NOT changed
         return;
     }
 
-    old_master = (FSClusterDataServerInfo *)ds->dg->master;
-    ds->is_master = body_part->is_master;
-    if (ds->is_master) {
-        if (ds->dg->master != NULL && ds->dg->master != ds) {
-            ds->dg->master->is_master = false;
+    old_master = (FSClusterDataServerInfo *)
+        __sync_add_and_fetch(&ds->dg->master, 0);
+    __sync_bool_compare_and_swap(&ds->is_master,
+            is_master, body_part->is_master);
+    if (__sync_add_and_fetch(&ds->is_master, 0)) {
+        new_master = ds;
+        if (new_master != old_master) {
+            if (old_master != NULL) {
+                __sync_bool_compare_and_swap(&old_master->
+                        is_master, true, false);
+            }
+            __sync_bool_compare_and_swap(&ds->dg->master,
+                    old_master, new_master);
+            logInfo("data_group_id: %d, set master server_id: %d",
+                    ds->dg->id, ds->cs->server->id);
         }
-        ds->dg->master = ds;
-        logInfo("data_group_id: %d, set master server_id: %d",
-                ds->dg->id, ds->cs->server->id);
-    } else if (ds->dg->master == ds) {
-        ds->dg->master = NULL;
+    } else if (old_master == ds) {
+        new_master = NULL;
+        __sync_bool_compare_and_swap(&ds->dg->master,
+                old_master, new_master);
 
         logInfo("data_group_id: %d, unset master server_id: %d",
                 ds->dg->id, ds->cs->server->id);
+    } else {
+        return;
     }
 
-    cluster_relationship_on_master_change(old_master,
-            (FSClusterDataServerInfo *)ds->dg->master);
+    cluster_relationship_on_master_change(old_master, new_master);
 }
 
 static int cluster_process_leader_push(FSResponseInfo *response,

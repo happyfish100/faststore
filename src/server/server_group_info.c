@@ -830,7 +830,8 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
                         SERVER_GROUP_INFO_ITEM_SERVER, ds->cs->server->id,
-                        ds->status, ds->replica.data_version)) != 0)
+                        __sync_fetch_and_add(&ds->status, 0),
+                        ds->replica.data_version)) != 0)
         {
             return result;
         }

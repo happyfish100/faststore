@@ -245,7 +245,7 @@ static int service_deal_get_master(struct fast_task_info *task)
                 "data_group_id: %d not exist", data_group_id);
         return ENOENT;
     }
-    master = (FSClusterDataServerInfo *)group->master;
+    master = (FSClusterDataServerInfo *)__sync_fetch_and_add(&group->master, 0);
     if (master == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "the master NOT exist");
@@ -268,61 +268,101 @@ static int service_deal_get_master(struct fast_task_info *task)
 }
 
 static FSClusterDataServerInfo *get_readable_server(
-        FSClusterDataGroupInfo *group)
+        FSClusterDataGroupInfo *group, const int read_rule)
 {
     int index;
-    int old_index;
     int acc_index;
+    int active_count;
+    int i;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *send;
 
+    if (group->data_server_array.count == 1) {
+        return (FSClusterDataServerInfo *)__sync_fetch_and_add(
+                &group->master, 0);
+    }
+
     index = rand() % group->data_server_array.count;
-    if (group->data_server_array.servers[index].status ==
-            FS_SERVER_STATUS_ACTIVE)
+    if (__sync_add_and_fetch(&group->data_server_array.servers[index].
+                status, 0) == FS_SERVER_STATUS_ACTIVE)
     {
-        return group->data_server_array.servers + index;
+        if (read_rule != FS_READ_RULE_SLAVE_FIRST ||
+                !__sync_add_and_fetch(&group->data_server_array.
+                    servers[index].is_master, 0))
+        {
+            return group->data_server_array.servers + index;
+        }
     }
 
     acc_index = 0;
     send = group->data_server_array.servers + group->data_server_array.count;
-    do {
-        old_index = acc_index;
+    for (i=0; i<group->data_server_array.count; i++) {
+        active_count = 0;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
-            if (ds->status == FS_SERVER_STATUS_ACTIVE) {
-                if (acc_index++ == index) {
-                    return ds;
-                }
+            if (__sync_add_and_fetch(&ds->status, 0) !=
+                    FS_SERVER_STATUS_ACTIVE)
+            {
+                continue;
+            }
+
+            active_count++;
+            if (read_rule == FS_READ_RULE_SLAVE_FIRST &&
+                    __sync_add_and_fetch(&ds->is_master, 0)) {
+                continue;
+            }
+
+            if (acc_index++ == index) {
+                return ds;
             }
         }
-    } while (acc_index - old_index > 0);
 
-    return NULL;
+        if (active_count == 0) {
+            return NULL;
+        } else if (active_count == 1) {
+            break;
+        }
+    }
+
+    return (FSClusterDataServerInfo *)__sync_fetch_and_add(
+            &group->master, 0);
 }
 
 static int service_deal_get_readable_server(struct fast_task_info *task)
 {
     int result;
     int data_group_id;
+    int read_rule;
     FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *ds;
+    FSProtoGetReadableServerReq *req;
     FSProtoGetServerResp *resp;
     const FCAddressInfo *addr;
 
-    if ((result=server_expect_body_length(task, 4)) != 0) {
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoGetReadableServerReq))) != 0)
+    {
         return result;
     }
 
-    data_group_id = buff2int(REQUEST.body);
+    req = (FSProtoGetReadableServerReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    read_rule = req->read_rule;
     if ((group=fs_get_data_group(data_group_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data_group_id: %d not exist", data_group_id);
         return ENOENT;
     }
 
-    if ((ds=get_readable_server(group)) == NULL) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "no active server");
+    if (read_rule == FS_READ_RULE_MASTER_ONLY) {
+        ds = (FSClusterDataServerInfo *)__sync_fetch_and_add(
+                &group->master, 0);
+    } else {
+        ds = get_readable_server(group, read_rule);
+    }
+
+    if (ds == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "no active server, read rule: %d", read_rule);
         return ENOENT;
     }
 
@@ -396,8 +436,8 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
                     "%s", addr->conn.ip_addr);
             short2buff(addr->conn.port, body_part->port);
             body_part->is_preseted = ds->is_preseted;
-            body_part->is_master = ds->is_master;
-            body_part->status = ds->status;
+            body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
+            body_part->status = __sync_add_and_fetch(&ds->status, 0);
             long2buff(ds->replica.data_version, body_part->data_version);
         }
     }

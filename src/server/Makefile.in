@@ -11,7 +11,9 @@ COMMON_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_global.o \
 
 CLIENT_OBJS = ../client/fs_client.o ../client/client_func.o \
               ../client/client_global.o ../client/client_proto.o \
-              ../client/simple_connection_manager.o
+              ../client/simple_connection_manager.o \
+              ../client/idempotency/receipt_handler.o \
+              ../client/idempotency/client_channel.o
 
 SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replica_handler.o common_handler.o data_update_handler.o \

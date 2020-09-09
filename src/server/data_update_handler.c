@@ -61,7 +61,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
             op_ctx->info.data_group_id, master_only);
 
     if (master_only) {
-        if (!op_ctx->info.myself->is_master) {
+        if (!__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
