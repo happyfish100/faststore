@@ -63,7 +63,8 @@ void service_task_finish_cleanup(struct fast_task_info *task)
             break;
     }
 
-    __sync_add_and_fetch(&((FSServerTaskArg *)task->arg)->task_version, 1);
+    ((FSServerTaskArg *)task->arg)->task_version =
+        __sync_add_and_fetch(&NEXT_TASK_VERSION, 1);
     sf_task_finish_clean_up(task);
 }
 

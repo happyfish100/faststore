@@ -127,12 +127,10 @@ IdempotencyChannel *idempotency_channel_htable_find(
 {
     pthread_mutex_t *lock;
     IdempotencyChannel **bucket;
-    IdempotencyChannel *previous;
     IdempotencyChannel *current;
 
     lock = ctx->shared_locks.locks + channel_id % ctx->shared_locks.count;
     bucket = ctx->htable.buckets + channel_id % ctx->htable.capacity;
-    previous = NULL;
 
     PTHREAD_MUTEX_LOCK(lock);
     current = *bucket;
@@ -144,7 +142,6 @@ IdempotencyChannel *idempotency_channel_htable_find(
             break;
         }
 
-        previous = current;
         current = current->next;
     }
     PTHREAD_MUTEX_UNLOCK(lock);

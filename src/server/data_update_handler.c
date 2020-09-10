@@ -167,11 +167,11 @@ static inline int do_replica(struct fast_task_info *task,
 
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
         RESPONSE.header.cmd = resp_cmd;
-        if ((result=replication_caller_push_to_slave_queues(task)) ==
+        TASK_ARG->context.deal_func = handle_master_replica_done;
+        if ((result=replication_caller_push_to_slave_queues(task)) !=
                 TASK_STATUS_CONTINUE)
         {
-            TASK_ARG->context.deal_func = handle_master_replica_done;
-        } else {
+            TASK_ARG->context.deal_func = NULL;
             du_handler_fill_slice_update_response(task,
                     SLICE_OP_CTX.write.inc_alloc);
         }
@@ -225,8 +225,8 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
 
 static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
 {
-    struct fast_task_info *task;
     FSSliceOpBufferContext *op_buffer_ctx;
+    struct fast_task_info *task;
 
     task = (struct fast_task_info *)op_ctx->notify.arg;
     if (op_ctx->result != 0) {
@@ -250,8 +250,14 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
     if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
             REPLICA_REPLICATION != NULL)
     {
-        replication_callee_push_to_rpc_result_queue(REPLICA_REPLICATION,
-                op_ctx->info.data_version, op_ctx->result);
+        FSReplication *replication;
+        replication = REPLICA_REPLICATION;
+        if (replication != NULL && replication->task_version ==
+                TASK_ARG->task_version)
+        {
+            replication_callee_push_to_rpc_result_queue(replication,
+                    op_ctx->info.data_version, op_ctx->result);
+        }
     }
 
     op_buffer_ctx = fc_list_entry(op_ctx, FSSliceOpBufferContext, op_ctx);
@@ -259,7 +265,13 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
 
     RESPONSE_STATUS = op_ctx->result;
     replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
-    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+
+    /*
+    if (__sync_add_and_fetch(&WAITING_WRITE_COUNT, 0) == 1) {
+        sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    }
+    //__sync_sub_and_fetch(&WAITING_WRITE_COUNT, 1);
+    */
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,

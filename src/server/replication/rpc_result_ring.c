@@ -52,9 +52,7 @@ static inline void desc_task_waiting_rpc_count(
     }
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
-    if (entry->task_version != __sync_add_and_fetch(
-                &task_arg->task_version, 0))
-    {
+    if (entry->task_version != task_arg->task_version) {
         logWarning("file: "__FILE__", line: %d, "
                 "task %p already cleanup",
                 __LINE__, entry->waiting_task);

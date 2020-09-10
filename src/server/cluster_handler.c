@@ -59,11 +59,6 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
 {
     FSServerContext *server_ctx;
 
-    /*
-    FSServerTaskArg *task_arg;
-    task_arg = (FSServerTaskArg *)task->arg;
-    */
-
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
@@ -82,7 +77,8 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
             break;
     }
 
-    __sync_add_and_fetch(&((FSServerTaskArg *)task->arg)->task_version, 1);
+    ((FSServerTaskArg *)task->arg)->task_version =
+        __sync_add_and_fetch(&NEXT_TASK_VERSION, 1);
     sf_task_finish_clean_up(task);
 }
 

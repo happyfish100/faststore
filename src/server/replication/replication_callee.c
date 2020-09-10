@@ -72,10 +72,6 @@ int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
     ReplicationRPCResult *r;
     bool notify;
 
-    if (replication == NULL) {
-        return ENOENT;
-    }
-
     r = (ReplicationRPCResult *)fast_mblock_alloc_object(
             &replication->context.callee.result_allocator);
     if (r == NULL) {
@@ -96,12 +92,20 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
     bool notify;
+    struct fast_task_info *task;
     ReplicationRPCResult *r;
     ReplicationRPCResult *deleted;
     char *p;
     int count;
 
-    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
+    task = replication->task;
+    /*
+    if (__sync_add_and_fetch(&WAITING_WRITE_COUNT, 0) > 0) {
+        return 0;
+    }
+    */
+
+    if (!(task->offset == 0 && task->length == 0)) {
         return 0;
     }
 
@@ -112,11 +116,11 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
 
     count = 0;
     r = qinfo.head;
-    p = replication->task->data + sizeof(FSProtoHeader) +
+    p = task->data + sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCRespBodyHeader);
     do {
-        if ((p - replication->task->data) + sizeof(FSProtoReplicaRPCRespBodyPart) >
-                replication->task->size)
+        if ((p - task->data) + sizeof(FSProtoReplicaRPCRespBodyPart) >
+                task->size)
         {
             qinfo.head = r;
             fc_queue_push_queue_to_head_ex(&replication->context.
@@ -140,12 +144,11 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
     } while (r != NULL);
 
     int2buff(count, ((FSProtoReplicaRPCRespBodyHeader *)
-                (replication->task->data + sizeof(FSProtoHeader)))->count);
+                (task->data + sizeof(FSProtoHeader)))->count);
 
-    replication->task->length = p - replication->task->data;
-    FS_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
-            FS_REPLICA_PROTO_RPC_RESP, replication->task->length -
-            sizeof(FSProtoHeader));
-    sf_send_add_event(replication->task);
+    task->length = p - task->data;
+    FS_PROTO_SET_HEADER((FSProtoHeader *)task->data,
+            FS_REPLICA_PROTO_RPC_RESP, task->length - sizeof(FSProtoHeader));
+    sf_send_add_event(task);
     return 0;
 }

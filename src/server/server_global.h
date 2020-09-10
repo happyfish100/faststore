@@ -37,6 +37,7 @@ typedef struct server_global_vars {
     } data;
 
     FSStorageConfig storage_cfg;
+    volatile uint64_t next_task_version;
 
     struct {
         int channels_between_two_servers;
@@ -71,6 +72,8 @@ typedef struct server_global_vars {
 
 #define STORAGE_CFG           g_server_global_vars.storage_cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
+
+#define NEXT_TASK_VERSION     g_server_global_vars.next_task_version
 
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
 #define DATA_PATH             g_server_global_vars.data.path

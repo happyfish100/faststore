@@ -80,8 +80,9 @@
 #define RESPONSE_STATUS   RESPONSE.header.status
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
-#define WAITING_RPC_COUNT TASK_CTX.service.waiting_rpc_count
-#define CLUSTER_PEER      TASK_CTX.cluster.peer
+#define WAITING_RPC_COUNT    TASK_CTX.service.waiting_rpc_count
+//#define WAITING_WRITE_COUNT  TASK_CTX.replica.waiting_write_count
+#define CLUSTER_PEER         TASK_CTX.cluster.peer
 #define REPLICA_REPLICATION  TASK_CTX.replica.replication
 #define REPLICA_READER       TASK_CTX.replica.reader
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.service.idempotency_channel
@@ -242,7 +243,7 @@ typedef struct fs_cluster_data_group_array {
 
 typedef struct fs_rpc_result_entry {
     uint64_t data_version;
-    int64_t task_version;
+    uint64_t task_version;
     time_t expires;
     struct fast_task_info *waiting_task;
     struct fs_rpc_result_entry *next;
@@ -278,6 +279,7 @@ typedef struct fs_replication_context {
 } FSReplicationContext;
 
 typedef struct fs_replication {
+    uint64_t task_version;  //for check task
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
     short stage;
@@ -321,6 +323,7 @@ typedef struct {
                 FSReplication *replication;
                 struct server_binlog_reader *reader;  //for fetch binlog
             };
+            //volatile int waiting_write_count;
         } replica;
     };
 
@@ -329,7 +332,7 @@ typedef struct {
 } FSServerTaskContext;
 
 typedef struct server_task_arg {
-    volatile int64_t task_version;
+    uint64_t task_version;
     int64_t req_start_time;
 
     FSServerTaskContext context;

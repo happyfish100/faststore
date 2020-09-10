@@ -96,11 +96,6 @@ static void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
-    /*
-    FSServerTaskArg *task_arg;
-    task_arg = (FSServerTaskArg *)task->arg;
-    */
-
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION:
             if (REPLICA_REPLICATION != NULL) {
@@ -118,7 +113,8 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
             break;
     }
 
-    __sync_add_and_fetch(&((FSServerTaskArg *)task->arg)->task_version, 1);
+    ((FSServerTaskArg *)task->arg)->task_version =
+        __sync_add_and_fetch(&NEXT_TASK_VERSION, 1);
     sf_task_finish_clean_up(task);
 }
 
@@ -551,6 +547,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             shared_buffer_hold(buffer);
             op_buffer_ctx->buffer = buffer;
             op_ctx = &op_buffer_ctx->op_ctx;
+            //__sync_add_and_fetch(&WAITING_WRITE_COUNT, 1);
         } else {
             op_ctx = &SLICE_OP_CTX;
         }
@@ -585,6 +582,12 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
 
         if (result != TASK_STATUS_CONTINUE) {
             int r;
+
+            /*
+            if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
+                __sync_sub_and_fetch(&WAITING_WRITE_COUNT, 1);
+            }
+            */
             r = replication_callee_push_to_rpc_result_queue(
                     REPLICA_REPLICATION, op_ctx->info.data_version, result);
             if (r != 0) {

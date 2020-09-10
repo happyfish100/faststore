@@ -91,15 +91,22 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
     return 0;
 }
 
+#define REPLICATION_BIND_TASK(replication, task) \
+    do { \
+        replication->task = task;  \
+        replication->task_version = TASK_ARG->task_version;  \
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
+        REPLICA_REPLICATION = replication;  \
+    } while (0)
+
 void replication_processor_bind_task(FSReplication *replication,
         struct fast_task_info *task)
 {
     FSServerContext *server_ctx;
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_SYNCING);
-    replication->task = task;
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION;
-    REPLICA_REPLICATION = replication;
+    REPLICATION_BIND_TASK(replication, task);
+
     server_ctx = (FSServerContext *)task->thread_data->arg;
     add_to_replication_ptr_array(&server_ctx->
             replica.connected, replication);
@@ -125,20 +132,16 @@ int replication_processor_bind_thread(FSReplication *replication)
     task->thread_data = REPLICA_SF_CTX.thread_data +
         replication->thread_index % REPLICA_SF_CTX.work_threads;
 
-
     /*
     logInfo("=========task: %p, thread_index: %d, work_threads: %d, thread_data: %p ======",
             task,  replication->thread_index, REPLICA_SF_CTX.work_threads, task->thread_data);
             */
 
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
-
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION;
-    REPLICA_REPLICATION = replication;
-    replication->connection_info.conn.sock = -1;
-    replication->task = task;
+    REPLICATION_BIND_TASK(replication, task);
 
     server_ctx = (FSServerContext *)task->thread_data->arg;
+    replication->connection_info.conn.sock = -1;
     add_to_replication_ptr_array(&server_ctx->
             replica.connectings, replication);
     return 0;
@@ -303,8 +306,8 @@ static int send_join_server_package(FSReplication *replication)
 
 static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
 {
-    if (rb->task_version != __sync_add_and_fetch(&((FSServerTaskArg *)
-                    rb->task->arg)->task_version, 0))
+    if (rb->task_version != ((FSServerTaskArg *)
+                rb->task->arg)->task_version)
     {
         logWarning("file: "__FILE__", line: %d, "
                 "task %p already cleanup", __LINE__, rb->task);
@@ -498,8 +501,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
         data_version = ((FSServerTaskArg *)rb->task->arg)->
             context.slice_op_ctx.info.data_version;
         memcpy(body_part->body, rb->task->data + sizeof(FSProtoHeader), blen);
-        if (rb->task_version == __sync_add_and_fetch(&((FSServerTaskArg *)
-                        rb->task->arg)->task_version, 0))
+        if (rb->task_version == ((FSServerTaskArg *)
+                    rb->task->arg)->task_version)
         {
             ++count;
             task->length = pkg_len;

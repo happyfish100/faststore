@@ -190,6 +190,7 @@ int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
     int result;
     int i;
 
+    //TODO notify alloc fail
     if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
                     reclaim_alloc, op_ctx->write.sarray.slices,
                     &op_ctx->write.sarray.count)) != 0)
