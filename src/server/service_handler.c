@@ -21,6 +21,7 @@
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
+#include "sf/sf_configs.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
@@ -269,7 +270,7 @@ static int service_deal_get_master(struct fast_task_info *task)
 }
 
 static FSClusterDataServerInfo *get_readable_server(
-        FSClusterDataGroupInfo *group, const int read_rule)
+        FSClusterDataGroupInfo *group, const SFDataReadRule read_rule)
 {
     int index;
     int acc_index;
@@ -287,7 +288,7 @@ static FSClusterDataServerInfo *get_readable_server(
     if (__sync_add_and_fetch(&group->data_server_array.servers[index].
                 status, 0) == FS_SERVER_STATUS_ACTIVE)
     {
-        if (read_rule != FS_READ_RULE_SLAVE_FIRST ||
+        if (read_rule != sf_data_read_rule_slave_first ||
                 !__sync_add_and_fetch(&group->data_server_array.
                     servers[index].is_master, 0))
         {
@@ -307,7 +308,7 @@ static FSClusterDataServerInfo *get_readable_server(
             }
 
             active_count++;
-            if (read_rule == FS_READ_RULE_SLAVE_FIRST &&
+            if (read_rule == sf_data_read_rule_slave_first &&
                     __sync_add_and_fetch(&ds->is_master, 0)) {
                 continue;
             }
@@ -332,7 +333,7 @@ static int service_deal_get_readable_server(struct fast_task_info *task)
 {
     int result;
     int data_group_id;
-    int read_rule;
+    SFDataReadRule read_rule;
     FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *ds;
     FSProtoGetReadableServerReq *req;
@@ -354,7 +355,7 @@ static int service_deal_get_readable_server(struct fast_task_info *task)
         return ENOENT;
     }
 
-    if (read_rule == FS_READ_RULE_MASTER_ONLY) {
+    if (read_rule == sf_data_read_rule_master_only) {
         ds = (FSClusterDataServerInfo *)__sync_fetch_and_add(
                 &group->master, 0);
     } else {

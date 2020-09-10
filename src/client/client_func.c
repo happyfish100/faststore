@@ -3,6 +3,7 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fs_func.h"
 #include "fs_cluster_cfg.h"
 #include "client_global.h"
 #include "simple_connection_manager.h"
@@ -49,6 +50,9 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         g_fs_client_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
+    sf_load_read_rule_config(&client_ctx->read_rule, ini_ctx);
+    client_ctx->idempotency_enabled = iniGetIntValue(ini_ctx->section_name,
+            "rpc_idempotency", ini_ctx->context, false);
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
                     cluster_cfg.ptr, ini_ctx)) != 0)
     {
@@ -60,6 +64,8 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             "base_path: %s, "
             "connect_timeout: %d, "
             "network_timeout: %d, "
+            "read_rule: %s, "
+            "rpc_idempotency: %d, "
             "server group count: %d, "
             "data group count: %d",
             g_fs_global_vars.version.major,
@@ -67,6 +73,8 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             g_fs_client_vars.base_path,
             g_fs_client_vars.connect_timeout,
             g_fs_client_vars.network_timeout,
+            sf_get_read_rule_caption(client_ctx->read_rule),
+            client_ctx->idempotency_enabled,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
 #endif

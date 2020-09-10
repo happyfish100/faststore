@@ -45,8 +45,8 @@ static int init_htable(ChannelHashtable *htable, const int hint_capacity)
         return result;
     }
 
-    if (hint_capacity < 128) {
-        htable->capacity = 163;
+    if (hint_capacity < 1024) {
+        htable->capacity = 1361;
     } else {
         htable->capacity = fc_ceil_prime(hint_capacity);
     }

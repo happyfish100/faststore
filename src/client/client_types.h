@@ -3,6 +3,7 @@
 
 #include "fastcommon/common_define.h"
 #include "fastcommon/connection_pool.h"
+#include "sf/sf_configs.h"
 #include "fs_types.h"
 #include "fs_cluster_cfg.h"
 
@@ -86,7 +87,7 @@ typedef struct fs_client_context {
     bool inited;
     bool is_simple_conn_mananger;
     bool idempotency_enabled;
-    char read_rule;  //the rule for read
+    SFDataReadRule read_rule;  //the rule for read
 } FSClientContext;
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \

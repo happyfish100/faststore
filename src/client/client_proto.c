@@ -69,6 +69,9 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
                 bytes = connection_params->buffer_size;
             }
 
+            if (client_ctx->idempotency_enabled) {
+            }
+
             FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
                     sizeof(FSProtoSliceWriteReqHeader) + bytes);
             int2buff(bs_key->slice.offset + *write_bytes,
