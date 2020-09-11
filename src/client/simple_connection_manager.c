@@ -164,8 +164,8 @@ static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
             return conn;
         } while (0);
 
-        if (SF_CONNECT_RETRY_FINISHED(client_ctx->
-                    net_retry_cfg, ++i, *err_no))
+        if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
+                    connect.times, ++i, *err_no))
         {
             break;
         }
@@ -211,8 +211,8 @@ static ConnectionInfo *get_readable_connection(FSClientContext *client_ctx,
             return conn;
         } while (0);
 
-        if (SF_CONNECT_RETRY_FINISHED(client_ctx->
-                    net_retry_cfg, ++i, *err_no))
+        if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
+                    connect.times, ++i, *err_no))
         {
             break;
         }

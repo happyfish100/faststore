@@ -20,10 +20,21 @@ typedef struct fs_client_cluster_stat_entry {
 #ifdef __cplusplus
 extern "C" {
 #endif
+    static inline void fs_client_release_connection(
+            FSClientContext *client_ctx,
+            ConnectionInfo *conn, const int result)
+    {
+        if ((result == EINVAL) || (result != 0 && is_network_error(result))) {
+            client_ctx->conn_manager.close_connection(client_ctx, conn);
+        } else if (client_ctx->conn_manager.release_connection != NULL) {
+            client_ctx->conn_manager.release_connection(client_ctx, conn);
+        }
+    }
 
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key, const char *buff,
-            int *write_bytes, int *inc_alloc);
+            ConnectionInfo *conn, const uint64_t req_id,
+            const FSBlockSliceKeyInfo *bs_key, const char *data,
+            int *inc_alloc);
 
     int fs_client_proto_slice_read(FSClientContext *client_ctx,
             const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);

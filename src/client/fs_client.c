@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include "idempotency/client_channel.h"
+#include "client_global.h"
 #include "fs_client.h"
 
 int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
@@ -153,5 +155,123 @@ int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
         free(ids);
     }
 
+    return result;
+}
+
+int fs_client_slice_write(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const char *data,
+        int *write_bytes, int *inc_alloc)
+{
+    const FSConnectionParameters *connection_params;
+    ConnectionInfo *conn;
+    IdempotencyClientChannel *old_channel;
+    FSBlockSliceKeyInfo new_key;
+    int result;
+    int remain;
+    int bytes;
+    int current_alloc;
+    int i;
+    uint64_t req_id;
+    SFNetRetryIntervalContext net_retry_ctx;
+
+    if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
+                        bs_key->block.hash_code), &result)) == NULL)
+    {
+        return result;
+    }
+
+    connection_params = client_ctx->conn_manager.get_connection_params(
+            client_ctx, conn);
+
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.network);
+
+    *inc_alloc = *write_bytes = 0;
+    new_key = *bs_key;
+    remain = bs_key->slice.length;
+    while (remain > 0) {
+        if (remain <= connection_params->buffer_size) {
+            bytes = remain;
+        } else {
+            bytes = connection_params->buffer_size;
+        }
+        new_key.slice.offset += *write_bytes;
+        new_key.slice.length = bytes;
+
+        if (client_ctx->idempotency_enabled) {
+            req_id = idempotency_client_channel_next_seq_id(
+                    connection_params->channel);
+        } else {
+            req_id = 0;
+        }
+
+        logInfo("slice offset: %d, slice length: %d, current offset: %d, "
+                "current length: %d", bs_key->slice.offset,
+                bs_key->slice.length, new_key.slice.offset,
+                new_key.slice.length);
+
+        old_channel = connection_params->channel;
+        i = 0;
+        while (1) {
+            if ((result=fs_client_proto_slice_write(client_ctx, conn,
+                            req_id, &new_key, data + *write_bytes,
+                            &current_alloc)) == 0)
+            {
+                break;
+            }
+
+            if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
+                        network.times, ++i, result))
+            {
+                break;
+            }
+
+            sf_calc_next_retry_interval(&net_retry_ctx);
+            if (net_retry_ctx.interval_ms > 0) {
+                usleep(net_retry_ctx.interval_ms);
+            }
+
+            fs_client_release_connection(client_ctx, conn, result);
+            if ((conn=client_ctx->conn_manager.get_master_connection(
+                            client_ctx, FS_CLIENT_DATA_GROUP_INDEX(
+                                client_ctx, bs_key->block.hash_code),
+                            &result)) == NULL)
+            {
+                return result;
+            }
+
+            if (connection_params->channel != old_channel) {
+                connection_params = client_ctx->conn_manager.
+                    get_connection_params(client_ctx, conn);
+                break;
+            }
+        }
+
+        if (connection_params->channel != old_channel) { //master changed
+            continue;
+        }
+
+        if (client_ctx->idempotency_enabled) {
+            idempotency_client_channel_push(
+                    connection_params->channel, req_id);
+        }
+
+        if (result != 0) {
+            break;
+        }
+
+        *inc_alloc += current_alloc;
+        *write_bytes += bytes;
+        remain -= bytes;
+
+        if (remain == 0) {
+            break;
+        }
+        sf_reset_net_retry_interval(&net_retry_ctx);
+    }
+
+    fs_client_release_connection(client_ctx, conn, result);
     return result;
 }

@@ -9,17 +9,6 @@
 #include "client_global.h"
 #include "client_proto.h"
 
-static inline void fs_client_release_connection(
-        FSClientContext *client_ctx,
-        ConnectionInfo *conn, const int result)
-{
-    if ((result == EINVAL) || (result != 0 && is_network_error(result))) {
-        client_ctx->conn_manager.close_connection(client_ctx, conn);
-    } else if (client_ctx->conn_manager.release_connection != NULL) {
-        client_ctx->conn_manager.release_connection(client_ctx, conn);
-    }
-}
-
 static inline void proto_pack_block_key(const FSBlockKey *
         bkey, FSProtoBlockKey *proto_bkey)
 {
@@ -27,92 +16,69 @@ static inline void proto_pack_block_key(const FSBlockKey *
     long2buff(bkey->offset, proto_bkey->offset);
 }
 
-#define FS_CLIENT_DATA_GROUP_INDEX(hash_code) \
-    (hash_code % FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr))
-
 int fs_client_proto_slice_write(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const uint64_t req_id,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
-        int *write_bytes, int *inc_alloc)
+        int *inc_alloc)
 {
-    ConnectionInfo *conn;
-    const FSConnectionParameters *connection_params;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceWriteReqHeader)];
+    char out_buff[sizeof(FSProtoHeader) +
+        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(FSProtoSliceWriteReqHeader)];
     FSProtoHeader *proto_header;
     FSProtoSliceWriteReqHeader *req_header;
     FSResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int remain;
     int bytes;
-    int i;
+    int body_front_len;
 
-    *write_bytes = *inc_alloc = 0;
     proto_header = (FSProtoHeader *)out_buff;
-    req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
+    bytes = bs_key->slice.length;
+    body_front_len = sizeof(FSProtoSliceWriteReqHeader);
+    if (req_id > 0) {
+        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+                    (proto_header + 1))->req_id);
+        body_front_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        req_header = (FSProtoSliceWriteReqHeader *)((char *)(proto_header
+                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+    } else {
+        req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
+    }
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
-    for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
-                        &result)) == NULL)
+
+    response.error.length = 0;
+    do {
+        FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
+                body_front_len + bs_key->slice.length);
+        int2buff(bs_key->slice.offset, req_header->bs.slice_size.offset);
+        int2buff(bs_key->slice.length, req_header->bs.slice_size.length);
+
+        if ((result=tcpsenddata_nb(conn->sock, out_buff,
+                        sizeof(FSProtoHeader) + body_front_len,
+                        client_ctx->network_timeout)) != 0)
         {
-            return result;
-        }
-
-        connection_params = client_ctx->conn_manager.get_connection_params(
-                client_ctx, conn);
-        response.error.length = 0;
-        remain = bs_key->slice.length - *write_bytes;
-        while (remain > 0) {
-            if (remain <= connection_params->buffer_size) {
-                bytes = remain;
-            } else {
-                bytes = connection_params->buffer_size;
-            }
-
-            if (client_ctx->idempotency_enabled) {
-            }
-
-            FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
-                    sizeof(FSProtoSliceWriteReqHeader) + bytes);
-            int2buff(bs_key->slice.offset + *write_bytes,
-                    req_header->bs.slice_size.offset);
-            int2buff(bytes, req_header->bs.slice_size.length);
-
-            logInfo("sent: %d, current offset: %d, current length: %d",
-                    *write_bytes, bs_key->slice.offset + *write_bytes, bytes);
-
-            if ((result=tcpsenddata_nb(conn->sock, out_buff, sizeof(out_buff),
-                            client_ctx->network_timeout)) != 0)
-            {
-                break;
-            }
-
-            if ((result=tcpsenddata_nb(conn->sock, (char *)data + *write_bytes,
-                            bytes, client_ctx->network_timeout)) != 0)
-            {
-                break;
-            }
-
-            if ((result=fs_recv_response(conn, &response, client_ctx->
-                            network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
-                            (char *)&resp, sizeof(FSProtoSliceUpdateResp))) != 0)
-            {
-                break;
-            }
-
-            *inc_alloc += buff2int(resp.inc_alloc);
-            *write_bytes += bytes;
-            remain -= bytes;
-        }
-
-        fs_client_release_connection(client_ctx, conn, result);
-        if (result != 0) {
-            fs_log_network_error(&response, conn, result);
-        }
-
-        if (!(result != 0 && is_network_error(result))) {
             break;
         }
+
+        if ((result=tcpsenddata_nb(conn->sock, (char *)data, bs_key->
+                        slice.length, client_ctx->network_timeout)) != 0)
+        {
+            break;
+        }
+
+        if ((result=fs_recv_response(conn, &response, client_ctx->
+                        network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
+                        (char *)&resp, sizeof(FSProtoSliceUpdateResp))) != 0)
+        {
+            break;
+        }
+
+        *inc_alloc = buff2int(resp.inc_alloc);
+    } while (0);
+
+    if (result != 0) {
+        *inc_alloc = 0;
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -144,7 +110,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
+                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.hash_code),
                         &result)) == NULL)
         {
             break;
@@ -254,7 +220,7 @@ static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(bs_key->block.hash_code),
+                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.hash_code),
                         &result)) == NULL)
         {
             return result;
@@ -317,7 +283,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     proto_pack_block_key(bkey, &req->bkey);
     for (i=0; i<3; i++) {
         if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(bkey->hash_code),
+                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bkey->hash_code),
                         &result)) == NULL)
         {
             return result;

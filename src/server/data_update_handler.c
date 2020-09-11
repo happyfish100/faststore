@@ -65,7 +65,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
-            return EINVAL;
+            return SF_RETRIABLE_ERROR_NOT_MASTER;
         }
     } else {
         if (op_ctx->info.myself->status != FS_SERVER_STATUS_ACTIVE) {
@@ -76,7 +76,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                         "data group id: %d, i am NOT active, "
                         "my status: %d (%s)", op_ctx->info.data_group_id,
                         status, fs_get_server_status_caption(status));
-                return EINVAL;
+                return SF_RETRIABLE_ERROR_NOT_ACTIVE;
             }
         }
     }

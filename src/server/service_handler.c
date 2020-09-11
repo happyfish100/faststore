@@ -251,7 +251,7 @@ static int service_deal_get_master(struct fast_task_info *task)
     if (master == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "the master NOT exist");
-        return ENOENT;
+        return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
     resp = (FSProtoGetServerResp *)REQUEST.body;
@@ -365,7 +365,7 @@ static int service_deal_get_readable_server(struct fast_task_info *task)
     if (ds == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "no active server, read rule: %d", read_rule);
-        return ENOENT;
+        return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
     resp = (FSProtoGetServerResp *)REQUEST.body;
@@ -586,7 +586,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         if (!__sync_add_and_fetch(&IDEMPOTENCY_CHANNEL->is_valid, 0)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "channel: %d is invalid", IDEMPOTENCY_CHANNEL->id);
-            return FS_STATUS_CHANNEL_INVALID;
+            return SF_RETRIABLE_ERROR_CHANNEL_INVALID;
         }
 
         adheader = (FSProtoIdempotencyAdditionalHeader *)REQUEST.body;

@@ -3,6 +3,7 @@
 #define _FS_CLIENT_H
 
 #include "fs_proto.h"
+#include "fs_types.h"
 #include "fs_func.h"
 #include "client_types.h"
 #include "client_func.h"
@@ -64,6 +65,10 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
 
 int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
         FSClientClusterStatEntry *stats, const int size, int *count);
+
+int fs_client_slice_write(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const char *data,
+        int *write_bytes, int *inc_alloc);
 
 #ifdef __cplusplus
 }
