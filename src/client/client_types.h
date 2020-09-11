@@ -44,6 +44,7 @@ typedef struct fs_client_data_group_entry {
     struct {
         ConnectionInfo *conn;
         ConnectionInfo holder;
+        pthread_mutex_t lock;
     } master_cache;
 } FSClientDataGroupEntry;
 
@@ -88,7 +89,11 @@ typedef struct fs_client_context {
     bool is_simple_conn_mananger;
     bool idempotency_enabled;
     SFDataReadRule read_rule;  //the rule for read
+    int connect_timeout;
+    int network_timeout;
+    SFNetRetryConfig net_retry_cfg;
 } FSClientContext;
+
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \
     client_ctx->cluster_cfg.ptr->service_group_index

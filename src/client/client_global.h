@@ -6,10 +6,7 @@
 #include "client_types.h"
 
 typedef struct fs_client_global_vars {
-    int connect_timeout;
-    int network_timeout;
     char base_path[MAX_PATH_SIZE];
-
     FSClientContext client_ctx;
 } FSClientGlobalVars;
 

@@ -102,9 +102,20 @@ static ConnectionInfo *get_connection(FSClientContext *client_ctx,
     return NULL;
 }
 
+#define CM_MASTER_CACHE_LOCK_PTR(client_ctx, data_group_index) \
+    &(client_ctx->conn_manager.data_group_array.entries[data_group_index]. \
+     master_cache.lock)
+
+#define CM_MASTER_CACHE_MUTEX_LOCK(client_ctx, data_group_index) \
+    PTHREAD_MUTEX_LOCK(CM_MASTER_CACHE_LOCK_PTR(client_ctx, data_group_index))
+
+#define CM_MASTER_CACHE_MUTEX_UNLOCK(client_ctx, data_group_index) \
+    PTHREAD_MUTEX_UNLOCK(CM_MASTER_CACHE_LOCK_PTR(client_ctx, data_group_index))
+
 #define CM_MASTER_CACHE_CONN(client_ctx, data_group_index) \
     (client_ctx->conn_manager.data_group_array.entries[data_group_index]. \
      master_cache.conn)
+
 
 static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
         const int data_group_index, int *err_no)
@@ -112,8 +123,12 @@ static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
     ConnectionInfo *conn;
     ConnectionInfo mconn;
     FSClientServerEntry master;
+    SFNetRetryIntervalContext net_retry_ctx;
+    int i;
 
+    CM_MASTER_CACHE_MUTEX_LOCK(client_ctx, data_group_index);
     mconn = *CM_MASTER_CACHE_CONN(client_ctx, data_group_index);
+    CM_MASTER_CACHE_MUTEX_UNLOCK(client_ctx, data_group_index);
     if (mconn.port > 0) {
         if ((conn=get_spec_connection(client_ctx, &mconn, err_no)) != NULL) {
             ((FSConnectionParameters *)conn->args)->data_group_id =
@@ -122,25 +137,44 @@ static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
         return conn;
     }
 
-    do {
-        if ((*err_no=fs_client_proto_get_master(client_ctx,
-                        data_group_index, &master)) != 0)
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.connect);
+    i = 0;
+    while (1) {
+        do {
+            if ((*err_no=fs_client_proto_get_master(client_ctx,
+                            data_group_index, &master)) != 0)
+            {
+                break;
+            }
+
+            if ((conn=get_spec_connection(client_ctx, &master.conn,
+                            err_no)) == NULL)
+            {
+                break;
+            }
+
+            ((FSConnectionParameters *)conn->args)->data_group_id =
+                data_group_index + 1;
+            CM_MASTER_CACHE_MUTEX_LOCK(client_ctx, data_group_index);
+            conn_pool_set_server_info(CM_MASTER_CACHE_CONN(client_ctx,
+                        data_group_index), conn->ip_addr, conn->port);
+            CM_MASTER_CACHE_MUTEX_UNLOCK(client_ctx, data_group_index);
+            return conn;
+        } while (0);
+
+        if (SF_CONNECT_RETRY_FINISHED(client_ctx->
+                    net_retry_cfg, ++i, *err_no))
         {
             break;
         }
 
-        if ((conn=get_spec_connection(client_ctx, &master.conn,
-                        err_no)) == NULL)
-        {
-            break;
+        sf_calc_next_retry_interval(&net_retry_ctx);
+        if (net_retry_ctx.interval_ms > 0) {
+            usleep(net_retry_ctx.interval_ms);
         }
-
-        ((FSConnectionParameters *)conn->args)->data_group_id =
-            data_group_index + 1;
-        conn_pool_set_server_info(CM_MASTER_CACHE_CONN(client_ctx,
-                    data_group_index), conn->ip_addr, conn->port);
-        return conn;
-    } while (0);
+    }
 
     logError("file: "__FILE__", line: %d, "
             "get_master_connection fail, errno: %d",
@@ -153,27 +187,46 @@ static ConnectionInfo *get_readable_connection(FSClientContext *client_ctx,
 {
     ConnectionInfo *conn;
     FSClientServerEntry server;
+    SFNetRetryIntervalContext net_retry_ctx;
+    int i;
 
-    do {
-        if ((*err_no=fs_client_proto_get_readable_server(client_ctx,
-                        data_group_index, &server)) != 0)
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.connect);
+    i = 0;
+    while (1) {
+        do {
+            if ((*err_no=fs_client_proto_get_readable_server(client_ctx,
+                            data_group_index, &server)) != 0)
+            {
+                break;
+            }
+
+            if ((conn=get_spec_connection(client_ctx, &server.conn,
+                            err_no)) == NULL)
+            {
+                break;
+            }
+
+            return conn;
+        } while (0);
+
+        if (SF_CONNECT_RETRY_FINISHED(client_ctx->
+                    net_retry_cfg, ++i, *err_no))
         {
             break;
         }
 
-        if ((conn=get_spec_connection(client_ctx, &server.conn,
-                        err_no)) == NULL)
-        {
-            break;
+        sf_calc_next_retry_interval(&net_retry_ctx);
+        if (net_retry_ctx.interval_ms > 0) {
+            usleep(net_retry_ctx.interval_ms);
         }
-
-        return conn;
-    } while (0);
+    }
 
     logError("file: "__FILE__", line: %d, "
             "get_readable_connection fail, errno: %d",
             __LINE__, *err_no);
-        return NULL;
+    return NULL;
 }
 
 static void release_connection(FSClientContext *client_ctx,
@@ -194,7 +247,9 @@ static void close_connection(FSClientContext *client_ctx,
         int data_group_index;
         data_group_index = ((FSConnectionParameters *)conn->args)->
             data_group_id - 1;
+        CM_MASTER_CACHE_MUTEX_LOCK(client_ctx, data_group_index);
         CM_MASTER_CACHE_CONN(client_ctx, data_group_index)->port = 0;
+        CM_MASTER_CACHE_MUTEX_UNLOCK(client_ctx, data_group_index);
         ((FSConnectionParameters *)conn->args)->data_group_id = 0;
     }
 
@@ -227,7 +282,7 @@ static int validate_connection_callback(ConnectionInfo *conn, void *args)
 {
     FSResponseInfo response;
     int result;
-    if ((result=fs_active_test(conn, &response, g_fs_client_vars.
+    if ((result=fs_active_test(conn, &response, ((FSClientContext *)args)->
                     network_timeout)) != 0)
     {
         fs_log_network_error(&response, conn, result);
@@ -239,6 +294,7 @@ static int validate_connection_callback(ConnectionInfo *conn, void *args)
 static int init_data_group_array(FSClientContext *client_ctx,
         FSClientDataGroupArray *data_group_array)
 {
+    int result;
     int bytes;
     FSClientDataGroupEntry *entry;
     FSClientDataGroupEntry *end;
@@ -253,6 +309,9 @@ static int init_data_group_array(FSClientContext *client_ctx,
 
     end = data_group_array->entries + data_group_array->count;
     for (entry=data_group_array->entries; entry<end; entry++) {
+        if ((result=init_pthread_lock(&(entry->master_cache.lock))) != 0) {
+            return result;
+        }
         entry->master_cache.conn = &entry->master_cache.holder;
     }
 
@@ -284,10 +343,10 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
     if (htable_init_capacity < 256) {
         htable_init_capacity = 256;
     }
-    if ((result=conn_pool_init_ex1(cp, g_fs_client_vars.connect_timeout,
+    if ((result=conn_pool_init_ex1(cp, client_ctx->connect_timeout,
                     max_count_per_entry, max_idle_time, socket_domain,
                     htable_init_capacity, connect_done_callback, client_ctx,
-                    validate_connection_callback, NULL,
+                    validate_connection_callback, client_ctx,
                     sizeof(FSConnectionParameters))) != 0)
     {
         return result;

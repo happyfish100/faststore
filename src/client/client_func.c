@@ -13,6 +13,8 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         IniFullContext *ini_ctx)
 {
     char *pBasePath;
+    const char *old_section_name;
+    char net_retry_output[256];
     int result;
 
     pBasePath = iniGetStrValue(NULL, "base_path", ini_ctx->context);
@@ -38,46 +40,57 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         }
     }
 
-    g_fs_client_vars.connect_timeout = iniGetIntValue(ini_ctx->section_name,
+    client_ctx->connect_timeout = iniGetIntValue(ini_ctx->section_name,
             "connect_timeout", ini_ctx->context, DEFAULT_CONNECT_TIMEOUT);
-    if (g_fs_client_vars.connect_timeout <= 0) {
-        g_fs_client_vars.connect_timeout = DEFAULT_CONNECT_TIMEOUT;
+    if (client_ctx->connect_timeout <= 0) {
+        client_ctx->connect_timeout = DEFAULT_CONNECT_TIMEOUT;
     }
 
-    g_fs_client_vars.network_timeout = iniGetIntValue(ini_ctx->section_name,
+    client_ctx->network_timeout = iniGetIntValue(ini_ctx->section_name,
             "network_timeout", ini_ctx->context, DEFAULT_NETWORK_TIMEOUT);
-    if (g_fs_client_vars.network_timeout <= 0) {
-        g_fs_client_vars.network_timeout = DEFAULT_NETWORK_TIMEOUT;
+    if (client_ctx->network_timeout <= 0) {
+        client_ctx->network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
     sf_load_read_rule_config(&client_ctx->read_rule, ini_ctx);
     client_ctx->idempotency_enabled = iniGetIntValue(ini_ctx->section_name,
             "rpc_idempotency", ini_ctx->context, false);
+
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
                     cluster_cfg.ptr, ini_ctx)) != 0)
     {
         return result;
     }
 
-#ifdef DEBUG_FLAG
+    old_section_name = ini_ctx->section_name;
+    ini_ctx->section_name = NULL;
+    if ((result=sf_load_net_retry_config(&client_ctx->
+                    net_retry_cfg, ini_ctx)) != 0)
+    {
+        return result;
+    }
+    ini_ctx->section_name = old_section_name;
+
+    sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
+            net_retry_output, sizeof(net_retry_output));
+
     logDebug("FastStore v%d.%02d, "
             "base_path: %s, "
             "connect_timeout: %d, "
             "network_timeout: %d, "
             "read_rule: %s, "
-            "rpc_idempotency: %d, "
+            "rpc_idempotency: %d, %s, "
             "server group count: %d, "
             "data group count: %d",
             g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor,
             g_fs_client_vars.base_path,
-            g_fs_client_vars.connect_timeout,
-            g_fs_client_vars.network_timeout,
+            client_ctx->connect_timeout,
+            client_ctx->network_timeout,
             sf_get_read_rule_caption(client_ctx->read_rule),
-            client_ctx->idempotency_enabled,
+            client_ctx->idempotency_enabled, net_retry_output,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
-#endif
 
     fs_cluster_cfg_to_log(client_ctx->cluster_cfg.ptr);
     return 0;
