@@ -9,7 +9,9 @@
 extern "C" {
 #endif
 
-int client_channel_init(const int hint_capacity);
+#define client_channel_init() client_channel_init_ex(0)
+
+int client_channel_init_ex(const int hint_capacity);
 void client_channel_destroy();
 
 struct idempotency_client_channel *idempotency_client_channel_get(

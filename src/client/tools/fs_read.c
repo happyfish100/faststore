@@ -118,6 +118,9 @@ int main(int argc, char *argv[])
     if ((result=fs_client_slice_read(&g_fs_client_vars.
                     client_ctx, &bs_key, in_buff, &read_bytes)) != 0)
     {
+        logError("file: "__FILE__", line: %d, "
+                "slice read fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
         return result;
     }
 

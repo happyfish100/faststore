@@ -49,6 +49,13 @@ static void receipt_task_finish_cleanup(struct fast_task_info *task)
 {
     IdempotencyClientChannel *channel;
     channel = (IdempotencyClientChannel *)task->arg;
+
+    if (task->event.fd >= 0) {
+        sf_task_detach_thread(task);
+        close(task->event.fd);
+        task->event.fd = -1;
+    }
+
     __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0);
 }
 

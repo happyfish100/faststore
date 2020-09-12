@@ -3,6 +3,8 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "idempotency/client_channel.h"
+#include "idempotency/receipt_handler.h"
 #include "fs_func.h"
 #include "fs_cluster_cfg.h"
 #include "client_global.h"
@@ -70,6 +72,16 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         return result;
     }
     ini_ctx->section_name = old_section_name;
+
+    //TODO  remove me!
+    if (client_ctx->idempotency_enabled) {
+        if ((result=client_channel_init()) != 0) {
+            return result;
+        }
+        if ((result=receipt_handler_init()) != 0) {
+            return result;
+        }
+    }
 
     sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
             net_retry_output, sizeof(net_retry_output));

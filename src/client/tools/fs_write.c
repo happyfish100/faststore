@@ -106,6 +106,9 @@ int main(int argc, char *argv[])
         bs_key.slice.length = FS_FILE_BLOCK_SIZE - bs_key.slice.offset;
     }
 
+    logInfo("block offset: %"PRId64", slice {offset: %d, length: %d}",
+            bs_key.block.offset, bs_key.slice.offset, bs_key.slice.length);
+
     if ((result=fs_client_init(config_filename)) != 0) {
         return result;
     }
@@ -115,6 +118,9 @@ int main(int argc, char *argv[])
                     client_ctx, &bs_key, out_buff,
                     &write_bytes, &inc_alloc)) != 0)
     {
+        logError("file: "__FILE__", line: %d, "
+                "slice write fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
         return result;
     }
 

@@ -197,7 +197,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         } else {
             bytes = connection_params->buffer_size;
         }
-        new_key.slice.offset += *write_bytes;
+        new_key.slice.offset = *write_bytes;
         new_key.slice.length = bytes;
 
         if (client_ctx->idempotency_enabled) {
@@ -206,11 +206,6 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         } else {
             req_id = 0;
         }
-
-        logInfo("slice offset: %d, slice length: %d, current offset: %d, "
-                "current length: %d", bs_key->slice.offset,
-                bs_key->slice.length, new_key.slice.offset,
-                new_key.slice.length);
 
         old_channel = connection_params->channel;
         i = 0;
@@ -247,6 +242,12 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                 break;
             }
         }
+
+        logInfo("slice offset: %d, slice length: %d, current offset: %d, "
+                "current length: %d, result: %d, current_alloc: %d",
+                bs_key->slice.offset, bs_key->slice.length, new_key.slice.offset,
+                new_key.slice.length, result, current_alloc);
+
 
         if (connection_params->channel != old_channel) { //master changed
             sf_reset_net_retry_interval(&net_retry_ctx);
@@ -303,11 +304,12 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     remain = bs_key->slice.length;
     i = 0;
     while (remain > 0) {
-        new_key.slice.offset += *read_bytes;
+        new_key.slice.offset = *read_bytes;
         new_key.slice.length = remain;
         if ((result=fs_client_proto_slice_read(client_ctx, conn,
                         &new_key, buff + *read_bytes, &bytes)) == 0)
         {
+            *read_bytes += bytes;
             break;
         }
 

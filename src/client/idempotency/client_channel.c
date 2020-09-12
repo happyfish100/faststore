@@ -79,7 +79,7 @@ static int idempotency_channel_alloc_init(void *element, void *args)
             (&((IdempotencyClientReceipt *)NULL)->next));
 }
 
-int client_channel_init(const int hint_capacity)
+int client_channel_init_ex(const int hint_capacity)
 {
     int result;
     if ((result=fast_mblock_init_ex1(&channel_context.channel_allocator,
