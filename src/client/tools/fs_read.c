@@ -115,7 +115,7 @@ int main(int argc, char *argv[])
         return ENOMEM;
     }
 
-    if ((result=fs_client_proto_slice_read(&g_fs_client_vars.
+    if ((result=fs_client_slice_read(&g_fs_client_vars.
                     client_ctx, &bs_key, in_buff, &read_bytes)) != 0)
     {
         return result;

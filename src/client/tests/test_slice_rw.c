@@ -106,7 +106,7 @@ int main(int argc, char *argv[])
     }
 
     fs_calc_block_hashcode(&bs_key.block);
-    if ((result=fs_client_proto_slice_write(&g_fs_client_vars.
+    if ((result=fs_client_slice_write(&g_fs_client_vars.
                     client_ctx, &bs_key, out_buff,
                     &write_bytes, &inc_alloc)) != 0)
     {
@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
     }
 
     memset(in_buff, 0, bs_key.slice.length);
-    if ((result=fs_client_proto_slice_read(&g_fs_client_vars.
+    if ((result=fs_client_slice_read(&g_fs_client_vars.
                     client_ctx, &bs_key, in_buff, &read_bytes)) != 0)
     {
         return result;

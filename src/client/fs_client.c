@@ -342,7 +342,7 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     }
 }
 
-int fs_client_slice_operate(FSClientContext *client_ctx,
+int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
         const int req_cmd, const int resp_cmd, int *inc_alloc)
 {
@@ -378,7 +378,7 @@ int fs_client_slice_operate(FSClientContext *client_ctx,
         old_channel = connection_params->channel;
         i = 0;
         while (1) {
-            if ((result=fs_client_proto_slice_operate(client_ctx, conn,
+            if ((result=fs_client_proto_bs_operate(client_ctx, conn,
                             req_id, key, req_cmd, resp_cmd, inc_alloc)) == 0)
             {
                 break;

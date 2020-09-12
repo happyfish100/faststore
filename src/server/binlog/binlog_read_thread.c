@@ -72,8 +72,8 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
     common_blocked_queue_terminate(&ctx->queues.done);
 
     count = 0;
-    while (ctx->running && count++ < 10) {
-        fc_sleep_ms(200);
+    while (ctx->running && count++ < 300) {
+        fc_sleep_ms(10);
     }
 
     if (ctx->running) {

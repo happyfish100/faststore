@@ -518,8 +518,8 @@ void binlog_writer_finish(BinlogWriterInfo *writer)
         fc_queue_terminate(&writer->thread->queue);
 
         count = 0;
-        while (writer->thread->running && ++count < 100) {
-            fc_sleep_ms(100);
+        while (writer->thread->running && ++count < 300) {
+            fc_sleep_ms(10);
         }
         
         if (writer->thread->running) {

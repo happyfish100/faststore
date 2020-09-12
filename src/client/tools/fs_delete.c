@@ -95,11 +95,11 @@ int main(int argc, char *argv[])
             bs_key.slice.length == FS_FILE_BLOCK_SIZE)
     {
         caption = "block";
-        result = fs_client_proto_block_delete(&g_fs_client_vars.
+        result = fs_client_block_delete(&g_fs_client_vars.
                     client_ctx, &bs_key.block, &dec_alloc);
     } else {
         caption = "slice";
-        result = fs_client_proto_slice_delete(&g_fs_client_vars.
+        result = fs_client_slice_delete(&g_fs_client_vars.
                 client_ctx, &bs_key, &dec_alloc);
     }
     if (result != 0) {

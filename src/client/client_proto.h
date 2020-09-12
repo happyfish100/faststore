@@ -40,7 +40,7 @@ extern "C" {
             ConnectionInfo *conn, const FSBlockSliceKeyInfo *bs_key,
             char *buff, int *read_bytes);
 
-    int fs_client_proto_slice_operate(FSClientContext *client_ctx,
+    int fs_client_proto_bs_operate(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id, const void *key,
             const int req_cmd, const int resp_cmd, int *inc_alloc);
 
