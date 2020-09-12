@@ -29,11 +29,9 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     FSResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int bytes;
     int body_front_len;
 
     proto_header = (FSProtoHeader *)out_buff;
-    bytes = bs_key->slice.length;
     body_front_len = sizeof(FSProtoSliceWriteReqHeader);
     if (req_id > 0) {
         long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
@@ -231,8 +229,8 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
 
     response.error.length = 0;
     if ((result=fs_send_and_recv_response(conn, out_buff,
-                    body_len, &response, client_ctx->
-                    network_timeout, resp_cmd, (char *)&resp,
+                    sizeof(FSProtoHeader) + body_len, &response,
+                    client_ctx->network_timeout, resp_cmd, (char *)&resp,
                     sizeof(FSProtoSliceUpdateResp))) == 0)
     {
         *inc_alloc = buff2int(resp.inc_alloc);
@@ -274,7 +272,8 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
             body_len);
     response.error.length = 0;
-    if ((result=fs_send_and_recv_response(conn, out_buff, body_len,
+    if ((result=fs_send_and_recv_response(conn, out_buff,
+                    sizeof(FSProtoHeader) + body_len,
                     &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_BLOCK_DELETE_RESP, (char *)&resp,
                     sizeof(FSProtoSliceUpdateResp))) == 0)

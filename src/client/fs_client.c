@@ -378,8 +378,8 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
         old_channel = connection_params->channel;
         i = 0;
         while (1) {
-            if ((result=fs_client_proto_bs_operate(client_ctx, conn,
-                            req_id, key, req_cmd, resp_cmd, inc_alloc)) == 0)
+            if ((result=fs_client_proto_bs_operate(client_ctx, conn, req_id,
+                            key, req_cmd, resp_cmd, inc_alloc)) == 0)
             {
                 break;
             }
