@@ -197,7 +197,6 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         } else {
             bytes = connection_params->buffer_size;
         }
-        new_key.slice.offset = *write_bytes;
         new_key.slice.length = bytes;
 
         if (client_ctx->idempotency_enabled) {
@@ -274,6 +273,8 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         if (remain == 0) {
             break;
         }
+
+        new_key.slice.offset += bytes;
         sf_reset_net_retry_interval(&net_retry_ctx);
     }
 
@@ -308,8 +309,6 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     remain = bs_key->slice.length;
     i = 0;
     while (remain > 0) {
-        new_key.slice.offset = *read_bytes;
-        new_key.slice.length = remain;
         if ((result=fs_client_proto_slice_read(client_ctx, conn,
                         &new_key, buff + *read_bytes, &bytes)) == 0)
         {
@@ -334,10 +333,8 @@ int fs_client_slice_read(FSClientContext *client_ctx,
 
         *read_bytes += bytes;
         remain -= bytes;
-        if (remain == 0) {
-            break;
-        }
-
+        new_key.slice.offset += bytes;
+        new_key.slice.length = remain;
         sf_reset_net_retry_interval(&net_retry_ctx);
     }
 
