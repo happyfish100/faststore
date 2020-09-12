@@ -227,6 +227,10 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
                     net_retry_cfg.network.times, ++i, result);
 
+            logInfo("file: "__FILE__", line: %d, func: %s, "
+                    "net retry result: %d, retry count: %d",
+                    __LINE__, __FUNCTION__, result, i);
+
             fs_client_release_connection(client_ctx, conn, result);
             if ((conn=client_ctx->conn_manager.get_master_connection(
                             client_ctx, FS_CLIENT_DATA_GROUP_INDEX(
@@ -316,6 +320,10 @@ int fs_client_slice_read(FSClientContext *client_ctx,
         SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
                 net_retry_cfg.network.times, ++i, result);
 
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "net retry result: %d, retry count: %d",
+                __LINE__, __FUNCTION__, result, i);
+
         fs_client_release_connection(client_ctx, conn, result);
         if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
                         FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
@@ -336,12 +344,20 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     if (conn != NULL) {
         fs_client_release_connection(client_ctx, conn, result);
     }
+
+    if (result == 0) {
+        return *read_bytes > 0 ? 0 : ENODATA;
+    } else {
+        return result;
+    }
+/*
     if (*read_bytes > 0) {
         return 0;
         //return result == ENODATA ? 0 : result;
     } else {
-        return result == 0 ? ENODATA : result;
+        return  ? ENODATA : result;
     }
+    */
 }
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
@@ -395,6 +411,10 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
 
             SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
                     net_retry_cfg.network.times, ++i, result);
+
+            logInfo("file: "__FILE__", line: %d, func: %s, "
+                    "net retry result: %d, retry count: %d",
+                    __LINE__, __FUNCTION__, result, i);
 
             fs_client_release_connection(client_ctx, conn, result);
             if ((conn=client_ctx->conn_manager.get_master_connection(
