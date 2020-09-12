@@ -70,6 +70,31 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc);
 
+int fs_client_slice_read(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
+
+int fs_client_slice_operate(FSClientContext *client_ctx,
+        const void *key, const uint32_t hash_code,
+        const int req_cmd, const int resp_cmd, int *inc_alloc);
+
+#define fs_client_slice_allocate(client_ctx, bs_key, inc_alloc) \
+    fs_client_slice_operate(client_ctx, bs_key,    \
+            (bs_key)->block.hash_code,             \
+            FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ,   \
+            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, inc_alloc)
+
+#define fs_client_slice_delete(client_ctx, bs_key, dec_alloc) \
+    fs_client_slice_operate(client_ctx, bs_key, \
+            (bs_key)->block.hash_code,          \
+            FS_SERVICE_PROTO_SLICE_DELETE_REQ,  \
+            FS_SERVICE_PROTO_SLICE_DELETE_RESP, dec_alloc)
+
+#define fs_client_block_delete(client_ctx, bkey, dec_alloc) \
+    fs_client_slice_operate(client_ctx, bkey, (bkey)->      \
+            hash_code, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,   \
+            FS_SERVICE_PROTO_BLOCK_DELETE_RESP, dec_alloc)
+
+
 #ifdef __cplusplus
 }
 #endif

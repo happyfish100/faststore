@@ -73,7 +73,7 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
 
     count = 0;
     while (ctx->running && count++ < 10) {
-        usleep(200);
+        fc_sleep_ms(200);
     }
 
     if (ctx->running) {

@@ -188,7 +188,7 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
-        if ((result=fs_client_proto_slice_write(fi->ctx->contexts.fs,
+        if ((result=fs_client_slice_write(fi->ctx->contexts.fs,
                         &bs_key, buff + *written_bytes,
                         &current_written, &inc_alloc)) != 0)
         {
@@ -370,7 +370,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
         print_block_slice_key(&bs_key);
-        if ((result=fs_client_proto_slice_read(fi->ctx->contexts.fs,
+        if ((result=fs_client_slice_read(fi->ctx->contexts.fs,
                         &bs_key, buff + *read_bytes, &current_read)) != 0)
         {
             if (result == ENODATA) {
@@ -467,10 +467,10 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
     while (1) {
         print_block_slice_key(&bs_key);
         if (bs_key.slice.length == FS_FILE_BLOCK_SIZE) {
-            result = fs_client_proto_block_delete(ctx->contexts.fs,
+            result = fs_client_block_delete(ctx->contexts.fs,
                     &bs_key.block, &dec_alloc);
         } else {
-            result = fs_client_proto_slice_delete(ctx->contexts.fs,
+            result = fs_client_slice_delete(ctx->contexts.fs,
                     &bs_key, &dec_alloc);
         }
         if (result == 0) {
@@ -510,7 +510,7 @@ static int do_allocate(FSAPIContext *ctx, const int64_t oid,
     fs_set_block_slice(&bs_key, oid, offset, remain);
     while (1) {
         print_block_slice_key(&bs_key);
-        if ((result=fs_client_proto_slice_allocate(ctx->contexts.fs,
+        if ((result=fs_client_slice_allocate(ctx->contexts.fs,
                         &bs_key, &inc_alloc)) != 0)
         {
             break;

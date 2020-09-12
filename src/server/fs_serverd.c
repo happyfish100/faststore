@@ -240,7 +240,7 @@ int main(int argc, char *argv[])
     while ((SF_G_ALIVE_THREAD_COUNT != 0 || SF_ALIVE_THREAD_COUNT(
                     CLUSTER_SF_CTX) != 0) || g_schedule_flag)
     {
-        usleep(10000);
+        fc_sleep_ms(10);
         if (++wait_count > 1000) {
             lwarning("waiting timeout, exit!");
             break;

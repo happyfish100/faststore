@@ -204,7 +204,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
                     "version: %"PRId64, __LINE__, ctx->ds->dg->id,
                     fetch_ctx->wait_count, last_data_version,
                     fetch_ctx->until_version);
-            usleep(200000);
+            fc_sleep_ms(200);
         } else {
             fetch_ctx->wait_count = 0;
         }
@@ -401,7 +401,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
 
     trigger_report = false;
     for (i=0; i<30; i++) {
-        usleep(100000);  //waiting for ds status ready on the master
+        fc_sleep_ms(100);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
                 my_status == FS_SERVER_STATUS_RECOVERING))

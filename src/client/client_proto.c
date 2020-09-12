@@ -85,9 +85,9 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 }
 
 int fs_client_proto_slice_read(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes)
+        ConnectionInfo *conn, const FSBlockSliceKeyInfo *bs_key,
+        char *buff, int *read_bytes)
 {
-    ConnectionInfo *conn;
     const FSConnectionParameters *connection_params;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceReadReqHeader)];
     FSProtoHeader *proto_header;
@@ -100,98 +100,86 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     int curr_len;
     int bytes;
     int result;
-    int i;
 
-    hole_start = buff_offet = 0;
     proto_header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
     FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
             sizeof(FSProtoSliceReadReqHeader));
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
-    for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.hash_code),
-                        &result)) == NULL)
+
+    connection_params = client_ctx->conn_manager.get_connection_params(
+            client_ctx, conn);
+
+    result = 0;
+    hole_start = buff_offet = 0;
+    remain = bs_key->slice.length;
+    while (remain > 0) {
+        if (remain <= connection_params->buffer_size) {
+            curr_len = remain;
+        } else {
+            curr_len = connection_params->buffer_size;
+        }
+
+        int2buff(bs_key->slice.offset + buff_offet,
+                req_header->bs.slice_size.offset);
+        int2buff(curr_len, req_header->bs.slice_size.length);
+
+        response.error.length = 0;
+        if ((result=fs_send_and_recv_response_header(conn,
+                        out_buff, sizeof(out_buff), &response,
+                        client_ctx->network_timeout)) != 0)
         {
             break;
         }
 
-        connection_params = client_ctx->conn_manager.get_connection_params(
-                client_ctx, conn);
-        remain = bs_key->slice.length - buff_offet;
-        while (remain > 0) {
-            if (remain <= connection_params->buffer_size) {
-                curr_len = remain;
+        if ((result=fs_check_response(conn, &response,
+                        client_ctx->network_timeout,
+                        FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
+        {
+            if (result == ENOENT) {  //ignore errno ENOENT
+                bytes = 0;
+                result = 0;
             } else {
-                curr_len = connection_params->buffer_size;
+                break;
             }
-
-            int2buff(bs_key->slice.offset + buff_offet,
-                    req_header->bs.slice_size.offset);
-            int2buff(curr_len, req_header->bs.slice_size.length);
-
-            response.error.length = 0;
-            if ((result=fs_send_and_recv_response_header(conn,
-                            out_buff, sizeof(out_buff), &response,
-                            client_ctx->network_timeout)) != 0)
-            {
+        } else {
+            if (response.header.body_len > curr_len) {
+                response.error.length = sprintf(response.error.message,
+                        "reponse body length: %d > slice length: %d",
+                        response.header.body_len, curr_len);
+                result = EINVAL;
                 break;
             }
 
-            if ((result=fs_check_response(conn, &response,
-                            client_ctx->network_timeout,
-                            FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
+            if ((result=tcprecvdata_nb_ex(conn->sock, buff + buff_offet,
+                            response.header.body_len, client_ctx->
+                            network_timeout, &bytes)) != 0)
             {
-                if (result == ENOENT) {  //ignore errno ENOENT
-                    bytes = 0;
-                    result = 0;
-                } else {
-                    break;
-                }
-            } else {
-                if (response.header.body_len > curr_len) {
-                    response.error.length = sprintf(response.error.message,
-                            "reponse body length: %d > slice length: %d",
-                            response.header.body_len, curr_len);
-                    result = EINVAL;
-                    break;
-                }
-
-                if ((result=tcprecvdata_nb_ex(conn->sock, buff + buff_offet,
-                                response.header.body_len, client_ctx->
-                                network_timeout, &bytes)) != 0)
-                {
-                    response.error.length = snprintf(response.error.message,
-                            sizeof(response.error.message),
-                            "recv data fail, errno: %d, error info: %s",
-                            result, STRERROR(result));
-                    break;
-                }
-
-                hole_len = buff_offet - hole_start;
-                if (hole_len > 0) {
-                    memset(buff + hole_start, 0, hole_len);
-                }
-                hole_start = buff_offet + bytes;
+                response.error.length = snprintf(response.error.message,
+                        sizeof(response.error.message),
+                        "recv data fail, errno: %d, error info: %s",
+                        result, STRERROR(result));
+                break;
             }
 
-            logInfo("total recv: %d, current offset: %d, "
-                    "current length: %d, current read: %d",
-                    hole_start, bs_key->slice.offset + buff_offet,
-                    curr_len, bytes);
-
-            buff_offet += curr_len;
-            remain -= curr_len;
+            hole_len = buff_offet - hole_start;
+            if (hole_len > 0) {
+                memset(buff + hole_start, 0, hole_len);
+            }
+            hole_start = buff_offet + bytes;
         }
 
-        fs_client_release_connection(client_ctx, conn, result);
-        if (result != 0) {
-            fs_log_network_error(&response, conn, result);
-        }
+        logInfo("total recv: %d, current offset: %d, "
+                "current length: %d, current read: %d",
+                hole_start, bs_key->slice.offset + buff_offet,
+                curr_len, bytes);
 
-        if (!(result != 0 && is_network_error(result))) {
-            break;
-        }
+        buff_offet += curr_len;
+        remain -= curr_len;
+    }
+
+    if (result != 0) {
+        fs_log_network_error(&response, conn, result);
     }
 
     *read_bytes = hole_start;
@@ -202,110 +190,99 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     }
 }
 
-static int fs_client_proto_slice_operate(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, const int req_cmd,
-        const int resp_cmd, int *inc_alloc)
+int fs_client_proto_slice_operate(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const uint64_t req_id, const void *key,
+        const int req_cmd, const int resp_cmd, int *inc_alloc)
 {
-    ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceAllocateReq)];
+    const FSBlockSliceKeyInfo *bs_key;
+    char out_buff[sizeof(FSProtoHeader) +
+        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(FSProtoSliceAllocateReq)];
     FSProtoHeader *proto_header;
     FSProtoSliceAllocateReq *req;
     FSResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int i;
+    int body_len;
+
+    if (req_cmd == FS_SERVICE_PROTO_BLOCK_DELETE_REQ) {
+        return fs_client_proto_block_delete(client_ctx, conn,
+                req_id, (const FSBlockKey *)key, inc_alloc);
+    }
 
     proto_header = (FSProtoHeader *)out_buff;
-    req = (FSProtoSliceAllocateReq *)(proto_header + 1);
+    body_len = sizeof(FSProtoSliceAllocateReq);
+    if (req_id > 0) {
+        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+                    (proto_header + 1))->req_id);
+        body_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        req = (FSProtoSliceAllocateReq *)((char *)(proto_header
+                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+    } else {
+        req = (FSProtoSliceAllocateReq *)(proto_header + 1);
+    }
+
+    FS_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
+
+    bs_key = (const FSBlockSliceKeyInfo *)key;
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
-    for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.hash_code),
-                        &result)) == NULL)
-        {
-            return result;
-        }
+    int2buff(bs_key->slice.offset, req->bs.slice_size.offset);
+    int2buff(bs_key->slice.length, req->bs.slice_size.length);
 
-        response.error.length = 0;
-        FS_PROTO_SET_HEADER(proto_header, req_cmd,
-                sizeof(FSProtoSliceAllocateReq));
-        int2buff(bs_key->slice.offset, req->bs.slice_size.offset);
-        int2buff(bs_key->slice.length, req->bs.slice_size.length);
-        if ((result=fs_send_and_recv_response(conn, out_buff,
-                sizeof(out_buff), &response, client_ctx->
-                network_timeout, resp_cmd, (char *)&resp,
-                sizeof(FSProtoSliceUpdateResp))) == 0)
-        {
-            *inc_alloc = buff2int(resp.inc_alloc);
-        } else {
-            fs_log_network_error(&response, conn, result);
-        }
-
-        fs_client_release_connection(client_ctx, conn, result);
-        if (!(result != 0 && is_network_error(result))) {
-            break;
-        }
+    response.error.length = 0;
+    if ((result=fs_send_and_recv_response(conn, out_buff,
+                    body_len, &response, client_ctx->
+                    network_timeout, resp_cmd, (char *)&resp,
+                    sizeof(FSProtoSliceUpdateResp))) == 0)
+    {
+        *inc_alloc = buff2int(resp.inc_alloc);
+    } else {
+        *inc_alloc = 0;
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
 }
 
-int fs_client_proto_slice_allocate(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, int *inc_alloc)
-{
-    return fs_client_proto_slice_operate(client_ctx,
-        bs_key, FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ,
-        FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, inc_alloc);
-}
-
-int fs_client_proto_slice_delete(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, int *dec_alloc)
-{
-    return fs_client_proto_slice_operate(client_ctx,
-        bs_key, FS_SERVICE_PROTO_SLICE_DELETE_REQ,
-        FS_SERVICE_PROTO_SLICE_DELETE_RESP, dec_alloc);
-}
-
 int fs_client_proto_block_delete(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const uint64_t req_id,
         const FSBlockKey *bkey, int *dec_alloc)
 {
-    ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoBlockDeleteReq)];
+    char out_buff[sizeof(FSProtoHeader) +
+        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(FSProtoBlockDeleteReq)];
     FSProtoHeader *proto_header;
     FSProtoBlockDeleteReq *req;
     FSResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int i;
+    int body_len;
 
     proto_header = (FSProtoHeader *)out_buff;
-    req = (FSProtoBlockDeleteReq *)(proto_header + 1);
+    body_len = sizeof(FSProtoBlockDeleteReq);
+    if (req_id > 0) {
+        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+                    (proto_header + 1))->req_id);
+        body_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        req = (FSProtoBlockDeleteReq *)((char *)(proto_header
+                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+    } else {
+        req = (FSProtoBlockDeleteReq *)(proto_header + 1);
+    }
+
     proto_pack_block_key(bkey, &req->bkey);
-    for (i=0; i<3; i++) {
-        if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
-                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bkey->hash_code),
-                        &result)) == NULL)
-        {
-            return result;
-        }
-
-        response.error.length = 0;
-        FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
-                sizeof(FSProtoBlockDeleteReq));
-        if ((result=fs_send_and_recv_response(conn, out_buff,
-                sizeof(out_buff), &response, client_ctx->
-                network_timeout, FS_SERVICE_PROTO_BLOCK_DELETE_RESP,
-                (char *)&resp, sizeof(FSProtoSliceUpdateResp))) == 0)
-        {
-            *dec_alloc = buff2int(resp.inc_alloc);
-        } else {
-            fs_log_network_error(&response, conn, result);
-        }
-
-        fs_client_release_connection(client_ctx, conn, result);
-        if (!(result != 0 && is_network_error(result))) {
-            break;
-        }
+    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
+            body_len);
+    response.error.length = 0;
+    if ((result=fs_send_and_recv_response(conn, out_buff, body_len,
+                    &response, client_ctx->network_timeout,
+                    FS_SERVICE_PROTO_BLOCK_DELETE_RESP, (char *)&resp,
+                    sizeof(FSProtoSliceUpdateResp))) == 0)
+    {
+        *dec_alloc = buff2int(resp.inc_alloc);
+    } else {
+        *dec_alloc = 0;
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;

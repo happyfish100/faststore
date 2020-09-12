@@ -119,7 +119,7 @@ int main(int argc, char *argv[])
 
     wait_count = 0;
     while (g_schedule_flag) {
-        usleep(100000);
+        fc_sleep_ms(100);
         if (++wait_count > 100) {
             lwarning("waiting timeout, exit!");
             break;

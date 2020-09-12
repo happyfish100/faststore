@@ -266,6 +266,7 @@ static const struct fs_connection_parameters *get_connection_params(
 static int connect_done_callback(ConnectionInfo *conn, void *args)
 {
     FSConnectionParameters *params;
+    int result;
 
     params = (FSConnectionParameters *)conn->args;
     if (((FSClientContext *)args)->idempotency_enabled) {
@@ -274,8 +275,15 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
         if (params->channel == NULL) {
             return ENOMEM;
         }
+    } else {
+        params->channel = NULL;
     }
-    return fs_client_proto_join_server((FSClientContext *)args, conn, params);
+
+    result = fs_client_proto_join_server((FSClientContext *)args, conn, params);
+    if (result == SF_RETRIABLE_ERROR_NO_CHANNEL && params->channel != NULL) {
+        idempotency_client_channel_check_reconnect(params->channel);
+    }
+    return result;
 }
 
 static int validate_connection_callback(ConnectionInfo *conn, void *args)

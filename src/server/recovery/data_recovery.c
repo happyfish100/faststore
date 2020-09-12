@@ -285,7 +285,7 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
         if (data_version >= ctx->fetch.last_data_version) {
             break;
         }
-        usleep(10 * 1000);
+        fc_sleep_ms(10);
     }
 
     logInfo("file: "__FILE__", line: %d, "

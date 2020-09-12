@@ -108,8 +108,8 @@ int binlog_replay_init()
         return result;
     }
 
-    g_fs_client_vars.connect_timeout = SF_G_CONNECT_TIMEOUT;
-    g_fs_client_vars.network_timeout = SF_G_NETWORK_TIMEOUT;
+    g_fs_client_vars.client_ctx.connect_timeout = SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.client_ctx.network_timeout = SF_G_NETWORK_TIMEOUT;
     snprintf(g_fs_client_vars.base_path, sizeof(g_fs_client_vars.base_path),
             "%s", SF_G_BASE_PATH);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
@@ -163,7 +163,7 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 break;
             }
 
-            if ((result=fs_client_proto_slice_read(&g_fs_client_vars.
+            if ((result=fs_client_slice_read(&g_fs_client_vars.
                             client_ctx, &task->op_ctx.info.bs_key,
                             buff, &read_bytes)) == 0)
             {
@@ -275,7 +275,7 @@ static void binlog_replay_run(void *arg, void *thread_data)
         if ((task=(ReplayTaskInfo *)fc_queue_try_pop(
                         &thread_ctx->queues.waiting)) == NULL)
         {
-            usleep(100000);
+            fc_sleep_ms(100);
             continue;
         }
 
@@ -403,7 +403,7 @@ static void waiting_replay_threads_exit(DataRecoveryContext *ctx)
         logInfo("data group id: %d, replay running threads: %d",
                 ctx->ds->dg->id, __sync_add_and_fetch(
                     &replay_ctx->running_count, 0));
-        usleep(10000);
+        fc_sleep_ms(10);
     }
 }
 
@@ -418,7 +418,7 @@ static void replay_finish(DataRecoveryContext *ctx, const int err_no)
     replay_ctx = (BinlogReplayContext *)ctx->arg;
     if (err_no == 0) {
         for (i=0; i<REPLAY_WAIT_TIMES; i++) {
-            usleep(100000);
+            fc_sleep_ms(100);
             calc_replay_stat(replay_ctx, &stat);
             total_count = stat.write.total + stat.allocate.total +
                 stat.remove.total;

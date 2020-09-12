@@ -37,15 +37,15 @@ extern "C" {
             int *inc_alloc);
 
     int fs_client_proto_slice_read(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
+            ConnectionInfo *conn, const FSBlockSliceKeyInfo *bs_key,
+            char *buff, int *read_bytes);
 
-    int fs_client_proto_slice_allocate(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key, int *inc_alloc);
-
-    int fs_client_proto_slice_delete(FSClientContext *client_ctx,
-            const FSBlockSliceKeyInfo *bs_key, int *dec_alloc);
+    int fs_client_proto_slice_operate(FSClientContext *client_ctx,
+            ConnectionInfo *conn, const uint64_t req_id, const void *key,
+            const int req_cmd, const int resp_cmd, int *inc_alloc);
 
     int fs_client_proto_block_delete(FSClientContext *client_ctx,
+            ConnectionInfo *conn, const uint64_t req_id,
             const FSBlockKey *bkey, int *dec_alloc);
 
     int fs_client_proto_join_server(FSClientContext *client_ctx,

@@ -512,7 +512,7 @@ static int binlog_repair_finish(const int data_group_id,
             }
         }
         if (result == 0) {
-            usleep(100 * 1000);
+            fc_sleep_ms(100);
         }
     }
 

@@ -17,7 +17,7 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
         logInfo("block {oid: %"PRId64", offset: %"PRId64"}",
                 bkey.oid, bkey.offset);
 
-        result = fs_client_proto_block_delete(client_ctx, &bkey, &dec_alloc);
+        result = fs_client_block_delete(client_ctx, &bkey, &dec_alloc);
         if (result == ENOENT) {
             result = 0;
         } else if (result != 0) {
@@ -222,16 +222,15 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                 break;
             }
 
-            if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
-                        network.times, ++i, result))
+            if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID &&
+                    client_ctx->idempotency_enabled)
             {
-                break;
+                idempotency_client_channel_check_reconnect(
+                        connection_params->channel);
             }
 
-            sf_calc_next_retry_interval(&net_retry_ctx);
-            if (net_retry_ctx.interval_ms > 0) {
-                usleep(net_retry_ctx.interval_ms);
-            }
+            SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
+                    net_retry_cfg.network.times, ++i, result);
 
             fs_client_release_connection(client_ctx, conn, result);
             if ((conn=client_ctx->conn_manager.get_master_connection(
@@ -242,14 +241,15 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                 return result;
             }
 
+            connection_params = client_ctx->conn_manager.
+                get_connection_params(client_ctx, conn);
             if (connection_params->channel != old_channel) {
-                connection_params = client_ctx->conn_manager.
-                    get_connection_params(client_ctx, conn);
                 break;
             }
         }
 
         if (connection_params->channel != old_channel) { //master changed
+            sf_reset_net_retry_interval(&net_retry_ctx);
             continue;
         }
 
@@ -270,6 +270,156 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             break;
         }
         sf_reset_net_retry_interval(&net_retry_ctx);
+    }
+
+    fs_client_release_connection(client_ctx, conn, result);
+    return result;
+}
+
+int fs_client_slice_read(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes)
+{
+    ConnectionInfo *conn;
+    FSBlockSliceKeyInfo new_key;
+    int result;
+    int remain;
+    int bytes;
+    int i;
+    SFNetRetryIntervalContext net_retry_ctx;
+
+    if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
+                        hash_code), &result)) == NULL)
+    {
+        return result;
+    }
+
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.network);
+
+    *read_bytes = 0;
+    new_key = *bs_key;
+    remain = bs_key->slice.length;
+    i = 0;
+    while (remain > 0) {
+        new_key.slice.offset += *read_bytes;
+        new_key.slice.length = remain;
+        if ((result=fs_client_proto_slice_read(client_ctx, conn,
+                        &new_key, buff + *read_bytes, &bytes)) == 0)
+        {
+            break;
+        }
+
+        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
+                net_retry_cfg.network.times, ++i, result);
+
+        fs_client_release_connection(client_ctx, conn, result);
+        if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
+                        FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
+                            hash_code), &result)) == NULL)
+        {
+            break;
+        }
+
+        *read_bytes += bytes;
+        remain -= bytes;
+        if (remain == 0) {
+            break;
+        }
+
+        sf_reset_net_retry_interval(&net_retry_ctx);
+    }
+
+    if (conn != NULL) {
+        fs_client_release_connection(client_ctx, conn, result);
+    }
+    if (*read_bytes > 0) {
+        return 0;
+        //return result == ENODATA ? 0 : result;
+    } else {
+        return result == 0 ? ENODATA : result;
+    }
+}
+
+int fs_client_slice_operate(FSClientContext *client_ctx,
+        const void *key, const uint32_t hash_code,
+        const int req_cmd, const int resp_cmd, int *inc_alloc)
+{
+    const FSConnectionParameters *connection_params;
+    ConnectionInfo *conn;
+    IdempotencyClientChannel *old_channel;
+    int result;
+    int i;
+    uint64_t req_id;
+    SFNetRetryIntervalContext net_retry_ctx;
+
+    if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
+                    &result)) == NULL)
+    {
+        return result;
+    }
+    connection_params = client_ctx->conn_manager.get_connection_params(
+            client_ctx, conn);
+
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.network);
+
+    while (1) {
+        if (client_ctx->idempotency_enabled) {
+            req_id = idempotency_client_channel_next_seq_id(
+                    connection_params->channel);
+        } else {
+            req_id = 0;
+        }
+
+        old_channel = connection_params->channel;
+        i = 0;
+        while (1) {
+            if ((result=fs_client_proto_slice_operate(client_ctx, conn,
+                            req_id, key, req_cmd, resp_cmd, inc_alloc)) == 0)
+            {
+                break;
+            }
+
+            if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID &&
+                    client_ctx->idempotency_enabled)
+            {
+                idempotency_client_channel_check_reconnect(
+                        connection_params->channel);
+            }
+
+            SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
+                    net_retry_cfg.network.times, ++i, result);
+
+            fs_client_release_connection(client_ctx, conn, result);
+            if ((conn=client_ctx->conn_manager.get_master_connection(
+                            client_ctx, FS_CLIENT_DATA_GROUP_INDEX(
+                                client_ctx, hash_code), &result)) == NULL)
+            {
+                return result;
+            }
+
+            connection_params = client_ctx->conn_manager.
+                get_connection_params(client_ctx, conn);
+            if (connection_params->channel != old_channel) {
+                break;
+            }
+        }
+
+        if (connection_params->channel != old_channel) { //master changed
+            sf_reset_net_retry_interval(&net_retry_ctx);
+            continue;
+        }
+
+        if (client_ctx->idempotency_enabled) {
+            idempotency_client_channel_push(
+                    connection_params->channel, req_id);
+        }
+
+        break;
     }
 
     fs_client_release_connection(client_ctx, conn, result);

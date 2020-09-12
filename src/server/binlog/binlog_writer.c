@@ -519,7 +519,7 @@ void binlog_writer_finish(BinlogWriterInfo *writer)
 
         count = 0;
         while (writer->thread->running && ++count < 100) {
-            usleep(100 * 1000);
+            fc_sleep_ms(100);
         }
         
         if (writer->thread->running) {

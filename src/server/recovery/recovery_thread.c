@@ -158,7 +158,7 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
             fc_thread_pool_run(&recovery_thread_ctx.tpool,
                     recovery_thread_run_task, ds);
             if (status == FS_SERVER_STATUS_INIT) {
-                usleep(500000);
+                fc_sleep_ms(500);
             }
             break;
         default:
