@@ -15,7 +15,6 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         IniFullContext *ini_ctx)
 {
     char *pBasePath;
-    const char *old_section_name;
     char net_retry_output[256];
     int result;
 
@@ -42,21 +41,24 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         }
     }
 
-    client_ctx->connect_timeout = iniGetIntValue(ini_ctx->section_name,
-            "connect_timeout", ini_ctx->context, DEFAULT_CONNECT_TIMEOUT);
+    client_ctx->connect_timeout = iniGetIntValueEx(
+            ini_ctx->section_name, "connect_timeout",
+            ini_ctx->context, DEFAULT_CONNECT_TIMEOUT, true);
     if (client_ctx->connect_timeout <= 0) {
         client_ctx->connect_timeout = DEFAULT_CONNECT_TIMEOUT;
     }
 
-    client_ctx->network_timeout = iniGetIntValue(ini_ctx->section_name,
-            "network_timeout", ini_ctx->context, DEFAULT_NETWORK_TIMEOUT);
+    client_ctx->network_timeout = iniGetIntValueEx(
+            ini_ctx->section_name, "network_timeout",
+            ini_ctx->context, DEFAULT_NETWORK_TIMEOUT, true);
     if (client_ctx->network_timeout <= 0) {
         client_ctx->network_timeout = DEFAULT_NETWORK_TIMEOUT;
     }
 
     sf_load_read_rule_config(&client_ctx->read_rule, ini_ctx);
-    client_ctx->idempotency_enabled = iniGetIntValue(ini_ctx->section_name,
-            "rpc_idempotency", ini_ctx->context, false);
+    client_ctx->idempotency_enabled = iniGetIntValueEx(
+            ini_ctx->section_name, "rpc_idempotency",
+            ini_ctx->context, false, true);
 
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
                     cluster_cfg.ptr, ini_ctx)) != 0)
@@ -64,14 +66,11 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
-    old_section_name = ini_ctx->section_name;
-    ini_ctx->section_name = NULL;
     if ((result=sf_load_net_retry_config(&client_ctx->
                     net_retry_cfg, ini_ctx)) != 0)
     {
         return result;
     }
-    ini_ctx->section_name = old_section_name;
 
     //TODO  remove me!
     if (client_ctx->idempotency_enabled) {
