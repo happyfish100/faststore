@@ -80,8 +80,8 @@ static int setup_channel_request(struct fast_task_info *task)
     channel = (IdempotencyClientChannel *)task->arg;
     header = (FSProtoHeader *)task->data;
     req = (FSProtoSetupChannelReq *)(header + 1);
-    int2buff(channel->id, req->channel_id);
-    int2buff(channel->key, req->key);
+    int2buff(__sync_add_and_fetch(&channel->id, 0), req->channel_id);
+    int2buff(__sync_add_and_fetch(&channel->key, 0), req->key);
 
     FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_SETUP_CHANNEL_REQ,
             sizeof(FSProtoSetupChannelReq));

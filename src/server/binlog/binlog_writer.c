@@ -288,7 +288,7 @@ static void repush_to_queue(BinlogWriterThread *thread, BinlogWriterBuffer *wb)
     BinlogWriterBuffer *previous;
     BinlogWriterBuffer *current;
 
-    PTHREAD_MUTEX_LOCK(&thread->queue.lock);
+    PTHREAD_MUTEX_LOCK(&thread->queue.lc_pair.lock);
     if (thread->queue.head == NULL) {
         wb->next = NULL;
         thread->queue.head = thread->queue.tail = wb;
@@ -314,7 +314,7 @@ static void repush_to_queue(BinlogWriterThread *thread, BinlogWriterBuffer *wb)
         wb->next = previous->next;
         previous->next = wb;
     }
-    PTHREAD_MUTEX_UNLOCK(&thread->queue.lock);
+    PTHREAD_MUTEX_UNLOCK(&thread->queue.lc_pair.lock);
 }
 
 #define DEAL_CURRENT_VERSION_WBUFFER(writer, wb) \

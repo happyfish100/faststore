@@ -303,8 +303,11 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
 
     if (client_ctx->idempotency_enabled) {
         flags = FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST;
-        int2buff(conn_params->channel->id, req->idempotency.channel_id);
-        int2buff(conn_params->channel->key, req->idempotency.key);
+
+        int2buff(__sync_add_and_fetch(&conn_params->channel->id, 0),
+                req->idempotency.channel_id);
+        int2buff(__sync_add_and_fetch(&conn_params->channel->key, 0),
+                req->idempotency.key);
     } else {
         flags = 0;
     }

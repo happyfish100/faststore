@@ -193,6 +193,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
                     current->task->port, server_ip, server_port);
             if (r == 0) {
                 channel = current;
+                found = true;
                 break;
             } else if (r > 0) {
                 break;
@@ -202,8 +203,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
             current = current->next;
         }
 
-        if (channel != NULL) {
-            found = true;
+        if (found) {
             break;
         }
 
