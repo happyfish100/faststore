@@ -163,8 +163,14 @@ static int setup_server_env(const char *config_filename)
         return result;
     }
 
-    result = sf_setup_signal_handler();
+    if ((result=sf_setup_signal_handler()) != 0) {
+        return result;
+    }
     log_set_cache(true);
+
+    if (g_fs_client_vars.client_ctx.idempotency_enabled) {
+        result = fs_client_rpc_idempotency_reporter_start();
+    }
     return result;
 }
 

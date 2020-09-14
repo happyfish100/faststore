@@ -178,7 +178,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
                         bs_key->block.hash_code), &result)) == NULL)
     {
-        return result;
+        return SF_UNIX_ERRNO(result, EIO);
     }
 
     connection_params = client_ctx->conn_manager.get_connection_params(
@@ -209,11 +209,20 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         old_channel = connection_params->channel;
         i = 0;
         while (1) {
-            if ((result=fs_client_proto_slice_write(client_ctx, conn,
-                            req_id, &new_key, data + *write_bytes,
-                            &current_alloc)) == 0)
-            {
-                break;
+            if (client_ctx->idempotency_enabled) {
+                result = idempotency_client_channel_check_wait(
+                        connection_params->channel);
+            } else {
+                result = 0;
+            }
+
+            if (result == 0) {
+                if ((result=fs_client_proto_slice_write(client_ctx, conn,
+                                req_id, &new_key, data + *write_bytes,
+                                &current_alloc)) == 0)
+                {
+                    break;
+                }
             }
 
             if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID &&
@@ -236,7 +245,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                                 client_ctx, bs_key->block.hash_code),
                             &result)) == NULL)
             {
-                return result;
+                return SF_UNIX_ERRNO(result, EIO);
             }
 
             connection_params = client_ctx->conn_manager.
@@ -279,7 +288,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     }
 
     fs_client_release_connection(client_ctx, conn, result);
-    return result;
+    return SF_UNIX_ERRNO(result, EIO);
 }
 
 int fs_client_slice_read(FSClientContext *client_ctx,
@@ -297,7 +306,7 @@ int fs_client_slice_read(FSClientContext *client_ctx,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
                         hash_code), &result)) == NULL)
     {
-        return result;
+        return SF_UNIX_ERRNO(result, EIO);
     }
 
     sf_init_net_retry_interval_context(&net_retry_ctx,
@@ -345,7 +354,7 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     if (result == 0) {
         return *read_bytes > 0 ? 0 : ENODATA;
     } else {
-        return result;
+        return SF_UNIX_ERRNO(result, EIO);
     }
 /*
     if (*read_bytes > 0) {
@@ -373,7 +382,7 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
                     &result)) == NULL)
     {
-        return result;
+        return SF_UNIX_ERRNO(result, EIO);
     }
     connection_params = client_ctx->conn_manager.get_connection_params(
             client_ctx, conn);
@@ -393,10 +402,20 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
         old_channel = connection_params->channel;
         i = 0;
         while (1) {
-            if ((result=fs_client_proto_bs_operate(client_ctx, conn, req_id,
-                            key, req_cmd, resp_cmd, inc_alloc)) == 0)
-            {
-                break;
+            if (client_ctx->idempotency_enabled) {
+                result = idempotency_client_channel_check_wait(
+                        connection_params->channel);
+            } else {
+                result = 0;
+            }
+
+            if (result == 0) {
+                if ((result=fs_client_proto_bs_operate(client_ctx,
+                                conn, req_id, key, req_cmd, resp_cmd,
+                                inc_alloc)) == 0)
+                {
+                    break;
+                }
             }
 
             if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID &&
@@ -418,7 +437,7 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
                             client_ctx, FS_CLIENT_DATA_GROUP_INDEX(
                                 client_ctx, hash_code), &result)) == NULL)
             {
-                return result;
+                return SF_UNIX_ERRNO(result, EIO);
             }
 
             connection_params = client_ctx->conn_manager.
@@ -442,5 +461,5 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
     }
 
     fs_client_release_connection(client_ctx, conn, result);
-    return result;
+    return SF_UNIX_ERRNO(result, EIO);
 }

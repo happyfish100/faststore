@@ -12,10 +12,14 @@ typedef struct idempotency_client_receipt {
 } IdempotencyClientReceipt;
 
 typedef struct idempotency_client_channel {
-    uint32_t id;  //channel id
-    int key;      //channel key
-    volatile short in_ioevent;
+    volatile uint32_t id;  //channel id, 0 for invalid
+    volatile int key;      //channel key
+    volatile char in_ioevent;
+    volatile char in_heartbeat;
+    volatile char established;
     time_t last_connect_time;
+    time_t last_pkg_time;  //last communication time
+    pthread_lock_cond_pair_t lc_pair;  //for channel valid check and notify
     volatile uint64_t next_req_id;
     struct fast_mblock_man receipt_allocator;
     struct fast_task_info *task;

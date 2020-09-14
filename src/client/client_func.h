@@ -65,6 +65,8 @@ void fs_client_destroy_ex(FSClientContext *client_ctx);
 int fs_alloc_group_servers(FSServerGroup *server_group,
         const int alloc_size);
 
+int fs_client_rpc_idempotency_reporter_start();
+
 #ifdef __cplusplus
 }
 #endif

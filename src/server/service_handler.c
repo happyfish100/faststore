@@ -118,7 +118,7 @@ static int service_deal_client_join(struct fast_task_info *task)
         if (IDEMPOTENCY_CHANNEL == NULL) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "find channel fail, channel id: %d", channel_id);
-            return ENOENT;
+            return SF_RETRIABLE_ERROR_NO_CHANNEL;
         }
 
         SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_USER;
@@ -459,6 +459,7 @@ static int service_deal_setup_channel(struct fast_task_info *task)
     uint32_t channel_id;
     int key;
 
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_SETUP_CHANNEL_RESP;
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoSetupChannelReq))) != 0)
     {
@@ -488,7 +489,6 @@ static int service_deal_setup_channel(struct fast_task_info *task)
     int2buff(IDEMPOTENCY_CHANNEL->id, resp->channel_id);
     int2buff(IDEMPOTENCY_CHANNEL->key, resp->key);
     RESPONSE.header.body_len = sizeof(FSProtoSetupChannelResp);
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SETUP_CHANNEL_RESP;
     TASK_ARG->context.response_done = true;
     return 0;
 }
@@ -505,7 +505,7 @@ static int check_holder_channel(struct fast_task_info *task)
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "channel not exist");
-        return ENOENT;
+        return SF_RETRIABLE_ERROR_NO_CHANNEL;
     }
 
     return 0;

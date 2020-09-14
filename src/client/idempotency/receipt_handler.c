@@ -24,6 +24,7 @@
 #include "sf/sf_service.h"
 #include "fs_proto.h"
 #include "fs_func.h"
+#include "client_channel.h"
 #include "receipt_handler.h"
 
 static int receipt_init_task(struct fast_task_info *task)
@@ -35,9 +36,19 @@ static int receipt_init_task(struct fast_task_info *task)
 
 static int receipt_recv_timeout_callback(struct fast_task_info *task)
 {
+    IdempotencyClientChannel *channel;
+
     if (SF_NIO_TASK_STAGE_FETCH(task) == SF_NIO_STAGE_CONNECT) {
         logError("file: "__FILE__", line: %d, "
                 "connect to server %s:%d timeout",
+                __LINE__, task->server_ip, task->port);
+        return ETIMEDOUT;
+    }
+
+    channel = (IdempotencyClientChannel *)task->arg;
+    if (channel->waiting_resp_qinfo.head != NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "waiting receipt response from server %s:%d timeout",
                 __LINE__, task->server_ip, task->port);
         return ETIMEDOUT;
     }
@@ -48,7 +59,6 @@ static int receipt_recv_timeout_callback(struct fast_task_info *task)
 static void receipt_task_finish_cleanup(struct fast_task_info *task)
 {
     IdempotencyClientChannel *channel;
-    channel = (IdempotencyClientChannel *)task->arg;
 
     if (task->event.fd >= 0) {
         sf_task_detach_thread(task);
@@ -56,6 +66,8 @@ static void receipt_task_finish_cleanup(struct fast_task_info *task)
         task->event.fd = -1;
     }
 
+    channel = (IdempotencyClientChannel *)task->arg;
+    __sync_bool_compare_and_swap(&channel->established, 1, 0);
     __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0);
 }
 
@@ -183,6 +195,8 @@ static int deal_setup_channel_response(struct fast_task_info *task)
     int result;
     FSProtoSetupChannelResp *resp;
     IdempotencyClientChannel *channel;
+    int channel_id;
+    int channel_key;
 
     if ((result=receipt_expect_body_length(task,
                     sizeof(FSProtoSetupChannelResp))) != 0)
@@ -192,8 +206,14 @@ static int deal_setup_channel_response(struct fast_task_info *task)
 
     channel = (IdempotencyClientChannel *)task->arg;
     resp = (FSProtoSetupChannelResp *)(task->data + sizeof(FSProtoHeader));
-    channel->id = buff2int(resp->channel_id);
-    channel->key = buff2int(resp->key);
+    channel_id = buff2int(resp->channel_id);
+    channel_key = buff2int(resp->key);
+    idempotency_client_channel_set_id_key(channel, channel_id, channel_key);
+    __sync_bool_compare_and_swap(&channel->established, 0, 1);
+
+    PTHREAD_MUTEX_LOCK(&channel->lc_pair.lock);
+    pthread_cond_broadcast(&channel->lc_pair.cond);
+    PTHREAD_MUTEX_UNLOCK(&channel->lc_pair.lock);
 
     if (channel->waiting_resp_qinfo.head != NULL) {
         bool notify;
@@ -256,12 +276,18 @@ static int receipt_deal_task(struct fast_task_info *task)
 
         result = buff2short(((FSProtoHeader *)task->data)->status);
         if (result != 0) {
+            int msg_len;
+            char *message;
+
+            msg_len = task->length - sizeof(FSProtoHeader);
+            message = task->data + sizeof(FSProtoHeader);
             logError("file: "__FILE__", line: %d, "
-                    "response from server %s:%d, cmd: %d (%s), status: %d",
+                    "response from server %s:%d, cmd: %d (%s), "
+                    "status: %d, error info: %.*s",
                     __LINE__, task->server_ip, task->port,
                     ((FSProtoHeader *)task->data)->cmd,
                     fs_get_cmd_caption(((FSProtoHeader *)task->data)->cmd),
-                    result);
+                    result, msg_len, message);
             break;
         }
 

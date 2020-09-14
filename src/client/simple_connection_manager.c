@@ -164,16 +164,9 @@ static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
             return conn;
         } while (0);
 
-        if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
-                    connect.times, ++i, *err_no))
-        {
-            break;
-        }
-
-        sf_calc_next_retry_interval(&net_retry_ctx);
-        if (net_retry_ctx.interval_ms > 0) {
-            usleep(net_retry_ctx.interval_ms);
-        }
+        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx,
+                client_ctx->net_retry_cfg.
+                connect.times, ++i, *err_no);
     }
 
     logError("file: "__FILE__", line: %d, "
@@ -211,16 +204,9 @@ static ConnectionInfo *get_readable_connection(FSClientContext *client_ctx,
             return conn;
         } while (0);
 
-        if (SF_NET_RETRY_FINISHED(client_ctx->net_retry_cfg.
-                    connect.times, ++i, *err_no))
-        {
-            break;
-        }
-
-        sf_calc_next_retry_interval(&net_retry_ctx);
-        if (net_retry_ctx.interval_ms > 0) {
-            usleep(net_retry_ctx.interval_ms);
-        }
+        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx,
+                client_ctx->net_retry_cfg.
+                connect.times, ++i, *err_no);
     }
 
     logError("file: "__FILE__", line: %d, "
@@ -270,10 +256,11 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
 
     params = (FSConnectionParameters *)conn->args;
     if (((FSClientContext *)args)->idempotency_enabled) {
-        params->channel = idempotency_client_channel_get(
-                conn->ip_addr, conn->port);
+        params->channel = idempotency_client_channel_get(conn->ip_addr,
+                conn->port, ((FSClientContext *)args)->connect_timeout,
+                &result);
         if (params->channel == NULL) {
-            return ENOMEM;
+            return result;
         }
     } else {
         params->channel = NULL;

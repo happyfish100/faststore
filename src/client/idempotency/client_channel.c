@@ -75,6 +75,10 @@ static int idempotency_channel_alloc_init(void *element, void *args)
         return result;
     }
 
+    if ((result=init_pthread_lock_cond_pair(&channel->lc_pair)) != 0) {
+        return result;
+    }
+
     return fc_queue_init(&channel->queue, (long)
             (&((IdempotencyClientReceipt *)NULL)->next));
 }
@@ -101,7 +105,8 @@ void client_channel_destroy()
 }
 
 struct fast_task_info *alloc_channel_task(IdempotencyClientChannel *channel,
-        const uint32_t hash_code, const char *server_ip, const short port)
+        const uint32_t hash_code, const char *server_ip, const short port,
+        int *err_no)
 {
     struct fast_task_info *task;
 
@@ -111,6 +116,7 @@ struct fast_task_info *alloc_channel_task(IdempotencyClientChannel *channel,
                 "malloc task buff failed, you should "
                 "increase the parameter: max_connections",
                 __LINE__);
+        *err_no = ENOMEM;
         return NULL;
     }
 
@@ -123,13 +129,12 @@ struct fast_task_info *alloc_channel_task(IdempotencyClientChannel *channel,
     task->thread_data = g_sf_context.thread_data +
         hash_code % g_sf_context.work_threads;
     channel->in_ioevent = 1;
-    if (sf_nio_notify(task, SF_NIO_STAGE_CONNECT) != 0) {
+    channel->last_connect_time = get_current_time();
+    if ((*err_no=sf_nio_notify(task, SF_NIO_STAGE_CONNECT)) != 0) {
         channel->in_ioevent = 0;
         free_queue_push(task);
         return NULL;
     }
-    channel->last_connect_time = get_current_time();
-
     return task;
 }
 
@@ -158,7 +163,8 @@ int idempotency_client_channel_check_reconnect(
 }
 
 struct idempotency_client_channel *idempotency_client_channel_get(
-        const char *server_ip, const short server_port)
+        const char *server_ip, const short server_port,
+        const int timeout, int *err_no)
 {
     int r;
     int key_len;
@@ -176,6 +182,7 @@ struct idempotency_client_channel *idempotency_client_channel_get(
         hash_code % channel_context.htable.capacity;
     previous = NULL;
     channel = NULL;
+    *err_no = 0;
     found = false;
 
     PTHREAD_MUTEX_LOCK(&channel_context.htable.lock);
@@ -203,11 +210,12 @@ struct idempotency_client_channel *idempotency_client_channel_get(
         channel = (IdempotencyClientChannel *)fast_mblock_alloc_object(
                 &channel_context.channel_allocator);
         if (channel == NULL) {
+            *err_no = ENOMEM;
             break;
         }
 
         channel->task = alloc_channel_task(channel,
-                hash_code, server_ip, server_port);
+                hash_code, server_ip, server_port, err_no);
         if (channel->task == NULL) {
             fast_mblock_free_object(&channel_context.
                     channel_allocator, channel);
@@ -226,9 +234,14 @@ struct idempotency_client_channel *idempotency_client_channel_get(
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&channel_context.htable.lock);
 
-    if (found) {
-        idempotency_client_channel_check_reconnect(channel);
+    if (channel != NULL) {
+        if ((*err_no=idempotency_client_channel_check_wait_ex(
+                        channel, timeout)) != 0)
+        {
+            return NULL;
+        }
     }
+
     return channel;
 }
 

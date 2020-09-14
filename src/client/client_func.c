@@ -3,6 +3,9 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "sf/sf_global.h"
+#include "sf/sf_service.h"
+#include "sf/sf_nio.h"
 #include "idempotency/client_channel.h"
 #include "idempotency/receipt_handler.h"
 #include "fs_func.h"
@@ -56,7 +59,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     }
 
     sf_load_read_rule_config(&client_ctx->read_rule, ini_ctx);
-    client_ctx->idempotency_enabled = iniGetIntValueEx(
+    client_ctx->idempotency_enabled = iniGetBoolValueEx(
             ini_ctx->section_name, "rpc_idempotency",
             ini_ctx->context, false, true);
 
@@ -74,12 +77,15 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
 
     //TODO  remove me!
     if (client_ctx->idempotency_enabled) {
+        char sf_global_cfg[512];
+        char sf_context_cfg[512];
         if ((result=client_channel_init()) != 0) {
             return result;
         }
-        if ((result=receipt_handler_init()) != 0) {
-            return result;
-        }
+
+        sf_global_config_to_string(sf_global_cfg, sizeof sf_global_cfg);
+        sf_context_config_to_string(&g_sf_context, sf_context_cfg, sizeof sf_context_cfg);
+        logInfo("%s, %s", sf_global_cfg, sf_context_cfg);
     }
 
     sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
@@ -176,4 +182,17 @@ void fs_client_destroy_ex(FSClientContext *client_ctx)
     memset(client_ctx, 0, sizeof(FSClientContext));
 }
 
+int fs_client_rpc_idempotency_reporter_start()
+{
+    int result;
 
+    if ((result=receipt_handler_init()) != 0) {
+        return result;
+    }
+
+    sf_enable_thread_notify(true);
+    sf_set_remove_from_ready_list(false);
+    fc_sleep_ms(100);
+
+    return 0;
+}
