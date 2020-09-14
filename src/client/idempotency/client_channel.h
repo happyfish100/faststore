@@ -67,7 +67,7 @@ static inline int idempotency_client_channel_check_wait_ex(
             &channel->lc_pair.lock, &ts);
     PTHREAD_MUTEX_UNLOCK(&channel->lc_pair.lock);
 
-    return __sync_add_and_fetch(&channel->established, 0) ? 0 : EAGAIN;
+    return __sync_add_and_fetch(&channel->established, 0) ? 0 : ETIMEDOUT;
 }
 
 #ifdef __cplusplus

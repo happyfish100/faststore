@@ -22,7 +22,7 @@ extern "C" {
             const bool is_holder);
 
     IdempotencyChannel *idempotency_channel_find_and_hold(
-            const uint32_t channel_id, const int key);
+            const uint32_t channel_id, const int key, int *result);
 
     void idempotency_channel_free(IdempotencyChannel *channel);
 

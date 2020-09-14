@@ -129,18 +129,22 @@ static void add_to_delay_free_htable(IdempotencyChannel *channel)
 }
 
 IdempotencyChannel *idempotency_channel_find_and_hold(
-        const uint32_t channel_id, const int key)
+        const uint32_t channel_id, const int key, int *result)
 {
     IdempotencyChannel *channel;
     if ((channel=idempotency_channel_htable_find(&channel_context.
                     htable_ctx, channel_id)) == NULL)
     {
+        *result = ENOENT;
         return NULL;
     }
 
     if (channel->key != key) {
+        *result = EPERM;
         return NULL;
     }
+
+    *result = 0;
     __sync_add_and_fetch(&channel->ref_count, 1);
     return channel;
 }

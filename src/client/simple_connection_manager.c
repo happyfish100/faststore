@@ -260,6 +260,10 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
                 conn->port, ((FSClientContext *)args)->connect_timeout,
                 &result);
         if (params->channel == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "server %s:%d, idempotency channel get fail, "
+                    "result: %d, error info: %s", __LINE__, conn->ip_addr,
+                    conn->port, result, STRERROR(result));
             return result;
         }
     } else {

@@ -114,10 +114,11 @@ static int service_deal_client_join(struct fast_task_info *task)
         }
 
         IDEMPOTENCY_CHANNEL = idempotency_channel_find_and_hold(
-                channel_id, key);
+                channel_id, key, &result);
         if (IDEMPOTENCY_CHANNEL == NULL) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "find channel fail, channel id: %d", channel_id);
+                    "find channel fail, channel id: %d, result: %d",
+                    channel_id, result);
             return SF_RETRIABLE_ERROR_NO_CHANNEL;
         }
 
