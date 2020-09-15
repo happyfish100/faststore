@@ -154,6 +154,12 @@ int idempotency_client_channel_check_reconnect(
         channel->last_connect_time = ++current_time;
     }
 
+    logDebug("file: "__FILE__", line: %d, "
+            "trigger connect to server %s:%d",
+            __LINE__, channel->task->server_ip,
+            channel->task->port);
+
+    channel->task->canceled = false;
     if ((result=sf_nio_notify(channel->task, SF_NIO_STAGE_CONNECT)) == 0) {
         channel->last_connect_time = current_time;
     } else {

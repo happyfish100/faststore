@@ -24,7 +24,7 @@ extern "C" {
             FSClientContext *client_ctx,
             ConnectionInfo *conn, const int result)
     {
-        if ((result == EINVAL) || (result != 0 && is_network_error(result))) {
+        if (SF_FORCE_CLOSE_CONNECTION_ERROR(result)) {
             client_ctx->conn_manager.close_connection(client_ctx, conn);
         } else if (client_ctx->conn_manager.release_connection != NULL) {
             client_ctx->conn_manager.release_connection(client_ctx, conn);

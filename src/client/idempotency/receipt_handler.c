@@ -69,6 +69,10 @@ static void receipt_task_finish_cleanup(struct fast_task_info *task)
     channel = (IdempotencyClientChannel *)task->arg;
     __sync_bool_compare_and_swap(&channel->established, 1, 0);
     __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0);
+
+    logDebug("file: "__FILE__", line: %d, "
+            "receipt task for server %s:%d exit",
+            __LINE__, task->server_ip, task->port);
 }
 
 static int setup_channel_request(struct fast_task_info *task)
@@ -172,8 +176,11 @@ static int report_req_receipt_request(struct fast_task_info *task)
 
     if (count == 0) {
         result = sf_set_read_event(task);
+    } else {
+        ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
+            g_current_time;
     }
-    return result;
+    return 0;
 }
 
 static inline int receipt_expect_body_length(struct fast_task_info *task,
@@ -268,6 +275,8 @@ static int receipt_deal_task(struct fast_task_info *task)
         stage = SF_NIO_TASK_STAGE_FETCH(task);
         if (stage == SF_NIO_STAGE_HANDSHAKE) {
             result = setup_channel_request(task);
+            ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
+                g_current_time;
             break;
         } else if (stage == SF_NIO_STAGE_CONTINUE) {
             result = report_req_receipt_request(task);
@@ -309,17 +318,14 @@ static int receipt_deal_task(struct fast_task_info *task)
         }
 
         if (result == 0) {
+            ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
+                g_current_time;
             task->offset = task->length = 0;
             result = report_req_receipt_request(task);
         }
     } while (0);
 
     return result > 0 ? -1 * result : result;
-}
-
-void *receipt_alloc_thread_extra_data(const int thread_index)
-{
-    return NULL;
 }
 
 int receipt_handler_init()

@@ -255,6 +255,8 @@ IdempotencyChannel *idempotency_channel_alloc(const uint32_t channel_id,
 
     __sync_bool_compare_and_swap(&channel->is_valid, 0, 1);
     __sync_add_and_fetch(&channel->ref_count, 1);
+    idempotency_channel_htable_add(&channel_context.
+            htable_ctx, channel);
     return channel;
 }
 
