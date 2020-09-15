@@ -11,9 +11,7 @@ COMMON_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_global.o \
 
 CLIENT_OBJS = ../client/fs_client.o ../client/client_func.o \
               ../client/client_global.o ../client/client_proto.o \
-              ../client/simple_connection_manager.o \
-              ../client/idempotency/receipt_handler.o \
-              ../client/idempotency/client_channel.o
+              ../client/simple_connection_manager.o
 
 SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replica_handler.o common_handler.o data_update_handler.o \
@@ -34,8 +32,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               cluster_relationship.o cluster_topology.o server_recovery.o \
               recovery/binlog_fetch.o recovery/binlog_dedup.o   \
               recovery/binlog_replay.o recovery/data_recovery.o \
-              recovery/recovery_thread.o idempotency/channel.o  \
-              idempotency/request_htable.o idempotency/channel_htable.o
+              recovery/recovery_thread.o
 
 
 ALL_OBJS = $(COMMON_OBJS) $(CLIENT_OBJS) $(SERVER_OBJS)

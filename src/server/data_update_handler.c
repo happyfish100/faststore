@@ -21,10 +21,10 @@
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
+#include "sf/idempotency/server/server_channel.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
-#include "idempotency/channel.h"
 #include "server_replication.h"
 #include "server_global.h"
 #include "server_func.h"
@@ -135,7 +135,7 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
 void du_handler_idempotency_request_finish(struct fast_task_info *task,
         const int result)
 {
-    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_USER &&
+    if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_REQUEST != NULL)
     {
         IDEMPOTENCY_REQUEST->finished = true;
@@ -308,7 +308,8 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     char *buff;
     int result;
 
-    if ((result=server_check_min_body_length_ex(task, op_ctx->info.body_len,
+    if ((result=sf_server_check_min_body_length(&RESPONSE,
+                    op_ctx->info.body_len,
                     sizeof(FSProtoSliceWriteReqHeader))) != 0)
     {
         return result;
@@ -382,7 +383,7 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     int result;
     FSProtoSliceAllocateReq *req;
 
-    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
+    if ((result=sf_server_expect_body_length(&RESPONSE, op_ctx->info.body_len,
                     sizeof(FSProtoSliceAllocateReq))) != 0)
     {
         return result;
@@ -414,7 +415,7 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     int result;
     FSProtoSliceDeleteReq *req;
 
-    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
+    if ((result=sf_server_expect_body_length(&RESPONSE, op_ctx->info.body_len,
                     sizeof(FSProtoSliceDeleteReq))) != 0)
     {
         return result;
@@ -443,7 +444,7 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     int result;
     FSProtoBlockDeleteReq *req;
 
-    if ((result=server_expect_body_length_ex(task, op_ctx->info.body_len,
+    if ((result=sf_server_expect_body_length(&RESPONSE, op_ctx->info.body_len,
                     sizeof(FSProtoBlockDeleteReq))) != 0)
     {
         return result;

@@ -260,7 +260,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     BinlogFetchContext *fetch_ctx;
     FSProtoHeader *header;
     FSProtoReplicaFetchBinlogRespBodyHeader *common_bheader;
-    FSResponseInfo response;
+    SFResponseInfo response;
 
     if (req_cmd == FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ) {
         bheader_size = sizeof(FSProtoReplicaFetchBinlogFirstRespBodyHeader);
@@ -271,11 +271,11 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
     response.error.length = 0;
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
-    if ((result=fs_send_and_check_response_header(conn, out_buff,
+    SF_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
+    if ((result=sf_send_and_check_response_header(conn, out_buff,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
         return result;
     }
 
@@ -301,7 +301,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 sizeof(response.error.message),
                 "recv data fail, errno: %d, error info: %s",
                 result, STRERROR(result));
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
         return result;
     }
 

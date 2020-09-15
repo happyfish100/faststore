@@ -1,5 +1,5 @@
 #include <stdlib.h>
-#include "idempotency/client_channel.h"
+#include "sf/idempotency/client/client_channel.h"
 #include "client_global.h"
 #include "fs_client.h"
 

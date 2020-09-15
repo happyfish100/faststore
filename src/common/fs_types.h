@@ -2,8 +2,8 @@
 #define _FS_TYPES_H
 
 #include "fastcommon/common_define.h"
+#include "sf/sf_types.h"
 
-#define FS_ERROR_INFO_SIZE   256
 #define FS_REPLICA_KEY_SIZE    8
 
 #define FS_DEFAULT_BINLOG_BUFFER_SIZE (64 * 1024)
@@ -62,25 +62,5 @@ typedef struct {
     int64_t success;
     int64_t ignore;
 } FSCounterTripple;
-
-typedef struct {
-    int body_len;      //body length
-    short flags;
-    short status;
-    unsigned char cmd; //command
-} FSHeaderInfo;
-
-typedef struct {
-    FSHeaderInfo header;
-    char *body;
-} FSRequestInfo;
-
-typedef struct {
-    FSHeaderInfo header;
-    struct {
-        int length;
-        char message[FS_ERROR_INFO_SIZE];
-    } error;
-} FSResponseInfo;
 
 #endif

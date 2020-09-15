@@ -321,7 +321,7 @@ static int proto_active_confirm(ConnectionInfo *conn,
         DataRecoveryContext *ctx)
 {
     int result;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoReplicaActiveConfirmReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaActiveConfirmReq)];
@@ -330,16 +330,16 @@ static int proto_active_confirm(ConnectionInfo *conn,
         (out_buff + sizeof(FSProtoHeader));
     int2buff(ctx->ds->dg->id, req->data_group_id);
     int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
-    FS_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
+    SF_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
             FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
             sizeof(FSProtoReplicaActiveConfirmReq));
 
     response.error.length = 0;
-    if ((result=fs_send_and_recv_none_body_response(conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP)) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;

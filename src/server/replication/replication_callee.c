@@ -147,7 +147,7 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
                 (task->data + sizeof(FSProtoHeader)))->count);
 
     task->length = p - task->data;
-    FS_PROTO_SET_HEADER((FSProtoHeader *)task->data,
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
             FS_REPLICA_PROTO_RPC_RESP, task->length - sizeof(FSProtoHeader));
     sf_send_add_event(task);
     return 0;

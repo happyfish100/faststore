@@ -71,7 +71,7 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
                 CLUSTER_PEER = NULL;
             }
-            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+            SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;

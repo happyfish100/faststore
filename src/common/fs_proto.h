@@ -7,10 +7,10 @@
 #include "fastcommon/connection_pool.h"
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/sockopt.h"
+#include "sf/sf_proto.h"
 #include "fs_types.h"
 
 #define FS_STATUS_LEADER_INCONSISTENT     9999
-#define FS_STATUS_CHANNEL_INVALID         9001
 
 #define FS_PROTO_ACK                      6
 
@@ -40,14 +40,6 @@
 #define FS_SERVICE_PROTO_GET_MASTER_RESP          46
 #define FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ  49
 #define FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP 50
-
-//for request idempotency
-#define FS_SERVICE_PROTO_SETUP_CHANNEL_REQ        51
-#define FS_SERVICE_PROTO_SETUP_CHANNEL_RESP       52
-#define FS_SERVICE_PROTO_CLOSE_CHANNEL_REQ        53
-#define FS_SERVICE_PROTO_CLOSE_CHANNEL_RESP       54
-#define FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ   55
-#define FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP  56
 
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
@@ -79,46 +71,7 @@
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
 
-
-#define FS_PROTO_MAGIC_CHAR        '@'
-#define FS_PROTO_SET_MAGIC(m)   \
-    m[0] = m[1] = m[2] = m[3] = FS_PROTO_MAGIC_CHAR
-
-#define FS_PROTO_CHECK_MAGIC(m) \
-    (m[0] == FS_PROTO_MAGIC_CHAR && m[1] == FS_PROTO_MAGIC_CHAR && \
-     m[2] == FS_PROTO_MAGIC_CHAR && m[3] == FS_PROTO_MAGIC_CHAR)
-
-#define FS_PROTO_MAGIC_FORMAT "0x%02X%02X%02X%02X"
-#define FS_PROTO_MAGIC_EXPECT_PARAMS \
-    FS_PROTO_MAGIC_CHAR, FS_PROTO_MAGIC_CHAR, \
-    FS_PROTO_MAGIC_CHAR, FS_PROTO_MAGIC_CHAR
-
-#define FS_PROTO_MAGIC_PARAMS(m) \
-    m[0], m[1], m[2], m[3]
-
-#define FS_PROTO_SET_HEADER(header, _cmd, _body_len) \
-    do {  \
-        FS_PROTO_SET_MAGIC((header)->magic);   \
-        (header)->cmd = _cmd;      \
-        (header)->status[0] = (header)->status[1] = 0; \
-        int2buff(_body_len, (header)->body_len); \
-    } while (0)
-
-#define FS_PROTO_SET_RESPONSE_HEADER(proto_header, resp_header) \
-    do {  \
-        (proto_header)->cmd = (resp_header).cmd;       \
-        short2buff((resp_header).status, (proto_header)->status);  \
-        int2buff((resp_header).body_len, (proto_header)->body_len);\
-    } while (0)
-
-typedef struct fs_proto_header {
-    unsigned char magic[4]; //magic number
-    char body_len[4];       //body length
-    char status[2];         //status to store errno
-    char flags[2];
-    unsigned char cmd;      //the command code
-    char padding[3];
-} FSProtoHeader;
+typedef SFCommonProtoHeader  FSProtoHeader;
 
 typedef struct fs_proto_client_join_req {
     char data_group_count[4];
@@ -362,116 +315,18 @@ typedef struct fs_proto_replica_rpc_resp_body_part {
     char padding[6];
 } FSProtoReplicaRPCRespBodyPart;
 
-typedef struct fs_proto_setup_channel_req {
-    char channel_id[4]; //for hint
-    char key[4];        //for validate when channel_id > 0
-} FSProtoSetupChannelReq;
-
-typedef struct fs_proto_setup_channel_resp {
-    char channel_id[4];
-    char key[4];
-} FSProtoSetupChannelResp;
-
-typedef struct fs_proto_report_req_receipt_header {
-    char count[4];
-    char padding[4];
-} FSProtoReportReqReceiptHeader;
-
-typedef struct fs_proto_report_req_receipt_body {
-    char req_id[8];
-} FSProtoReportReqReceiptBody;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 void fs_proto_init();
 
-int fs_proto_set_body_length(struct fast_task_info *task);
-
-int fs_check_response(ConnectionInfo *conn, FSResponseInfo *response,
-        const int network_timeout, const unsigned char expect_cmd);
-
-int fs_recv_response(ConnectionInfo *conn, FSResponseInfo *response,
-        const int network_timeout, const unsigned char expect_cmd,
-        char *recv_data, const int expect_body_len);
-
-int fs_send_and_recv_response_header(ConnectionInfo *conn, char *data,
-        const int len, FSResponseInfo *response, const int network_timeout);
-
-static inline int fs_send_and_check_response_header(ConnectionInfo *conn,
-        char *data, const int len, FSResponseInfo *response,
-        const int network_timeout, const unsigned char expect_cmd)
-{
-    int result;
-
-    if ((result=fs_send_and_recv_response_header(conn, data, len,
-                    response, network_timeout)) != 0)
-    {
-        return result;
-    }
-
-
-    if ((result=fs_check_response(conn, response, network_timeout,
-                    expect_cmd)) != 0)
-    {
-        return result;
-    }
-
-    return 0;
-}
-
-int fs_send_and_recv_response(ConnectionInfo *conn, char *send_data,
-        const int send_len, FSResponseInfo *response,
-        const int network_timeout, const unsigned char expect_cmd,
-        char *recv_data, const int expect_body_len);
-
-static inline int fs_send_and_recv_none_body_response(ConnectionInfo *conn,
-        char *send_data, const int send_len, FSResponseInfo *response,
-        const int network_timeout, const unsigned char expect_cmd)
-{
-    char *recv_data = NULL;
-    const int expect_body_len = 0;
-
-    return fs_send_and_recv_response(conn, send_data, send_len, response,
-        network_timeout, expect_cmd, recv_data, expect_body_len);
-}
-
-static inline void fs_proto_extract_header(FSProtoHeader *header_proto,
-        FSHeaderInfo *header_info)
-{
-    header_info->cmd = header_proto->cmd;
-    header_info->body_len = buff2int(header_proto->body_len);
-    header_info->flags = buff2short(header_proto->flags);
-    header_info->status = buff2short(header_proto->status);
-}
-
-int fs_active_test(ConnectionInfo *conn, FSResponseInfo *response,
+int fs_active_test(ConnectionInfo *conn, SFResponseInfo *response,
         const int network_timeout);
 
 const char *fs_get_server_status_caption(const int status);
 
 const char *fs_get_cmd_caption(const int cmd);
-
-static inline void fs_log_network_error_ex(FSResponseInfo *response,
-        const ConnectionInfo *conn, const int result, const int line)
-{
-    if (response->error.length > 0) {
-        logError("file: "__FILE__", line: %d, "
-                "server %s:%d, %s", line,
-                conn->ip_addr, conn->port,
-                response->error.message);
-    } else {
-        logError("file: "__FILE__", line: %d, "
-                "communicate with server %s:%d fail, "
-                "errno: %d, error info: %s", line,
-                conn->ip_addr, conn->port,
-                result, STRERROR(result));
-    }
-}
-
-#define fs_log_network_error(response, conn, result)  \
-    fs_log_network_error_ex(response, conn, result, __LINE__)
 
 #ifdef __cplusplus
 }

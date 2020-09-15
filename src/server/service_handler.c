@@ -26,7 +26,8 @@
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
 #include "replication/replication_common.h"
-#include "idempotency/channel.h"
+#include "sf/idempotency/server/server_channel.h"
+#include "sf/idempotency/server/server_handler.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -51,14 +52,14 @@ int service_handler_destroy()
 void service_task_finish_cleanup(struct fast_task_info *task)
 {
     switch (SERVER_TASK_TYPE) {
-        case FS_SERVER_TASK_TYPE_CHANNEL_HOLDER:
-        case FS_SERVER_TASK_TYPE_CHANNEL_USER:
+        case SF_SERVER_TASK_TYPE_CHANNEL_HOLDER:
+        case SF_SERVER_TASK_TYPE_CHANNEL_USER:
             if (IDEMPOTENCY_CHANNEL != NULL) {
                 idempotency_channel_release(IDEMPOTENCY_CHANNEL,
-                        SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_HOLDER);
+                        SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_HOLDER);
                 IDEMPOTENCY_CHANNEL = NULL;
             }
-            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+            SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;
@@ -122,7 +123,7 @@ static int service_deal_client_join(struct fast_task_info *task)
             return SF_RETRIABLE_ERROR_NO_CHANNEL;
         }
 
-        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_USER;
+        SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_CHANNEL_USER;
     }
 
     join_resp = (FSProtoClientJoinResp *)REQUEST.body;
@@ -452,132 +453,10 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     return 0;
 }
 
-static int service_deal_setup_channel(struct fast_task_info *task)
-{
-    int result;
-    FSProtoSetupChannelReq *req;
-    FSProtoSetupChannelResp *resp;
-    uint32_t channel_id;
-    int key;
-
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_SETUP_CHANNEL_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoSetupChannelReq))) != 0)
-    {
-        return result;
-    }
-
-    req = (FSProtoSetupChannelReq *)REQUEST.body;
-    channel_id = buff2int(req->channel_id);
-    key = buff2int(req->key);
-    if (IDEMPOTENCY_CHANNEL != NULL) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "channel already setup, the channel id: %d",
-                IDEMPOTENCY_CHANNEL->id);
-        return EEXIST;
-    }
-
-    IDEMPOTENCY_CHANNEL = idempotency_channel_alloc(channel_id, key);
-    if (IDEMPOTENCY_CHANNEL == NULL) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "alloc channel fail, hint channel id: %d", channel_id);
-        return ENOMEM;
-    }
-
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CHANNEL_HOLDER;
-
-    resp = (FSProtoSetupChannelResp *)REQUEST.body;
-    int2buff(IDEMPOTENCY_CHANNEL->id, resp->channel_id);
-    int2buff(IDEMPOTENCY_CHANNEL->key, resp->key);
-    RESPONSE.header.body_len = sizeof(FSProtoSetupChannelResp);
-    TASK_ARG->context.response_done = true;
-    return 0;
-}
-
-static int check_holder_channel(struct fast_task_info *task)
-{
-    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_CHANNEL_HOLDER) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "unexpect task type: %d", SERVER_TASK_TYPE);
-        return EINVAL;
-    }
-
-    if (IDEMPOTENCY_CHANNEL == NULL) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "channel not exist");
-        return SF_RETRIABLE_ERROR_NO_CHANNEL;
-    }
-
-    return 0;
-}
-
-static int service_deal_close_channel(struct fast_task_info *task)
-{
-    int result;
-    if ((result=check_holder_channel(task)) != 0) {
-        return result;
-    }
-
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_CLOSE_CHANNEL_RESP;
-    idempotency_channel_free(IDEMPOTENCY_CHANNEL);
-    IDEMPOTENCY_CHANNEL = NULL;
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
-    return 0;
-}
-
-static int service_deal_report_req_receipt(struct fast_task_info *task)
-{
-    int result;
-    int count;
-    int success;
-    int calc_body_len;
-    int64_t req_id;
-    FSProtoReportReqReceiptHeader *body_header;
-    FSProtoReportReqReceiptBody *body_part;
-    FSProtoReportReqReceiptBody *body_end;
-
-    if ((result=check_holder_channel(task)) != 0) {
-        return result;
-    }
-
-    if ((result=server_check_min_body_length(task,
-                    sizeof(FSProtoReportReqReceiptHeader))) != 0)
-    {
-        return result;
-    }
-
-    body_header = (FSProtoReportReqReceiptHeader *)REQUEST.body;
-    count = buff2int(body_header->count);
-    calc_body_len = sizeof(FSProtoReportReqReceiptHeader) +
-        sizeof(FSProtoReportReqReceiptBody) * count;
-    if (REQUEST.header.body_len != calc_body_len) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "body length: %d != calculated body length: %d",
-                REQUEST.header.body_len, calc_body_len);
-        return EINVAL;
-    }
-
-    success = 0;
-    body_part = (FSProtoReportReqReceiptBody *)(body_header + 1);
-    body_end = body_part + count;
-    for (; body_part < body_end; body_part++) {
-        req_id = buff2long(body_part->req_id);
-        if (idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL, req_id) == 0) {
-            success++;
-        }
-    }
-
-    logInfo("receipt count: %d, success: %d", count, success);
-
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_RESP;
-    return 0;
-}
-
 static int service_update_prepare_and_check(struct fast_task_info *task,
         bool *deal_done)
 {
-    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_CHANNEL_USER &&
+    if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
     {
         FSProtoIdempotencyAdditionalHeader *adheader;
@@ -767,14 +646,21 @@ int service_deal_task(struct fast_task_info *task)
             case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
                 result = service_deal_cluster_stat(task);
                 break;
-            case FS_SERVICE_PROTO_SETUP_CHANNEL_REQ:
-                result = service_deal_setup_channel(task);
+            case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
+                if ((result=sf_server_deal_setup_channel(task,
+                                &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL,
+                                &RESPONSE)) == 0)
+                {
+                    TASK_ARG->context.response_done = true;
+                }
                 break;
-            case FS_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
-                result = service_deal_close_channel(task);
+            case SF_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
+                result = sf_server_deal_close_channel(task,
+                        &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
                 break;
-            case FS_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
-                result = service_deal_report_req_receipt(task);
+            case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
+                result = sf_server_deal_report_req_receipt(task,
+                        &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

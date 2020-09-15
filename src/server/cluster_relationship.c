@@ -81,12 +81,12 @@ static int proto_get_server_status(ConnectionInfo *conn,
 	FSProtoHeader *header;
     FSProtoGetServerStatusReq *req;
     FSProtoGetServerStatusResp *resp;
-    FSResponseInfo response;
+    SFResponseInfo response;
 	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoGetServerStatusReq)];
 	char in_body[sizeof(FSProtoGetServerStatusResp)];
 
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ,
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
     req = (FSProtoGetServerStatusReq *)(out_buff + sizeof(FSProtoHeader));
@@ -96,12 +96,12 @@ static int proto_get_server_status(ConnectionInfo *conn,
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
             SERVERS_CONFIG_SIGN_LEN);
     response.error.length = 0;
-	if ((result=fs_send_and_recv_response(conn, out_buff,
+	if ((result=sf_send_and_recv_response(conn, out_buff,
 			sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
             FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP, in_body,
             sizeof(FSProtoGetServerStatusResp))) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
         return result;
     }
 
@@ -119,11 +119,11 @@ static int proto_join_leader(ConnectionInfo *conn)
 	int result;
 	FSProtoHeader *header;
     FSProtoJoinLeaderReq *req;
-    FSResponseInfo response;
+    SFResponseInfo response;
 	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinLeaderReq)];
 
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_JOIN_LEADER_REQ,
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_JOIN_LEADER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
     req = (FSProtoJoinLeaderReq *)(out_buff + sizeof(FSProtoHeader));
@@ -133,11 +133,11 @@ static int proto_join_leader(ConnectionInfo *conn)
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
             SERVERS_CONFIG_SIGN_LEN);
     response.error.length = 0;
-    if ((result=fs_send_and_recv_none_body_response(conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_JOIN_LEADER_RESP)) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -332,7 +332,7 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     char out_buff[sizeof(FSProtoHeader) + 4];
     ConnectionInfo conn;
     FSProtoHeader *header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     int result;
 
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
@@ -344,15 +344,15 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     *bConnectFail = false;
 
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, cmd, sizeof(out_buff) -
+    SF_PROTO_SET_HEADER(header, cmd, sizeof(out_buff) -
             sizeof(FSProtoHeader));
     int2buff(leader->server->id, out_buff + sizeof(FSProtoHeader));
     response.error.length = 0;
-    if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_PROTO_ACK)) != 0)
     {
-        fs_log_network_error(&response, &conn, result);
+        sf_log_network_error(&response, &conn, result);
     }
 
     conn_pool_disconnect_server(&conn);
@@ -367,7 +367,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     FSProtoReportDSStatusReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReportDSStatusReq)];
     ConnectionInfo conn;
-    FSResponseInfo response;
+    SFResponseInfo response;
     int result;
 
     leader = CLUSTER_LEADER_ATOM_PTR;
@@ -383,18 +383,18 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
 
     header = (FSProtoHeader *)out_buff;
     req = (FSProtoReportDSStatusReq *)(header + 1);
-    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ,
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->my_server_id);
     int2buff(ds->cs->server->id, req->ds_server_id);
     int2buff(ds->dg->id, req->data_group_id);
     req->status = status;
     response.error.length = 0;
-    if ((result=fs_send_and_recv_none_body_response(&conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
-        fs_log_network_error(&response, &conn, result);
+        sf_log_network_error(&response, &conn, result);
     }
 
     conn_pool_disconnect_server(&conn);
@@ -955,7 +955,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     cluster_relationship_on_master_change(old_master, new_master);
 }
 
-static int cluster_process_leader_push(FSResponseInfo *response,
+static int cluster_process_leader_push(SFResponseInfo *response,
         char *body_buff, const int body_len)
 {
     FSProtoPushDataServerStatusHeader *body_header;
@@ -1002,7 +1002,7 @@ static int cluster_process_leader_push(FSResponseInfo *response,
 }
 
 static int cluster_recv_from_leader(ConnectionInfo *conn,
-        FSResponseInfo *response, const int timeout_ms,
+        SFResponseInfo *response, const int timeout_ms,
         const bool ignore_timeout)
 {
     FSProtoHeader header_proto;
@@ -1080,7 +1080,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
         const unsigned char cmd, const bool report_all)
 {
     FSProtoHeader *header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     char out_buff[8 * 1024];
     FSProtoPingLeaderReqHeader *req_header;
     int out_bytes;
@@ -1104,7 +1104,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
     }
 
     int2buff(data_group_count, req_header->data_group_count);
-    FS_PROTO_SET_HEADER(header, cmd, out_bytes - sizeof(FSProtoHeader));
+    SF_PROTO_SET_HEADER(header, cmd, out_bytes - sizeof(FSProtoHeader));
 
     response.error.length = 0;
     if ((result=tcpsenddata_nb(conn->sock, out_buff, out_bytes,
@@ -1115,7 +1115,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
     }
 
     if (result != 0) {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -1133,7 +1133,7 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
     int result;
     int start_time;
     int timeout_ms;
-    FSResponseInfo response;
+    SFResponseInfo response;
 
     start_time = g_current_time;
     timeout_ms = 100;
@@ -1142,7 +1142,7 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
         if ((result=cluster_recv_from_leader(conn, &response,
                         timeout_ms, true)) != 0)
         {
-            fs_log_network_error(&response, conn, result);
+            sf_log_network_error(&response, conn, result);
             return result;
         }
 

@@ -2,10 +2,10 @@
 #include <limits.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "sf/idempotency/client/client_channel.h"
 #include "client_global.h"
 #include "client_func.h"
 #include "client_proto.h"
-#include "idempotency/client_channel.h"
 #include "simple_connection_manager.h"
 
 static ConnectionInfo *get_spec_connection(FSClientContext *client_ctx,
@@ -279,12 +279,12 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
 
 static int validate_connection_callback(ConnectionInfo *conn, void *args)
 {
-    FSResponseInfo response;
+    SFResponseInfo response;
     int result;
     if ((result=fs_active_test(conn, &response, ((FSClientContext *)args)->
                     network_timeout)) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;

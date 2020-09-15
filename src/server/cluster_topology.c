@@ -245,7 +245,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
             req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;
-    FS_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
             body_len);
     ctx->task->length = sizeof(FSProtoHeader) + body_len;
     return sf_send_add_event((struct fast_task_info *)ctx->task);

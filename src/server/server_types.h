@@ -28,12 +28,9 @@
 #define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
 #define FS_BINLOG_MAX_RECORD_SIZE  FS_SLICE_BINLOG_MAX_RECORD_SIZE
 
-#define FS_SERVER_TASK_TYPE_NONE                0
 #define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
 #define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
 #define FS_SERVER_TASK_TYPE_REPLICATION         3
-#define FS_SERVER_TASK_TYPE_CHANNEL_HOLDER      4   //for request idempotency
-#define FS_SERVER_TASK_TYPE_CHANNEL_USER        5   //for request idempotency
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
@@ -299,8 +296,8 @@ typedef struct fs_replication {
 } FSReplication;
 
 typedef struct {
-    FSRequestInfo request;
-    FSResponseInfo response;
+    SFRequestInfo request;
+    SFResponseInfo response;
     int (*deal_func)(struct fast_task_info *task);
     bool response_done;
     bool log_error;

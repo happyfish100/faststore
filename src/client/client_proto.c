@@ -4,7 +4,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/connection_pool.h"
-#include "idempotency/client_channel.h"
+#include "sf/idempotency/client/client_channel.h"
 #include "fs_proto.h"
 #include "client_global.h"
 #include "client_proto.h"
@@ -26,7 +26,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
         sizeof(FSProtoSliceWriteReqHeader)];
     FSProtoHeader *proto_header;
     FSProtoSliceWriteReqHeader *req_header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
     int body_front_len;
@@ -46,7 +46,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
     response.error.length = 0;
     do {
-        FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
+        SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
                 body_front_len + bs_key->slice.length);
         int2buff(bs_key->slice.offset, req_header->bs.slice_size.offset);
         int2buff(bs_key->slice.length, req_header->bs.slice_size.length);
@@ -64,7 +64,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
             break;
         }
 
-        if ((result=fs_recv_response(conn, &response, client_ctx->
+        if ((result=sf_recv_response(conn, &response, client_ctx->
                         network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
                         (char *)&resp, sizeof(FSProtoSliceUpdateResp))) != 0)
         {
@@ -76,7 +76,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
     if (result != 0) {
         *inc_alloc = 0;
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -90,7 +90,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceReadReqHeader)];
     FSProtoHeader *proto_header;
     FSProtoSliceReadReqHeader *req_header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     int hole_start;
     int hole_len;
     int buff_offet;
@@ -101,7 +101,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
 
     proto_header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
-    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
+    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
             sizeof(FSProtoSliceReadReqHeader));
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
 
@@ -123,14 +123,14 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
         int2buff(curr_len, req_header->bs.slice_size.length);
 
         response.error.length = 0;
-        if ((result=fs_send_and_recv_response_header(conn,
+        if ((result=sf_send_and_recv_response_header(conn,
                         out_buff, sizeof(out_buff), &response,
                         client_ctx->network_timeout)) != 0)
         {
             break;
         }
 
-        if ((result=fs_check_response(conn, &response,
+        if ((result=sf_check_response(conn, &response,
                         client_ctx->network_timeout,
                         FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
         {
@@ -177,7 +177,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     }
 
     if (result != 0) {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     *read_bytes = hole_start;
@@ -198,7 +198,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
         sizeof(FSProtoSliceAllocateReq)];
     FSProtoHeader *proto_header;
     FSProtoSliceAllocateReq *req;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
     int body_len;
@@ -220,7 +220,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
         req = (FSProtoSliceAllocateReq *)(proto_header + 1);
     }
 
-    FS_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
+    SF_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
 
     bs_key = (const FSBlockSliceKeyInfo *)key;
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
@@ -228,7 +228,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
     int2buff(bs_key->slice.length, req->bs.slice_size.length);
 
     response.error.length = 0;
-    if ((result=fs_send_and_recv_response(conn, out_buff,
+    if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(FSProtoHeader) + body_len, &response,
                     client_ctx->network_timeout, resp_cmd, (char *)&resp,
                     sizeof(FSProtoSliceUpdateResp))) == 0)
@@ -236,7 +236,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
         *inc_alloc = buff2int(resp.inc_alloc);
     } else {
         *inc_alloc = 0;
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -251,7 +251,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         sizeof(FSProtoBlockDeleteReq)];
     FSProtoHeader *proto_header;
     FSProtoBlockDeleteReq *req;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
     int body_len;
@@ -269,10 +269,10 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     }
 
     proto_pack_block_key(bkey, &req->bkey);
-    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
+    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
             body_len);
     response.error.length = 0;
-    if ((result=fs_send_and_recv_response(conn, out_buff,
+    if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(FSProtoHeader) + body_len,
                     &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_BLOCK_DELETE_RESP, (char *)&resp,
@@ -281,7 +281,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         *dec_alloc = buff2int(resp.inc_alloc);
     } else {
         *dec_alloc = 0;
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -294,7 +294,7 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     FSProtoHeader *proto_header;
     FSProtoClientJoinReq *req;
     FSProtoClientJoinResp join_resp;
-    FSResponseInfo response;
+    SFResponseInfo response;
     int result;
     int flags;
 
@@ -316,14 +316,14 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
             req->data_group_count);
     int2buff(FS_FILE_BLOCK_SIZE, req->file_block_size);
 
-    FS_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
+    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
-    if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     } else {
         conn_params->buffer_size = buff2int(join_resp.buffer_size);
     }
@@ -337,7 +337,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoGetServerResp server_resp;
     char out_buff[sizeof(FSProtoHeader) + 4];
 
@@ -349,14 +349,14 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
 
     header = (FSProtoHeader *)out_buff;
     int2buff(data_group_index + 1, (char *)(header + 1));
-    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_MASTER_REQ,
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_MASTER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
-    if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_GET_MASTER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     } else {
         master->server_id = buff2int(server_resp.server_id);
         memcpy(master->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
@@ -374,7 +374,7 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
-    FSResponseInfo response;
+    SFResponseInfo response;
     FSProtoGetReadableServerReq *req;
     FSProtoGetServerResp server_resp;
     char out_buff[sizeof(FSProtoHeader) +
@@ -390,14 +390,14 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     req = (FSProtoGetReadableServerReq *)(header + 1);
     int2buff(data_group_index + 1, req->data_group_id);
     req->read_rule = client_ctx->read_rule;
-    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
-    if ((result=fs_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     } else {
         server->server_id = buff2int(server_resp.server_id);
         memcpy(server->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
@@ -422,7 +422,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     char out_buff[sizeof(FSProtoHeader) + 4];
     char fixed_buff[8 * 1024];
     char *in_buff;
-    FSResponseInfo response;
+    SFResponseInfo response;
     int result;
     int out_bytes;
     int calc_size;
@@ -440,11 +440,11 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     } else {
         out_bytes = sizeof(FSProtoHeader);
     }
-    FS_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_CLUSTER_STAT_REQ,
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_CLUSTER_STAT_REQ,
             out_bytes - sizeof(FSProtoHeader));
 
     in_buff = fixed_buff;
-    if ((result=fs_send_and_check_response_header(conn, out_buff,
+    if ((result=sf_send_and_check_response_header(conn, out_buff,
                     out_bytes, &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
@@ -488,7 +488,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     }
 
     if (result != 0) {
-        fs_log_network_error(&response, conn, result);
+        sf_log_network_error(&response, conn, result);
     } else {
         body_end = body_part + (*count);
         for (stat=stats; body_part<body_end; body_part++, stat++) {

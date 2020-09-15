@@ -274,7 +274,7 @@ static int send_join_server_package(FSReplication *replication)
 	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinServerReq)];
 
     header = (FSProtoHeader *)out_buff;
-    FS_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_JOIN_SERVER_REQ,
+    SF_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_JOIN_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
     req = (FSProtoJoinServerReq *)(out_buff + sizeof(FSProtoHeader));
@@ -540,7 +540,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
     body_len = task->length - sizeof(FSProtoHeader);
     int2buff(count, body_header->count);
 
-    FS_PROTO_SET_HEADER((FSProtoHeader *)task->data,
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
             FS_REPLICA_PROTO_RPC_REQ, body_len);
     sf_send_add_event(task);
 
@@ -553,7 +553,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
 static inline void send_active_test_package(FSReplication *replication)
 {
     replication->task->length = sizeof(FSProtoHeader);
-    FS_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
+    SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
             FS_PROTO_ACTIVE_TEST_REQ, 0);
     sf_send_add_event(replication->task);
 }

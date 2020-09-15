@@ -64,7 +64,7 @@ static inline void replica_release_reader(struct fast_task_info *task,
         free(REPLICA_READER);
         REPLICA_READER = NULL;
     }
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+    SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
 }
 
 int replica_recv_timeout_callback(struct fast_task_info *task)
@@ -104,7 +104,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
 
                 REPLICA_REPLICATION = NULL;
             }
-            SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_NONE;
+            SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
             replica_release_reader(task, true);
@@ -280,7 +280,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_NONE ||
+    if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE ||
             REPLICA_READER != NULL)
     {
         return EALREADY;
@@ -432,7 +432,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
-    if (SERVER_TASK_TYPE != FS_SERVER_TASK_TYPE_NONE) {
+    if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "server id: %d already joined", server_id);
         return EEXIST;
