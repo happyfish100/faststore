@@ -4,6 +4,7 @@
 
 #include "fastcommon/fast_task_queue.h"
 #include "fastcommon/fast_mblock.h"
+#include "fastcommon/fc_list.h"
 #include "fastcommon/fc_queue.h"
 
 typedef struct idempotency_client_receipt {
@@ -25,8 +26,13 @@ typedef struct idempotency_client_channel {
     struct fast_task_info *task;
     struct fc_queue queue;
     struct fc_queue_info waiting_resp_qinfo;
+    struct fc_list_head dlink;  //LRU chain for heartbeat
     struct idempotency_client_channel *next;
 } IdempotencyClientChannel;
+
+typedef struct idempotency_receipt_thread_context {
+    struct fc_list_head head;  //LRU head for hearbeat
+} IdempotencyReceiptThreadContext;
 
 #ifdef __cplusplus
 extern "C" {

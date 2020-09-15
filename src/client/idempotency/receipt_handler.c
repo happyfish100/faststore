@@ -27,6 +27,8 @@
 #include "client_channel.h"
 #include "receipt_handler.h"
 
+static IdempotencyReceiptThreadContext *receipt_thread_contexts = NULL;
+
 static int receipt_init_task(struct fast_task_info *task)
 {
     task->connect_timeout = SF_G_CONNECT_TIMEOUT; //for client side
@@ -67,6 +69,8 @@ static void receipt_task_finish_cleanup(struct fast_task_info *task)
     }
 
     channel = (IdempotencyClientChannel *)task->arg;
+
+    fc_list_del_init(&channel->dlink);
     __sync_bool_compare_and_swap(&channel->established, 1, 0);
     __sync_bool_compare_and_swap(&channel->in_ioevent, 1, 0);
 
@@ -165,7 +169,19 @@ static int check_report_req_receipt(struct fast_task_info *task,
     return sf_send_add_event(task);
 }
 
-static int report_req_receipt_request(struct fast_task_info *task)
+static inline void update_lru_chain(struct fast_task_info *task)
+{
+    IdempotencyReceiptThreadContext *thread_ctx;
+    IdempotencyClientChannel *channel;
+
+    thread_ctx = (IdempotencyReceiptThreadContext *)task->thread_data->arg;
+    channel = (IdempotencyClientChannel *)task->arg;
+    channel->last_pkg_time = g_current_time;
+    fc_list_move_tail(&channel->dlink, &thread_ctx->head);
+}
+
+static int report_req_receipt_request(struct fast_task_info *task,
+        const bool update_lru)
 {
     int result;
     int count;
@@ -176,10 +192,10 @@ static int report_req_receipt_request(struct fast_task_info *task)
 
     if (count == 0) {
         result = sf_set_read_event(task);
-    } else {
-        ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
-            g_current_time;
+    } else if (update_lru) {
+        update_lru_chain(task);
     }
+
     return 0;
 }
 
@@ -200,6 +216,7 @@ static inline int receipt_expect_body_length(struct fast_task_info *task,
 static int deal_setup_channel_response(struct fast_task_info *task)
 {
     int result;
+    IdempotencyReceiptThreadContext *thread_ctx;
     FSProtoSetupChannelResp *resp;
     IdempotencyClientChannel *channel;
     int channel_id;
@@ -212,11 +229,22 @@ static int deal_setup_channel_response(struct fast_task_info *task)
     }
 
     channel = (IdempotencyClientChannel *)task->arg;
+    if (__sync_add_and_fetch(&channel->established, 0)) {
+        logWarning("file: "__FILE__", line: %d, "
+                "response from server %s:%d, unexpected cmd: "
+                "SETUP_CHANNEL_RESP, ignore it!",
+                __LINE__, task->server_ip, task->port);
+        return 0;
+    }
+
     resp = (FSProtoSetupChannelResp *)(task->data + sizeof(FSProtoHeader));
     channel_id = buff2int(resp->channel_id);
     channel_key = buff2int(resp->key);
     idempotency_client_channel_set_id_key(channel, channel_id, channel_key);
-    __sync_bool_compare_and_swap(&channel->established, 0, 1);
+    if (__sync_bool_compare_and_swap(&channel->established, 0, 1)) {
+        thread_ctx = (IdempotencyReceiptThreadContext *)task->thread_data->arg;
+        fc_list_add_tail(&channel->dlink, &thread_ctx->head);
+    }
 
     PTHREAD_MUTEX_LOCK(&channel->lc_pair.lock);
     pthread_cond_broadcast(&channel->lc_pair.cond);
@@ -274,12 +302,12 @@ static int receipt_deal_task(struct fast_task_info *task)
     do {
         stage = SF_NIO_TASK_STAGE_FETCH(task);
         if (stage == SF_NIO_STAGE_HANDSHAKE) {
-            result = setup_channel_request(task);
-            ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
-                g_current_time;
+            if ((result=setup_channel_request(task)) == 0) {
+                update_lru_chain(task);
+            }
             break;
         } else if (stage == SF_NIO_STAGE_CONTINUE) {
-            result = report_req_receipt_request(task);
+            result = report_req_receipt_request(task, true);
             break;
         }
 
@@ -318,20 +346,50 @@ static int receipt_deal_task(struct fast_task_info *task)
         }
 
         if (result == 0) {
-            ((IdempotencyClientChannel *)task->arg)->last_pkg_time =
-                g_current_time;
+            update_lru_chain(task);
             task->offset = task->length = 0;
-            result = report_req_receipt_request(task);
+            result = report_req_receipt_request(task, false);
         }
     } while (0);
 
     return result > 0 ? -1 * result : result;
 }
 
+static int receipt_thread_loop_callback(struct nio_thread_data *thread_data)
+{
+    IdempotencyClientChannel *channel;
+    IdempotencyClientChannel *tmp;
+    IdempotencyReceiptThreadContext *thread_ctx;
+
+    thread_ctx = (IdempotencyReceiptThreadContext *)thread_data->arg;
+    fc_list_for_each_entry_safe(channel, tmp, &thread_ctx->head, dlink) {
+        //check heartbeat
+        //channel->task
+    }
+
+    return 0;
+}
+
+static void *receipt_alloc_thread_extra_data(const int thread_index)
+{
+    IdempotencyReceiptThreadContext *ctx;
+
+    ctx = receipt_thread_contexts + thread_index;
+    FC_INIT_LIST_HEAD(&ctx->head);
+    return ctx;
+}
+
 int receipt_handler_init()
 {
-    return sf_service_init_ex2(&g_sf_context, NULL, NULL, NULL,
-            fs_proto_set_body_length, receipt_deal_task,
+    receipt_thread_contexts = (IdempotencyReceiptThreadContext *)fc_malloc(
+            sizeof(IdempotencyReceiptThreadContext) * SF_G_WORK_THREADS);
+    if (receipt_thread_contexts == NULL) {
+        return ENOMEM;
+    }
+
+    return sf_service_init_ex2(&g_sf_context,
+            receipt_alloc_thread_extra_data, receipt_thread_loop_callback,
+            NULL, fs_proto_set_body_length, receipt_deal_task,
             receipt_task_finish_cleanup, receipt_recv_timeout_callback,
             1000, sizeof(FSProtoHeader), 0, receipt_init_task);
 }

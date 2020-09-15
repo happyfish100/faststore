@@ -79,6 +79,7 @@ static int idempotency_channel_alloc_init(void *element, void *args)
         return result;
     }
 
+    FC_INIT_LIST_HEAD(&channel->dlink);
     return fc_queue_init(&channel->queue, (long)
             (&((IdempotencyClientReceipt *)NULL)->next));
 }
@@ -267,7 +268,9 @@ int idempotency_client_channel_push(struct idempotency_client_channel *channel,
     fc_queue_push_ex(&channel->queue, receipt, &notify);
     if (notify) {
         if (__sync_add_and_fetch(&channel->in_ioevent, 0)) {
-            sf_nio_notify(channel->task, SF_NIO_STAGE_CONTINUE);
+            if (__sync_add_and_fetch(&channel->established, 0)) {
+                sf_nio_notify(channel->task, SF_NIO_STAGE_CONTINUE);
+            }
         } else {
             return idempotency_client_channel_check_reconnect(channel);
         }
