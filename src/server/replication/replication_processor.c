@@ -554,7 +554,7 @@ static inline void send_active_test_package(FSReplication *replication)
 {
     replication->task->length = sizeof(FSProtoHeader);
     SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
-            FS_PROTO_ACTIVE_TEST_REQ, 0);
+            SF_PROTO_ACTIVE_TEST_REQ, 0);
     sf_send_add_event(replication->task);
 }
 

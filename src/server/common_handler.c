@@ -132,7 +132,7 @@ int handler_deal_task_done(struct fast_task_info *task)
         time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
 
         switch (REQUEST.header.cmd) {
-            case FS_PROTO_ACTIVE_TEST_RESP:
+            case SF_PROTO_ACTIVE_TEST_RESP:
                 break;
             default:
                 logInfo("file: "__FILE__", line: %d, "
@@ -180,7 +180,7 @@ int handler_deal_task_done(struct fast_task_info *task)
 
     switch (REQUEST.header.cmd) {
         case FS_CLUSTER_PROTO_PING_LEADER_REQ:
-        case FS_PROTO_ACTIVE_TEST_REQ:
+        case SF_PROTO_ACTIVE_TEST_REQ:
             break;
         default:
             logInfo("file: "__FILE__", line: %d, "

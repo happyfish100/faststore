@@ -22,7 +22,7 @@ static inline int handler_deal_actvie_test(struct fast_task_info *task)
 static inline void handler_init_task_context(struct fast_task_info *task)
 {
     TASK_ARG->req_start_time = get_current_time_us();
-    RESPONSE.header.cmd = FS_PROTO_ACK;
+    RESPONSE.header.cmd = SF_PROTO_ACK;
     RESPONSE.header.body_len = 0;
     RESPONSE.header.status = 0;
     RESPONSE.error.length = 0;

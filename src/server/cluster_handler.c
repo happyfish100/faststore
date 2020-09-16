@@ -441,11 +441,11 @@ int cluster_deal_task(struct fast_task_info *task)
         handler_init_task_context(task);
 
         switch (REQUEST.header.cmd) {
-            case FS_PROTO_ACTIVE_TEST_REQ:
-                RESPONSE.header.cmd = FS_PROTO_ACTIVE_TEST_RESP;
+            case SF_PROTO_ACTIVE_TEST_REQ:
+                RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
                 result = handler_deal_actvie_test(task);
                 break;
-            case FS_PROTO_ACK:
+            case SF_PROTO_ACK:
                 result = handler_deal_ack(task);
                 TASK_ARG->context.need_response = false;
                 break;

@@ -12,10 +12,6 @@
 
 #define FS_STATUS_LEADER_INCONSISTENT     9999
 
-#define FS_PROTO_ACK                      6
-
-#define FS_PROTO_ACTIVE_TEST_REQ         21
-#define FS_PROTO_ACTIVE_TEST_RESP        22
 
 #define FS_SERVICE_PROTO_CLIENT_JOIN_REQ         23
 #define FS_SERVICE_PROTO_CLIENT_JOIN_RESP        24

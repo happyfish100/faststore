@@ -350,7 +350,7 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
-                    FS_PROTO_ACK)) != 0)
+                    SF_PROTO_ACK)) != 0)
     {
         sf_log_network_error(&response, &conn, result);
     }

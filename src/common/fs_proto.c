@@ -15,10 +15,10 @@ int fs_active_test(ConnectionInfo *conn, SFResponseInfo *response,
 {
     FSProtoHeader proto_header;
 
-    SF_PROTO_SET_HEADER(&proto_header, FS_PROTO_ACTIVE_TEST_REQ, 0);
+    SF_PROTO_SET_HEADER(&proto_header, SF_PROTO_ACTIVE_TEST_REQ, 0);
     return sf_send_and_recv_none_body_response(conn, (char *)&proto_header,
             sizeof(FSProtoHeader), response, network_timeout,
-            FS_PROTO_ACTIVE_TEST_RESP);
+            SF_PROTO_ACTIVE_TEST_RESP);
 }
 
 const char *fs_get_server_status_caption(const int status)
@@ -45,12 +45,6 @@ const char *fs_get_server_status_caption(const int status)
 const char *fs_get_cmd_caption(const int cmd)
 {
     switch (cmd) {
-        case FS_PROTO_ACK:
-            return "ACK";
-        case FS_PROTO_ACTIVE_TEST_REQ:
-            return "ACTIVE_TEST_REQ";
-        case FS_PROTO_ACTIVE_TEST_RESP:
-            return "ACTIVE_TEST_RESP";
         case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
             return "CLIENT_JOIN_REQ";
         case FS_SERVICE_PROTO_CLIENT_JOIN_RESP:
