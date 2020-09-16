@@ -20,6 +20,7 @@
 #include <sys/mount.h>
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
+#include "sf/idempotency/client/client_channel.h"
 #include "fsapi/fs_api.h"
 #include "fs_fuse_wrapper.h"
 #include "fs_fuse_global.h"
@@ -186,8 +187,8 @@ int fs_fuse_global_init(const char *config_filename)
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
             FS_API_DEFAULT_FASTDIR_SECTION_NAME, &iniContext);
     do {
-        ini_ctx->section_name = INI_IDEMPOTENCY_SECTION_NAME;
-        if ((result=client_channel_init(ini_ctx)) != 0) {
+        ini_ctx.section_name = INI_IDEMPOTENCY_SECTION_NAME;
+        if ((result=client_channel_init(&ini_ctx)) != 0) {
             return result;
         }
 
@@ -252,7 +253,7 @@ int fs_fuse_global_init(const char *config_filename)
         char sf_global_cfg[512];
         char sf_context_cfg[512];
 
-        idempotency_sf_idempotency_config_to_string_ex(
+        idempotency_client_channel_config_to_string_ex(
                 sf_idempotency_config,
                 sizeof(sf_idempotency_config), true);
         sf_global_config_to_string(sf_global_cfg,
