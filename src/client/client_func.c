@@ -18,7 +18,6 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         IniFullContext *ini_ctx)
 {
     char *pBasePath;
-    char client_channel_config[256];
     char net_retry_output[256];
     int result;
 
@@ -60,9 +59,6 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     }
 
     sf_load_read_rule_config(&client_ctx->read_rule, ini_ctx);
-    client_ctx->idempotency_enabled = iniGetBoolValueEx(
-            ini_ctx->section_name, "rpc_idempotency",
-            ini_ctx->context, false, true);
 
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
                     cluster_cfg.ptr, ini_ctx)) != 0)
@@ -76,24 +72,6 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
-    //TODO  remove me!
-    if (client_ctx->idempotency_enabled) {
-        char sf_global_cfg[512];
-        char sf_context_cfg[512];
-        if ((result=client_channel_init(ini_ctx)) != 0) {
-            return result;
-        }
-
-        idempotency_client_channel_config_to_string_ex(client_channel_config,
-                sizeof(client_channel_config), true);
-
-        sf_global_config_to_string(sf_global_cfg, sizeof sf_global_cfg);
-        sf_context_config_to_string(&g_sf_context, sf_context_cfg, sizeof sf_context_cfg);
-        logInfo("%s, %s", sf_global_cfg, sf_context_cfg);
-    } else {
-        *client_channel_config = '\0';
-    }
-
     sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
             net_retry_output, sizeof(net_retry_output));
 
@@ -101,8 +79,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             "base_path: %s, "
             "connect_timeout: %d, "
             "network_timeout: %d, "
-            "read_rule: %s, "
-            "rpc_idempotency: %d, %s%s, "
+            "read_rule: %s, %s, "
             "server group count: %d, "
             "data group count: %d",
             g_fs_global_vars.version.major,
@@ -111,8 +88,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             client_ctx->connect_timeout,
             client_ctx->network_timeout,
             sf_get_read_rule_caption(client_ctx->read_rule),
-            client_ctx->idempotency_enabled,
-            client_channel_config, net_retry_output,
+            net_retry_output,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
 

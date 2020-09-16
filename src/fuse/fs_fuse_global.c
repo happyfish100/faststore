@@ -28,7 +28,9 @@
 #define FUSE_SUPER_MAGIC 0x65735546
 #endif
 
-#define INI_FUSE_SECTION_NAME  "FUSE"
+#define INI_FUSE_SECTION_NAME             "FUSE"
+#define INI_IDEMPOTENCY_SECTION_NAME      "idempotency"
+#define IDEMPOTENCY_DEFAULT_WORK_THREADS  1
 
 FUSEGlobalVars g_fuse_global_vars;
 
@@ -165,12 +167,13 @@ static const char *get_allow_others_caption(
 
 int fs_fuse_global_init(const char *config_filename)
 {
-    const bool load_network_params = false;
     int result;
     string_t base_path;
     string_t mountpoint;
     IniContext iniContext;
     IniFullContext ini_ctx;
+    SFContextIniConfig config;
+    char sf_idempotency_config[256];
     int64_t inode;
 
     if ((result=iniLoadFromFile(config_filename, &iniContext)) != 0) {
@@ -183,9 +186,15 @@ int fs_fuse_global_init(const char *config_filename)
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
             FS_API_DEFAULT_FASTDIR_SECTION_NAME, &iniContext);
     do {
-        if ((result=sf_load_global_config_ex("fs_fused", config_filename,
-                        &iniContext, load_network_params)) != 0)
-        {
+        ini_ctx->section_name = INI_IDEMPOTENCY_SECTION_NAME;
+        if ((result=client_channel_init(ini_ctx)) != 0) {
+            return result;
+        }
+
+        SF_SET_CONTEXT_INI_CONFIG(config, config_filename,
+                &iniContext, INI_IDEMPOTENCY_SECTION_NAME,
+                0, 0, IDEMPOTENCY_DEFAULT_WORK_THREADS);
+        if ((result=sf_load_config_ex("fs_fused", &config)) != 0) {
             break;
         }
 
@@ -216,6 +225,10 @@ int fs_fuse_global_init(const char *config_filename)
             break;
         }
 
+        g_fs_client_vars.client_ctx.idempotency_enabled =
+            g_idempotency_client_cfg.enabled;
+        //TODO set FastDIR idempotency_enabled
+
         if ((result=fsapi_lookup_inode("/", &inode)) != 0) {
             if (result == ENOENT) {
                 FDIRDEntryFullName fullname;
@@ -235,13 +248,30 @@ int fs_fuse_global_init(const char *config_filename)
         return result;
     }
 
+    if (g_idempotency_client_cfg.enabled) {
+        char sf_global_cfg[512];
+        char sf_context_cfg[512];
+
+        idempotency_sf_idempotency_config_to_string_ex(
+                sf_idempotency_config,
+                sizeof(sf_idempotency_config), true);
+        sf_global_config_to_string(sf_global_cfg,
+                sizeof sf_global_cfg);
+        sf_context_config_to_string(&g_sf_context,
+                sf_context_cfg, sizeof sf_context_cfg);
+        logInfo("%s, %s", sf_global_cfg, sf_context_cfg);
+    } else {
+        *sf_idempotency_config = '\0';
+    }
+
     logInfo("FastStore V%d.%02d, FUSE library version %s, "
-            "FastDIR namespace: %s, FUSE mountpoint: %s, "
+            "FastDIR namespace: %s, %sFUSE mountpoint: %s, "
             "singlethread: %d, clone_fd: %d, max_idle_threads: %d, "
             "allow_others: %s, auto_unmount: %d",
             g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor,
             fuse_pkgversion(), g_fuse_global_vars.ns,
+            sf_idempotency_config,
             g_fuse_global_vars.mountpoint, g_fuse_global_vars.singlethread,
             g_fuse_global_vars.clone_fd, g_fuse_global_vars.max_idle_threads,
             get_allow_others_caption(g_fuse_global_vars.allow_others),
