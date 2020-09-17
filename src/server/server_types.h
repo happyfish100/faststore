@@ -10,6 +10,7 @@
 #include "fastcommon/fast_allocator.h"
 #include "fastcommon/server_id_func.h"
 #include "fastcommon/shared_buffer.h"
+#include "sf/idempotency/server/server_types.h"
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
 
@@ -101,6 +102,10 @@
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
+
+typedef struct {
+    int inc_alloc;
+} FSUpdateOutput;  //for idempotency
 
 typedef struct {
     int index;   //the inner index is important!

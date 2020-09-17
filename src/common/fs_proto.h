@@ -100,10 +100,6 @@ typedef struct fs_proto_block_slice {
     FSProtoSliceSize slice_size;
 } FSProtoBlockSlice;
 
-typedef struct fs_proto_idempotency_additional_header {
-    char req_id[8];
-} FSProtoIdempotencyAdditionalHeader;
-
 typedef struct fs_proto_slice_write_req_header {
     FSProtoBlockSlice bs;
 } FSProtoSliceWriteReqHeader;

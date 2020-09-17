@@ -11,6 +11,7 @@
 #include "sf/sf_service.h"
 #include "sf/sf_util.h"
 #include "sf/idempotency/client/client_channel.h"
+#include "sf/idempotency/client/receipt_handler.h"
 #include "fs_fuse_global.h"
 #include "fs_fuse_wrapper.h"
 

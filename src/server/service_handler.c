@@ -459,47 +459,36 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
     {
-        FSProtoIdempotencyAdditionalHeader *adheader;
         IdempotencyRequest *request;
         int result;
 
-        if (!__sync_add_and_fetch(&IDEMPOTENCY_CHANNEL->is_valid, 0)) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "channel: %d is invalid", IDEMPOTENCY_CHANNEL->id);
-            return SF_RETRIABLE_ERROR_CHANNEL_INVALID;
-        }
+        request = sf_server_update_prepare_and_check(
+                task, &SERVER_CTX->service.request_allocator,
+                IDEMPOTENCY_CHANNEL, &RESPONSE, &result);
+        if (request != NULL) {
+            if (result != 0) {
+                if (result == EEXIST) { //found
+                    result = request->output.result;
+                    du_handler_fill_slice_update_response(task,
+                            ((FSUpdateOutput *)request->output.
+                             response)->inc_alloc);
+                }
 
-        adheader = (FSProtoIdempotencyAdditionalHeader *)REQUEST.body;
-        request = (IdempotencyRequest *)fast_mblock_alloc_object(
-                &SERVER_CTX->service.request_allocator);
-        if (request == NULL) {
-            return ENOMEM;
-        }
-
-        request->finished = false;
-        request->req_id = buff2long(adheader->req_id);
-        result = idempotency_channel_add_request(
-                IDEMPOTENCY_CHANNEL, request);
-        if (result == EEXIST) {
-            if (!request->finished) {
-                result = EAGAIN;
-            } else {
-                du_handler_fill_slice_update_response(task,
-                        request->output.inc_alloc);
-                result = request->output.result;
+                fast_mblock_free_object(request->allocator, request);
+                *deal_done = true;
+                return result;
             }
-            fast_mblock_free_object(&SERVER_CTX->service.
-                    request_allocator, request);
+        } else {
             *deal_done = true;
             return result;
         }
 
         IDEMPOTENCY_REQUEST = request;
-        *deal_done = false;
-        OP_CTX_INFO.body = REQUEST.body + sizeof(*adheader);
-        OP_CTX_INFO.body_len = REQUEST.header.body_len - sizeof(*adheader);
+        OP_CTX_INFO.body = REQUEST.body +
+            sizeof(SFProtoIdempotencyAdditionalHeader);
+        OP_CTX_INFO.body_len = REQUEST.header.body_len -
+            sizeof(SFProtoIdempotencyAdditionalHeader);
     } else {
-        *deal_done = false;
         OP_CTX_INFO.body = REQUEST.body;
         OP_CTX_INFO.body_len = REQUEST.header.body_len;
     }
@@ -508,6 +497,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     OP_CTX_INFO.data_version = 0;
     SLICE_OP_CTX.write.inc_alloc = 0;
 
+    *deal_done = false;
     return 0;
 }
 
@@ -679,23 +669,19 @@ int service_deal_task(struct fast_task_info *task)
     }
 }
 
-static int idempotency_request_alloc_init(void *element, void *args)
-{
-    ((IdempotencyRequest *)element)->allocator = (struct fast_mblock_man *)args;
-    return 0;
-}
-
 void *service_alloc_thread_extra_data(const int thread_index)
 {
     FSServerContext *server_context;
+    int element_size;
 
     if ((server_context=du_handler_alloc_server_context()) == NULL) {
         return NULL;
     }
 
+    element_size = sizeof(IdempotencyRequest) + sizeof(FSUpdateOutput);
     if (fast_mblock_init_ex1(&server_context->service.request_allocator,
-                "idempotency_request", sizeof(IdempotencyRequest),
-                1024, 0, idempotency_request_alloc_init,
+                "idempotency_request", element_size, 1024, 0,
+                idempotency_request_alloc_init,
                 &server_context->service.request_allocator, true) != 0)
     {
         return NULL;

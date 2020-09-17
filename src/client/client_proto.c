@@ -22,7 +22,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
         int *inc_alloc)
 {
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(SFProtoIdempotencyAdditionalHeader) +
         sizeof(FSProtoSliceWriteReqHeader)];
     FSProtoHeader *proto_header;
     FSProtoSliceWriteReqHeader *req_header;
@@ -34,11 +34,11 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     proto_header = (FSProtoHeader *)out_buff;
     body_front_len = sizeof(FSProtoSliceWriteReqHeader);
     if (req_id > 0) {
-        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
                     (proto_header + 1))->req_id);
-        body_front_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        body_front_len += sizeof(SFProtoIdempotencyAdditionalHeader);
         req_header = (FSProtoSliceWriteReqHeader *)((char *)(proto_header
-                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
     } else {
         req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
     }
@@ -194,7 +194,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
 {
     const FSBlockSliceKeyInfo *bs_key;
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(SFProtoIdempotencyAdditionalHeader) +
         sizeof(FSProtoSliceAllocateReq)];
     FSProtoHeader *proto_header;
     FSProtoSliceAllocateReq *req;
@@ -211,11 +211,11 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
     proto_header = (FSProtoHeader *)out_buff;
     body_len = sizeof(FSProtoSliceAllocateReq);
     if (req_id > 0) {
-        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
                     (proto_header + 1))->req_id);
-        body_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        body_len += sizeof(SFProtoIdempotencyAdditionalHeader);
         req = (FSProtoSliceAllocateReq *)((char *)(proto_header
-                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
     } else {
         req = (FSProtoSliceAllocateReq *)(proto_header + 1);
     }
@@ -247,7 +247,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         const FSBlockKey *bkey, int *dec_alloc)
 {
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(FSProtoIdempotencyAdditionalHeader) +
+        sizeof(SFProtoIdempotencyAdditionalHeader) +
         sizeof(FSProtoBlockDeleteReq)];
     FSProtoHeader *proto_header;
     FSProtoBlockDeleteReq *req;
@@ -259,11 +259,11 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     proto_header = (FSProtoHeader *)out_buff;
     body_len = sizeof(FSProtoBlockDeleteReq);
     if (req_id > 0) {
-        long2buff(req_id, ((FSProtoIdempotencyAdditionalHeader *)
+        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
                     (proto_header + 1))->req_id);
-        body_len += sizeof(FSProtoIdempotencyAdditionalHeader);
+        body_len += sizeof(SFProtoIdempotencyAdditionalHeader);
         req = (FSProtoBlockDeleteReq *)((char *)(proto_header
-                    + 1) + sizeof(FSProtoIdempotencyAdditionalHeader));
+                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
     } else {
         req = (FSProtoBlockDeleteReq *)(proto_header + 1);
     }

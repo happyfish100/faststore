@@ -226,9 +226,10 @@ int fs_fuse_global_init(const char *config_filename)
             break;
         }
 
+        g_fdir_client_vars.client_ctx.idempotency_enabled =
+            g_idempotency_client_cfg.enabled;
         g_fs_client_vars.client_ctx.idempotency_enabled =
             g_idempotency_client_cfg.enabled;
-        //TODO set FastDIR idempotency_enabled
 
         if ((result=fsapi_lookup_inode("/", &inode)) != 0) {
             if (result == ENOENT) {
