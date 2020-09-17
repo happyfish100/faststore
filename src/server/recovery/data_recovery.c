@@ -407,7 +407,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                     "binlog_size: %"PRId64, __LINE__, __FUNCTION__,
                     binlog_size);
             if (binlog_size == 0) {
-                data_recovery_unlink_fetched_binlog(ctx);
                 break;
             }
 
@@ -449,10 +448,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
 
     if (!SF_G_CONTINUE_FLAG) {
         return EINTR;
-    }
-
-    if ((result=data_recovery_unlink_replay_binlog(ctx)) != 0) {
-        return result;
     }
 
     if (ctx->is_online) {
@@ -498,9 +493,22 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (result == 0 && !ctx.is_online);
 
-    if (result == 0) {
-        result = data_recovery_unlink_sys_data(&ctx);
-    }
+    do {
+        if (result != 0) {
+            break;
+        }
+
+        if ((result=data_recovery_unlink_sys_data(&ctx)) !=  0) {
+            break;
+        }
+        if ((result=data_recovery_unlink_replay_binlog(&ctx)) != 0) {
+            break;
+        }
+        if ((result=data_recovery_unlink_fetched_binlog(&ctx)) != 0) {
+            break;
+        }
+    } while (0);
+
     destroy_data_recovery_ctx(&ctx);
     return result;
 }

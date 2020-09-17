@@ -210,6 +210,12 @@ static int do_dedup_binlog(DataRecoveryContext *ctx)
     if ((result=binlog_read_thread_init(&dedup_ctx->rdthread_ctx, subdir_name,
                     NULL, NULL, BINLOG_BUFFER_SIZE)) != 0)
     {
+        if (result == ENOENT) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "%s, the fetched binlog not exist, "
+                    "cleanup!", __LINE__, subdir_name);
+            data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
+        }
         return result;
     }
 
@@ -643,8 +649,6 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     *binlog_count = dedup_ctx.out.binlog_counts.remove +
         dedup_ctx.out.binlog_counts.create;
     if (result == 0) {
-        result = data_recovery_unlink_fetched_binlog(ctx);
-
         end_time = get_current_time_ms();
         long_to_comma_str(end_time - start_time, time_buff);
 

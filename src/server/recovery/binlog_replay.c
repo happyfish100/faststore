@@ -510,7 +510,10 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
                         &position, BINLOG_BUFFER_SIZE)) != 0)
         {
             if (result == ENOENT) {
-                data_recovery_unlink_sys_data(ctx);  //cleanup
+                logWarning("file: "__FILE__", line: %d, "
+                        "%s, the replay / deduped binlog not exist, "
+                        "cleanup!", __LINE__, subdir_name);
+                data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
             }
         }
     }
