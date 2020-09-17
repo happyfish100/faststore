@@ -317,9 +317,6 @@ extern "C" {
 
 void fs_proto_init();
 
-int fs_active_test(ConnectionInfo *conn, SFResponseInfo *response,
-        const int network_timeout);
-
 const char *fs_get_server_status_caption(const int status);
 
 const char *fs_get_cmd_caption(const int cmd);

@@ -170,7 +170,7 @@ static int setup_server_env(const char *config_filename)
     log_set_cache(true);
 
     if (g_idempotency_client_cfg.enabled) {
-        result = fs_client_rpc_idempotency_reporter_start();
+        result = receipt_handler_init();
     }
     return result;
 }

@@ -10,17 +10,6 @@ void fs_proto_init()
 {
 }
 
-int fs_active_test(ConnectionInfo *conn, SFResponseInfo *response,
-        const int network_timeout)
-{
-    FSProtoHeader proto_header;
-
-    SF_PROTO_SET_HEADER(&proto_header, SF_PROTO_ACTIVE_TEST_REQ, 0);
-    return sf_send_and_recv_none_body_response(conn, (char *)&proto_header,
-            sizeof(FSProtoHeader), response, network_timeout,
-            SF_PROTO_ACTIVE_TEST_RESP);
-}
-
 const char *fs_get_server_status_caption(const int status)
 {
 

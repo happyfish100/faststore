@@ -281,7 +281,7 @@ static int validate_connection_callback(ConnectionInfo *conn, void *args)
 {
     SFResponseInfo response;
     int result;
-    if ((result=fs_active_test(conn, &response, ((FSClientContext *)args)->
+    if ((result=sf_active_test(conn, &response, ((FSClientContext *)args)->
                     network_timeout)) != 0)
     {
         sf_log_network_error(&response, conn, result);

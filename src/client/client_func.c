@@ -3,11 +3,6 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
-#include "sf/sf_global.h"
-#include "sf/sf_service.h"
-#include "sf/sf_nio.h"
-#include "sf/idempotency/client/client_channel.h"
-#include "sf/idempotency/client/receipt_handler.h"
 #include "fs_func.h"
 #include "fs_cluster_cfg.h"
 #include "client_global.h"
@@ -163,19 +158,4 @@ void fs_client_destroy_ex(FSClientContext *client_ctx)
         fs_simple_connection_manager_destroy(&client_ctx->conn_manager);
     }
     memset(client_ctx, 0, sizeof(FSClientContext));
-}
-
-int fs_client_rpc_idempotency_reporter_start()
-{
-    int result;
-
-    if ((result=receipt_handler_init()) != 0) {
-        return result;
-    }
-
-    sf_enable_thread_notify(true);
-    sf_set_remove_from_ready_list(false);
-    fc_sleep_ms(100);
-
-    return 0;
 }
