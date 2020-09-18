@@ -4,6 +4,7 @@
 #include "fastcommon/common_define.h"
 #include "fastcommon/connection_pool.h"
 #include "sf/sf_configs.h"
+#include "sf/idempotency/client/client_types.h"
 #include "fs_types.h"
 #include "fs_cluster_cfg.h"
 

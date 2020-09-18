@@ -20,16 +20,6 @@ typedef struct fs_client_cluster_stat_entry {
 #ifdef __cplusplus
 extern "C" {
 #endif
-    static inline void fs_client_release_connection(
-            FSClientContext *client_ctx,
-            ConnectionInfo *conn, const int result)
-    {
-        if (SF_FORCE_CLOSE_CONNECTION_ERROR(result)) {
-            client_ctx->conn_manager.close_connection(client_ctx, conn);
-        } else if (client_ctx->conn_manager.release_connection != NULL) {
-            client_ctx->conn_manager.release_connection(client_ctx, conn);
-        }
-    }
 
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id,

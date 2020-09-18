@@ -364,7 +364,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
         master->conn.port = buff2short(server_resp.port);
     }
 
-    fs_client_release_connection(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
     return result;
 }
 
@@ -405,7 +405,7 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
         server->conn.port = buff2short(server_resp.port);
     }
 
-    fs_client_release_connection(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
     return result;
 }
 
@@ -504,7 +504,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         }
     }
 
-    fs_client_release_connection(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
     if (in_buff != fixed_buff) {
         if (in_buff != NULL) {
             free(in_buff);
