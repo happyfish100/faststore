@@ -92,14 +92,6 @@
 
 #define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
 
-#define FS_IDEMPOTENCY_CHANNEL_ID_BITS    16
-#define FS_IDEMPOTENCY_REQUEST_ID_BITS    (64 - FS_IDEMPOTENCY_CHANNEL_ID_BITS)
-#define FS_IDEMPOTENCY_MAX_CHANNEL_COUNT  ((1 << FS_IDEMPOTENCY_CHANNEL_ID_BITS) - 1)
-#define FS_IDEMPOTENCY_MAX_CHANNEL_ID     FS_IDEMPOTENCY_MAX_CHANNEL_COUNT
-#define FS_IDEMPOTENCY_REQUEST_HINT_CAPACITY      1023
-#define FS_IDEMPOTENCY_CHANNEL_RESERVE_INTERVAL    600
-#define FS_IDEMPOTENCY_CHANNEL_SHARED_LOCK_COUNT   163
-
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
 

@@ -141,6 +141,26 @@ int main(int argc, char *argv[])
 	return result < 0 ? 1 : result;
 }
 
+static int check_create_root_path()
+{
+    int result;
+    int64_t inode;
+
+    if ((result=fsapi_lookup_inode("/", &inode)) != 0) {
+        if (result == ENOENT) {
+            FDIRDEntryFullName fullname;
+            FDIRDEntryInfo dentry;
+
+            FC_SET_STRING(fullname.ns, g_fuse_global_vars.ns);
+            FC_SET_STRING(fullname.path, "/");
+            result = fdir_client_create_dentry(g_fs_api_ctx.contexts.fdir,
+                    &fullname, 0775 | S_IFDIR, &dentry);
+        }
+    }
+
+    return result;
+}
+
 static int setup_server_env(const char *config_filename)
 {
     int result;
@@ -172,6 +192,10 @@ static int setup_server_env(const char *config_filename)
 
     if (g_idempotency_client_cfg.enabled) {
         result = receipt_handler_init();
+    }
+
+    if (result == 0) {
+        result = check_create_root_path();
     }
     return result;
 }

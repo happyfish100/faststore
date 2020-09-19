@@ -38,10 +38,10 @@
 
 int service_handler_init()
 {
-    return idempotency_channel_init(FS_IDEMPOTENCY_MAX_CHANNEL_ID,
-            FS_IDEMPOTENCY_REQUEST_HINT_CAPACITY,
-            FS_IDEMPOTENCY_CHANNEL_RESERVE_INTERVAL,
-            FS_IDEMPOTENCY_CHANNEL_SHARED_LOCK_COUNT);
+    return idempotency_channel_init(SF_IDEMPOTENCY_MAX_CHANNEL_ID,
+            SF_IDEMPOTENCY_DEFAULT_REQUEST_HINT_CAPACITY,
+            SF_IDEMPOTENCY_DEFAULT_CHANNEL_RESERVE_INTERVAL,
+            SF_IDEMPOTENCY_DEFAULT_CHANNEL_SHARED_LOCK_COUNT);
 }
 
 int service_handler_destroy()

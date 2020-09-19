@@ -175,7 +175,6 @@ int fs_fuse_global_init(const char *config_filename)
     IniFullContext ini_ctx;
     SFContextIniConfig config;
     char sf_idempotency_config[256];
-    int64_t inode;
 
     if ((result=iniLoadFromFile(config_filename, &iniContext)) != 0) {
         logError("file: "__FILE__", line: %d, "
@@ -231,17 +230,6 @@ int fs_fuse_global_init(const char *config_filename)
         g_fs_client_vars.client_ctx.idempotency_enabled =
             g_idempotency_client_cfg.enabled;
 
-        if ((result=fsapi_lookup_inode("/", &inode)) != 0) {
-            if (result == ENOENT) {
-                FDIRDEntryFullName fullname;
-                FDIRDEntryInfo dentry;
-
-                FC_SET_STRING(fullname.ns, g_fuse_global_vars.ns);
-                FC_SET_STRING(fullname.path, "/");
-                result = fdir_client_create_dentry(g_fs_api_ctx.contexts.fdir,
-                        &fullname, 0775 | S_IFDIR, &dentry);
-            }
-        }
 
     } while (0);
 

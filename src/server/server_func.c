@@ -237,7 +237,7 @@ static void server_log_configs()
             BINLOG_BUFFER_SIZE / 1024,
             BINLOG_CHECK_LAST_SECONDS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
-            FS_IDEMPOTENCY_MAX_CHANNEL_COUNT);
+            SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
     logInfo("%s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
             sz_global_config, sz_service_config, sz_cluster_config,

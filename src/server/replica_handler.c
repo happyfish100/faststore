@@ -283,6 +283,9 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE ||
             REPLICA_READER != NULL)
     {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "already in progress. task type: %d, have reader: %d",
+                SERVER_TASK_TYPE, REPLICA_READER != NULL ? 1 : 0);
         return EALREADY;
     }
 
