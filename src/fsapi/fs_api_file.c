@@ -251,7 +251,7 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         if (flags != 0) {
             result = fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
                     &fi->ctx->ns, fi->dentry.inode, new_size,
-                    *total_inc_alloc, false, &fi->dentry, flags);
+                    *total_inc_alloc, false, flags, &fi->dentry);
 
             logInfo("file: "__FILE__", line: %d, func: %s, set_dentry_size result: %d",
                     __LINE__, __FUNCTION__, result);
