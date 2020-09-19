@@ -377,7 +377,7 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
 {
     const FSConnectionParameters *connection_params;
 
-    SF_CLIENT_IDEMPOTENCY_UPDATE_WARPER(client_ctx, GET_MASTER_CONNECTION,
+    SF_CLIENT_IDEMPOTENCY_UPDATE_WRAPPER(client_ctx, GET_MASTER_CONNECTION,
             FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
             fs_client_proto_bs_operate, key, req_cmd, resp_cmd, inc_alloc);
 }
