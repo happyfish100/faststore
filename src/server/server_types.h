@@ -78,13 +78,12 @@
 #define RESPONSE_STATUS   RESPONSE.header.status
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
-#define WAITING_RPC_COUNT    TASK_CTX.service.waiting_rpc_count
-//#define WAITING_WRITE_COUNT  TASK_CTX.replica.waiting_write_count
-#define CLUSTER_PEER         TASK_CTX.cluster.peer
-#define REPLICA_REPLICATION  TASK_CTX.replica.replication
-#define REPLICA_READER       TASK_CTX.replica.reader
-#define IDEMPOTENCY_CHANNEL  TASK_CTX.service.idempotency_channel
+#define CLUSTER_PEER         TASK_CTX.shared.cluster.peer
+#define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
+#define REPLICA_READER       TASK_CTX.shared.replica.reader
+#define IDEMPOTENCY_CHANNEL  TASK_CTX.shared.service.idempotency_channel
 #define IDEMPOTENCY_REQUEST  TASK_CTX.service.idempotency_request
+#define WAITING_RPC_COUNT    TASK_CTX.service.waiting_rpc_count
 #define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
@@ -299,13 +298,11 @@ typedef struct {
     bool response_done;
     bool log_error;
     bool need_response;
+    char padding;
     int task_type;
-
     union {
         struct {
             struct idempotency_channel *idempotency_channel;
-            struct idempotency_request *idempotency_request;
-            volatile int waiting_rpc_count;
         } service;
 
         struct {
@@ -317,9 +314,13 @@ typedef struct {
                 FSReplication *replication;
                 struct server_binlog_reader *reader;  //for fetch binlog
             };
-            //volatile int waiting_write_count;
         } replica;
-    };
+    } shared;
+
+    struct {
+        struct idempotency_request *idempotency_request;
+        volatile int waiting_rpc_count;
+    } service;
 
     int which_side;   //master or slave
     FSSliceOpContext slice_op_ctx;

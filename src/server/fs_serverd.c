@@ -210,7 +210,8 @@ int main(int argc, char *argv[])
         if (result != 0) {
             break;
         }
-        sf_set_remove_from_ready_list(false);
+        sf_enable_thread_notify_ex(&g_sf_context, true);
+        sf_set_remove_from_ready_list_ex(&g_sf_context, false);
 
         result = replication_common_start();
     } while (0);

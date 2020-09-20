@@ -466,7 +466,6 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int result;
     int count;
     int body_len;
-    int blen;
     int pkg_len;
 
     fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
@@ -482,11 +481,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
     do {
         body_part = (FSProtoReplicaRPCReqBodyPart *)(task->data +
                 task->length);
-
-        blen = rb->task->length - sizeof(FSProtoHeader);
-        pkg_len = task->length + sizeof(*body_part) + blen;
-
-        logInfo("replication rb: %p, blen: %d, pkg_len: %d", rb, blen, pkg_len);
+        pkg_len = task->length + sizeof(*body_part) + rb->body_length;
+        logInfo("replication rb: %p, body_len: %d, pkg_len: %d", rb, rb->body_length, pkg_len);
 
         if (pkg_len > task->size) {
             bool notify;
@@ -500,14 +496,15 @@ static int replication_rpc_from_queue(FSReplication *replication)
         body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
         data_version = ((FSServerTaskArg *)rb->task->arg)->
             context.slice_op_ctx.info.data_version;
-        memcpy(body_part->body, rb->task->data + sizeof(FSProtoHeader), blen);
+        memcpy(body_part->body, rb->task->data +
+                rb->body_offset, rb->body_length);
         if (rb->task_version == ((FSServerTaskArg *)
                     rb->task->arg)->task_version)
         {
             ++count;
             task->length = pkg_len;
             long2buff(data_version, body_part->data_version);
-            int2buff(blen, body_part->body_len);
+            int2buff(rb->body_length, body_part->body_len);
 
             logInfo("count: %d, task->length: %d", count, task->length);
 

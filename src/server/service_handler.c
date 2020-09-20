@@ -45,7 +45,7 @@ int service_handler_init()
 }
 
 int service_handler_destroy()
-{   
+{
     return 0;
 }
 
@@ -58,11 +58,23 @@ void service_task_finish_cleanup(struct fast_task_info *task)
                 idempotency_channel_release(IDEMPOTENCY_CHANNEL,
                         SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_HOLDER);
                 IDEMPOTENCY_CHANNEL = NULL;
+            } else {
+                logError("file: "__FILE__", line: %d, "
+                        "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
+                        "IDEMPOTENCY_CHANNEL is NULL", __LINE__, task,
+                        SERVER_TASK_TYPE);
             }
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;
+    }
+
+    if (IDEMPOTENCY_CHANNEL != NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
+                "IDEMPOTENCY_CHANNEL: %p != NULL", __LINE__, task,
+                SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL);
     }
 
     ((FSServerTaskArg *)task->arg)->task_version =
@@ -650,7 +662,7 @@ int service_deal_task(struct fast_task_info *task)
                 break;
             case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
                 result = sf_server_deal_report_req_receipt(task,
-                        &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
+                        SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL, &RESPONSE);
                 break;
             default:
                 RESPONSE.error.length = sprintf(

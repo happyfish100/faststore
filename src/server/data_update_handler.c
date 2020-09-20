@@ -143,7 +143,8 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
         ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
             inc_alloc = SLICE_OP_CTX.write.inc_alloc;
         idempotency_request_release(IDEMPOTENCY_REQUEST);
-        SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
+
+        /* server task type for channel ONLY, do NOT set task type to NONE!!! */
         IDEMPOTENCY_REQUEST = NULL;
     }
 }

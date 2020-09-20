@@ -197,7 +197,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
 
-    cs = ((FSServerTaskArg *)ctx->task->arg)->context.cluster.peer;
+    cs = ((FSServerTaskArg *)ctx->task->arg)->context.shared.cluster.peer;
     if (__sync_fetch_and_add(&cs->active, 0) == 0) {
         logWarning("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",

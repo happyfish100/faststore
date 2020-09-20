@@ -46,7 +46,8 @@ int replica_handler_destroy()
 
 static inline int replica_alloc_reader(struct fast_task_info *task)
 {
-    REPLICA_READER = (ServerBinlogReader *)fc_malloc(sizeof(ServerBinlogReader));
+    REPLICA_READER = (ServerBinlogReader *)
+        fc_malloc(sizeof(ServerBinlogReader));
     if (REPLICA_READER == NULL) {
         return ENOMEM;
     }
@@ -103,14 +104,32 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                 replica_offline_slave_data_servers(REPLICA_REPLICATION->peer);
 
                 REPLICA_REPLICATION = NULL;
+            } else {
+                logError("file: "__FILE__", line: %d, "
+                        "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
+                        "REPLICA_REPLICATION is NULL", __LINE__, task,
+                        SERVER_TASK_TYPE);
             }
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
+            if (REPLICA_READER == NULL) {
+                logError("file: "__FILE__", line: %d, "
+                        "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
+                        "REPLICA_READER is NULL", __LINE__, task,
+                        SERVER_TASK_TYPE);
+            }
             replica_release_reader(task, true);
             break;
         default:
             break;
+    }
+
+    if (REPLICA_REPLICATION != NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
+                "REPLICA_REPLICATION: %p != NULL", __LINE__, task,
+                SERVER_TASK_TYPE, REPLICA_REPLICATION);
     }
 
     ((FSServerTaskArg *)task->arg)->task_version =

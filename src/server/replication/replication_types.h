@@ -11,7 +11,9 @@
 typedef struct replication_rpc_entry {
     uint64_t task_version;
     struct fast_task_info *task;
-    volatile int reffer_count;
+    volatile short reffer_count;
+    short body_offset;
+    int body_length;
     struct replication_rpc_entry *nexts[0];  //for slave replications
 } ReplicationRPCEntry;
 

@@ -159,6 +159,8 @@ int replication_caller_push_to_slave_queues(struct fast_task_info *task)
 
     rpc->task = task;
     rpc->task_version = ((FSServerTaskArg *)task->arg)->task_version;
+    rpc->body_offset = OP_CTX_INFO.body - task->data;
+    rpc->body_length = OP_CTX_INFO.body_len;
     if ((result=push_to_slave_queues(group, OP_CTX_INFO.bs_key.block.hash_code,
                     rpc)) != TASK_STATUS_CONTINUE)
     {

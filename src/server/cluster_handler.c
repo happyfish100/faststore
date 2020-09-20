@@ -70,11 +70,21 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                 cluster_topology_remove_notify_ctx(&server_ctx->cluster.
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
                 CLUSTER_PEER = NULL;
+            } else {
+                logError("file: "__FILE__", line: %d, "
+                        "mistake happen! SERVER_TASK_TYPE: %d, CLUSTER_PEER: %p",
+                        __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
             }
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;
+    }
+
+    if (CLUSTER_PEER != NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "mistake happen! SERVER_TASK_TYPE: %d, CLUSTER_PEER: %p",
+                __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
     }
 
     ((FSServerTaskArg *)task->arg)->task_version =
