@@ -190,7 +190,7 @@ static void slice_read_done_notify(FSSliceOpContext *notify)
                 OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
                 OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
                 notify->result, STRERROR(notify->result));
-        TASK_ARG->context.log_error = false;
+        TASK_ARG->context.log_level = LOG_NOTHING;
     } else {
         RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
         RESPONSE.header.body_len = notify->done_bytes;
@@ -616,7 +616,7 @@ int service_deal_task(struct fast_task_info *task)
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-                result = handler_deal_actvie_test(task);
+                result = sf_proto_deal_actvie_test(task, &REQUEST, &RESPONSE);
                 break;
             case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
                 result = service_deal_client_join(task);

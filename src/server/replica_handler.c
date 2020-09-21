@@ -515,7 +515,7 @@ static inline int replica_deal_actvie_test_req(struct fast_task_info *task)
     if ((result=replica_check_replication_task(task)) != 0) {
         return result;
     }
-    return handler_deal_actvie_test(task);
+    return sf_proto_deal_actvie_test(task, &REQUEST, &RESPONSE);
 }
 
 static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
@@ -774,7 +774,7 @@ int replica_deal_task(struct fast_task_info *task)
                 TASK_ARG->context.need_response = false;
                 break;
             case SF_PROTO_ACK:
-                result = handler_deal_ack(task);
+                result = sf_proto_deal_ack(task, &REQUEST, &RESPONSE);
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:

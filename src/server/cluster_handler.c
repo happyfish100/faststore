@@ -366,6 +366,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
                     "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
                     "invalid old status: %d", data_group_id, my_server_id,
                     ds_server_id, old_status);
+            TASK_ARG->context.log_level = LOG_WARNING;
             return EINVAL;
         }
 
@@ -453,10 +454,10 @@ int cluster_deal_task(struct fast_task_info *task)
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-                result = handler_deal_actvie_test(task);
+                result = sf_proto_deal_actvie_test(task, &REQUEST, &RESPONSE);
                 break;
             case SF_PROTO_ACK:
-                result = handler_deal_ack(task);
+                result = sf_proto_deal_ack(task, &REQUEST, &RESPONSE);
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:

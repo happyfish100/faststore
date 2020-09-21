@@ -16,9 +16,6 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/sched_thread.h"
-#include "fastcommon/ioevent_loop.h"
-#include "fastcommon/json_parser.h"
-#include "sf/sf_util.h"
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
@@ -75,44 +72,6 @@ int handler_check_config_signs(struct fast_task_info *task,
     return 0;
 }
 
-int handler_deal_ack(struct fast_task_info *task)
-{
-    if (REQUEST_STATUS != 0) {
-        if (REQUEST.header.body_len > 0) {
-            int remain_size;
-            int len;
-
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "message from peer %s:%u => ",
-                    task->client_ip, task->port);
-            remain_size = sizeof(RESPONSE.error.message) -
-                RESPONSE.error.length;
-            if (REQUEST.header.body_len >= remain_size) {
-                len = remain_size - 1;
-            } else {
-                len = REQUEST.header.body_len;
-            }
-
-            memcpy(RESPONSE.error.message + RESPONSE.error.length,
-                    REQUEST.body, len);
-            RESPONSE.error.length += len;
-            *(RESPONSE.error.message + RESPONSE.error.length) = '\0';
-        }
-
-        return REQUEST_STATUS;
-    }
-
-    if (REQUEST.header.body_len > 0) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "ACK body length: %d != 0",
-                REQUEST.header.body_len);
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
 int handler_deal_task_done(struct fast_task_info *task)
 {
     FSProtoHeader *proto_header;
@@ -120,8 +79,11 @@ int handler_deal_task_done(struct fast_task_info *task)
     int time_used;
     char time_buff[32];
 
-    if (TASK_ARG->context.log_error && RESPONSE.error.length > 0) {
-        logError("file: "__FILE__", line: %d, "
+    if (TASK_ARG->context.log_level != LOG_NOTHING &&
+            RESPONSE.error.length > 0)
+    {
+        log_it_ex(&g_log_context, TASK_ARG->context.log_level,
+                "file: "__FILE__", line: %d, "
                 "peer %s:%u, cmd: %d (%s), req body length: %d, %s",
                 __LINE__, task->client_ip, task->port, REQUEST.header.cmd,
                 fs_get_cmd_caption(REQUEST.header.cmd),
@@ -170,9 +132,10 @@ int handler_deal_task_done(struct fast_task_info *task)
     r = sf_send_add_event(task);
     time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
     if (time_used > 50 * 1000) {
-        lwarning("process a request timed used: %s us, "
+        logWarning("file: "__FILE__", line: %d, "
+                "process a request timed used: %s us, "
                 "cmd: %d (%s), req body len: %d, resp body len: %d",
-                long_to_comma_str(time_used, time_buff),
+                __LINE__, long_to_comma_str(time_used, time_buff),
                 REQUEST.header.cmd, fs_get_cmd_caption(REQUEST.header.cmd),
                 REQUEST.header.body_len,
                 RESPONSE.header.body_len);

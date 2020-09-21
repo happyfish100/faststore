@@ -207,7 +207,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 op_ctx->info.bs_key.slice.offset,
                 op_ctx->info.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
-        TASK_ARG->context.log_error = false;
+        TASK_ARG->context.log_level = LOG_NOTHING;
         result = op_ctx->result;
     } else {
         result = do_replica(task, FS_SERVICE_PROTO_SLICE_WRITE_RESP);
