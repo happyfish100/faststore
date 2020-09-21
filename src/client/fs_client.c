@@ -15,8 +15,10 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
     remain = file_size;
     fs_set_block_key(&bkey, oid, 0);
     while (1) {
+        /*
         logInfo("block {oid: %"PRId64", offset: %"PRId64"}",
                 bkey.oid, bkey.offset);
+                */
 
         result = fs_client_block_delete(client_ctx, &bkey, &dec_alloc);
         if (result == ENOENT) {
@@ -88,7 +90,6 @@ static int stat_data_group(FSClientContext *client_ctx,
                         &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, *server),
                         stats, size, count)) == 0)
         {
-            logInfo("stat by server id: %d", (*server)->id);
             break;
         }
     }
@@ -236,9 +237,11 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
                     net_retry_cfg.network.times, ++i, result);
 
+            /*
             logInfo("file: "__FILE__", line: %d, func: %s, "
                     "net retry result: %d, retry count: %d",
                     __LINE__, __FUNCTION__, result, i);
+                    */
 
             SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
             if ((conn=client_ctx->conn_manager.get_master_connection(
@@ -256,11 +259,12 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             }
         }
 
+        /*
         logInfo("slice offset: %d, slice length: %d, current offset: %d, "
                 "current length: %d, result: %d, current_alloc: %d",
                 bs_key->slice.offset, bs_key->slice.length, new_key.slice.offset,
                 new_key.slice.length, result, current_alloc);
-
+                */
 
         if (connection_params->channel != old_channel) { //master changed
             sf_reset_net_retry_interval(&net_retry_ctx);
@@ -329,9 +333,11 @@ int fs_client_slice_read(FSClientContext *client_ctx,
         SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
                 net_retry_cfg.network.times, ++i, result);
 
+        /*
         logInfo("file: "__FILE__", line: %d, func: %s, "
                 "net retry result: %d, retry count: %d",
                 __LINE__, __FUNCTION__, result, i);
+                */
 
         SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
         if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
@@ -345,7 +351,6 @@ int fs_client_slice_read(FSClientContext *client_ctx,
         remain -= bytes;
         new_key.slice.offset += bytes;
         new_key.slice.length = remain;
-        sf_reset_net_retry_interval(&net_retry_ctx);
     }
 
     if (conn != NULL) {

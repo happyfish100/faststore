@@ -98,7 +98,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
         }
 
         if (__sync_fetch_and_add(&cs->active, 0) == 0) {
-            logWarning("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, "
                     "target server id: %d not online! "
                     "ds is_master: %d, status: %d, data version: %"PRId64", "
@@ -141,7 +141,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                 iovent_notify_thread(task->thread_data);
             }
         } else {
-            logWarning("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, alread in_queue: %d, "
                     "data version: %"PRId64", event {source: %c, type: %d}, "
@@ -197,10 +197,9 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         return EBUSY;
     }
 
-
     cs = ((FSServerTaskArg *)ctx->task->arg)->context.shared.cluster.peer;
     if (__sync_fetch_and_add(&cs->active, 0) == 0) {
-        logWarning("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",
                 __LINE__, cs->server->id);
         return EAGAIN;

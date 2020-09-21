@@ -167,10 +167,12 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
             hole_start = buff_offet + bytes;
         }
 
+        /*
         logInfo("total recv: %d, current offset: %d, "
                 "current length: %d, current read: %d, remain: %d, result: %d",
                 hole_start, bs_key->slice.offset + buff_offet,
                 curr_len, bytes, remain, result);
+                */
 
         buff_offet += curr_len;
         remain -= curr_len;
