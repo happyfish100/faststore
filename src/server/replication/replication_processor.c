@@ -482,8 +482,6 @@ static int replication_rpc_from_queue(FSReplication *replication)
         body_part = (FSProtoReplicaRPCReqBodyPart *)(task->data +
                 task->length);
         pkg_len = task->length + sizeof(*body_part) + rb->body_length;
-        logInfo("replication rb: %p, body_len: %d, pkg_len: %d", rb, rb->body_length, pkg_len);
-
         if (pkg_len > task->size) {
             bool notify;
 
@@ -505,9 +503,6 @@ static int replication_rpc_from_queue(FSReplication *replication)
             task->length = pkg_len;
             long2buff(data_version, body_part->data_version);
             int2buff(rb->body_length, body_part->body_len);
-
-            logInfo("count: %d, task->length: %d", count, task->length);
-
             if ((result=rpc_result_ring_add(&replication->context.caller.
                             rpc_result_ctx, data_version, rb->task,
                             rb->task_version)) != 0)
@@ -525,8 +520,6 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
         replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
-
-    logInfo("replication count: %d, task->length: %d", count, task->length);
 
     if (count == 0) {
         return 0;
@@ -599,12 +592,13 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     int result;
     int i;
 
+    /*
     static int count = 0;
-
     if (++count % 100 == 0) {
         logInfo("server_ctx %p, connected.count: %d", server_ctx,
                 server_ctx->replica.connected.count);
     }
+    */
 
     if (server_ctx->replica.connected.count == 0) {
         return 0;

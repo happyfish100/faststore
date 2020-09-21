@@ -186,14 +186,15 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
 
 void ob_index_free_slice(OBSliceEntry *slice)
 {
-    logInfo("free slice1: %p, ref_count: %d",
-            slice, __sync_add_and_fetch(&slice->ref_count, 0));
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
         OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
 
-        logInfo("free slice2: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+        /*
+        logInfo("free slice: %p, ref_count: %d, block "
+                "{oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
                 slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+                */
 
         fast_mblock_free_object(&ctx->slice_allocator, slice);
     }
@@ -214,7 +215,8 @@ static void slice_free_func(void *ptr, const int delay_seconds)
         OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
 
         /*
-        logInfo("free slice3: %p, ref_count: %d, block {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+        logInfo("free slice3: %p, ref_count: %d, block "
+                {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
                 slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
                 */
@@ -566,10 +568,12 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
 {
     int result;
 
+    /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
             slice->ob->bkey.oid, slice->ob->bkey.offset);
+            */
 
     OB_INDEX_SET_HASHTABLE_CTX(htable, slice->ob->bkey);
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
@@ -897,8 +901,9 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
     slice_end = bs_key->slice.offset + bs_key->slice.length;
 
     /*
-    logInfo("bs_key->slice.offset: %d, length: %d, slice_end: %d, ge node: %p, top: %p",
-            bs_key->slice.offset, bs_key->slice.length, slice_end, node, ob->slices->top);
+    logInfo("bs_key->slice.offset: %d, length: %d, slice_end: %d, ge "
+            "node: %p, top: %p", bs_key->slice.offset, bs_key->slice.length,
+            slice_end, node, ob->slices->top);
             */
 
     if (previous != ob->slices->top) {

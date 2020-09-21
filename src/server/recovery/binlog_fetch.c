@@ -178,7 +178,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         last_data_version = ctx->fetch.last_data_version;
     }
 
-    logInfo("data group id: %d, current binlog length: %d, is_online: %d, "
+    logDebug("data group id: %d, current binlog length: %d, is_online: %d, "
             "last_data_version: %"PRId64", until_version: %"PRId64,
             ctx->ds->dg->id, binlog->len, ctx->is_online,
             ctx->fetch.last_data_version, fetch_ctx->until_version);
@@ -345,7 +345,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             }
         }
 
-        logInfo("data group id: %d, is_online: %d, last_data_version: %"PRId64
+        logDebug("data group id: %d, is_online: %d, last_data_version: %"PRId64
                 ", until_version: %"PRId64, ctx->ds->dg->id, ctx->is_online,
                 ctx->fetch.last_data_version, fetch_ctx->until_version);
     }
@@ -430,7 +430,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         }
     }
 
-    logInfo("file: "__FILE__", line: %d, "
+    logDebug("file: "__FILE__", line: %d, "
             "data group id: %d, waiting count: %d, result: %d, "
             "trigger_report: %d", __LINE__, ctx->ds->dg->id,
             i + 1, result, trigger_report);

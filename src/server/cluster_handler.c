@@ -257,9 +257,11 @@ static int process_ping_leader_req(struct fast_task_info *task)
     if (change_count > 0) {
         __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 1);
 
+        /*
         logInfo("peer id: %d, data_group_count: %d, current_version: %"PRId64,
                 CLUSTER_PEER->server->id, data_group_count,
                 __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
+                */
     }
 
     return 0;
@@ -535,12 +537,14 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
 
     server_ctx = (FSServerContext *)thread_data->arg;
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
+        /*
         static int count = 0;
         if (count++ % 100 == 0) {
             logInfo("thread index: %d, notify context count: %d",
                     SF_THREAD_INDEX(CLUSTER_SF_CTX, thread_data),
                     server_ctx->cluster.notify_ctx_ptr_array.count);
         }
+        */
 
         cluster_topology_process_notify_events(
                 &server_ctx->cluster.notify_ctx_ptr_array);

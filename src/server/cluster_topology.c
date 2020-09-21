@@ -33,7 +33,6 @@ static FSClusterDataServerInfo *find_data_group_server(
     end = ds_array->servers + ds_array->count;
     for (ds=ds_array->servers; ds<end; ds++) {
         if (ds->cs == cs) {
-            //logInfo("data group index: %d, server id: %d", gindex, cs->server->id);
             return ds;
         }
     }
@@ -122,6 +121,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
 
         in_queue = __sync_add_and_fetch(&event->in_queue, 0);
         if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
+            /*
             logInfo("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, push to in_queue: %d, "
@@ -132,6 +132,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     cs->server->id, in_queue,
                     __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
                     source, event_type, event->ds);
+                    */
 
             event->source = source;
             event->type = event_type;
@@ -228,6 +229,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         body_part->status = __sync_add_and_fetch(&ds->status, 0);
         long2buff(ds->replica.data_version, body_part->data_version);
 
+        /*
         logInfo("push to target server id: %d (ctx: %p), event "
                 "source: %c, type: %d, {data group id: %d, "
                 "data server id: %d, is_master: %d, "
@@ -237,6 +239,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
                 body_part->is_master, body_part->status,
                 ds->replica.data_version,
                 __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
+                */
 
         ++body_part;
     }
@@ -483,9 +486,11 @@ void cluster_topology_set_check_master_flags()
         }
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
             "old_count: %d, new_count: %d",
             __LINE__, old_count, new_count);
+            */
 
     if (new_count > 0) {
         __sync_add_and_fetch(&CLUSTER_DATA_RGOUP_ARRAY.
@@ -609,11 +614,12 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-
     master_index = group->hash_code % active_count;
 
+    /*
     logInfo("data_group_id: %d, active_count: %d, master_index: %d, hash_code: %d",
             group->id, active_count, master_index, group->hash_code);
+            */
 
     ds = online_data_servers[master_index];
     if (__sync_fetch_and_add(&ds->cs->active, 0)) {
@@ -689,9 +695,6 @@ void cluster_topology_check_and_make_delay_decisions()
     if (decision_count == 0) {
         return;
     }
-
-    logInfo("file: "__FILE__", line: %d, "
-            "decision_count: %d", __LINE__, decision_count);
 
     done_count = 0;
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;

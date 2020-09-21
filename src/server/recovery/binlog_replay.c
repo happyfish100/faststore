@@ -400,7 +400,7 @@ static void waiting_replay_threads_exit(DataRecoveryContext *ctx)
     replay_ctx = (BinlogReplayContext *)ctx->arg;
     replay_ctx->continue_flag = false;
     while (__sync_add_and_fetch(&replay_ctx->running_count, 0) > 0) {
-        logInfo("data group id: %d, replay running threads: %d",
+        logDebug("data group id: %d, replay running threads: %d",
                 ctx->ds->dg->id, __sync_add_and_fetch(
                     &replay_ctx->running_count, 0));
         fc_sleep_ms(10);
@@ -523,7 +523,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
         return result;
     }
 
-    logInfo("file: "__FILE__", line: %d, "
+    logDebug("file: "__FILE__", line: %d, "
             "%s, replay start offset: %"PRId64" ...",
             __LINE__, subdir_name, position.offset);
 
@@ -536,7 +536,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             break;
         }
 
-        logInfo("data group id: %d, replay running threads: %d, "
+        logDebug("data group id: %d, replay running threads: %d, "
                 "errno: %d, buffer length: %d",
                 ctx->ds->dg->id, __sync_add_and_fetch(
                 &replay_ctx->running_count, 0),

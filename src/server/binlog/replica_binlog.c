@@ -199,9 +199,10 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
 
     old_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
     if (replica_binlog_set_data_version(myself, new_version)) {
-        logInfo("=====line: %d, data_group_id: %d, old version: %"PRId64", "
-                "new version: %"PRId64" =====", __LINE__, myself->dg->id,
-                old_version, myself->replica.data_version);
+        logDebug("file: "__FILE__", line: %d, data_group_id: %d, "
+                "old version: %"PRId64", new version: %"PRId64,
+                __LINE__, myself->dg->id, old_version,
+                myself->replica.data_version);
     }
 
     return 0;

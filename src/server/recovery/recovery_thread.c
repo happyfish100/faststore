@@ -64,7 +64,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
                 old_status, new_status, FS_EVENT_SOURCE_SELF_REPORT))
     {
         __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
-        logInfo("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, change my status to %d (%s) fail, "
                 "skip data recovery", __LINE__, ds->dg->id, new_status,
                 fs_get_server_status_caption(new_status));
@@ -84,7 +84,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
             if (cluster_relationship_swap_report_ds_status(ds,
                         new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
             {  //rollback status
-                logInfo("file: "__FILE__", line: %d, "
+                logWarning("file: "__FILE__", line: %d, "
                         "data group id: %d, data recovery fail, result: %d, "
                         "rollback my status from %d (%s) to %d (%s)",
                         __LINE__, ds->dg->id, result, new_status,
@@ -111,10 +111,12 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
         }
     }
 
+    /*
     logInfo("====file: "__FILE__", line: %d, func: %s, "
             "do recovery, data group id: %d, result: %d, done status: %d, "
             "current status: %d =====", __LINE__, __FUNCTION__, ds->dg->id,
             result, new_status, __sync_add_and_fetch(&ds->status, 0));
+            */
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)

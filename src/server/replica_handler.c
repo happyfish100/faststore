@@ -89,7 +89,7 @@ static void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
     int count;
     cluster_topology_offline_slave_data_servers(peer, &count);
     if (count > 0) {
-        logInfo("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "peer server id: %d, offline slave data server count: %d",
                 __LINE__, peer->server->id, count);
     }
@@ -718,8 +718,6 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
             break;
         }
 
-        //logInfo("push_binlog_resp data_version: %"PRId64", errno: %d", data_version, err_no);
-
         if ((result=replication_processors_deal_rpc_response(
                         REPLICA_REPLICATION, data_version)) != 0)
         {
@@ -778,9 +776,6 @@ int replica_deal_task(struct fast_task_info *task)
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
-                logInfo("file: "__FILE__", line: %d, "
-                        "client ip: %s, cmd: %d", __LINE__,
-                        task->client_ip, REQUEST.header.cmd);
                 result = replica_deal_join_server_req(task);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
@@ -843,10 +838,11 @@ void *replica_alloc_thread_extra_data(const int thread_index)
 int replica_thread_loop_callback(struct nio_thread_data *thread_data)
 {
     FSServerContext *server_ctx;
-    static int count = 0;
+    //static int count = 0;
 
     server_ctx = (FSServerContext *)thread_data->arg;
 
+    /*
     if (count++ % 100 == 0) {
         logInfo("thread index: %d, connectings.count: %d, "
                 "connected.count: %d",
@@ -854,6 +850,7 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
                 server_ctx->replica.connectings.count,
                 server_ctx->replica.connected.count);
     }
+    */
 
     replication_processor_process(server_ctx);
     return 0;

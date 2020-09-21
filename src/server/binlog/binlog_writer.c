@@ -344,9 +344,11 @@ static void deal_record_by_version(BinlogWriterBuffer *wb)
         return;
     }
 
+    /*
     logInfo("%s wb version===== %"PRId64", next: %"PRId64", writer: %p",
             writer->cfg.subdir_name, wb->version,
             writer->version_ctx.next, writer);
+            */
 
     current = writer->version_ctx.ring.entries + wb->version %
         writer->version_ctx.ring.size;
@@ -381,7 +383,7 @@ static void deal_record_by_version(BinlogWriterBuffer *wb)
 
     if (writer->version_ctx.ring.count > writer->version_ctx.ring.max_count) {
         writer->version_ctx.ring.max_count = writer->version_ctx.ring.count;
-        logInfo("%s max ring.count ==== %d", writer->cfg.subdir_name,
+        logDebug("%s max ring.count ==== %d", writer->cfg.subdir_name,
                 writer->version_ctx.ring.count);
     }
 
@@ -435,15 +437,17 @@ static inline int flush_writer_files(BinlogWriterThread *thread)
     struct binlog_writer_info **end;
     int result;
 
-    logInfo("flush_writers count: %d", thread->flush_writers.count);
+    //logInfo("flush_writers count: %d", thread->flush_writers.count);
     if (thread->flush_writers.count == 1) {
-        //logInfo("flush_writers filename: %s", thread->flush_writers.entries[0]->file.name);
+        /*
+        logInfo("flush_writers filename: %s",
+                thread->flush_writers.entries[0]->file.name);
+                */
         return binlog_write_to_file(thread->flush_writers.entries[0]);
     }
 
     end = thread->flush_writers.entries + thread->flush_writers.count;
     for (entry=thread->flush_writers.entries; entry<end; entry++) {
-        //logInfo("flush_writers filename: %s", (*entry)->file.name);
         if ((result=binlog_write_to_file(*entry)) != 0) {
             return result;
         }
@@ -477,7 +481,7 @@ static int deal_binlog_records(BinlogWriterThread *thread,
                             current->writer->cfg.subdir_name);
                 }
 
-                logInfo("file: "__FILE__", line: %d, "
+                logDebug("file: "__FILE__", line: %d, "
                         "subdir_name: %s, set next version to %"PRId64,
                         __LINE__, current->writer->cfg.subdir_name,
                         current->version);
@@ -628,7 +632,7 @@ int binlog_writer_init_by_version(BinlogWriterInfo *writer,
 {
     int bytes;
 
-    logInfo("init writer %s ===== next version: %"PRId64", writer: %p",
+    logDebug("init writer %s ===== next version: %"PRId64", writer: %p",
             subdir_name, next_version, writer);
 
     bytes = sizeof(BinlogWriterBuffer *) * ring_size;

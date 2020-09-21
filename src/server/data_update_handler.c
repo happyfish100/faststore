@@ -57,9 +57,6 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
         return ENOENT;
     }
 
-    logInfo("data_group_id: %d, master_only: %d",
-            op_ctx->info.data_group_id, master_only);
-
     if (master_only) {
         if (!__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -156,10 +153,6 @@ static int handle_master_replica_done(struct fast_task_info *task)
     du_handler_idempotency_request_finish(task, RESPONSE_STATUS);
     du_handler_fill_slice_update_response(task,
             SLICE_OP_CTX.write.inc_alloc);
-
-    logInfo("file: "__FILE__", line: %d, "
-            "response cmd: %d, inc_alloc: %d, status: %d", __LINE__,
-            RESPONSE.header.cmd, SLICE_OP_CTX.write.inc_alloc, RESPONSE_STATUS);
     return RESPONSE_STATUS;
 }
 
@@ -211,6 +204,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
         result = op_ctx->result;
     } else {
         result = do_replica(task, FS_SERVICE_PROTO_SLICE_WRITE_RESP);
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "op_ctx->info.data_version: %"PRId64", result: %d, "
@@ -218,6 +212,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 TASK_CTX.which_side, op_ctx->info.data_group_id,
                 op_ctx->info.data_version, result, SLICE_OP_CTX.done_bytes,
                 SLICE_OP_CTX.write.inc_alloc);
+                */
     }
 
     if (result != TASK_STATUS_CONTINUE) {
@@ -243,11 +238,13 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 op_ctx->info.bs_key.slice.offset, op_ctx->info.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
     } else {
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "which_side: %c, data_group_id: %d, "
                 "op_ctx->info.data_version: %"PRId64", result: %d",
                 __LINE__, TASK_CTX.which_side, op_ctx->info.data_group_id,
                 op_ctx->info.data_version, op_ctx->result);
+                */
     }
 
     if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
@@ -293,7 +290,7 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
             if (op_ctx->info.data_version < op_ctx->info. \
                     myself->replica.rpc_start_version)    \
             {  \
-                logInfo("file: "__FILE__", line: %d, "  \
+                logWarning("file: "__FILE__", line: %d, "  \
                         "data group id: %d, current data version: %"PRId64 \
                         " < rpc start version: %"PRId64", skip it!", \
                         __LINE__, op_ctx->info.data_group_id, \
@@ -327,9 +324,11 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     }
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "data_group_id: %d", __LINE__, __FUNCTION__,
             op_ctx->info.data_group_id);
+            */
 
     if (sizeof(FSProtoSliceWriteReqHeader) + op_ctx->info.bs_key.
             slice.length != op_ctx->info.body_len)

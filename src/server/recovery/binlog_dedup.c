@@ -219,7 +219,7 @@ static int do_dedup_binlog(DataRecoveryContext *ctx)
         return result;
     }
 
-    logInfo("file: "__FILE__", line: %d, "
+    logDebug("file: "__FILE__", line: %d, "
             "dedup %s data ...", __LINE__, subdir_name);
 
     result = 0;
@@ -231,8 +231,10 @@ static int do_dedup_binlog(DataRecoveryContext *ctx)
             break;
         }
 
+        /*
         logInfo("errno: %d, buffer length: %d", dedup_ctx->r->err_no,
                 dedup_ctx->r->buffer.length);
+                */
         if (dedup_ctx->r->err_no == ENOENT) {
             break;
         } else if (dedup_ctx->r->err_no != 0) {

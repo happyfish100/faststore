@@ -223,7 +223,7 @@ static void prealloc_trunks(FSTrunkAllocator *allocator,
     int i;
 
     count = freelist->prealloc_trunks - freelist->count;
-    logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
+    //logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
     for (i=0; i<count; i++) {
         trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
     }
@@ -331,6 +331,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
                     break;
                 }
 
+                /*
                 if (remain_bytes <= 0) {
                     logInfo("allocator: %p, trunk_info: %p, trunk size: %"PRId64", "
                             "free start: %"PRId64", remain_bytes: %d",
@@ -338,6 +339,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
                             trunk_info->free_start, remain_bytes);
                 }
                 assert(remain_bytes > 0);
+                */
 
                 TRUNK_ALLOC_SPACE(allocator, trunk_info,
                         space_info, remain_bytes);

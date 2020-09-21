@@ -77,8 +77,10 @@ int binlog_loader_load(const char *subdir_name,
             break;
         }
 
+        /*
         logInfo("errno: %d, buffer length: %d", parse_ctx.r->err_no,
                 parse_ctx.r->buffer.length);
+                */
         if (parse_ctx.r->err_no == ENOENT) {
             break;
         } else if (parse_ctx.r->err_no != 0) {

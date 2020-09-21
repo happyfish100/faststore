@@ -65,8 +65,10 @@ static inline ReplicationRPCEntry *replication_caller_alloc_rpc_entry()
 void replication_caller_release_rpc_entry(ReplicationRPCEntry *rpc)
 {
     if (__sync_sub_and_fetch(&rpc->reffer_count, 1) == 0) {
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "free record buffer: %p", __LINE__, rpc);
+                */
         fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
     }
 }

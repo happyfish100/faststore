@@ -60,23 +60,9 @@ static int calc_cluster_config_sign()
     fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     my_md5_buffer(buffer.data, buffer.length, SERVERS_CONFIG_SIGN_BUF);
 
-    {
-    char hex_buff[2 * SERVERS_CONFIG_SIGN_LEN + 1];
-    logInfo("servers config length: %d, sign: %s", buffer.length,
-            bin2hex((const char *)SERVERS_CONFIG_SIGN_BUF,
-                SERVERS_CONFIG_SIGN_LEN, hex_buff));
-    }
-
     fast_buffer_reset(&buffer);
     fc_cluster_cfg_to_string(&CLUSTER_CONFIG_CTX, &buffer);
     my_md5_buffer(buffer.data, buffer.length, CLUSTER_CONFIG_SIGN_BUF);
-
-    {
-    char hex_buff[2 * CLUSTER_CONFIG_SIGN_LEN + 1];
-    logInfo("cluster config length: %d, sign: %s", buffer.length,
-            bin2hex((const char *)CLUSTER_CONFIG_SIGN_BUF,
-                CLUSTER_CONFIG_SIGN_LEN, hex_buff));
-    }
 
     //logInfo("cluster config:\n%.*s", buffer.length, buffer.data);
 

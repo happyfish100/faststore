@@ -92,9 +92,11 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
         op_ctx->result = result;
     }
 
+    /*
     logInfo("slice_write_done result: %d, offset: %d, length: %d, "
             "done_bytes: %d", result, record->slice->ssize.offset,
             record->slice->ssize.length, op_ctx->done_bytes);
+            */
 
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
         slice_write_finish(op_ctx);
@@ -144,10 +146,13 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         return result;
     }
 
-    logInfo("write *slice_count: %d, block { oid: %"PRId64", offset: %"PRId64" }, "
+    /*
+    logInfo("write *slice_count: %d, block "
+            "{ oid: %"PRId64", offset: %"PRId64" }, "
             "target slice offset: %d, length: %d", *slice_count,
             bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
+            */
 
     if (*slice_count == 1) {
         slices[0] = alloc_init_slice(&bs_key->block, spaces + 0, slice_type,
@@ -156,8 +161,10 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
             return ENOMEM;
         }
 
+        /*
         logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
                 0, spaces[0].offset, spaces[0].size);
+                */
     } else {
         int offset;
         int remain;
@@ -173,8 +180,10 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
                 return ENOMEM;
             }
 
+            /*
             logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
                     i, spaces[i].offset, spaces[i].size);
+                    */
 
             offset += slices[i]->ssize.length;
             remain -= slices[i]->ssize.length;
@@ -247,9 +256,12 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
         }
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
-            "read sarray->count: %"PRId64", target slice offset: %d, length: %d",
-            __LINE__, sarray->count, bs_key->slice.offset, bs_key->slice.length);
+            "read sarray->count: %"PRId64", target slice offset: %d, "
+            "length: %d", __LINE__, sarray->count, bs_key->slice.offset,
+            bs_key->slice.length);
+            */
 
     *count = 0;
     offset = bs_key->slice.offset;
@@ -265,9 +277,12 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
             (*count)++;
         }
 
-        logInfo("slice %d. type: %c (0x%02x), offset: %d, length: %d, "
-                "hole_len: %d", (int)(pp - sarray->slices), (*pp)->type,
-                (*pp)->type, (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
+        /*
+        logInfo("slice %d. type: %c (0x%02x), offset: %d, "
+                "length: %d, hole_len: %d", (int)(pp - sarray->slices),
+                (*pp)->type, (*pp)->type, (*pp)->ssize.offset,
+                (*pp)->ssize.length, hole_len);
+                */
 
         offset = (*pp)->ssize.offset + (*pp)->ssize.length;
         ob_index_free_slice(*pp);
@@ -352,9 +367,11 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
         }
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
             "slice hole count: %d, inc_alloc: %d",
             __LINE__, count, *inc_alloc);
+            */
 
     return 0;
 }
@@ -402,9 +419,12 @@ int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
         return result;
     }
 
-    logInfo("read sarray->count: %"PRId64", target slice offset: %d, length: %d",
-            sarray->count, op_ctx->info.bs_key.slice.offset,
+    /*
+    logInfo("read sarray->count: %"PRId64", target slice "
+            "offset: %d, length: %d", sarray->count,
+            op_ctx->info.bs_key.slice.offset,
             op_ctx->info.bs_key.slice.length);
+            */
 
     op_ctx->done_bytes = 0;
     op_ctx->counter = sarray->count;
@@ -419,9 +439,11 @@ int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
             op_ctx->done_bytes += hole_len;
         }
 
+        /*
         logInfo("slice %d. type: %c (0x%02x), offset: %d, length: %d, "
                 "hole_len: %d", (int)(pp - sarray->slices), (*pp)->type,
                 (*pp)->type, (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
+                */
 
         ssize = (*pp)->ssize;
         if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {

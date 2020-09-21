@@ -138,8 +138,6 @@ static int open_write_file(BinlogRepairContext *ctx)
             ctx->out_writer.filename,
             sizeof(ctx->out_writer.filename));
 
-    logInfo("repair filename ==== %s", ctx->out_writer.filename);
-
     ctx->out_writer.fd = open(ctx->out_writer.filename,
             O_WRONLY | O_CREAT | O_TRUNC | O_APPEND, 0644);
     if (ctx->out_writer.fd < 0) {
@@ -470,11 +468,6 @@ static int binlog_repair_finish(const int data_group_id,
 
         binlog_reader_get_filename(subdir_name, index,
                 dest_filename, sizeof(dest_filename));
-
-        logInfo("file: "__FILE__", line: %d, "
-                "rename binlog from %s to %s", __LINE__,
-                src_filename, dest_filename);
-
         if (rename(src_filename, dest_filename) != 0) {
             result = errno != 0 ? errno : EPERM;
             if (result == ENOENT) {
@@ -491,10 +484,12 @@ static int binlog_repair_finish(const int data_group_id,
         rename_count++;
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "===== data_group_id: %d, rename_count: %d, end_binlog_index: %d",
             __LINE__, __FUNCTION__, data_group_id,
             rename_count, end_binlog_index);
+            */
 
     if ((rename_count > 0) || (end_binlog_index !=
                 binlog_get_current_write_index(writer)))

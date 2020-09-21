@@ -185,7 +185,7 @@ int trunk_io_thread_init()
         return result;
     }
 
-    logInfo("io_path_context_array.count: %d", io_path_context_array.count);
+    //logInfo("io_path_context_array.count: %d", io_path_context_array.count);
     return 0;
 }
 
@@ -451,6 +451,7 @@ static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
         return result;
     }
 
+    /*
     if (iob->slice->read_offset > 0) {
         logInfo("==== file: "__FILE__", line: %d, "
                 "slice {offset: %d, length: %d}, "
@@ -459,6 +460,7 @@ static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
                 iob->slice->space.offset, iob->slice->space.size,
                 iob->slice->read_offset);
     }
+    */
 
     remain = iob->slice->ssize.length;
     while (remain > 0) {

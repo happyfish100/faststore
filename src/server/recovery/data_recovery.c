@@ -78,8 +78,6 @@ static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 
     for (i=0; i<3; i++) {
         path_len += sprintf(filepath + path_len, "/%s", subdir_names[i]);
-
-        logInfo("%d. filepath: %s", i + 1, filepath);
         if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
             return result;
         }
@@ -266,6 +264,7 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
 {
     int result;
     int i;
+    int log_level;
     uint64_t data_version;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char filename[PATH_MAX];
@@ -288,9 +287,14 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
         fc_sleep_ms(10);
     }
 
-    logInfo("file: "__FILE__", line: %d, "
-            "waiting binlog write done time count: %d",
-            __LINE__, i);
+    if (i < 3) {
+        log_level = LOG_INFO;
+    } else {
+        log_level = LOG_WARNING;
+    }
+
+    log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
+            "waiting binlog write done time count: %d", __LINE__, i);
     return result;
 }
 
@@ -403,9 +407,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
 
-            logInfo("file: "__FILE__", line: %d, func: %s, "
-                    "binlog_size: %"PRId64, __LINE__, __FUNCTION__,
-                    binlog_size);
             if (binlog_size == 0) {
                 break;
             }
@@ -485,10 +486,12 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
             break;
         }
 
+        /*
         logInfo("======= data group id: %d, stage: %d, catch_up: %d, "
                 "is_online: %d, last_data_version: %"PRId64,
                 ds->dg->id, ctx.stage, ctx.catch_up, ctx.is_online,
                 ctx.fetch.last_data_version);
+                */
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (result == 0 && !ctx.is_online);

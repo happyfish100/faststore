@@ -87,7 +87,6 @@ static int binlog_check_get_last_timestamp(time_t *last_timestamp)
         *last_timestamp = timestamp;
     }
 
-    logInfo("last_timestamp1: %"PRId64, (int64_t)*last_timestamp);
     return get_replica_last_timestamp(last_timestamp);
 }
 
@@ -248,6 +247,7 @@ static int do_load_data_versions(const char *subdir_name,
         return result;
     }
 
+    /*
     {
         int64_t line_count;
 
@@ -257,6 +257,7 @@ static int do_load_data_versions(const char *subdir_name,
         logInfo("head -n %"PRId64" %s, index: %d, offset: %"PRId64,
                 line_count + 1, reader.filename, pos->index, pos->offset); 
     }
+    */
 
     while ((result=binlog_reader_integral_read(&reader,
                     reader.binlog_buffer.buff,
@@ -271,8 +272,10 @@ static int do_load_data_versions(const char *subdir_name,
     if (result == ENOENT) {
         result = 0;
     }
+    /*
     logInfo("subdir_name: %s, index: %d, offset: %"PRId64", count: %"PRId64,
             subdir_name, pos->index, pos->offset, varray->count);
+            */
 
     binlog_reader_destroy(&reader);
     return result;
@@ -426,8 +429,5 @@ int binlog_consistency_check(BinlogConsistencyContext *ctx, int *flags)
     }
 
     from_timestamp = last_timestamp - BINLOG_CHECK_LAST_SECONDS + 1;
-
-    logInfo("last_timestamp2: %"PRId64", from_timestamp: %"PRId64,
-            (int64_t)last_timestamp, (int64_t)from_timestamp);
     return binlog_check(ctx, from_timestamp, flags);
 }

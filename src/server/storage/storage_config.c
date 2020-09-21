@@ -488,7 +488,7 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
         result = set_paths_by_index(storage_cfg);
     }
 
-    logInfo("old_count: %d, new_count: %d, change_count: %d, "
+    logDebug("old_count: %d, new_count: %d, change_count: %d, "
             "max_store_path_index: %d", old_count,
             store_path_index_count(), change_count,
             storage_cfg->max_store_path_index);

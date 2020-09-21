@@ -190,7 +190,7 @@ static void leader_deal_data_version_changes()
     }
 
     if (count > 0) {
-        logInfo("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "leader data versions change count: %d",
                 __LINE__, count);
     }
@@ -308,7 +308,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 		cluster_cmp_server_status);
 
 	for (i=0; i<*active_count; i++) {
-        logInfo("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "server_id: %d, ip addr %s:%d, is_leader: %d, "
                 "up_time: %d, last_shutdown_time: %d, version: %"PRId64,
                 __LINE__, cs_status[i].server_id,
@@ -441,7 +441,6 @@ static int do_check_brainsplit(FSClusterServerInfo *cs)
         return 0;
     }
 
-    logInfo("server id: %d, leader: %d", cs->server->id, server_status.is_leader);
     if (server_status.is_leader) {
         logWarning("file: "__FILE__", line: %d, "
                 "two leaders occurs, anonther leader is %s:%d, "
@@ -695,7 +694,7 @@ static int cluster_select_leader()
             }
         }
 
-        logInfo("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "round %dth select leader, alive server count: %d "
                 "< server count: %d, %stry again after %d seconds.",
                 __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
@@ -938,7 +937,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
             }
             __sync_bool_compare_and_swap(&ds->dg->master,
                     old_master, new_master);
-            logInfo("data_group_id: %d, set master server_id: %d",
+            logDebug("data_group_id: %d, set master server_id: %d",
                     ds->dg->id, ds->cs->server->id);
         }
     } else if (old_master == ds) {
@@ -946,7 +945,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         __sync_bool_compare_and_swap(&ds->dg->master,
                 old_master, new_master);
 
-        logInfo("data_group_id: %d, unset master server_id: %d",
+        logDebug("data_group_id: %d, unset master server_id: %d",
                 ds->dg->id, ds->cs->server->id);
     } else {
         return;
@@ -979,19 +978,18 @@ static int cluster_process_leader_push(SFResponseInfo *response,
         return EINVAL;
     }
 
-    logInfo("file: "__FILE__", line: %d, func: %s, "
+    /*
+    logDebug("file: "__FILE__", line: %d, func: %s, "
             "recv push from leader: %d, data_server_count: %d",
             __LINE__, __FUNCTION__, CLUSTER_LEADER_ATOM_PTR->server->id,
             data_server_count);
+            */
 
     body_part = (FSProtoPushDataServerStatusBodyPart *)(body_header + 1);
     body_end = body_part + data_server_count;
     for (; body_part < body_end; body_part++) {
         data_group_id = buff2int(body_part->data_group_id);
         server_id = buff2int(body_part->server_id);
-        logInfo("data_group_id: %d, server_id: %d, "
-                "is_master: %d, status: %d", data_group_id,
-                server_id, body_part->is_master, body_part->status);
         if ((ds=fs_get_data_server(data_group_id, server_id)) != NULL) {
             cluster_process_push_entry(ds, body_part);
         }
@@ -1096,11 +1094,10 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
     out_bytes += length;
 
     if (data_group_count > 0) {
-        logInfo("file: "__FILE__", line: %d, func: %s, "
+        logDebug("file: "__FILE__", line: %d, "
                 "ping leader %s:%d, report_all: %d, "
                 "report data_group_count: %d", __LINE__,
-                __FUNCTION__, conn->ip_addr, conn->port,
-                report_all, data_group_count);
+                conn->ip_addr, conn->port, report_all, data_group_count);
     }
 
     int2buff(data_group_count, req_header->data_group_count);
@@ -1168,11 +1165,6 @@ static int cluster_ping_leader(ConnectionInfo *conn)
         inactive_count = INACTIVE_SERVER_ARRAY.count;
         PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
         if (inactive_count > 0) {
-            static int count = 0;
-            if (count++ % 100 == 0) {
-                logInfo("file: "__FILE__", line: %d, "
-                        "inactive_count: %d", __LINE__, inactive_count);
-            }
             if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
                 return result;
             }

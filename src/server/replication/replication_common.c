@@ -41,7 +41,7 @@ static void set_server_link_index_for_replication()
         if (cs != CLUSTER_MYSELF_PTR) {
             cs->link_index = link_index++;
 
-            logInfo("%d. server id: %d, link_index: %d",
+            logDebug("%d. server id: %d, link_index: %d",
                     (int)((cs - CLUSTER_SERVER_ARRAY.servers) + 1),
                     cs->server->id, cs->link_index);
         }
@@ -90,9 +90,9 @@ static int init_replication_context(FSReplication *replication)
     }
 
 
-    logInfo("file: "__FILE__", line: %d, "
-            "replication: %d, thread_index: %d",
-            __LINE__, (int)(replication - repl_ctx.repl_array.replications),
+    logDebug("file: "__FILE__", line: %d, "
+            "replication: %d, thread_index: %d", __LINE__,
+            (int)(replication - repl_ctx.repl_array.replications),
             replication->thread_index);
 
     return 0;
@@ -149,7 +149,7 @@ static int init_replication_common_array()
             return ENOMEM;
         }
 
-        logInfo("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "server pair ids: [%d, %d], offset: %d, link_index: %d",
                 __LINE__, FC_MIN(CLUSTER_MYSELF_PTR->server->id,
                 cs->server->id), FC_MAX(CLUSTER_MYSELF_PTR->server->id,

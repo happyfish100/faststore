@@ -466,7 +466,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 }
 
 static int service_update_prepare_and_check(struct fast_task_info *task,
-        bool *deal_done)
+        const int resp_cmd, bool *deal_done)
 {
     if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
@@ -481,9 +481,12 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
             if (result != 0) {
                 if (result == EEXIST) { //found
                     result = request->output.result;
-                    du_handler_fill_slice_update_response(task,
-                            ((FSUpdateOutput *)request->output.
-                             response)->inc_alloc);
+                    if (result == 0) {
+                        du_handler_fill_slice_update_response(task,
+                                ((FSUpdateOutput *)request->output.
+                                 response)->inc_alloc);
+                        RESPONSE.header.cmd = resp_cmd;
+                    }
                 }
 
                 fast_mblock_free_object(request->allocator, request);
@@ -518,7 +521,8 @@ static inline int service_deal_slice_write(struct fast_task_info *task)
     int result;
     bool deal_done;
 
-    result = service_update_prepare_and_check(task, &deal_done);
+    result = service_update_prepare_and_check(task,
+            FS_SERVICE_PROTO_SLICE_WRITE_RESP, &deal_done);
     if (result != 0 || deal_done) {
         return result;
     }
@@ -536,7 +540,8 @@ static inline int service_deal_slice_allocate(struct fast_task_info *task)
     int result;
     bool deal_done;
 
-    result = service_update_prepare_and_check(task, &deal_done);
+    result = service_update_prepare_and_check(task,
+            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, &deal_done);
     if (result != 0 || deal_done) {
         return result;
     }
@@ -554,7 +559,8 @@ static inline int service_deal_slice_delete(struct fast_task_info *task)
     int result;
     bool deal_done;
 
-    result = service_update_prepare_and_check(task, &deal_done);
+    result = service_update_prepare_and_check(task,
+            FS_SERVICE_PROTO_SLICE_DELETE_RESP, &deal_done);
     if (result != 0 || deal_done) {
         return result;
     }
@@ -572,7 +578,8 @@ static inline int service_deal_block_delete(struct fast_task_info *task)
     int result;
     bool deal_done;
 
-    result = service_update_prepare_and_check(task, &deal_done);
+    result = service_update_prepare_and_check(task,
+            FS_SERVICE_PROTO_BLOCK_DELETE_RESP, &deal_done);
     if (result != 0 || deal_done) {
         return result;
     }

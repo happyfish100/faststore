@@ -191,9 +191,11 @@ static int init_slave_ds_array(FSClusterDataGroupInfo *group)
         memset(group->slave_ds_array.servers, 0, bytes);
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
             "data group id: %d, data server count: %d",
             __LINE__, group->id, group->data_server_array.count);
+            */
 
     group->slave_ds_array.count = 0;
     end = group->data_server_array.servers + group->data_server_array.count;
@@ -459,7 +461,7 @@ static int init_cluster_server_array(const char *filename)
         cs->server_index = server - servers;
         cs->server = *server;
 
-        logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
+        //logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
     }
     CLUSTER_SERVER_ARRAY.count = count;
 
@@ -477,6 +479,7 @@ static int init_cluster_server_array(const char *filename)
         return result;
     }
 
+    /*
     logInfo("=====cluster server count: %d", count);
     {
         FSClusterServerInfo *cs_end;
@@ -487,6 +490,7 @@ static int init_cluster_server_array(const char *filename)
                     cs->server->id, cs->ds_ptr_array.count);
         }
     }
+    */
 
     return 0;
 }
@@ -554,9 +558,11 @@ static int init_server_pair_index_array()
         }
     }
 
+    /*
     logInfo("server count: %d, server_pair_index_array.count: %d, "
             "replica_channels_between_two_servers: %d",
             CLUSTER_SERVER_ARRAY.count, count, REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
+            */
 
     server_pair_index_array.count = count;
     return 0;
@@ -766,7 +772,6 @@ static int load_server_groups()
             SERVER_GROUP_INFO_ITEM_IS_LEADER, &ini_context, false);
     CLUSTER_CURRENT_VERSION = iniGetInt64Value(NULL,
             SERVER_GROUP_INFO_ITEM_VERSION, &ini_context, 0);
-    logInfo("current version: %"PRId64, CLUSTER_CURRENT_VERSION);
 
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
@@ -897,9 +902,6 @@ static int server_group_info_set_file_mtime()
                 __LINE__, full_filename, errno, STRERROR(errno));
         return errno != 0 ? errno : EPERM;
     }
-
-    logInfo("=====file: "__FILE__", line: %d, "
-            "utimes file: %s", __LINE__, full_filename);
     return 0;
 }
 
