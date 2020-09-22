@@ -4,6 +4,9 @@
 
 #include "fastcommon/logger.h"
 
+#define FS_FUSE_DEFAULT_ATTRIBUTE_TIMEOUT 1.0
+#define FS_FUSE_DEFAULT_ENTRY_TIMEOUT     1.0
+
 typedef enum {
     allow_none,
     allow_all,
@@ -17,6 +20,8 @@ typedef struct {
     bool clone_fd;
     bool auto_unmount;
     int max_idle_threads;
+    double attribute_timeout;
+    double entry_timeout;
     FUSEAllowOthersMode allow_others;
 } FUSEGlobalVars;
 

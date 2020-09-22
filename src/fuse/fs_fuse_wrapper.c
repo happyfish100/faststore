@@ -6,10 +6,8 @@
 #include <unistd.h>
 #include "fastcommon/common_define.h"
 #include "fastcommon/sched_thread.h"
+#include "fs_fuse_global.h"
 #include "fs_fuse_wrapper.h"
-
-#define FS_ATTR_TIMEOUT  5.0
-#define FS_ENTRY_TIMEOUT 5.0
 
 #define FS_READDIR_BUFFER_INIT_NONE        0
 #define FS_READDIR_BUFFER_INIT_NORMAL      1
@@ -41,8 +39,8 @@ static inline void fill_entry_param(const FDIRDEntryInfo *dentry,
 {
     memset(param, 0, sizeof(*param));
     param->ino = dentry->inode;
-    param->attr_timeout = FS_ATTR_TIMEOUT;
-    param->entry_timeout = FS_ENTRY_TIMEOUT;
+    param->attr_timeout = g_fuse_global_vars.attribute_timeout;
+    param->entry_timeout = g_fuse_global_vars.entry_timeout;
     fill_stat(dentry, &param->attr);
 }
 
@@ -71,7 +69,7 @@ static inline void do_reply_attr(fuse_req_t req, FDIRDEntryInfo *dentry)
     struct stat stat;
     memset(&stat, 0, sizeof(stat));
     fill_stat(dentry, &stat);
-    fuse_reply_attr(req, &stat, FS_ATTR_TIMEOUT);
+    fuse_reply_attr(req, &stat, g_fuse_global_vars.attribute_timeout);
 }
 
 static void fs_do_getattr(fuse_req_t req, fuse_ino_t ino,

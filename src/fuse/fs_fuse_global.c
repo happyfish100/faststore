@@ -150,6 +150,15 @@ static int load_fuse_config(IniFullContext *ini_ctx)
     } else {
         g_fuse_global_vars.allow_others = allow_none;
     }
+
+    g_fuse_global_vars.attribute_timeout = iniGetDoubleValue(ini_ctx->
+            section_name, "attribute_timeout", ini_ctx->context,
+            FS_FUSE_DEFAULT_ATTRIBUTE_TIMEOUT);
+
+    g_fuse_global_vars.entry_timeout = iniGetDoubleValue(ini_ctx->
+            section_name, "entry_timeout", ini_ctx->context,
+            FS_FUSE_DEFAULT_ENTRY_TIMEOUT);
+
     return 0;
 }
 
@@ -272,12 +281,15 @@ int fs_fuse_global_init(const char *config_filename)
     logInfo("FUSE library version %s, "
             "FastDIR namespace: %s, %sFUSE mountpoint: %s, "
             "singlethread: %d, clone_fd: %d, max_idle_threads: %d, "
-            "allow_others: %s, auto_unmount: %d",
+            "allow_others: %s, auto_unmount: %d, "
+            "attribute_timeout: %.1fs, entry_timeout: %.1fs",
             fuse_pkgversion(), g_fuse_global_vars.ns,
             sf_idempotency_config,
             g_fuse_global_vars.mountpoint, g_fuse_global_vars.singlethread,
             g_fuse_global_vars.clone_fd, g_fuse_global_vars.max_idle_threads,
             get_allow_others_caption(g_fuse_global_vars.allow_others),
-            g_fuse_global_vars.auto_unmount);
+            g_fuse_global_vars.auto_unmount,
+            g_fuse_global_vars.attribute_timeout,
+            g_fuse_global_vars.entry_timeout);
     return 0;
 }
