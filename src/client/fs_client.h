@@ -75,24 +75,41 @@ int fs_client_slice_read(FSClientContext *client_ctx,
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
-        const int req_cmd, const int resp_cmd, int *inc_alloc);
+        const int req_cmd, const int resp_cmd,
+        const int enoent_log_level, int *inc_alloc);
 
-#define fs_client_slice_allocate(client_ctx, bs_key, inc_alloc) \
+#define fs_client_slice_allocate_ex(client_ctx, bs_key, \
+        enoent_log_level, inc_alloc) \
     fs_client_bs_operate(client_ctx, bs_key,       \
             (bs_key)->block.hash_code,             \
             FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ,   \
-            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, inc_alloc)
+            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP,  \
+            enoent_log_level, inc_alloc)
 
-#define fs_client_slice_delete(client_ctx, bs_key, dec_alloc) \
+#define fs_client_slice_delete_ex(client_ctx, bs_key, \
+        enoent_log_level, dec_alloc) \
     fs_client_bs_operate(client_ctx, bs_key,    \
             (bs_key)->block.hash_code,          \
             FS_SERVICE_PROTO_SLICE_DELETE_REQ,  \
-            FS_SERVICE_PROTO_SLICE_DELETE_RESP, dec_alloc)
+            FS_SERVICE_PROTO_SLICE_DELETE_RESP, \
+            enoent_log_level, dec_alloc)
+
+#define fs_client_block_delete_ex(client_ctx, bkey, \
+        enoent_log_level, dec_alloc)   \
+    fs_client_bs_operate(client_ctx, bkey, (bkey)->hash_code, \
+            FS_SERVICE_PROTO_BLOCK_DELETE_REQ,  \
+            FS_SERVICE_PROTO_BLOCK_DELETE_RESP, \
+            enoent_log_level, dec_alloc)
+
+
+#define fs_client_slice_allocate(client_ctx, bs_key, inc_alloc) \
+    fs_client_slice_allocate_ex(client_ctx, bs_key, LOG_DEBUG, inc_alloc)
+
+#define fs_client_slice_delete(client_ctx, bs_key, dec_alloc) \
+    fs_client_slice_delete_ex(client_ctx, bs_key, LOG_DEBUG, dec_alloc)
 
 #define fs_client_block_delete(client_ctx, bkey, dec_alloc) \
-    fs_client_bs_operate(client_ctx, bkey, (bkey)->         \
-            hash_code, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,   \
-            FS_SERVICE_PROTO_BLOCK_DELETE_RESP, dec_alloc)
+    fs_client_block_delete_ex(client_ctx, bkey, LOG_DEBUG, dec_alloc)
 
 
 #ifdef __cplusplus

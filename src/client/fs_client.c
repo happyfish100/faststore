@@ -12,6 +12,10 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
     int result;
     int dec_alloc;
 
+    if (file_size == 0) {
+        return 0;
+    }
+
     remain = file_size;
     fs_set_block_key(&bkey, oid, 0);
     while (1) {
@@ -378,11 +382,13 @@ int fs_client_slice_read(FSClientContext *client_ctx,
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
-        const int req_cmd, const int resp_cmd, int *inc_alloc)
+        const int req_cmd, const int resp_cmd,
+        const int enoent_log_level, int *inc_alloc)
 {
     const FSConnectionParameters *connection_params;
 
     SF_CLIENT_IDEMPOTENCY_UPDATE_WRAPPER(client_ctx, GET_MASTER_CONNECTION,
             FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
-            fs_client_proto_bs_operate, key, req_cmd, resp_cmd, inc_alloc);
+            fs_client_proto_bs_operate, key, req_cmd, resp_cmd,
+            enoent_log_level, inc_alloc);
 }

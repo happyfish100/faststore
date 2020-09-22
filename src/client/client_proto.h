@@ -32,11 +32,13 @@ extern "C" {
 
     int fs_client_proto_bs_operate(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id, const void *key,
-            const int req_cmd, const int resp_cmd, int *inc_alloc);
+            const int req_cmd, const int resp_cmd,
+            const int enoent_log_level, int *inc_alloc);
 
     int fs_client_proto_block_delete(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id,
-            const FSBlockKey *bkey, int *dec_alloc);
+            const FSBlockKey *bkey, const int enoent_log_level,
+            int *dec_alloc);
 
     int fs_client_proto_join_server(FSClientContext *client_ctx,
             ConnectionInfo *conn, FSConnectionParameters *conn_params);

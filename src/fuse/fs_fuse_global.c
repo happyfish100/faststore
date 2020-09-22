@@ -227,12 +227,12 @@ int fs_fuse_global_init(const char *config_filename)
 
         g_fdir_client_vars.client_ctx.idempotency_enabled =
             iniGetBoolValue(FS_API_DEFAULT_FASTDIR_SECTION_NAME,
-                    "idempotency_enabled", ini_ctx->context,
+                    "idempotency_enabled", ini_ctx.context,
                     g_idempotency_client_cfg.enabled);
 
         g_fs_client_vars.client_ctx.idempotency_enabled =
             iniGetBoolValue(FS_API_DEFAULT_FASTSTORE_SECTION_NAME,
-                    "idempotency_enabled", ini_ctx->context,
+                    "idempotency_enabled", ini_ctx.context,
                     g_idempotency_client_cfg.enabled);
 
     } while (0);
@@ -269,12 +269,10 @@ int fs_fuse_global_init(const char *config_filename)
         *sf_idempotency_config = '\0';
     }
 
-    logInfo("FastStore V%d.%02d, FUSE library version %s, "
+    logInfo("FUSE library version %s, "
             "FastDIR namespace: %s, %sFUSE mountpoint: %s, "
             "singlethread: %d, clone_fd: %d, max_idle_threads: %d, "
             "allow_others: %s, auto_unmount: %d",
-            g_fs_global_vars.version.major,
-            g_fs_global_vars.version.minor,
             fuse_pkgversion(), g_fuse_global_vars.ns,
             sf_idempotency_config,
             g_fuse_global_vars.mountpoint, g_fuse_global_vars.singlethread,

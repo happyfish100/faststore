@@ -200,11 +200,6 @@ static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     string_t nm;
     struct fuse_entry_param param;
 
-    /*
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "parent: %"PRId64", name: %s(%d)",
-            __LINE__, __FUNCTION__, parent, name, (int)strlen(name));
-            */
 
     if (fs_convert_inode(parent, &parent_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -213,6 +208,11 @@ static void fs_do_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_stat_dentry_by_pname(parent_inode, &nm, &dentry)) != 0) {
+        /*
+        logError("file: "__FILE__", line: %d, func: %s, "
+                "parent: %"PRId64", name: %s(%d), result: %d",
+                __LINE__, __FUNCTION__, parent, name, (int)strlen(name), result);
+                */
         fuse_reply_err(req, ENOENT);
         return;
     }
@@ -401,18 +401,33 @@ static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
 
 static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
+    int result;
     int64_t new_inode;
-
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", mask: %o", __LINE__,
-            __FUNCTION__, ino, mask);
+    FDIRDEntryInfo dentry;
 
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
         return;
     }
 
-    fuse_reply_err(req, 0);
+    if ((result=fsapi_stat_dentry_by_inode(new_inode, &dentry)) != 0) {
+        fuse_reply_err(req, ENOENT);
+        return;
+    }
+
+    if (mask != F_OK) {
+        if ((dentry.stat.mode & mask) != mask) {
+            result = EPERM;
+        }
+    }
+
+    /*
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "ino: %"PRId64", mask: %o, result: %d", __LINE__,
+            __FUNCTION__, ino, mask, result);
+            */
+
+    fuse_reply_err(req, result);
 }
 
 static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
@@ -699,9 +714,11 @@ static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
 static void fs_do_flush(fuse_req_t req, fuse_ino_t ino,
         struct fuse_file_info *fi)
 {
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64", fh: %"PRId64"\n",
             __LINE__, __FUNCTION__, ino, fi->fh);
+            */
 
     fuse_reply_err(req, 0);
 }
@@ -709,9 +726,11 @@ static void fs_do_flush(fuse_req_t req, fuse_ino_t ino,
 static void fs_do_fsync(fuse_req_t req, fuse_ino_t ino,
         int datasync, struct fuse_file_info *fi)
 {
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64", fh: %"PRId64", datasync: %d",
             __LINE__, __FUNCTION__, ino, fi->fh, datasync);
+            */
     fuse_reply_err(req, 0);
 }
 

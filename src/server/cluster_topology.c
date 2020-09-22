@@ -190,8 +190,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     FSProtoPushDataServerStatusBodyPart *bp_start;
     FSProtoPushDataServerStatusBodyPart *body_part;
     int body_len;
-    int event_source;
-    int event_type;
+    //int event_source;
+    //int event_type;
 
     if (!(ctx->task->offset == 0 && ctx->task->length == 0)) {
         return EBUSY;
@@ -215,8 +215,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
     while (event != NULL) {
-        event_source = event->source;
-        event_type = event->type;
+        //event_source = event->source;
+        //event_type = event->type;
         in_queue = &event->in_queue;
         ds = event->ds;
         event = event->next;
