@@ -99,9 +99,11 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
     FDIRDEntryInfo *pe;
     FDIRDEntryInfo dentry;
 
+    /*
     logInfo("=====file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64", to_set: %d, fi: %p ====",
             __LINE__, __FUNCTION__, ino, to_set, fi);
+            */
 
     options.flags = 0;
     if ((to_set & FUSE_SET_ATTR_MODE)) {
@@ -129,10 +131,12 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
             return;
         }
 
+        /*
         logInfo("file: "__FILE__", line: %d, func: %s, "
                 "SET file size from %"PRId64" to: %"PRId64,
                 __LINE__, __FUNCTION__, fh->dentry.stat.size,
                 (int64_t)attr->st_size);
+                */
 
         if ((result=fsapi_ftruncate(fh, attr->st_size)) != 0) {
             fuse_reply_err(req, result);
@@ -166,10 +170,12 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         return;
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, new_inode: %"PRId64", "
             "flags: %"PRId64", atime bit: %d, mtime bit: %d",
             __LINE__, __FUNCTION__, new_inode, options.flags,
             options.atime, options.mtime);
+            */
 
     if (options.flags == 0) {
         if (pe == NULL) {
@@ -925,8 +931,10 @@ static void fs_do_statfs(fuse_req_t req, fuse_ino_t ino)
         fuse_reply_err(req, errno != 0 ? errno : ENOENT);
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
+            */
 
     fuse_reply_statfs(req, &stbuf);
 }
