@@ -190,7 +190,9 @@ static int setup_server_env(const char *config_filename)
     }
     log_set_cache(true);
 
-    if (g_idempotency_client_cfg.enabled) {
+    if (g_fdir_client_vars.client_ctx.idempotency_enabled ||
+            g_fs_client_vars.client_ctx.idempotency_enabled)
+    {
         result = receipt_handler_init();
     }
 

@@ -364,12 +364,16 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
         }
 
         if (old_status != FS_SERVER_STATUS_ACTIVE) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
-                    "invalid old status: %d", data_group_id, my_server_id,
-                    ds_server_id, old_status);
-            TASK_ARG->context.log_level = LOG_WARNING;
-            return EINVAL;
+            if (old_status == req->status) {  //just ignore
+                return 0;
+            } else {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
+                        "invalid old status: %d", data_group_id, my_server_id,
+                        ds_server_id, old_status);
+                TASK_ARG->context.log_level = LOG_WARNING;
+                return EINVAL;
+            }
         }
 
         if (req->status != FS_SERVER_STATUS_OFFLINE) {

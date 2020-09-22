@@ -62,8 +62,6 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
 
     fi->write_notify.last_modified_time = fi->dentry.stat.mtime;
     if ((fi->flags & O_TRUNC)) {
-        logInfo("file: "__FILE__", line: %d, func: %s, do truncate!",
-                __LINE__, __FUNCTION__);
         if (fi->dentry.stat.size > 0) {
             if ((result=file_truncate(fi->ctx, fi->dentry.inode, 0)) != 0) {
                 return result;
@@ -165,12 +163,14 @@ int fsapi_close(FSAPIFileInfo *fi)
     return 0;
 }
 
+/*
 static inline void print_block_slice_key(FSBlockSliceKeyInfo *bs_key)
 {
     logInfo("block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice {offset: %d, length: %d}", bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset, bs_key->slice.length);
 }
+*/
 
 static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
         const int size, const int64_t offset, int *written_bytes,
@@ -187,7 +187,7 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
     new_offset = offset;
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
-        print_block_slice_key(&bs_key);
+        //print_block_slice_key(&bs_key);
         if ((result=fs_client_slice_write(fi->ctx->contexts.fs,
                         &bs_key, buff + *written_bytes,
                         &current_written, &inc_alloc)) != 0)
@@ -211,10 +211,6 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
             fs_set_slice_size(&bs_key, new_offset, remain);
         }
     }
-
-    logInfo("file: "__FILE__", line: %d, "
-            "offset: %"PRId64", *written_bytes: %d, need_report_modified: %d",
-            __LINE__, offset, *written_bytes, need_report_modified);
 
     if (*written_bytes > 0) {
         int64_t new_size;
@@ -252,9 +248,6 @@ static int do_pwrite(FSAPIFileInfo *fi, const char *buff,
             result = fdir_client_set_dentry_size(fi->ctx->contexts.fdir,
                     &fi->ctx->ns, fi->dentry.inode, new_size,
                     *total_inc_alloc, false, flags, &fi->dentry);
-
-            logInfo("file: "__FILE__", line: %d, func: %s, set_dentry_size result: %d",
-                    __LINE__, __FUNCTION__, result);
         }
         return 0;
     } else {
@@ -333,8 +326,6 @@ int fsapi_write(FSAPIFileInfo *fi, const char *buff,
         } else {
             ns = NULL;  //do NOT update
         }
-        logInfo("=========pid: %d, old file size: %"PRId64", new file size: %"PRId64", "
-                "written_bytes: %d", getpid(), old_size, fi->offset, *written_bytes);
 
         flags = FDIR_DENTRY_FIELD_MODIFIED_FLAG_FILE_SIZE |
             FDIR_DENTRY_FIELD_MODIFIED_FLAG_SPACE_END;
@@ -369,7 +360,7 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
 
     fs_set_block_slice(&bs_key, fi->dentry.inode, offset, size);
     while (1) {
-        print_block_slice_key(&bs_key);
+        //print_block_slice_key(&bs_key);
         if ((result=fs_client_slice_read(fi->ctx->contexts.fs,
                         &bs_key, buff + *read_bytes, &current_read)) != 0)
         {
@@ -380,10 +371,6 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
             }
         }
 
-        /*
-           logInfo("=====slice.length: %d, current_read: %d==",
-           bs_key.slice.length, current_read);
-           */
         while (current_read < bs_key.slice.length) {
             /* deal file hole caused by ftruncate and lseek */
             current_offset = offset + *read_bytes + current_read;
@@ -408,10 +395,12 @@ int fsapi_pread(FSAPIFileInfo *fi, char *buff, const int size,
                     fill_bytes = hole_bytes;
                 }
 
+                /*
                 logInfo("=====offset: %"PRId64", current_read: %d, "
                         "hole_bytes: %"PRId64", fill_bytes: %d, "
                         "buff offset: %d =====", offset, current_read,
                         hole_bytes, fill_bytes, *read_bytes + current_read);
+                        */
 
                 memset(buff + *read_bytes + current_read, 0, fill_bytes);
                 current_read += fill_bytes;
@@ -465,7 +454,7 @@ static int do_truncate(FSAPIContext *ctx, const int64_t oid,
     }
     fs_set_block_slice(&bs_key, oid, offset, remain);
     while (1) {
-        print_block_slice_key(&bs_key);
+        //print_block_slice_key(&bs_key);
         if (bs_key.slice.length == FS_FILE_BLOCK_SIZE) {
             result = fs_client_block_delete(ctx->contexts.fs,
                     &bs_key.block, &dec_alloc);
@@ -509,7 +498,7 @@ static int do_allocate(FSAPIContext *ctx, const int64_t oid,
     remain = length;
     fs_set_block_slice(&bs_key, oid, offset, remain);
     while (1) {
-        print_block_slice_key(&bs_key);
+        //print_block_slice_key(&bs_key);
         if ((result=fs_client_slice_allocate(ctx->contexts.fs,
                         &bs_key, &inc_alloc)) != 0)
         {
@@ -550,9 +539,6 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
         return result;
     }
 
-    logInfo("file: "__FILE__", line: %d, func: %s, SYS_LOCK",
-            __LINE__, __FUNCTION__);
-
     if (new_size >= old_size) {
         result = 0;
         alloc_bytes = 0;
@@ -578,10 +564,6 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
     }
     unlock_res = fsapi_dentry_sys_unlock(&session, ns, oid,
             true, old_size, new_size, alloc_bytes, flags);
-
-    logInfo("file: "__FILE__", line: %d, func: %s, SYS_UNLOCK: %d",
-            __LINE__, __FUNCTION__, unlock_res);
-
     return result == 0 ? unlock_res : result;
 }
 

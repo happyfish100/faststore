@@ -226,10 +226,14 @@ int fs_fuse_global_init(const char *config_filename)
         }
 
         g_fdir_client_vars.client_ctx.idempotency_enabled =
-            g_idempotency_client_cfg.enabled;
-        g_fs_client_vars.client_ctx.idempotency_enabled =
-            g_idempotency_client_cfg.enabled;
+            iniGetBoolValue(FS_API_DEFAULT_FASTDIR_SECTION_NAME,
+                    "idempotency_enabled", ini_ctx->context,
+                    g_idempotency_client_cfg.enabled);
 
+        g_fs_client_vars.client_ctx.idempotency_enabled =
+            iniGetBoolValue(FS_API_DEFAULT_FASTSTORE_SECTION_NAME,
+                    "idempotency_enabled", ini_ctx->context,
+                    g_idempotency_client_cfg.enabled);
 
     } while (0);
 
@@ -238,13 +242,24 @@ int fs_fuse_global_init(const char *config_filename)
         return result;
     }
 
-    if (g_idempotency_client_cfg.enabled) {
+    if (g_fdir_client_vars.client_ctx.idempotency_enabled ||
+            g_fs_client_vars.client_ctx.idempotency_enabled)
+    {
         char sf_global_cfg[512];
         char sf_context_cfg[512];
+        int len;
 
+        len = sprintf(sf_idempotency_config,
+                "%s idempotency_enabled=%d, "
+                "%s idempotency_enabled=%d, ",
+                FS_API_DEFAULT_FASTDIR_SECTION_NAME,
+                g_fdir_client_vars.client_ctx.idempotency_enabled,
+                FS_API_DEFAULT_FASTSTORE_SECTION_NAME,
+                g_fs_client_vars.client_ctx.idempotency_enabled);
         idempotency_client_channel_config_to_string_ex(
-                sf_idempotency_config,
-                sizeof(sf_idempotency_config), true);
+                sf_idempotency_config + len,
+                sizeof(sf_idempotency_config) - len, true);
+
         sf_global_config_to_string(sf_global_cfg,
                 sizeof sf_global_cfg);
         sf_context_config_to_string(&g_sf_context,
