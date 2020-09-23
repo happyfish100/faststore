@@ -40,9 +40,9 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
                         return EEXIST;
                     }
 
-                    if ((result=fdir_client_stat_dentry_by_path(
+                    if ((result=fdir_client_stat_dentry_by_path_ex(
                                     fi->ctx->contexts.fdir, fullname,
-                                    &fi->dentry)) != 0)
+                                    LOG_DEBUG, &fi->dentry)) != 0)
                     {
                         return result;
                     }
@@ -97,8 +97,8 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     fi->sessions.flock.mconn = NULL;
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
-    result = fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
-            &fullname, &fi->dentry);
+    result = fdir_client_stat_dentry_by_path_ex(ctx->contexts.fdir,
+            &fullname, LOG_DEBUG, &fi->dentry);
     if ((result=deal_open_flags(fi, &fullname, new_mode, result)) != 0) {
         return result;
     }
@@ -587,8 +587,8 @@ static int get_regular_file_inode(FSAPIContext *ctx, const char *path,
 
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
-    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
-                    &fullname, &dentry)) != 0)
+    if ((result=fdir_client_stat_dentry_by_path_ex(ctx->contexts.fdir,
+                    &fullname, LOG_DEBUG, &dentry)) != 0)
     {
         return result;
     }
@@ -620,8 +620,8 @@ int fsapi_unlink_ex(FSAPIContext *ctx, const char *path)
 
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
-    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
-                    &fullname, &dentry)) != 0)
+    if ((result=fdir_client_stat_dentry_by_path_ex(ctx->contexts.fdir,
+                    &fullname, LOG_DEBUG, &dentry)) != 0)
     {
         return result;
     }
@@ -740,8 +740,8 @@ int fsapi_stat_ex(FSAPIContext *ctx, const char *path, struct stat *buf)
 
     fullname.ns = ctx->ns;
     FC_SET_STRING(fullname.path, (char *)path);
-    if ((result=fdir_client_stat_dentry_by_path(ctx->contexts.fdir,
-                    &fullname, &dentry)) != 0)
+    if ((result=fdir_client_stat_dentry_by_path_ex(ctx->contexts.fdir,
+                    &fullname, LOG_DEBUG, &dentry)) != 0)
     {
         return result;
     }

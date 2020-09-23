@@ -23,15 +23,22 @@ static char *fs_filename;
 
 static int copy_file()
 {
+#define BUFFEER_SIZE  (128 * 1024)
 	int result;
+    int fd;
     FSAPIFileInfo fi;
-    char *file_content;
+    char buff[BUFFEER_SIZE];
+    int read_bytes;
     int write_bytes;
-    int64_t file_size;
+    int current_write;
 
-    if ((result=getFileContent(input_filename,
-                    &file_content, &file_size)) != 0)
-    {
+    if ((fd=open(input_filename, O_RDONLY)) < 0) {
+        result = errno != 0 ? errno : ENOENT;
+        logError("file: "__FILE__", line: %d, "
+                "open file %s to read fail, "
+                "errno: %d, error info: %s",
+                __LINE__, input_filename,
+                result, strerror(result));
         return result;
     }
 
@@ -45,18 +52,35 @@ static int copy_file()
         return result;
     }
 
-    result = fsapi_write(&fi, file_content, file_size, &write_bytes);
-    if (result != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "write to file %s fail, length: %"PRId64", "
-                "write_bytes: %d, errno: %d, error info: %s",
-                __LINE__, fs_filename, file_size, write_bytes,
-                result, STRERROR(result));
-        return result;
+    write_bytes = 0;
+    while (1) {
+        read_bytes = read(fd, buff, BUFFEER_SIZE);
+        if (read_bytes == 0) {
+            break;
+        } else if (read_bytes < 0) {
+            result = errno != 0 ? errno : ENOENT;
+            logError("file: "__FILE__", line: %d, "
+                    "read from file %s fail, "
+                    "errno: %d, error info: %s",
+                    __LINE__, input_filename,
+                    result, strerror(result));
+            return result;
+        }
+
+        result = fsapi_write(&fi, buff, read_bytes, &current_write);
+        if (result != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "write to file %s fail, "
+                    "errno: %d, error info: %s",
+                    __LINE__, fs_filename,
+                    result, STRERROR(result));
+            return result;
+        }
+
+        write_bytes += current_write;
     }
     fsapi_close(&fi);
 
-    printf("write bytes: %d\n", write_bytes); 
     return 0;
 }
 
