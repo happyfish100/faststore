@@ -495,6 +495,9 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
             }
         } else {
             *deal_done = true;
+            if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID) {
+                TASK_ARG->context.log_level = LOG_DEBUG;
+            }
             return result;
         }
 

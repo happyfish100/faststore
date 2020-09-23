@@ -133,8 +133,8 @@ static ConnectionInfo *get_master_connection(FSClientContext *client_ctx,
         if ((conn=get_spec_connection(client_ctx, &mconn, err_no)) != NULL) {
             ((FSConnectionParameters *)conn->args)->data_group_id =
                 data_group_index + 1;
+            return conn;
         }
-        return conn;
     }
 
     sf_init_net_retry_interval_context(&net_retry_ctx,

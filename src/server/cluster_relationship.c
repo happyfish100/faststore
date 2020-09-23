@@ -220,7 +220,7 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
-	sub = status1->up_time - status2->up_time;
+	sub = status2->up_time - status1->up_time;
     if (sub != 0) {
         return sub;
     }
@@ -679,13 +679,15 @@ static int cluster_select_leader()
         }
 
         ++i;
-        if (g_current_time - server_status.last_shutdown_time > 3600) {
+        if (server_status.up_time - server_status.last_shutdown_time > 3600 &&
+                g_current_time - server_status.up_time < 300)
+        {
             sprintf(prompt, "the candidate leader server id: %d, "
                     "does not match the selection rule because it's "
                     "restart interval: %d exceeds 3600, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the config file. ",
-                    server_status.cs->server->id, (int)(g_current_time -
+                    server_status.cs->server->id, (int)(server_status.up_time -
                         server_status.last_shutdown_time));
         } else {
             *prompt = '\0';
