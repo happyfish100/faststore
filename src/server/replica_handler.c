@@ -181,6 +181,7 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
                 status, fs_get_server_status_caption(status),
                 FS_SERVER_STATUS_REBUILDING,
                 FS_SERVER_STATUS_RECOVERING);
+        TASK_ARG->context.log_level = LOG_WARNING;
         return EAGAIN;
     }
 

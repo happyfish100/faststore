@@ -75,8 +75,12 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     new_status = __sync_add_and_fetch(&ds->status, 0);
     __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
 
-    if (result != 0) {
+    if (result == 0) {
+        ds->recovery.continuous_fail_count = 0;
+    } else {
         bool recovery_again;
+
+        ds->recovery.continuous_fail_count++;
         if (new_status == FS_SERVER_STATUS_REBUILDING ||
                 new_status == FS_SERVER_STATUS_RECOVERING ||
                 new_status == FS_SERVER_STATUS_ONLINE)
@@ -85,12 +89,16 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
                         new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
             {  //rollback status
                 logWarning("file: "__FILE__", line: %d, "
-                        "data group id: %d, data recovery fail, result: %d, "
-                        "rollback my status from %d (%s) to %d (%s)",
-                        __LINE__, ds->dg->id, result, new_status,
+                        "data group id: %d, data recovery continuous fail "
+                        "count: %d, result: %d, rollback my status from "
+                        "%d (%s) to %d (%s)", __LINE__, ds->dg->id, ds->
+                        recovery.continuous_fail_count, result, new_status,
                         fs_get_server_status_caption(new_status),
                         old_status, fs_get_server_status_caption(old_status));
 
+                if (ds->recovery.continuous_fail_count > 1) {
+                    sleep(1);
+                }
                 recovery_again = false;
             } else {
                 recovery_again = true;

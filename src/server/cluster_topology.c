@@ -464,13 +464,11 @@ void cluster_topology_set_check_master_flags()
     new_count = 0;
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+        clear_decision_action(group);
         master = (FSClusterDataServerInfo *)__sync_fetch_and_add(
                 &group->master, 0);
         if (master == NULL) {
-            clear_decision_action(group);
-            if (group->myself != NULL) {
-                cluster_topology_select_master(group, false);
-            }
+            cluster_topology_select_master(group, false);
             continue;
         }
 
@@ -480,14 +478,12 @@ void cluster_topology_set_check_master_flags()
         {
             group->delay_decision.expire_time = g_current_time + 5;
             ++new_count;
-        } else {
-            clear_decision_action(group);
         }
     }
 
     /*
     logInfo("file: "__FILE__", line: %d, "
-            "old_count: %d, new_count: %d",
+            "decision old_count: %d, new_count: %d",
             __LINE__, old_count, new_count);
             */
 
@@ -501,16 +497,20 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
 {
     FSClusterDataServerInfo *master;
 
-    if (group->delay_decision.expire_time >= g_current_time) {
+    if (group->delay_decision.expire_time > g_current_time) {
         return EAGAIN;
     }
 
-    master = (FSClusterDataServerInfo *)__sync_fetch_and_add(&group->master, 0);
-    if (master == NULL) {
-        return 0;
-    }
+    do {
+        master = (FSClusterDataServerInfo *)__sync_fetch_and_add(&group->master, 0);
+        if (master == NULL) {
+            break;
+        }
 
-    if (__sync_fetch_and_add(&master->status, 0) != FS_SERVER_STATUS_ACTIVE) {
+        if (__sync_fetch_and_add(&master->status, 0) == FS_SERVER_STATUS_ACTIVE) {
+            return 0;
+        }
+
         if (__sync_bool_compare_and_swap(&group->master, master, NULL)) {
             __sync_bool_compare_and_swap(&master->is_master, true, false);
             cluster_relationship_on_master_change(master, NULL);
@@ -518,7 +518,21 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
             cluster_topology_data_server_chg_notify(master,
                     FS_EVENT_SOURCE_CS_LEADER,
                     FS_EVENT_TYPE_MASTER_CHANGE, true);
-            group->delay_decision.expire_time = g_current_time + 5;
+            master = NULL;
+        }
+    } while (0);
+
+    if (master == NULL) {
+        if (__sync_bool_compare_and_swap(&group->delay_decision.action,
+                    FS_CLUSTER_DELAY_DECISION_CHECK_MASTER,
+                    FS_CLUSTER_DELAY_DECISION_SELECT_MASTER))
+        {
+            /*
+               logInfo("file: "__FILE__", line: %d, "
+               "data group %d, add to select master decision!",
+               __LINE__, group->id);
+             */
+            group->delay_decision.expire_time = g_current_time;
             return EAGAIN;
         }
     }
@@ -672,12 +686,11 @@ static int decision_select_master(FSClusterDataGroupInfo *group)
         return 0;
     }
 
-    if (group->delay_decision.expire_time >= g_current_time) {
+    if (group->delay_decision.expire_time > g_current_time) {
         return EAGAIN;
     }
 
-    cluster_topology_select_master(group, true);
-    return 0;
+    return cluster_topology_select_master(group, true);
 }
 
 void cluster_topology_check_and_make_delay_decisions()
@@ -712,7 +725,14 @@ void cluster_topology_check_and_make_delay_decisions()
                 continue;
         }
 
-        if (result == 0) {
+        /*
+        logInfo("decision_count: %d, decision old action: %d, "
+                "new action: %d, result: %d", decision_count, action,
+                __sync_sub_and_fetch(&group->delay_decision.action, 0),
+                result);
+                */
+
+        if (result != EAGAIN) {
             if (__sync_bool_compare_and_swap(&group->delay_decision.action,
                         action, FS_CLUSTER_DELAY_DECISION_NO_OP))
             {

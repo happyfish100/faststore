@@ -22,6 +22,8 @@
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 
+#define ALIGN_TIME(interval) (((interval) / 60) * 60)
+
 typedef struct fs_cluster_server_status {
     FSClusterServerInfo *cs;
     bool is_leader;
@@ -200,6 +202,8 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 {
 	FSClusterServerStatus *status1;
 	FSClusterServerStatus *status2;
+    int restart_interval1;
+    int restart_interval2;
 	int sub;
 
 	status1 = (FSClusterServerStatus *)p1;
@@ -215,15 +219,18 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 		return sub;
 	}
 
-	sub = status1->last_shutdown_time - status2->last_shutdown_time;
+	sub = ALIGN_TIME(status2->up_time) - ALIGN_TIME(status1->up_time);
     if (sub != 0) {
         return sub;
     }
 
-	sub = status2->up_time - status1->up_time;
+    restart_interval1 = status1->up_time - status1->last_shutdown_time;
+    restart_interval2 = status2->up_time - status2->last_shutdown_time;
+    sub = ALIGN_TIME(restart_interval2) - ALIGN_TIME(restart_interval1);
     if (sub != 0) {
         return sub;
     }
+
 	return status1->server_id - status2->server_id;
 }
 
@@ -308,14 +315,18 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 		cluster_cmp_server_status);
 
 	for (i=0; i<*active_count; i++) {
+        int restart_interval;
+        restart_interval = cs_status[i].up_time -
+            cs_status[i].last_shutdown_time;
         logDebug("file: "__FILE__", line: %d, "
-                "server_id: %d, ip addr %s:%d, is_leader: %d, "
-                "up_time: %d, last_shutdown_time: %d, version: %"PRId64,
+                "server_id: %d, ip addr %s:%d, version: %"PRId64", "
+                "is_leader: %d, up_time: %d, restart interval: %d",
                 __LINE__, cs_status[i].server_id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
-                cs_status[i].is_leader, cs_status[i].up_time,
-                cs_status[i].last_shutdown_time, cs_status[i].version);
+                cs_status[i].version, cs_status[i].is_leader,
+                ALIGN_TIME(cs_status[i].up_time),
+                ALIGN_TIME(restart_interval));
     }
 
 	memcpy(server_status, cs_status + (*active_count - 1),
@@ -535,11 +546,13 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
             MYSELF_IS_LEADER = false;
         }
 
-        logInfo("file: "__FILE__", line: %d, "
-                "the leader server id: %d, ip %s:%d",
-                __LINE__, new_leader->server->id,
-                CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
-                CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server));
+        if (new_leader != old_leader) {
+            logInfo("file: "__FILE__", line: %d, "
+                    "the leader server id: %d, ip %s:%d",
+                    __LINE__, new_leader->server->id,
+                    CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
+                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server));
+        }
     }
     __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
             old_leader, new_leader);
