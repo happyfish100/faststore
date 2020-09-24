@@ -27,7 +27,7 @@ static int do_binlog_check()
         return result;
     }
 
-    if (BINLOG_CHECK_LAST_SECONDS <= 0) {
+    if (LOCAL_BINLOG_CHECK_LAST_SECONDS <= 0) {
         return 0;
     }
 

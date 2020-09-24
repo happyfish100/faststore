@@ -32,7 +32,8 @@ typedef struct server_global_vars {
     struct {
         string_t path;   //data path
         int binlog_buffer_size;
-        int binlog_check_last_seconds;
+        int local_binlog_check_last_seconds;
+        int slave_binlog_check_last_rows;
         volatile uint64_t slice_binlog_sn;  //slice binlog sn
     } data;
 
@@ -65,7 +66,11 @@ typedef struct server_global_vars {
 
 #define CLUSTER_CURRENT_VERSION   g_server_global_vars.cluster.current_version
 #define SLICE_BINLOG_SN           g_server_global_vars.data.slice_binlog_sn
-#define BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data.binlog_check_last_seconds
+#define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \
+    local_binlog_check_last_seconds
+
+#define SLAVE_BINLOG_CHECK_LAST_ROWS    g_server_global_vars.data. \
+    slave_binlog_check_last_rows
 
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars.replica.sf_context

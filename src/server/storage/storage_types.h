@@ -24,12 +24,13 @@ typedef struct fs_slice_op_context {
         void *arg;
     } notify;
 
-    volatile int counter;
-    int result;
+    volatile short counter;
+    short result;
     int done_bytes;
 
     struct {
         bool write_data_binlog;
+        short source;  //for binlog write
         int data_group_id;
         uint64_t data_version;
         FSBlockSliceKeyInfo bs_key;

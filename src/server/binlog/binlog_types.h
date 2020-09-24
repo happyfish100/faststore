@@ -12,20 +12,24 @@
 
 #define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP      0
 #define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION   1
-#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE        2
-#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OID      3
-#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET   4
-#define BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET   5
-#define BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH   6
+#define BINLOG_COMMON_FIELD_INDEX_SOURCE         2
+#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE        3
+#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OID      4
+#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET   5
+#define BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET   6
+#define BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH   7
 
 #define BINLOG_MAX_FIELD_COUNT  16
-#define BINLOG_MIN_FIELD_COUNT   5
+#define BINLOG_MIN_FIELD_COUNT   6
 
 #define BINLOG_OP_TYPE_WRITE_SLICE  'w'
 #define BINLOG_OP_TYPE_ALLOC_SLICE  'a'
 #define BINLOG_OP_TYPE_DEL_SLICE    'd'
 #define BINLOG_OP_TYPE_DEL_BLOCK    'D'
 #define BINLOG_OP_TYPE_NO_OP        'N'
+
+#define BINLOG_SOURCE_RPC           'C'  //by user call
+#define BINLOG_SOURCE_REPLAY        'R'  //by binlog replay
 
 #define BINLOG_FILE_MAX_SIZE   (1024 * 1024 * 1024)  //for binlog rotating by size
 #define BINLOG_FILE_PREFIX     "binlog"
@@ -55,7 +59,8 @@ typedef struct server_binlog_buffer {
 
 typedef struct binlog_common_fields {
     time_t timestamp;
-    int op_type;
+    short source;
+    short op_type;
     FSBlockKey bkey;
     int64_t data_version;
 } BinlogCommonFields;

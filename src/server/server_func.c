@@ -213,7 +213,8 @@ static void server_log_configs()
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
             "binlog_buffer_size = %d KB, "
-            "binlog_check_last_seconds = %d s, "
+            "local_binlog_check_last_seconds = %d s, "
+            "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
@@ -221,7 +222,8 @@ static void server_log_configs()
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
             BINLOG_BUFFER_SIZE / 1024,
-            BINLOG_CHECK_LAST_SECONDS,
+            LOCAL_BINLOG_CHECK_LAST_SECONDS,
+            SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
@@ -339,9 +341,21 @@ int server_load_config(const char *filename)
             FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH;
     }
 
-    BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
-            "binlog_check_last_seconds", &ini_context,
-            FS_DEFAULT_BINLOG_CHECK_LAST_SECONDS);
+    LOCAL_BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
+            "local_binlog_check_last_seconds", &ini_context,
+            FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS);
+
+    SLAVE_BINLOG_CHECK_LAST_ROWS = iniGetIntValue(NULL,
+            "slave_binlog_check_last_rows", &ini_context,
+            FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS);
+    if (SLAVE_BINLOG_CHECK_LAST_ROWS > FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s , slave_binlog_check_last_rows: %d "
+                "is too large, set it to %d", __LINE__, filename,
+                SLAVE_BINLOG_CHECK_LAST_ROWS,
+                FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
+        SLAVE_BINLOG_CHECK_LAST_ROWS = FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS;
+    }
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {
         return result;

@@ -58,7 +58,8 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
         for (i=0; i<op_ctx->write.sarray.count; i++) {
             if ((r=slice_binlog_log_add_slice(op_ctx->write.
                             sarray.slices[i], current_time, sns[i],
-                            op_ctx->info.data_version)) != 0)
+                            op_ctx->info.data_version,
+                            op_ctx->info.source)) != 0)
             {
                 op_ctx->result = r;
                 return;
@@ -68,7 +69,8 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
         if (op_ctx->info.write_data_binlog) {
             if ((r=replica_binlog_log_write_slice(current_time,
                             op_ctx->info.data_group_id, op_ctx->info.
-                            data_version, &op_ctx->info.bs_key)) != 0)
+                            data_version, &op_ctx->info.bs_key,
+                            op_ctx->info.source)) != 0)
             {
                 op_ctx->result = r;
                 return;
@@ -350,7 +352,8 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     set_data_version(op_ctx);
     for (i=0; i<slice_count; i++) {
         if ((r=slice_binlog_log_add_slice(slices[i], current_time,
-                        sns[i], op_ctx->info.data_version)) != 0)
+                        sns[i], op_ctx->info.data_version,
+                        op_ctx->info.source)) != 0)
         {
             return r;
         }
@@ -361,7 +364,8 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     if (op_ctx->info.write_data_binlog) {
         if ((r=replica_binlog_log_alloc_slice(current_time,
                         op_ctx->info.data_group_id, op_ctx->info.
-                        data_version, &op_ctx->info.bs_key)) != 0)
+                        data_version, &op_ctx->info.bs_key,
+                        op_ctx->info.source)) != 0)
         {
             return r;
         }
@@ -478,7 +482,8 @@ int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
     current_time = g_current_time;
     set_data_version(op_ctx);
     if ((result=slice_binlog_log_del_slice(&op_ctx->info.bs_key,
-                    current_time, sn, op_ctx->info.data_version)) != 0)
+                    current_time, sn, op_ctx->info.data_version,
+                    op_ctx->info.source)) != 0)
     {
         return result;
     }
@@ -486,7 +491,8 @@ int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
     if (op_ctx->info.write_data_binlog) {
         return replica_binlog_log_del_slice(current_time,
                 op_ctx->info.data_group_id, op_ctx->info.
-                data_version, &op_ctx->info.bs_key);
+                data_version, &op_ctx->info.bs_key,
+                op_ctx->info.source);
     }
     return 0;
 }
@@ -506,7 +512,8 @@ int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc)
     current_time = g_current_time;
     set_data_version(op_ctx);
     if ((result=slice_binlog_log_del_block(&op_ctx->info.bs_key.block,
-                    current_time, sn, op_ctx->info.data_version)) != 0)
+                    current_time, sn, op_ctx->info.data_version,
+                    op_ctx->info.source)) != 0)
     {
         return result;
     }
@@ -514,7 +521,8 @@ int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc)
     if (op_ctx->info.write_data_binlog) {
         return replica_binlog_log_del_block(current_time,
                 op_ctx->info.data_group_id, op_ctx->info.
-                data_version, &op_ctx->info.bs_key.block);
+                data_version, &op_ctx->info.bs_key.block,
+                op_ctx->info.source);
     }
     return 0;
 }

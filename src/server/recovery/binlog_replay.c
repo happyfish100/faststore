@@ -347,6 +347,7 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
         }
 
         task->op_type = replay_ctx->record.op_type;
+        task->op_ctx.info.source = BINLOG_SOURCE_REPLAY;
         task->op_ctx.info.data_version = replay_ctx->record.data_version;
         task->op_ctx.info.bs_key = replay_ctx->record.bs_key;
         fc_queue_push(&thread_ctx->queues.waiting, task);

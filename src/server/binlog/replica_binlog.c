@@ -15,8 +15,8 @@
 #include "binlog_loader.h"
 #include "replica_binlog.h"
 
-#define SLICE_EXPECT_FIELD_COUNT           7
-#define BLOCK_EXPECT_FIELD_COUNT           5
+#define SLICE_EXPECT_FIELD_COUNT           8
+#define BLOCK_EXPECT_FIELD_COUNT           6
 
 #define MAX_BINLOG_FIELD_COUNT  8
 #define MIN_EXPECT_FIELD_COUNT  BLOCK_EXPECT_FIELD_COUNT
@@ -372,6 +372,7 @@ int replica_binlog_record_unpack(const string_t *line,
         return EINVAL;
     }
 
+    record->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
     record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
@@ -405,7 +406,8 @@ static BinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
 
 int replica_binlog_log_slice(const time_t current_time,
         const int data_group_id, const int64_t data_version,
-        const FSBlockSliceKeyInfo *bs_key, const int op_type)
+        const FSBlockSliceKeyInfo *bs_key, const int source,
+        const int op_type)
 {
     BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
@@ -417,9 +419,9 @@ int replica_binlog_log_slice(const time_t current_time,
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-            (int64_t)current_time, data_version, op_type,
-            bs_key->block.oid, bs_key->block.offset,
+            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
+            (int64_t)current_time, data_version, source,
+            op_type, bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
@@ -427,7 +429,7 @@ int replica_binlog_log_slice(const time_t current_time,
 
 int replica_binlog_log_block(const time_t current_time,
         const int data_group_id, const int64_t data_version,
-        const FSBlockKey *bkey, const int op_type)
+        const FSBlockKey *bkey, const int source, const int op_type)
 {
     BinlogWriterInfo *writer;
     BinlogWriterBuffer *wbuffer;
@@ -439,9 +441,9 @@ int replica_binlog_log_block(const time_t current_time,
     }
 
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %"PRId64" %"PRId64"\n",
+            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version,
-            op_type, bkey->oid, bkey->offset);
+            source, op_type, bkey->oid, bkey->offset);
     push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }

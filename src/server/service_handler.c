@@ -512,6 +512,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     }
 
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
+    OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
     OP_CTX_INFO.data_version = 0;
     SLICE_OP_CTX.write.inc_alloc = 0;
 

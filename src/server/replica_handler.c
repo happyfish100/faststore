@@ -575,6 +575,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             op_ctx = &SLICE_OP_CTX;
         }
 
+        op_ctx->info.source = BINLOG_SOURCE_RPC;
         op_ctx->info.data_version = buff2long(body_part->data_version);
         if (op_ctx->info.data_version <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,

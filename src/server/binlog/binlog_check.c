@@ -428,6 +428,6 @@ int binlog_consistency_check(BinlogConsistencyContext *ctx, int *flags)
         return 0;
     }
 
-    from_timestamp = last_timestamp - BINLOG_CHECK_LAST_SECONDS + 1;
+    from_timestamp = last_timestamp - LOCAL_BINLOG_CHECK_LAST_SECONDS + 1;
     return binlog_check(ctx, from_timestamp, flags);
 }

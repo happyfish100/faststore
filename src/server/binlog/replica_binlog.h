@@ -17,7 +17,8 @@ struct binlog_writer_info;
 struct server_binlog_reader;
 
 typedef struct replica_binlog_record {
-    int op_type;
+    short op_type;
+    short source;
     FSBlockSliceKeyInfo bs_key;
     int64_t data_version;
 } ReplicaBinlogRecord;
@@ -112,49 +113,55 @@ extern "C" {
 
     int replica_binlog_log_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockSliceKeyInfo *bs_key, const int op_type);
+            const FSBlockSliceKeyInfo *bs_key, const int source,
+            const int op_type);
 
     int replica_binlog_log_block(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockKey *bkey, const int op_type);
+            const FSBlockKey *bkey, const int source, const int op_type);
 
     static inline int replica_binlog_log_del_block(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockKey *bkey)
+            const FSBlockKey *bkey, const int source)
     {
         return replica_binlog_log_block(current_time, data_group_id,
-                data_version, bkey, REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
+                data_version, bkey, source,
+                REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
     }
 
     static inline int replica_binlog_log_no_op(const int data_group_id,
             const int64_t data_version, const FSBlockKey *bkey)
     {
         return replica_binlog_log_block(g_current_time, data_group_id,
-                data_version, bkey, REPLICA_BINLOG_OP_TYPE_NO_OP);
+                data_version, bkey, BINLOG_SOURCE_REPLAY,
+                REPLICA_BINLOG_OP_TYPE_NO_OP);
     }
 
     static inline int replica_binlog_log_write_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockSliceKeyInfo *bs_key)
+            const FSBlockSliceKeyInfo *bs_key, const int source)
     {
         return replica_binlog_log_slice(current_time, data_group_id,
-                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
+                data_version, bs_key, source,
+                REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
     }
 
     static inline int replica_binlog_log_alloc_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockSliceKeyInfo *bs_key)
+            const FSBlockSliceKeyInfo *bs_key, const int source)
     {
         return replica_binlog_log_slice(current_time, data_group_id,
-                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
+                data_version, bs_key, source,
+                REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
     }
 
     static inline int replica_binlog_log_del_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
-            const FSBlockSliceKeyInfo *bs_key)
+            const FSBlockSliceKeyInfo *bs_key, const int source)
     {
         return replica_binlog_log_slice(current_time, data_group_id,
-                data_version, bs_key, REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
+                data_version, bs_key, source,
+                REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
     }
 
     const char *replica_binlog_get_op_type_caption(const int op_type);

@@ -49,6 +49,7 @@ int binlog_unpack_common_fields(const string_t *line,
             BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(fields->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
+    fields->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
     fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);

@@ -23,15 +23,15 @@ extern "C" {
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             const time_t current_time, const uint64_t sn,
-            const uint64_t data_version);
+            const uint64_t data_version, const int source);
 
     int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,
-            const uint64_t data_version);
+            const uint64_t data_version, const int source);
 
     int slice_binlog_log_del_block(const FSBlockKey *bkey,
             const time_t current_time, const uint64_t sn,
-            const uint64_t data_version);
+            const uint64_t data_version, const int source);
 
 #ifdef __cplusplus
 }
