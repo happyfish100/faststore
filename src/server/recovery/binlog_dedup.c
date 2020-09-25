@@ -278,12 +278,10 @@ static int slice_array_to_file(BinlogDedupContext *dedup_ctx)
 
         data_version = ++(dedup_ctx->out.current_version);
         if (fprintf(dedup_ctx->out.writer.fp,
-                    "%d %"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-                    (int)g_current_time, data_version,
-                    op_type, (*pp)->ob->bkey.oid,
-                    (*pp)->ob->bkey.offset,
-                    (*pp)->ssize.offset,
-                    (*pp)->ssize.length) <= 0)
+                    "%d %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
+                    (int)g_current_time, data_version, BINLOG_SOURCE_REPLAY,
+                    op_type, (*pp)->ob->bkey.oid, (*pp)->ob->bkey.offset,
+                    (*pp)->ssize.offset, (*pp)->ssize.length) <= 0)
         {
             result = errno != 0 ? errno : EPERM;
             logError("file: "__FILE__", line: %d, "

@@ -763,12 +763,12 @@ static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
         return 0;
     }
 
-    sub = r1->bs_key.slice.offset - r2->bs_key.slice.offset;
+    sub = (int)r1->bs_key.slice.offset - (int)r2->bs_key.slice.offset;
     if (sub != 0) {
         return sub;
     }
 
-    return r1->bs_key.slice.length - r2->bs_key.slice.length;
+    return (int)r1->bs_key.slice.length - (int)r2->bs_key.slice.length;
 }
 
 static int check_records_consistency(ReplicaBinlogRecord *slave_records,
