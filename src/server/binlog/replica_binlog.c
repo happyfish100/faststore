@@ -651,3 +651,206 @@ const char *replica_binlog_get_op_type_caption(const int op_type)
     }
 }
 
+int replica_binlog_get_last_lines(const int data_group_id, char *buff,
+        const int buff_size, int *count, int *length)
+{
+    int result;
+    int remain_count;
+    int current_count;
+    int current_index;
+    int i;
+    char filename[PATH_MAX];
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    string_t lines;
+
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    current_index = replica_binlog_get_current_write_index(data_group_id);
+
+    *length = 0;
+    remain_count = *count;
+    for (i=0; i<2; i++) {
+        current_count = remain_count;
+        binlog_writer_get_filename(subdir_name, current_index,
+                filename, sizeof(filename));
+        result = fc_get_last_lines(filename, buff + *length,
+                buff_size - *length, &lines, &current_count);
+        if (!(result == 0 || result == ENOENT)) {
+            return result;
+        }
+
+        memmove(buff + *length, lines.str, lines.len);
+        remain_count -= current_count;
+        *length += lines.len;
+        if (remain_count == 0 || current_index == 0) {
+            break;
+        }
+
+        --current_index;  //try previous binlog file
+    }
+
+    *count -= remain_count;
+    return 0;
+}
+
+int replica_binlog_unpack_records(const string_t *buffer,
+        ReplicaBinlogRecord *records, const int size, int *count)
+{
+    int result;
+    char error_info[256];
+    char *p;
+    char *end;
+    string_t line;
+    char *line_end;
+    ReplicaBinlogRecord *record;
+
+    *count = 0;
+    record = records;
+    p = buffer->str;
+    end = buffer->str + buffer->len;
+    while (p < end) {
+        line_end = (char *)memchr(p, '\n', end - p);
+        if (line_end == NULL) {
+            return EINVAL;
+        }
+
+        ++line_end;   //skip \n
+        line.str = p;
+        line.len = line_end - p;
+        if ((result=replica_binlog_record_unpack(&line,
+                        record++, error_info)) != 0)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "binlog unpack fail, %s, binlog line: %.*s",
+                    __LINE__, error_info, line.len, line.str);
+            return result;
+        }
+
+        if (++(*count) == size) {
+            break;
+        }
+        p = line_end;
+    }
+
+    return 0;
+}
+
+static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
+{
+    int64_t sub;
+
+    sub = r1->op_type - r2->op_type;
+    if (sub != 0) {
+        return sub;
+    }
+
+    sub = (int64_t)r1->bs_key.block.oid - (int64_t)r2->bs_key.block.oid;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    sub = (int64_t)r1->bs_key.block.offset - (int64_t)r2->bs_key.block.offset;
+    if (sub < 0) {
+        return -1;
+    } else if (sub > 0) {
+        return 1;
+    }
+
+    if (r1->op_type == REPLICA_BINLOG_OP_TYPE_DEL_BLOCK ||
+        r1->op_type == REPLICA_BINLOG_OP_TYPE_NO_OP)
+    {
+        return 0;
+    }
+
+    sub = r1->bs_key.slice.offset - r2->bs_key.slice.offset;
+    if (sub != 0) {
+        return sub;
+    }
+
+    return r1->bs_key.slice.length - r2->bs_key.slice.length;
+}
+
+static int check_records_consistency(ReplicaBinlogRecord *slave_records,
+        const int slave_rows, ReplicaBinlogRecord *master_records,
+        const int master_rows, uint64_t *first_unmatched_dv)
+{
+    ReplicaBinlogRecord *sr;
+    ReplicaBinlogRecord *mr;
+    ReplicaBinlogRecord *send;
+    ReplicaBinlogRecord *mend;
+
+    sr = slave_records;
+    mr = master_records;
+    send = slave_records + slave_rows;
+    mend = master_records + master_rows;
+    while ((sr < send) && (mr < mend)) {
+        if (sr->data_version < mr->data_version) {
+            sr++;
+        } else if (sr->data_version == mr->data_version) {
+            if (sr->source == BINLOG_SOURCE_RPC &&
+                    mr->source == BINLOG_SOURCE_RPC)
+            {
+                if (compare_record(sr, mr) != 0) {
+                    *first_unmatched_dv = sr->data_version;
+                    return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
+                }
+            }
+            sr++;
+            mr++;
+        } else {
+            mr++;
+        }
+    }
+
+    return 0;
+}
+
+int replica_binlog_check_consistency(const int data_group_id,
+        string_t *sbuffer, uint64_t *first_unmatched_dv)
+{
+    int result;
+    struct server_binlog_reader reader;
+    ReplicaBinlogRecord slave_records[FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS];
+    ReplicaBinlogRecord master_records[FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS];
+    char buff[FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS *
+        FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
+    string_t mbuffer;
+    int slave_rows;
+    int master_rows;
+
+    if (sbuffer->len == 0) {
+        return 0;
+    }
+
+    *first_unmatched_dv = 0;
+    if ((result=replica_binlog_unpack_records(sbuffer, slave_records,
+                    FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS, &slave_rows)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=replica_binlog_reader_init(&reader, data_group_id,
+                    slave_records[0].data_version - 1)) != 0)
+    {
+        return result;
+    }
+
+    mbuffer.str = buff;
+    result = binlog_reader_integral_read(&reader,
+            buff, sizeof(buff), &mbuffer.len);
+    binlog_reader_destroy(&reader);
+
+    if (result == ENOENT || result == EAGAIN) {
+        return 0;
+    }
+
+    if ((result=replica_binlog_unpack_records(&mbuffer, master_records,
+                    FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS, &master_rows)) != 0)
+    {
+        return result;
+    }
+
+    return check_records_consistency(slave_records, slave_rows,
+            master_records, master_rows, first_unmatched_dv);
+}

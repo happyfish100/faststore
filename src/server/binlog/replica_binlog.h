@@ -111,6 +111,9 @@ extern "C" {
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
 
+    int replica_binlog_unpack_records(const string_t *buffer,
+            ReplicaBinlogRecord *records, const int size, int *count);
+
     int replica_binlog_log_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
             const FSBlockSliceKeyInfo *bs_key, const int source,
@@ -173,6 +176,12 @@ extern "C" {
             const uint64_t new_version);
 
     int replica_binlog_set_my_data_version(const int data_group_id);
+
+    int replica_binlog_get_last_lines(const int data_group_id, char *buff,
+            const int buff_size, int *count, int *length);
+
+    int replica_binlog_check_consistency(const int data_group_id,
+            string_t *buffer, uint64_t *first_unmatched_dv);
 
 #ifdef __cplusplus
 }

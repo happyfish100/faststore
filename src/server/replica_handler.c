@@ -269,27 +269,34 @@ static int replica_fetch_binlog_next_output(struct fast_task_info *task)
 
 static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
 {
-    FSProtoReplicaFetchBinlogFirstReq *req;
+    FSProtoReplicaFetchBinlogFirstReqHeader *rheader;
     FSClusterDataServerInfo *myself;
     FSClusterDataServerInfo *peer;
     uint64_t last_data_version;
     uint64_t my_data_version;
     uint64_t until_version;
+    uint64_t first_unmatched_dv;
+    string_t binlog;
     int data_group_id;
     int server_id;
     int result;
     bool is_online;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoReplicaFetchBinlogFirstReq))) != 0)
-    {
+    if ((result=server_check_min_body_length(task, sizeof(*rheader))) != 0) {
         return result;
     }
 
-    req = (FSProtoReplicaFetchBinlogFirstReq *)REQUEST.body;
-    last_data_version = buff2long(req->last_data_version);
-    data_group_id = buff2int(req->data_group_id);
-    server_id = buff2int(req->server_id);
+    rheader = (FSProtoReplicaFetchBinlogFirstReqHeader *)REQUEST.body;
+    last_data_version = buff2long(rheader->last_data_version);
+    data_group_id = buff2int(rheader->data_group_id);
+    server_id = buff2int(rheader->server_id);
+    binlog.len = buff2int(rheader->binlog_length);
+    if (REQUEST.header.body_len != sizeof(*rheader) + binlog.len) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "body length: %d != expected: %d", REQUEST.header.body_len,
+                (int)(sizeof(*rheader) + binlog.len));
+        return EINVAL;
+    }
 
     if ((result=fetch_binlog_check_peer(task, data_group_id,
                     server_id, &peer)) != 0)
@@ -309,6 +316,32 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return EALREADY;
     }
 
+    my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
+    if (last_data_version > my_data_version) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "binlog consistency check fail, slave's data version: "
+                "%"PRId64" > master's data version: %"PRId64,
+                last_data_version, my_data_version);
+        return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
+    }
+
+    binlog.str = rheader->binlog;
+    if ((result=replica_binlog_check_consistency(data_group_id,
+                    &binlog, &first_unmatched_dv)) != 0)
+    {
+        char prompt[128];
+        if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
+            sprintf(prompt, "first unmatched data "
+                    "version: %"PRId64, first_unmatched_dv);
+        } else {
+            sprintf(prompt, "some mistake happen, "
+                    "error code is %d", result);
+        }
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "binlog consistency check fail, %s", prompt);
+        return result;
+    }
+
     if ((result=replica_alloc_reader(task)) != 0) {
         return result;
     }
@@ -321,7 +354,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
-    if (req->catch_up || last_data_version == my_data_version) {
+    if (rheader->catch_up || last_data_version == my_data_version) {
         if (cluster_relationship_set_ds_status(peer,
                     FS_SERVER_STATUS_ONLINE))
         {

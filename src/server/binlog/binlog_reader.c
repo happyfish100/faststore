@@ -201,7 +201,7 @@ int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
                 "expect new line (\\n), "
                 "binlog file: %s, line no: %"PRId64,
                 __LINE__, reader->filename, line_count);
-        return EINVAL;
+        return EAGAIN;
     }
 
     remain_len = (buff + *read_bytes) - (line_end + 1);

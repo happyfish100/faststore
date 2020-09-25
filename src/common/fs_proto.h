@@ -10,9 +10,6 @@
 #include "sf/sf_proto.h"
 #include "fs_types.h"
 
-#define FS_STATUS_LEADER_INCONSISTENT     9999
-
-
 #define FS_SERVICE_PROTO_CLIENT_JOIN_REQ         23
 #define FS_SERVICE_PROTO_CLIENT_JOIN_RESP        24
 
@@ -251,13 +248,15 @@ typedef struct fs_proto_ping_leader_req_body_part {
     char padding[3];
 } FSProtoPingLeaderReqBodyPart;
 
-typedef struct fs_proto_replia_fetch_binlog_first_req {
+typedef struct fs_proto_replia_fetch_binlog_first_req_header {
     char last_data_version[8]; //NOT including
     char data_group_id[4];
     char server_id[4];
-    char catch_up;  //tell master to ONLINE me
-    char padding[7];
-} FSProtoReplicaFetchBinlogFirstReq;
+    char binlog_length[4]; //last N rows for consistency check
+    char catch_up;         //tell master to ONLINE me
+    char padding[3];
+    char binlog[0];
+} FSProtoReplicaFetchBinlogFirstReqHeader;
 
 typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
     char binlog_length[4]; //current binlog length

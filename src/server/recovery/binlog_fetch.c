@@ -383,21 +383,46 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     int result;
     int my_status;
     int i;
+    int binlog_count;
+    int binlog_length;
+    int buffer_size;
+    int pkg_len;
     bool trigger_report;
-    FSProtoReplicaFetchBinlogFirstReq *req;
+    FSProtoReplicaFetchBinlogFirstReqHeader *rheader;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
-            FSProtoReplicaFetchBinlogFirstReq)];
+            FSProtoReplicaFetchBinlogFirstReqHeader) +
+        FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS *
+        FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
 
-    req = (FSProtoReplicaFetchBinlogFirstReq *)
+    rheader = (FSProtoReplicaFetchBinlogFirstReqHeader *)
         (out_buff + sizeof(FSProtoHeader));
-    long2buff(ctx->fetch.last_data_version, req->last_data_version);
-    int2buff(ctx->ds->dg->id, req->data_group_id);
-    int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
+    long2buff(ctx->fetch.last_data_version, rheader->last_data_version);
+    int2buff(ctx->ds->dg->id, rheader->data_group_id);
+    int2buff(CLUSTER_MYSELF_PTR->server->id, rheader->server_id);
     if (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH) {
-        req->catch_up = 1;
+        rheader->catch_up = 1;
     } else {
-        req->catch_up = 0;
+        rheader->catch_up = 0;
     }
+
+    pkg_len = sizeof(FSProtoHeader) + sizeof(*rheader);
+    if (SLAVE_BINLOG_CHECK_LAST_ROWS > 0) {
+        binlog_count = SLAVE_BINLOG_CHECK_LAST_ROWS;
+        buffer_size = binlog_count * FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
+        if (buffer_size > sizeof(out_buff) - pkg_len) {
+            buffer_size = sizeof(out_buff) - pkg_len;
+        }
+        if ((result=replica_binlog_get_last_lines(ctx->ds->dg->id,
+                (char *)(rheader + 1), buffer_size, &binlog_count,
+                &binlog_length)) != 0)
+        {
+            return result;
+        }
+    } else {
+        binlog_length = 0;
+    }
+    pkg_len += binlog_length;
+    int2buff(binlog_length, rheader->binlog_length);
 
     trigger_report = false;
     for (i=0; i<30; i++) {
@@ -418,8 +443,17 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         result = fetch_binlog_to_local(conn, ctx,
                 FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
                 FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP,
-                out_buff, sizeof(out_buff), is_last);
+                out_buff, pkg_len, is_last);
         if (result != EAGAIN) {
+            if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
+                logCrit("file: "__FILE__", line: %d, "
+                        "data group id: %d, the replica binlog is "
+                        "NOT consistent with the master server %d, "
+                        "some mistake happen, program exit abnormally!",
+                        __LINE__, ctx->ds->dg->id,
+                        ctx->master->cs->server->id);
+                SF_G_CONTINUE_FLAG = false;
+            }
             break;
         }
 
