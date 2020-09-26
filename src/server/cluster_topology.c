@@ -226,7 +226,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         int2buff(ds->cs->server->id, body_part->server_id);
         body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
         body_part->status = __sync_add_and_fetch(&ds->status, 0);
-        long2buff(ds->replica.data_version, body_part->data_version);
+        long2buff(ds->data.version, body_part->data_version);
 
         /*
         logInfo("push to target server id: %d (ctx: %p), event "
@@ -236,7 +236,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
                 "cluster version: %"PRId64, ctx->server_id, ctx,
                 event_source, event_type, ds->dg->id, ds->cs->server->id,
                 body_part->is_master, body_part->status,
-                ds->replica.data_version,
+                ds->data.version,
                 __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
                 */
 
@@ -549,8 +549,8 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 
     ds1 = (FSClusterDataServerInfo **)p1;
     ds2 = (FSClusterDataServerInfo **)p2;
-    dv_sub = (int64_t)((*ds1)->replica.data_version) -
-        (int64_t)((*ds2)->replica.data_version);
+    dv_sub = (int64_t)((*ds1)->data.version) -
+        (int64_t)((*ds2)->data.version);
     if (dv_sub > 0) {
         return 1;
     } else if (dv_sub < 0) {
@@ -611,12 +611,12 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    max_data_version = ds->replica.data_version;
+    max_data_version = ds->data.version;
     active_count = 0;
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if (__sync_fetch_and_add(&ds->cs->active, 0) &&
-                ds->replica.data_version >= max_data_version)
+                ds->data.version >= max_data_version)
         {
             online_data_servers[active_count++] = ds;
         }

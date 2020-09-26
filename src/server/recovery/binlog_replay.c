@@ -51,8 +51,7 @@ typedef struct replay_thread_context {
     } queues;
 
     struct {
-        pthread_mutex_t lock;
-        pthread_cond_t cond;
+        pthread_lock_cond_pair_t lcp;
         bool done;
     } notify;
 
@@ -132,20 +131,18 @@ static void slice_write_done_notify(FSSliceOpContext *op_ctx)
     ReplayThreadContext *thread_ctx;
 
     thread_ctx = (ReplayThreadContext *)op_ctx->notify.arg;
-    PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lock);
+    PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lcp.lock);
     if (!thread_ctx->notify.done) {
         thread_ctx->notify.done = true;
-        pthread_cond_signal(&thread_ctx->notify.cond);
+        pthread_cond_signal(&thread_ctx->notify.lcp.cond);
     }
-    PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lock);
+    PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lcp.lock);
 }
 
 static int deal_task(ReplayTaskInfo *task, char *buff)
 {
     int result;
     int read_bytes;
-    int inc_alloc;
-    int dec_alloc;
     bool log_padding;
 
     log_padding = false;
@@ -181,12 +178,12 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                     task->op_ctx.info.bs_key.slice.length = read_bytes;
                 }
                 if ((result=fs_slice_write(&task->op_ctx, buff)) == 0) {
-                    PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lock);
+                    PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
                     while (!task->thread_ctx->notify.done) {
-                        pthread_cond_wait(&task->thread_ctx->notify.cond,
-                                &task->thread_ctx->notify.lock);
+                        pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
+                                &task->thread_ctx->notify.lcp.lock);
                     }
-                    PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lock);
+                    PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
 
                     if (task->op_ctx.result == 0) {
                         task->thread_ctx->stat.write.success++;
@@ -211,14 +208,14 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
         case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
             task->thread_ctx->stat.allocate.total++;
             if ((result=fs_slice_allocate_ex(&task->op_ctx, &task->
-                            thread_ctx->slice_ptr_array, &inc_alloc)) == 0)
+                            thread_ctx->slice_ptr_array)) == 0)
             {
                 task->thread_ctx->stat.allocate.success++;
             }
             break;
         case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
             task->thread_ctx->stat.remove.total++;
-            if ((result=fs_delete_slices(&task->op_ctx, &dec_alloc)) == 0) {
+            if ((result=fs_delete_slices(&task->op_ctx)) == 0) {
                 task->thread_ctx->stat.remove.success++;
             } else if (result == ENOENT) {
                 result = 0;
@@ -499,7 +496,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
     last_data_version = __sync_add_and_fetch(
-            &ctx->ds->replica.data_version, 0);
+            &ctx->ds->data.version, 0);
     data_recovery_get_subdir_name(ctx,
             RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
@@ -583,15 +580,7 @@ static int init_rthread_context(ReplayThreadContext *thread_ctx,
         return result;
     }
 
-    if ((result=init_pthread_lock(&thread_ctx->notify.lock)) != 0) {
-        return result;
-    }
-
-    if ((result=pthread_cond_init(&thread_ctx->notify.cond, NULL)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "pthread_cond_init fail, "
-                "errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
+    if ((result=init_pthread_lock_cond_pair(&thread_ctx->notify.lcp)) != 0) {
         return result;
     }
 
@@ -625,7 +614,8 @@ static int init_replay_tasks(DataRecoveryContext *ctx)
 
     end = replay_ctx->thread_env.tasks + count;
     for (task=replay_ctx->thread_env.tasks; task<end; task++) {
-        task->op_ctx.info.write_data_binlog = true;
+        task->op_ctx.info.write_binlog.log_replica = true;
+        task->op_ctx.info.write_binlog.immediately = true;
         task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;
     }
@@ -694,9 +684,7 @@ static void destroy_replay_context(BinlogReplayContext *replay_ctx)
         fc_queue_destroy(&context->queues.freelist);
         fc_queue_destroy(&context->queues.waiting);
 
-        pthread_cond_destroy(&context->notify.cond);
-        pthread_mutex_destroy(&context->notify.lock);
-
+        destroy_pthread_lock_cond_pair(&context->notify.lcp);
         ob_index_free_slice_ptr_array(&context->slice_ptr_array);
     }
     free(replay_ctx->thread_env.tasks);

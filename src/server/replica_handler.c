@@ -316,7 +316,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return EALREADY;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
+    my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
     if (last_data_version > my_data_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "binlog consistency check fail, slave's data version: "
@@ -353,13 +353,12 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->replica.data_version, 0);
+    my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
     if (rheader->catch_up || last_data_version == my_data_version) {
         if (cluster_relationship_set_ds_status(peer,
                     FS_SERVER_STATUS_ONLINE))
         {
-            until_version = __sync_add_and_fetch(
-                    &myself->replica.data_version, 0);
+            until_version = __sync_add_and_fetch(&myself->data.version, 0);
             is_online = true;
         } else {
             until_version = 0;

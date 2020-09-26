@@ -138,7 +138,7 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
         IDEMPOTENCY_REQUEST->finished = true;
         IDEMPOTENCY_REQUEST->output.result = result;
         ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
-            inc_alloc = SLICE_OP_CTX.write.inc_alloc;
+            inc_alloc = SLICE_OP_CTX.update.space_changed;
         idempotency_request_release(IDEMPOTENCY_REQUEST);
 
         /* server task type for channel ONLY, do NOT set task type to NONE!!! */
@@ -148,12 +148,19 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
 
 static int handle_master_replica_done(struct fast_task_info *task)
 {
-    TASK_ARG->context.deal_func = NULL;
+    int result;
 
+    TASK_ARG->context.deal_func = NULL;
+    if (!SLICE_OP_CTX.info.write_binlog.immediately) {
+        result = fs_log_data_update(REQUEST.header.cmd,
+                &SLICE_OP_CTX, 0);
+    } else {
+        result = 0;
+    }
     du_handler_idempotency_request_finish(task, RESPONSE_STATUS);
     du_handler_fill_slice_update_response(task,
-            SLICE_OP_CTX.write.inc_alloc);
-    return RESPONSE_STATUS;
+            SLICE_OP_CTX.update.space_changed);
+    return result;
 }
 
 static inline int do_replica(struct fast_task_info *task,
@@ -168,8 +175,12 @@ static inline int do_replica(struct fast_task_info *task,
                 TASK_STATUS_CONTINUE)
         {
             TASK_ARG->context.deal_func = NULL;
+            if (!SLICE_OP_CTX.info.write_binlog.immediately) {
+                result = fs_log_data_update(REQUEST.header.cmd,
+                        &SLICE_OP_CTX, result);
+            }
             du_handler_fill_slice_update_response(task,
-                    SLICE_OP_CTX.write.inc_alloc);
+                    SLICE_OP_CTX.update.space_changed);
         }
         return result;
     } else {
@@ -211,7 +222,7 @@ static void master_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 "done_bytes: %d, inc_alloc: %d", __LINE__,
                 TASK_CTX.which_side, op_ctx->info.data_group_id,
                 op_ctx->info.data_version, result, SLICE_OP_CTX.done_bytes,
-                SLICE_OP_CTX.write.inc_alloc);
+                SLICE_OP_CTX.update.space_changed);
                 */
     }
 
@@ -370,7 +381,9 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     }
     */
 
-    op_ctx->info.write_data_binlog = true;
+    op_ctx->info.write_binlog.log_replica = true;
+    op_ctx->info.write_binlog.immediately =
+        TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
     if ((result=fs_slice_write(op_ctx, buff)) != 0) {
         du_handler_set_slice_op_error_msg(task, op_ctx, "write", result);
         return result;
@@ -399,10 +412,11 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     }
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
-    op_ctx->info.write_data_binlog = true;
+    op_ctx->info.write_binlog.log_replica = true;
+    op_ctx->info.write_binlog.immediately =
+        TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
     if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
-                        task->thread_data->arg)->slice_ptr_array,
-                    &op_ctx->write.inc_alloc)) != 0)
+                        task->thread_data->arg)->slice_ptr_array)) != 0)
     {
         du_handler_set_slice_op_error_msg(task, op_ctx, "allocate", result);
         return result;
@@ -431,8 +445,10 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     }
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
-    op_ctx->info.write_data_binlog = true;
-    if ((result=fs_delete_slices(op_ctx, &op_ctx->write.inc_alloc)) != 0) {
+    op_ctx->info.write_binlog.log_replica = true;
+    op_ctx->info.write_binlog.immediately =
+        TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+    if ((result=fs_delete_slices(op_ctx)) != 0) {
         du_handler_set_slice_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
@@ -460,8 +476,10 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     }
     SLAVE_CHECK_DATA_VERSION(op_ctx);
 
-    op_ctx->info.write_data_binlog = true;
-    if ((result=fs_delete_block(op_ctx, &op_ctx->write.inc_alloc)) != 0) {
+    op_ctx->info.write_binlog.log_replica = true;
+    op_ctx->info.write_binlog.immediately =
+        TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+    if ((result=fs_delete_block(op_ctx)) != 0) {
         set_block_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }

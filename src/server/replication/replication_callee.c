@@ -20,6 +20,7 @@
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../storage/slice_op.h"
 #include "replication_processor.h"
 #include "rpc_result_ring.h"
 #include "replication_callee.h"
@@ -44,6 +45,14 @@ void replication_callee_terminate()
 {
 }
 
+static int slice_op_buffer_ctx_init(void *element, void *args)
+{
+    FSSliceSNPairArray *slice_sn_parray;
+    slice_sn_parray = &((FSSliceOpBufferContext *)
+            element)->op_ctx.update.sarray;
+    return fs_init_slice_op_ctx(slice_sn_parray);
+}
+
 int replication_callee_init_allocator(FSServerContext *server_context)
 {
     int result;
@@ -52,7 +61,7 @@ int replication_callee_init_allocator(FSServerContext *server_context)
     element_size = sizeof(FSSliceOpBufferContext);
     if ((result=fast_mblock_init_ex1(&server_context->replica.
                     op_ctx_allocator, "slice_op_ctx", element_size,
-                    1024, 0, NULL, NULL, true)) != 0)
+                    1024, 0, slice_op_buffer_ctx_init, NULL, true)) != 0)
     {
         return result;
     }

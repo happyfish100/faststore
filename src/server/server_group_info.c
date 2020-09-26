@@ -80,24 +80,6 @@ static int add_to_ds_ptr_array(FSClusterDataServerPtrArray *ds_ptr_array,
     return 0;
 }
 
-static int init_ds_pthread_lock_cond(FSClusterDataServerInfo *ds)
-{
-    int result;
-    if ((result=init_pthread_lock(&ds->replica.notify.lock)) != 0) {
-        return result;
-    }
-
-    if ((result=pthread_cond_init(&ds->replica.notify.cond, NULL)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "pthread_cond_init fail, "
-                "errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
-    return 0;
-}
-
 static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
 {
     FSServerGroup *server_group;
@@ -138,7 +120,10 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
         }
         ds->is_preseted = (server_index == master_index);
 
-        if ((result=init_ds_pthread_lock_cond(ds)) != 0) {
+        if ((result=init_pthread_lock(&ds->data.lock)) != 0) {
+            return result;
+        }
+        if ((result=init_pthread_lock_cond_pair(&ds->replica.notify)) != 0) {
             return result;
         }
         if ((result=add_to_ds_ptr_array(&ds->cs->ds_ptr_array, ds)) != 0) {
@@ -716,7 +701,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
             if (ds->cs->server->id == server_id) {
                 ds->status = status;
-                ds->replica.data_version = data_version;
+                ds->data.version = data_version;
                 break;
             }
         }
@@ -836,7 +821,7 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
                         SERVER_GROUP_INFO_ITEM_SERVER, ds->cs->server->id,
                         __sync_fetch_and_add(&ds->status, 0),
-                        ds->replica.data_version)) != 0)
+                        ds->data.version)) != 0)
         {
             return result;
         }

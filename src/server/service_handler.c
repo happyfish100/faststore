@@ -454,7 +454,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
             body_part->is_preseted = ds->is_preseted;
             body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
             body_part->status = __sync_add_and_fetch(&ds->status, 0);
-            long2buff(ds->replica.data_version, body_part->data_version);
+            long2buff(ds->data.version, body_part->data_version);
         }
     }
 
@@ -514,7 +514,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
     OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
     OP_CTX_INFO.data_version = 0;
-    SLICE_OP_CTX.write.inc_alloc = 0;
+    SLICE_OP_CTX.update.space_changed = 0;
 
     *deal_done = false;
     return 0;

@@ -3,6 +3,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
+#include "../common/fs_proto.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
 #include "../binlog/slice_binlog.h"
@@ -10,22 +11,60 @@
 #include "storage_allocator.h"
 #include "slice_op.h"
 
-static void set_data_version(FSSliceOpContext *op_ctx)
+#define SLICE_OP_CHECK_LOCK(op_ctx) \
+    do { \
+        bool need_lock;  \
+        do {  \
+            need_lock = (op_ctx->info.data_version == 0 &&   \
+                    op_ctx->info.write_binlog.log_replica);  \
+            if (need_lock) {  \
+                PTHREAD_MUTEX_LOCK(&op_ctx->info.myself->data.lock); \
+            }  \
+        } while (0)
+
+#define SLICE_OP_CHECK_UNLOCK(op_ctx) \
+        if (need_lock) {  \
+            PTHREAD_MUTEX_UNLOCK(&op_ctx->info.myself->data.lock); \
+        } \
+    } while (0)
+
+static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
+        const int capacity)
+{
+    FSSliceSNPair *slice_sn_pairs;
+
+    slice_sn_pairs = (FSSliceSNPair *)fc_malloc(
+            sizeof(FSSliceSNPair) * capacity);
+    if (slice_sn_pairs == NULL) {
+        return ENOMEM;
+    }
+
+    free(parray->slice_sn_pairs);
+    parray->alloc = capacity;
+    parray->slice_sn_pairs = slice_sn_pairs;
+    return 0;
+}
+
+static inline void set_data_version(FSSliceOpContext *op_ctx)
 {
     uint64_t old_version;
 
-    if (op_ctx->info.data_version <= 0) {
+    if (!op_ctx->info.write_binlog.log_replica) {
+        return;
+    }
+
+    if (op_ctx->info.data_version == 0) {
         op_ctx->info.data_version = __sync_add_and_fetch(
-                &op_ctx->info.myself->replica.data_version, 1);
+                &op_ctx->info.myself->data.version, 1);
     } else {
         while (1) {
             old_version = __sync_add_and_fetch(&op_ctx->info.
-                    myself->replica.data_version, 0);
+                    myself->data.version, 0);
             if (op_ctx->info.data_version <= old_version) {
                 break;
             }
             if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
-                        replica.data_version, old_version,
+                        data.version, old_version,
                         op_ctx->info.data_version))
             {
                 break;
@@ -34,52 +73,101 @@ static void set_data_version(FSSliceOpContext *op_ctx)
     }
 }
 
-static void slice_write_finish(FSSliceOpContext *op_ctx)
+static inline void free_slice_array(FSSliceSNPairArray *array)
 {
-    uint64_t sns[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+
+    slice_sn_end = array->slice_sn_pairs + array->count;
+    for (slice_sn_pair=array->slice_sn_pairs;
+            slice_sn_pair<slice_sn_end; slice_sn_pair++)
+    {
+        ob_index_free_slice(slice_sn_pair->slice);
+    }
+    array->count = 0;
+}
+
+int fs_log_slice_write(FSSliceOpContext *op_ctx)
+{
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
     time_t current_time;
-    int inc_alloc;
-    int r;
-    int i;
+    int result;
 
-    if (op_ctx->result == 0) {
-        for (i=0; i<op_ctx->write.sarray.count; i++) {
-            if ((r=ob_index_add_slice(op_ctx->write.sarray.slices[i],
-                            sns + i, &inc_alloc)) != 0)
-            {
-                op_ctx->result = r;
-                return;
-            }
-            op_ctx->write.inc_alloc += inc_alloc;
-        }
-
-        current_time = g_current_time;
-        set_data_version(op_ctx);
-        for (i=0; i<op_ctx->write.sarray.count; i++) {
-            if ((r=slice_binlog_log_add_slice(op_ctx->write.
-                            sarray.slices[i], current_time, sns[i],
-                            op_ctx->info.data_version,
-                            op_ctx->info.source)) != 0)
-            {
-                op_ctx->result = r;
-                return;
-            }
-        }
-
-        if (op_ctx->info.write_data_binlog) {
-            if ((r=replica_binlog_log_write_slice(current_time,
-                            op_ctx->info.data_group_id, op_ctx->info.
-                            data_version, &op_ctx->info.bs_key,
-                            op_ctx->info.source)) != 0)
-            {
-                op_ctx->result = r;
-                return;
-            }
+    result = 0;
+    current_time = g_current_time;
+    slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+        op_ctx->update.sarray.count;
+    for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+            slice_sn_pair<slice_sn_end; slice_sn_pair++)
+    {
+        if ((result=slice_binlog_log_add_slice(slice_sn_pair->slice,
+                        current_time, slice_sn_pair->sn, op_ctx->info.
+                        data_version, op_ctx->info.source)) != 0)
+        {
+            break;
         }
     }
 
-    for (i=0; i<op_ctx->write.sarray.count; i++) {
-        ob_index_free_slice(op_ctx->write.sarray.slices[i]);
+    if (op_ctx->info.write_binlog.log_replica) {
+        if ((result=replica_binlog_log_write_slice(current_time,
+                        op_ctx->info.data_group_id, op_ctx->info.
+                        data_version, &op_ctx->info.bs_key,
+                        op_ctx->info.source)) != 0)
+        {
+            return result;
+        }
+    }
+
+    free_slice_array(&op_ctx->update.sarray);
+    return 0;
+}
+
+static void slice_write_finish(FSSliceOpContext *op_ctx)
+{
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+    int result;
+    int inc_alloc;
+    bool free_slices;
+
+    do {
+        if (op_ctx->result != 0) {
+            break;
+        }
+
+        SLICE_OP_CHECK_LOCK(op_ctx);
+        slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+            op_ctx->update.sarray.count;
+        for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+                slice_sn_pair<slice_sn_end; slice_sn_pair++)
+        {
+            if ((result=ob_index_add_slice(slice_sn_pair->slice,
+                            &slice_sn_pair->sn, &inc_alloc)) != 0)
+            {
+                op_ctx->result = result;
+                break;
+            }
+            op_ctx->update.space_changed += inc_alloc;
+        }
+
+        if (op_ctx->result == 0) {
+            set_data_version(op_ctx);
+        }
+        SLICE_OP_CHECK_UNLOCK(op_ctx);
+    } while (0);
+
+    if (op_ctx->result == 0) {
+        free_slices = !op_ctx->info.write_binlog.log_replica;
+        if (op_ctx->info.write_binlog.immediately) {
+            fs_log_slice_write(op_ctx);
+        }
+    } else {
+        free_slices = true;
+    }
+
+    if (free_slices) {
+        free_slice_array(&op_ctx->update.sarray);
     }
 }
 
@@ -129,7 +217,7 @@ static inline OBSliceEntry *alloc_init_slice(const FSBlockKey *bkey,
 
 static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         const OBSliceType slice_type, const bool reclaim_alloc,
-        OBSliceEntry **slices, int *slice_count)
+        FSSliceSNPair *slice_sn_pairs, int *slice_count)
 {
     int result;
     FSTrunkSpaceInfo spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
@@ -137,11 +225,11 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     if (reclaim_alloc) {
         result = storage_allocator_reclaim_alloc(
                 FS_BLOCK_HASH_CODE(bs_key->block),
-                bs_key->slice.length, spaces, &*slice_count);
+                bs_key->slice.length, spaces, slice_count);
     } else {
         result = storage_allocator_normal_alloc(
                 FS_BLOCK_HASH_CODE(bs_key->block),
-                bs_key->slice.length, spaces, &*slice_count);
+                bs_key->slice.length, spaces, slice_count);
     }
 
     if (result != 0) {
@@ -149,7 +237,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     }
 
     /*
-    logInfo("write *slice_count: %d, block "
+    logInfo("write slice_count: %d, block "
             "{ oid: %"PRId64", offset: %"PRId64" }, "
             "target slice offset: %d, length: %d", *slice_count,
             bs_key->block.oid, bs_key->block.offset,
@@ -157,9 +245,10 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
             */
 
     if (*slice_count == 1) {
-        slices[0] = alloc_init_slice(&bs_key->block, spaces + 0, slice_type,
-                bs_key->slice.offset, bs_key->slice.length);
-        if (slices[0] == NULL) {
+        slice_sn_pairs[0].slice = alloc_init_slice(&bs_key->block,
+                spaces + 0, slice_type, bs_key->slice.offset,
+                bs_key->slice.length);
+        if (slice_sn_pairs[0].slice == NULL) {
             return ENOMEM;
         }
 
@@ -175,10 +264,10 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         offset = bs_key->slice.offset;
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
-            slices[i] = alloc_init_slice(&bs_key->block, spaces + i,
-                    slice_type, offset, (spaces[i].size < remain ?
-                    spaces[i].size : remain));
-            if (slices[i] == NULL) {
+            slice_sn_pairs[i].slice = alloc_init_slice(&bs_key->block,
+                    spaces + i, slice_type, offset, (spaces[i].size <
+                        remain ?  spaces[i].size : remain));
+            if (slice_sn_pairs[i].slice == NULL) {
                 return ENOMEM;
             }
 
@@ -187,8 +276,8 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
                     i, spaces[i].offset, spaces[i].size);
                     */
 
-            offset += slices[i]->ssize.length;
-            remain -= slices[i]->ssize.length;
+            offset += slice_sn_pairs[i].slice->ssize.length;
+            remain -= slice_sn_pairs[i].slice->ssize.length;
         }
     }
 
@@ -198,35 +287,40 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
 int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
         const bool reclaim_alloc)
 {
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
     int result;
-    int i;
 
     //TODO notify alloc fail
     if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
-                    reclaim_alloc, op_ctx->write.sarray.slices,
-                    &op_ctx->write.sarray.count)) != 0)
+                    reclaim_alloc, op_ctx->update.sarray.slice_sn_pairs,
+                    &op_ctx->update.sarray.count)) != 0)
     {
         return result;
     }
 
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
-    op_ctx->write.inc_alloc = 0;
-    op_ctx->counter = op_ctx->write.sarray.count;
-    if (op_ctx->write.sarray.count == 1) {
+    op_ctx->update.space_changed = 0;
+    op_ctx->counter = op_ctx->update.sarray.count;
+    if (op_ctx->update.sarray.count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            op_ctx->write.sarray.slices[0], buff,
-                            slice_write_done, op_ctx);
+                            op_ctx->update.sarray.slice_sn_pairs[0].slice,
+                            buff, slice_write_done, op_ctx);
     } else {
         int length;
         char *ps;
 
         ps = buff;
-        for (i=0; i<op_ctx->write.sarray.count; i++) {
-            length = op_ctx->write.sarray.slices[i]->ssize.length;
+        slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+            op_ctx->update.sarray.count;
+        for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+                slice_sn_pair<slice_sn_end; slice_sn_pair++)
+        {
+            length = slice_sn_pair->slice->ssize.length;
             if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            op_ctx->write.sarray.slices[i], ps,
-                            slice_write_done, op_ctx)) != 0)
+                            slice_sn_pair->slice, ps, slice_write_done,
+                            op_ctx)) != 0)
             {
                 break;
             }
@@ -271,11 +365,10 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
     for (pp=sarray->slices; pp<end; pp++) {
         hole_len = (*pp)->ssize.offset - offset;
         if (hole_len > 0) {
-            if (*count >= max_size) {
-                return ENOSPC;
+            if (*count < max_size) {
+                ssizes[*count].offset = offset;
+                ssizes[*count].length = hole_len;
             }
-            ssizes[*count].offset = offset;
-            ssizes[*count].length = hole_len;
             (*count)++;
         }
 
@@ -291,91 +384,171 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
     }
 
     if (offset < bs_key->slice.offset + bs_key->slice.length) {
-        if (*count >= max_size) {
-            return ENOSPC;
+        if (*count < max_size) {
+            ssizes[*count].offset = offset;
+            ssizes[*count].length = (bs_key->slice.offset +
+                    bs_key->slice.length) - offset;
         }
-        ssizes[*count].offset = offset;
-        ssizes[*count].length = (bs_key->slice.offset +
-            bs_key->slice.length) - offset;
         (*count)++;
     }
 
-    return 0;
+    return *count <= max_size ? 0 : -ENOSPC;
 }
 
 int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
-        OBSlicePtrArray *sarray, int *inc_alloc)
+        OBSlicePtrArray *sarray)
 {
-#define SLICE_MAX_HOLES  256
+#define FS_SLICE_HOLES_FIXED_COUNT  256
     int result;
-    int r;
-    FSSliceSize ssizes[SLICE_MAX_HOLES];
+    FSSliceSize fixed_ssizes[FS_SLICE_HOLES_FIXED_COUNT];
+    FSSliceSize *ssizes;
     FSBlockSliceKeyInfo new_bskey;
+    int alloc;
     int count;
-    int slice_count;
     int inc;
     int n;
-    int i;
     int k;
-    time_t current_time;
-    OBSliceEntry *slices[2 * SLICE_MAX_HOLES];
-    uint64_t sns[2 * SLICE_MAX_HOLES];
+    bool free_slices;
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
 
-    *inc_alloc = 0;
+    op_ctx->update.sarray.count = 0;
+    op_ctx->update.space_changed = 0;
+    ssizes = fixed_ssizes;
     if ((result=get_slice_index_holes(&op_ctx->info.bs_key, sarray,
-                    ssizes, SLICE_MAX_HOLES, &count)) != 0)
+                    ssizes, FS_SLICE_HOLES_FIXED_COUNT, &count)) != 0)
     {
-        return result;
-    }
-
-    slice_count = 0;
-    new_bskey.block = op_ctx->info.bs_key.block;
-    for (k=0; k<count; k++) {
-        new_bskey.slice = ssizes[k];
-        if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
-                        false, slices + slice_count, &n)) != 0)
-        {
+        if (result != -ENOSPC) {
             return result;
         }
 
-        slice_count += n;
-    }
+        while (1) {
+            alloc = count + FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT;
+            ssizes = (FSSliceSize *)fc_malloc(sizeof(FSSliceSize) * alloc);
+            if (ssizes == NULL) {
+                return ENOMEM;
+            }
+            if ((result=get_slice_index_holes(&op_ctx->info.bs_key,
+                            sarray, ssizes, alloc, &count)) == 0)
+            {
+                break;
+            }
 
-    for (i=0; i<slice_count; i++) {
-        if ((r=ob_index_add_slice(slices[i], sns + i, &inc)) != 0) {
-            return r;
+            free(ssizes);
+            if (result != -ENOSPC) {
+                return result;
+            }
         }
-        *inc_alloc += inc;
     }
 
-    current_time = g_current_time;
-    set_data_version(op_ctx);
-    for (i=0; i<slice_count; i++) {
-        if ((r=slice_binlog_log_add_slice(slices[i], current_time,
-                        sns[i], op_ctx->info.data_version,
-                        op_ctx->info.source)) != 0)
+    do {
+        if (op_ctx->update.sarray.alloc < count *
+                FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC)
         {
-            return r;
+            if ((result=realloc_slice_sn_pairs(&op_ctx->update.sarray, count *
+                            FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC)) != 0)
+            {
+                break;
+            }
         }
 
-        ob_index_free_slice(slices[i]);
+        new_bskey.block = op_ctx->info.bs_key.block;
+        for (k=0; k<count; k++) {
+            new_bskey.slice = ssizes[k];
+            if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
+                            false, op_ctx->update.sarray.slice_sn_pairs +
+                            op_ctx->update.sarray.count, &n)) != 0)
+            {
+                break;
+            }
+
+            op_ctx->update.sarray.count += n;
+        }
+    } while (0);
+
+    if (ssizes != fixed_ssizes) {
+        free(ssizes);
+    }
+    if (result != 0) {
+        return result;
     }
 
-    if (op_ctx->info.write_data_binlog) {
-        if ((r=replica_binlog_log_alloc_slice(current_time,
-                        op_ctx->info.data_group_id, op_ctx->info.
-                        data_version, &op_ctx->info.bs_key,
-                        op_ctx->info.source)) != 0)
+    slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+        op_ctx->update.sarray.count;
+    SLICE_OP_CHECK_LOCK(op_ctx);
+    for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+            slice_sn_pair<slice_sn_end; slice_sn_pair++)
+    {
+        if ((result=ob_index_add_slice(slice_sn_pair->slice,
+                        &slice_sn_pair->sn, &inc)) != 0)
         {
-            return r;
+            break;
         }
+        op_ctx->update.space_changed += inc;
+    }
+    if (result == 0) {
+        set_data_version(op_ctx);
+    }
+    SLICE_OP_CHECK_UNLOCK(op_ctx);
+
+    if (result == 0) {
+        free_slices = !op_ctx->info.write_binlog.log_replica;
+        if (op_ctx->info.write_binlog.immediately) {
+            result = fs_log_slice_allocate(op_ctx);
+        }
+    } else {
+        free_slices = true;
+    }
+
+    if (free_slices) {
+        free_slice_array(&op_ctx->update.sarray);
     }
 
     /*
     logInfo("file: "__FILE__", line: %d, "
             "slice hole count: %d, inc_alloc: %d",
-            __LINE__, count, *inc_alloc);
+            __LINE__, count, op_ctx->update.space_changed);
             */
+    return result;
+}
+
+int fs_log_slice_allocate(FSSliceOpContext *op_ctx)
+{
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+    int result;
+    time_t current_time;
+
+    current_time = g_current_time;
+    slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+        op_ctx->update.sarray.count;
+    for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+            slice_sn_pair<slice_sn_end; slice_sn_pair++)
+    {
+        if ((result=slice_binlog_log_add_slice(slice_sn_pair->slice,
+                        current_time, slice_sn_pair->sn, op_ctx->info.
+                        data_version, op_ctx->info.source)) != 0)
+        {
+            return result;
+        }
+
+        ob_index_free_slice(slice_sn_pair->slice);
+    }
+
+    if (op_ctx->info.write_binlog.log_replica) {
+        if ((result=replica_binlog_log_alloc_slice(current_time,
+                        op_ctx->info.data_group_id, op_ctx->info.
+                        data_version, &op_ctx->info.bs_key,
+                        op_ctx->info.source)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if (op_ctx->update.sarray.alloc > FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT) {
+        realloc_slice_sn_pairs(&op_ctx->update.sarray,
+                FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT);
+    }
 
     return 0;
 }
@@ -467,28 +640,41 @@ int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
     return result;
 }
 
-int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
+int fs_delete_slices(FSSliceOpContext *op_ctx)
 {
-    uint64_t sn;
-    time_t current_time;
     int result;
 
+    SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
-                    &sn, dec_alloc)) != 0)
+                    &op_ctx->info.sn, &op_ctx->update.space_changed)) == 0)
     {
-        return result;
+        set_data_version(op_ctx);
     }
+    SLICE_OP_CHECK_UNLOCK(op_ctx);
+
+    if (result == 0) {
+        if (op_ctx->info.write_binlog.immediately) {
+            result = fs_log_delete_slices(op_ctx);
+        }
+    }
+
+    return result;
+}
+
+int fs_log_delete_slices(FSSliceOpContext *op_ctx)
+{
+    int result;
+    time_t current_time;
 
     current_time = g_current_time;
-    set_data_version(op_ctx);
     if ((result=slice_binlog_log_del_slice(&op_ctx->info.bs_key,
-                    current_time, sn, op_ctx->info.data_version,
-                    op_ctx->info.source)) != 0)
+                    current_time, op_ctx->info.sn, op_ctx->info.
+                    data_version, op_ctx->info.source)) != 0)
     {
         return result;
     }
 
-    if (op_ctx->info.write_data_binlog) {
+    if (op_ctx->info.write_binlog.log_replica) {
         return replica_binlog_log_del_slice(current_time,
                 op_ctx->info.data_group_id, op_ctx->info.
                 data_version, &op_ctx->info.bs_key,
@@ -497,32 +683,74 @@ int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc)
     return 0;
 }
 
-int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc)
+int fs_delete_block(FSSliceOpContext *op_ctx)
 {
-    uint64_t sn;
-    time_t current_time;
     int result;
 
+    SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
-                    &sn, dec_alloc)) != 0)
+                    &op_ctx->info.sn, &op_ctx->update.space_changed)) == 0)
     {
-        return result;
+        set_data_version(op_ctx);
+    }
+    SLICE_OP_CHECK_UNLOCK(op_ctx);
+
+    if (result == 0) {
+        if (op_ctx->info.write_binlog.immediately) {
+            result = fs_log_delete_block(op_ctx);
+        }
     }
 
+    return result;
+}
+
+int fs_log_delete_block(FSSliceOpContext *op_ctx)
+{
+    int result;
+    time_t current_time;
+
     current_time = g_current_time;
-    set_data_version(op_ctx);
     if ((result=slice_binlog_log_del_block(&op_ctx->info.bs_key.block,
-                    current_time, sn, op_ctx->info.data_version,
+                    current_time, op_ctx->info.sn, op_ctx->info.data_version,
                     op_ctx->info.source)) != 0)
     {
         return result;
     }
 
-    if (op_ctx->info.write_data_binlog) {
+    if (op_ctx->info.write_binlog.log_replica) {
         return replica_binlog_log_del_block(current_time,
-                op_ctx->info.data_group_id, op_ctx->info.
-                data_version, &op_ctx->info.bs_key.block,
-                op_ctx->info.source);
+                op_ctx->info.data_group_id, op_ctx->info.data_version,
+                &op_ctx->info.bs_key.block, op_ctx->info.source);
     }
+
     return 0;
+}
+
+int fs_log_data_update(const unsigned char req_cmd,
+        FSSliceOpContext *op_ctx, const int result)
+{
+    if (result == 0) {
+        switch (req_cmd) {
+            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+                return fs_log_slice_write(op_ctx);
+            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+                return fs_log_slice_allocate(op_ctx);
+            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+                return fs_log_delete_slices(op_ctx);
+            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+                return fs_log_delete_block(op_ctx);
+            default:
+                logError("file: "__FILE__", line: %d, "
+                        "invalid req cmd: %d (%s)", __LINE__,
+                        req_cmd, fs_get_cmd_caption(req_cmd));
+                return EINVAL;
+        }
+    } else {
+        if (req_cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
+                req_cmd == FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ)
+        {
+            free_slice_array(&op_ctx->update.sarray);
+        }
+        return result;
+    }
 }

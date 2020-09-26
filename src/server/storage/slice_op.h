@@ -9,6 +9,17 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+    static inline int fs_init_slice_op_ctx(FSSliceSNPairArray *parray)
+    {
+        parray->alloc = FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT;
+        parray->slice_sn_pairs = (FSSliceSNPair *)fc_malloc(
+                sizeof(FSSliceSNPair) * parray->alloc);
+        if (parray->slice_sn_pairs == NULL) {
+            return ENOMEM;
+        }
+
+        return 0;
+    }
 
     int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
             const bool reclaim_alloc);
@@ -20,16 +31,15 @@ extern "C" {
     }
 
     int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
-            OBSlicePtrArray *sarray, int *inc_alloc);
+            OBSlicePtrArray *sarray);
 
-    static inline int fs_slice_allocate(FSSliceOpContext *op_ctx,
-            int *inc_alloc)
+    static inline int fs_slice_allocate(FSSliceOpContext *op_ctx)
     {
         OBSlicePtrArray sarray;
         int result;
 
         ob_index_init_slice_ptr_array(&sarray);
-        result = fs_slice_allocate_ex(op_ctx, &sarray, inc_alloc);
+        result = fs_slice_allocate_ex(op_ctx, &sarray);
         ob_index_free_slice_ptr_array(&sarray);
         return result;
     }
@@ -48,9 +58,16 @@ extern "C" {
         return result;
     }
 
-    int fs_delete_slices(FSSliceOpContext *op_ctx, int *dec_alloc);
+    int fs_delete_slices(FSSliceOpContext *op_ctx);
+    int fs_delete_block(FSSliceOpContext *op_ctx);
 
-    int fs_delete_block(FSSliceOpContext *op_ctx, int *dec_alloc);
+    int fs_log_slice_write(FSSliceOpContext *op_ctx);
+    int fs_log_slice_allocate(FSSliceOpContext *op_ctx);
+    int fs_log_delete_slices(FSSliceOpContext *op_ctx);
+    int fs_log_delete_block(FSSliceOpContext *op_ctx);
+
+    int fs_log_data_update(const unsigned char req_cmd,
+            FSSliceOpContext *op_ctx, const int result);
 
 #ifdef __cplusplus
 }

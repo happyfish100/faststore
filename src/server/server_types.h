@@ -197,14 +197,14 @@ typedef struct fs_cluster_data_server_info {
     } recovery;
 
     struct {
-        struct {
-            pthread_mutex_t lock;
-            pthread_cond_t cond;
-        } notify;  //lock and waiting for slave status change
-
-        uint64_t data_version;
-        uint64_t rpc_start_version;  //for slave check data version
+        pthread_lock_cond_pair_t notify; //lock and waiting for slave status change
+        uint64_t rpc_start_version;      //for slave check data version
     } replica;
+
+    struct {
+        uint64_t version;
+        pthread_mutex_t lock;
+    } data;
 
     int64_t last_report_version; //for record last data version to the leader
 } FSClusterDataServerInfo;
@@ -227,7 +227,7 @@ typedef struct fs_cluster_data_group_info {
     FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
-    pthread_mutex_t lock;
+    pthread_mutex_t lock;   //for master select
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {

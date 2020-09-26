@@ -71,7 +71,7 @@ static inline uint64_t fs_get_my_ds_data_version(const int data_group_id)
         return 0;
     }
 
-    return __sync_add_and_fetch(&ds->replica.data_version, 0);
+    return __sync_add_and_fetch(&ds->data.version, 0);
 }
 
 #ifdef __cplusplus

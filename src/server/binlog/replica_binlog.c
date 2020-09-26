@@ -169,12 +169,12 @@ bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
     writer = binlog_writer_array.writers[myself->dg->id -
         binlog_writer_array.base_id];
     while (1) {
-        old_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
+        old_version = __sync_fetch_and_add(&myself->data.version, 0);
         if (old_version == new_version) {
             break;
         }
 
-        if (__sync_bool_compare_and_swap(&myself->replica.data_version,
+        if (__sync_bool_compare_and_swap(&myself->data.version,
                     old_version, new_version))
         {
             binlog_writer_change_next_version(writer, new_version + 1);
@@ -197,12 +197,12 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
         return result;
     }
 
-    old_version = __sync_fetch_and_add(&myself->replica.data_version, 0);
+    old_version = __sync_fetch_and_add(&myself->data.version, 0);
     if (replica_binlog_set_data_version(myself, new_version)) {
         logDebug("file: "__FILE__", line: %d, data_group_id: %d, "
                 "old version: %"PRId64", new version: %"PRId64,
                 __LINE__, myself->dg->id, old_version,
-                myself->replica.data_version);
+                myself->data.version);
     }
 
     return 0;
@@ -281,7 +281,7 @@ int replica_binlog_init()
         binlog_writer_array.writers[data_group_id - min_id] = writer;
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
         if ((result=binlog_writer_init_by_version(writer, subdir_name,
-                        myself->replica.data_version + 1, 1024)) != 0)
+                        myself->data.version + 1, 1024)) != 0)
         {
             return result;
         }

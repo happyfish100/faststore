@@ -303,7 +303,7 @@ static int replica_binlog_log_padding(DataRecoveryContext *ctx)
     int result;
     uint64_t current_version;
 
-    current_version = __sync_fetch_and_add(&ctx->ds->replica.data_version, 0);
+    current_version = __sync_fetch_and_add(&ctx->ds->data.version, 0);
     if (ctx->fetch.last_data_version > current_version) {
         replica_binlog_set_data_version(ctx->ds,
                 ctx->fetch.last_data_version - 1);
@@ -311,7 +311,7 @@ static int replica_binlog_log_padding(DataRecoveryContext *ctx)
                         ctx->fetch.last_data_version,
                         &ctx->fetch.last_bkey)) == 0)
         {
-            __sync_fetch_and_add(&ctx->ds->replica.data_version, 1);
+            __sync_fetch_and_add(&ctx->ds->data.version, 1);
             result = waiting_binlog_write_done(ctx);
         }
     } else {
