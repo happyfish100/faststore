@@ -267,7 +267,8 @@ static void slave_slice_write_done_notify(FSSliceOpContext *op_ctx)
                 TASK_ARG->task_version)
         {
             replication_callee_push_to_rpc_result_queue(replication,
-                    op_ctx->info.data_version, op_ctx->result);
+                    op_ctx->info.data_group_id, op_ctx->info.data_version,
+                    op_ctx->result);
         }
     }
 

@@ -15,11 +15,11 @@ int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
 void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx);
 
 int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
-        const uint64_t data_version, struct fast_task_info *waiting_task,
-        const int64_t task_version);
+        const int data_group_id, const uint64_t data_version,
+        struct fast_task_info *waiting_task, const int64_t task_version);
 
 int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
-        const uint64_t data_version);
+        const int data_group_id, const uint64_t data_version);
 
 void rpc_result_ring_clear_all(FSReplicaRPCResultContext *ctx);
 

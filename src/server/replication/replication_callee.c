@@ -76,7 +76,7 @@ int replication_callee_init_allocator(FSServerContext *server_context)
 }
 
 int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
-        const uint64_t data_version, const int err_no)
+        const int data_group_id, const uint64_t data_version, const int err_no)
 {
     ReplicationRPCResult *r;
     bool notify;
@@ -87,6 +87,7 @@ int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
         return ENOMEM;
     }
 
+    r->data_group_id = data_group_id;
     r->data_version = data_version;
     r->err_no = err_no;
     fc_queue_push_ex(&replication->context.callee.done_queue, r, &notify);
@@ -137,6 +138,8 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
             break;
         }
 
+        int2buff(r->data_group_id, ((FSProtoReplicaRPCRespBodyPart *)
+                    p)->data_group_id);
         long2buff(r->data_version, ((FSProtoReplicaRPCRespBodyPart *)
                     p)->data_version);
         short2buff(r->err_no, ((FSProtoReplicaRPCRespBodyPart *)p)->

@@ -245,7 +245,8 @@ typedef struct fs_rpc_result_entry {
     struct fs_rpc_result_entry *next;
 } FSReplicaRPCResultEntry;
 
-typedef struct fs_rpc_result_context {
+typedef struct fs_rpc_result_instance {
+    int data_group_id;
     struct {
         FSReplicaRPCResultEntry *entries;
         FSReplicaRPCResultEntry *start; //for consumer
@@ -256,10 +257,16 @@ typedef struct fs_rpc_result_context {
     struct {
         FSReplicaRPCResultEntry *head;
         FSReplicaRPCResultEntry *tail;
-        struct fast_mblock_man rentry_allocator;
     } queue;   //for overflow exceptions
 
+} FSReplicaRPCResultInstance;
+
+typedef struct fs_rpc_result_context {
     time_t last_check_timeout_time;
+    int dg_base_id;    //min data group id
+    int dg_count;
+    FSReplicaRPCResultInstance *instances;   //for my data groups
+    struct fast_mblock_man rentry_allocator; //element: FSReplicaRPCResultEntry
 } FSReplicaRPCResultContext;
 
 typedef struct fs_replication_context {

@@ -15,29 +15,63 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
+#include "../../common/fs_cluster_cfg.h"
+#include "../server_global.h"
 #include "rpc_result_ring.h"
+
+static int init_rpc_result_instance(FSReplicaRPCResultInstance *instance,
+        const int alloc_size)
+{
+    int bytes;
+
+    bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
+    instance->ring.entries = (FSReplicaRPCResultEntry *)fc_malloc(bytes);
+    if (instance->ring.entries == NULL) {
+        return ENOMEM;
+    }
+    memset(instance->ring.entries, 0, bytes);
+
+    instance->ring.start = instance->ring.end = instance->ring.entries;
+    instance->ring.size = alloc_size;
+    instance->queue.head = instance->queue.tail = NULL;
+    return 0;
+}
 
 int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
         const int alloc_size)
 {
     int bytes;
+    int result;
+    FSIdArray *id_array;
+    FSReplicaRPCResultInstance *instance;
+    FSReplicaRPCResultInstance *end;
 
-    if (ctx->ring.entries != NULL) {
+    if (ctx->instances != NULL) {
         return 0;
     }
 
-    bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
-    ctx->ring.entries = (FSReplicaRPCResultEntry *)fc_malloc(bytes);
-    if (ctx->ring.entries == NULL) {
+    id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id);
+    ctx->dg_base_id = fs_cluster_cfg_get_min_data_group_id(id_array);
+
+    bytes = sizeof(FSReplicaRPCResultInstance) * id_array->count;
+    ctx->instances = (FSReplicaRPCResultInstance *)fc_malloc(bytes);
+    if (ctx->instances == NULL) {
         return ENOMEM;
     }
-    memset(ctx->ring.entries, 0, bytes);
+    memset(ctx->instances, 0, bytes);
 
-    ctx->ring.start = ctx->ring.end = ctx->ring.entries;
-    ctx->ring.size = alloc_size;
+    ctx->dg_count = id_array->count;
+    end = ctx->instances + ctx->dg_count;
+    for (instance=ctx->instances; instance<end; instance++) {
+        instance->data_group_id = ctx->dg_base_id +
+            (instance - ctx->instances);
+        if ((result=init_rpc_result_instance(instance, alloc_size)) != 0) {
+            return result;
+        }
+    }
 
-    ctx->queue.head = ctx->queue.tail = NULL;
-    return fast_mblock_init_ex1(&ctx->queue.rentry_allocator,
+    return fast_mblock_init_ex1(&ctx->rentry_allocator,
         "push_result", sizeof(FSReplicaRPCResultEntry), 4096,
         0, NULL, NULL, false);
 }
@@ -67,66 +101,80 @@ static inline void desc_task_waiting_rpc_count(
     }
 }
 
-static void rpc_result_ring_clear_queue_all(FSReplicaRPCResultContext *ctx)
+static void rpc_result_instance_clear_queue_all(FSReplicaRPCResultContext *ctx,
+        FSReplicaRPCResultInstance *instance)
 {
     FSReplicaRPCResultEntry *current;
     FSReplicaRPCResultEntry *deleted;
 
-    if (ctx->queue.head == NULL) {
+    if (instance->queue.head == NULL) {
         return;
     }
 
-    current = ctx->queue.head;
+    current = instance->queue.head;
     while (current != NULL) {
         deleted = current;
         current = current->next;
 
         desc_task_waiting_rpc_count(deleted);
-        fast_mblock_free_object(&ctx->queue.rentry_allocator, deleted);
+        fast_mblock_free_object(&ctx->rentry_allocator, deleted);
     }
 
-    ctx->queue.head = ctx->queue.tail = NULL;
+    instance->queue.head = instance->queue.tail = NULL;
+}
+
+static void rpc_result_instance_clear_all(FSReplicaRPCResultContext *ctx,
+        FSReplicaRPCResultInstance *instance)
+{
+    int index;
+
+    if (instance->ring.start == instance->ring.end) {
+        rpc_result_instance_clear_queue_all(ctx, instance);
+        return;
+    }
+
+    index = instance->ring.start - instance->ring.entries;
+    while (instance->ring.start != instance->ring.end) {
+        desc_task_waiting_rpc_count(instance->ring.start);
+        instance->ring.start->data_version = 0;
+        instance->ring.start->waiting_task = NULL;
+
+        instance->ring.start = instance->ring.entries +
+            (++index % instance->ring.size);
+    }
+
+    rpc_result_instance_clear_queue_all(ctx, instance);
 }
 
 void rpc_result_ring_clear_all(FSReplicaRPCResultContext *ctx)
 {
-    int index;
+    FSReplicaRPCResultInstance *instance;
+    FSReplicaRPCResultInstance *end;
 
-    if (ctx->ring.start == ctx->ring.end) {
-        rpc_result_ring_clear_queue_all(ctx);
-        return;
+    end = ctx->instances + ctx->dg_count;
+    for (instance=ctx->instances; instance<end; instance++) {
+        rpc_result_instance_clear_all(ctx, instance);
     }
-
-    index = ctx->ring.start - ctx->ring.entries;
-    while (ctx->ring.start != ctx->ring.end) {
-        desc_task_waiting_rpc_count(ctx->ring.start);
-        ctx->ring.start->data_version = 0;
-        ctx->ring.start->waiting_task = NULL;
-
-        ctx->ring.start = ctx->ring.entries +
-            (++index % ctx->ring.size);
-    }
-
-    rpc_result_ring_clear_queue_all(ctx);
 }
 
-static int  rpc_result_ring_clear_queue_timeouts(
-        FSReplicaRPCResultContext *ctx)
+static int rpc_result_instance_clear_queue_timeouts(
+        FSReplicaRPCResultContext *ctx,
+        FSReplicaRPCResultInstance *instance)
 {
     FSReplicaRPCResultEntry *current;
     FSReplicaRPCResultEntry *deleted;
     int count;
 
-    if (ctx->queue.head == NULL) {
+    if (instance->queue.head == NULL) {
         return 0;
     }
 
-    if (ctx->queue.head->expires >= g_current_time) {
+    if (instance->queue.head->expires >= g_current_time) {
         return 0;
     }
 
     count = 0;
-    current = ctx->queue.head;
+    current = instance->queue.head;
     while (current != NULL && current->expires < g_current_time) {
         deleted = current;
         current = current->next;
@@ -137,79 +185,102 @@ static int  rpc_result_ring_clear_queue_timeouts(
                 __LINE__, deleted->data_version,
                 deleted->waiting_task);
         desc_task_waiting_rpc_count(deleted);
-        fast_mblock_free_object(&ctx->queue.rentry_allocator, deleted);
+        fast_mblock_free_object(&ctx->rentry_allocator, deleted);
         ++count;
     }
 
-    ctx->queue.head = current;
+    instance->queue.head = current;
     if (current == NULL) {
-        ctx->queue.tail = NULL;
+        instance->queue.tail = NULL;
     }
 
     return count;
 }
 
-void rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx)
+static void rpc_result_instance_clear_timeouts(
+        FSReplicaRPCResultContext *ctx,
+        FSReplicaRPCResultInstance *instance)
 {
     int index;
     int clear_count;
 
-    if (ctx->last_check_timeout_time == g_current_time) {
-        return;
-    }
-
     clear_count = 0;
-    ctx->last_check_timeout_time = g_current_time;
-    if (ctx->ring.start != ctx->ring.end) {
-        index = ctx->ring.start - ctx->ring.entries;
-        while (ctx->ring.start != ctx->ring.end &&
-                ctx->ring.start->expires < g_current_time)
+    if (instance->ring.start != instance->ring.end) {
+        index = instance->ring.start - instance->ring.entries;
+        while (instance->ring.start != instance->ring.end &&
+                instance->ring.start->expires < g_current_time)
         {
             logWarning("file: "__FILE__", line: %d, "
                     "waiting push response timeout, "
                     "data_version: %"PRId64", task: %p",
-                    __LINE__, ctx->ring.start->data_version,
-                    ctx->ring.start->waiting_task);
+                    __LINE__, instance->ring.start->data_version,
+                    instance->ring.start->waiting_task);
 
-            desc_task_waiting_rpc_count(ctx->ring.start);
-            ctx->ring.start->data_version = 0;
-            ctx->ring.start->waiting_task = NULL;
+            desc_task_waiting_rpc_count(instance->ring.start);
+            instance->ring.start->data_version = 0;
+            instance->ring.start->waiting_task = NULL;
 
-            ctx->ring.start = ctx->ring.entries +
-                (++index % ctx->ring.size);
+            instance->ring.start = instance->ring.entries +
+                (++index % instance->ring.size);
             ++clear_count;
         }
     }
 
-    clear_count += rpc_result_ring_clear_queue_timeouts(ctx);
+    clear_count += rpc_result_instance_clear_queue_timeouts(ctx, instance);
     if (clear_count > 0) {
         logWarning("file: "__FILE__", line: %d, "
-                "clear timeout push response waiting entries count: %d",
-                __LINE__, clear_count);
+                "data group id: %d, clear timeout push response "
+                "waiting entries count: %d", __LINE__,
+                instance->data_group_id, clear_count);
+    }
+}
+
+void rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx)
+{
+    FSReplicaRPCResultInstance *instance;
+    FSReplicaRPCResultInstance *end;
+
+    if (ctx->last_check_timeout_time == g_current_time) {
+        return;
+    }
+    ctx->last_check_timeout_time = g_current_time;
+
+    end = ctx->instances + ctx->dg_count;
+    for (instance=ctx->instances; instance<end; instance++) {
+        rpc_result_instance_clear_timeouts(ctx, instance);
     }
 }
 
 void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx)
 {
-    if (ctx->ring.entries != NULL) {
-        free(ctx->ring.entries);
-        ctx->ring.start = ctx->ring.end = ctx->ring.entries = NULL;
-        ctx->ring.size = 0;
+    FSReplicaRPCResultInstance *instance;
+    FSReplicaRPCResultInstance *end;
+
+    end = ctx->instances + ctx->dg_count;
+    for (instance=ctx->instances; instance<end; instance++) {
+        if (instance->ring.entries != NULL) {
+            free(instance->ring.entries);
+            instance->ring.start = instance->ring.end =
+                instance->ring.entries = NULL;
+            instance->ring.size = 0;
+        }
     }
 
-    fast_mblock_destroy(&ctx->queue.rentry_allocator);
+    free(ctx->instances);
+    ctx->instances = NULL;
+    fast_mblock_destroy(&ctx->rentry_allocator);
 }
 
 static int add_to_queue(FSReplicaRPCResultContext *ctx,
-            const uint64_t data_version, struct fast_task_info *waiting_task,
-            const int64_t task_version)
+        FSReplicaRPCResultInstance *instance, const uint64_t data_version,
+        struct fast_task_info *waiting_task, const int64_t task_version)
 {
     FSReplicaRPCResultEntry *entry;
     FSReplicaRPCResultEntry *previous;
     FSReplicaRPCResultEntry *current;
 
     entry = (FSReplicaRPCResultEntry *)fast_mblock_alloc_object(
-            &ctx->queue.rentry_allocator);
+            &ctx->rentry_allocator);
     if (entry == NULL) {
         return ENOMEM;
     }
@@ -219,27 +290,27 @@ static int add_to_queue(FSReplicaRPCResultContext *ctx,
     entry->task_version = task_version;
     entry->expires = g_current_time + SF_G_NETWORK_TIMEOUT;
 
-    if (ctx->queue.tail == NULL) {  //empty queue
+    if (instance->queue.tail == NULL) {  //empty queue
         entry->next = NULL;
-        ctx->queue.head = ctx->queue.tail = entry;
+        instance->queue.head = instance->queue.tail = entry;
         return 0;
     }
 
-    if (data_version > ctx->queue.tail->data_version) {
+    if (data_version > instance->queue.tail->data_version) {
         entry->next = NULL;
-        ctx->queue.tail->next = entry;
-        ctx->queue.tail = entry;
+        instance->queue.tail->next = entry;
+        instance->queue.tail = entry;
         return 0;
     }
 
-    if (data_version < ctx->queue.head->data_version) {
-        entry->next = ctx->queue.head;
-        ctx->queue.head = entry;
+    if (data_version < instance->queue.head->data_version) {
+        entry->next = instance->queue.head;
+        instance->queue.head = entry;
         return 0;
     }
 
-    previous = ctx->queue.head;
-    current = ctx->queue.head->next;
+    previous = instance->queue.head;
+    current = instance->queue.head->next;
     while (current != NULL && data_version > current->data_version) {
         previous = current;
         current = current->next;
@@ -251,9 +322,10 @@ static int add_to_queue(FSReplicaRPCResultContext *ctx,
 }
 
 int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
-        const uint64_t data_version, struct fast_task_info *waiting_task,
-        const int64_t task_version)
+        const int data_group_id, const uint64_t data_version,
+        struct fast_task_info *waiting_task, const int64_t task_version)
 {
+    FSReplicaRPCResultInstance *instance;
     FSReplicaRPCResultEntry *entry;
     FSReplicaRPCResultEntry *previous;
     FSReplicaRPCResultEntry *next;
@@ -261,20 +333,22 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
     bool matched;
 
     matched = false;
-    index = data_version % ctx->ring.size;
-    entry = ctx->ring.entries + index;
-    if (ctx->ring.end == ctx->ring.start) {  //empty
-        ctx->ring.start = entry;
-        ctx->ring.end = ctx->ring.entries + (index + 1) % ctx->ring.size;
+    instance = ctx->instances + (data_group_id - ctx->dg_base_id);
+    index = data_version % instance->ring.size;
+    entry = instance->ring.entries + index;
+    if (instance->ring.end == instance->ring.start) {  //empty
+        instance->ring.start = entry;
+        instance->ring.end = instance->ring.entries +
+            (index + 1) % instance->ring.size;
         matched = true;
-    } else if (entry == ctx->ring.end) {
-        previous = ctx->ring.entries + (index - 1 + ctx->ring.size) %
-            ctx->ring.size;
-        next = ctx->ring.entries + (index + 1) % ctx->ring.size;
-        if ((next != ctx->ring.start) &&
+    } else if (entry == instance->ring.end) {
+        previous = instance->ring.entries + (index - 1 +
+                instance->ring.size) % instance->ring.size;
+        next = instance->ring.entries + (index + 1) % instance->ring.size;
+        if ((next != instance->ring.start) &&
                 data_version == previous->data_version + 1)
         {
-            ctx->ring.end = next;
+            instance->ring.end = next;
             matched = true;
         }
     }
@@ -288,31 +362,32 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
     }
 
     logWarning("file: "__FILE__", line: %d, "
-            "can't found data version %"PRId64", in the ring",
-            __LINE__, data_version);
-    return add_to_queue(ctx, data_version, waiting_task, task_version);
+            "data group id: %d, can't found data version %"PRId64", "
+            "in the ring", __LINE__, instance->data_group_id, data_version);
+    return add_to_queue(ctx, instance, data_version,
+            waiting_task, task_version);
 }
 
 static int remove_from_queue(FSReplicaRPCResultContext *ctx,
-        const uint64_t data_version)
+        FSReplicaRPCResultInstance *instance, const uint64_t data_version)
 {
     FSReplicaRPCResultEntry *entry;
     FSReplicaRPCResultEntry *previous;
     FSReplicaRPCResultEntry *current;
 
-    if (ctx->queue.head == NULL) {  //empty queue
+    if (instance->queue.head == NULL) {  //empty queue
         return ENOENT;
     }
 
-    if (data_version == ctx->queue.head->data_version) {
-        entry = ctx->queue.head;
-        ctx->queue.head = entry->next;
-        if (ctx->queue.head == NULL) {
-            ctx->queue.tail = NULL;
+    if (data_version == instance->queue.head->data_version) {
+        entry = instance->queue.head;
+        instance->queue.head = entry->next;
+        if (instance->queue.head == NULL) {
+            instance->queue.tail = NULL;
         }
     } else {
-        previous = ctx->queue.head;
-        current = ctx->queue.head->next;
+        previous = instance->queue.head;
+        current = instance->queue.head->next;
         while (current != NULL && data_version > current->data_version) {
             previous = current;
             current = current->next;
@@ -324,35 +399,37 @@ static int remove_from_queue(FSReplicaRPCResultContext *ctx,
 
         entry = current;
         previous->next = current->next;
-        if (ctx->queue.tail == current) {
-            ctx->queue.tail = previous;
+        if (instance->queue.tail == current) {
+            instance->queue.tail = previous;
         }
     }
 
     desc_task_waiting_rpc_count(entry);
-    fast_mblock_free_object(&ctx->queue.rentry_allocator, entry);
+    fast_mblock_free_object(&ctx->rentry_allocator, entry);
     return 0;
 }
 
 int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
-        const uint64_t data_version)
+        const int data_group_id, const uint64_t data_version)
 {
+    FSReplicaRPCResultInstance *instance;
     FSReplicaRPCResultEntry *entry;
     int index;
 
-    if (ctx->ring.end != ctx->ring.start) {
-        index = data_version % ctx->ring.size;
-        entry = ctx->ring.entries + index;
+    instance = ctx->instances + (data_group_id - ctx->dg_base_id);
+    if (instance->ring.end != instance->ring.start) {
+        index = data_version % instance->ring.size;
+        entry = instance->ring.entries + index;
 
         if (entry->data_version == data_version) {
-            if (ctx->ring.start == entry) {
-                ctx->ring.start = ctx->ring.entries +
-                    (++index % ctx->ring.size);
-                while (ctx->ring.start != ctx->ring.end &&
-                        ctx->ring.start->data_version == 0)
+            if (instance->ring.start == entry) {
+                instance->ring.start = instance->ring.entries +
+                    (++index % instance->ring.size);
+                while (instance->ring.start != instance->ring.end &&
+                        instance->ring.start->data_version == 0)
                 {
-                    ctx->ring.start = ctx->ring.entries +
-                        (++index % ctx->ring.size);
+                    instance->ring.start = instance->ring.entries +
+                        (++index % instance->ring.size);
                 }
             }
 
@@ -363,5 +440,5 @@ int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
         }
     }
 
-    return remove_from_queue(ctx, data_version);
+    return remove_from_queue(ctx, instance, data_version);
 }

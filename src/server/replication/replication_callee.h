@@ -38,7 +38,7 @@ static inline SharedBuffer *replication_callee_alloc_shared_buffer(
 }
 
 int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
-        const uint64_t data_version, const int err_no);
+        const int data_group_id, const uint64_t data_version, const int err_no);
 
 int replication_callee_deal_rpc_result_queue(FSReplication *replication);
 

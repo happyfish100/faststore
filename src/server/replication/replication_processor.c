@@ -22,7 +22,6 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../binlog/binlog_reader.h"
-#include "rpc_result_ring.h"
 #include "replication_common.h"
 #include "replication_caller.h"
 #include "replication_callee.h"
@@ -463,10 +462,11 @@ static int replication_rpc_from_queue(FSReplication *replication)
     FSProtoReplicaRPCReqBodyHeader *body_header;
     FSProtoReplicaRPCReqBodyPart *body_part;
     uint64_t data_version;
-    int result;
+    int data_group_id;
     int count;
     int body_len;
     int pkg_len;
+    int result;
 
     fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
@@ -492,6 +492,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
         }
 
         body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
+        data_group_id = ((FSServerTaskArg *)rb->task->arg)->
+            context.slice_op_ctx.info.data_group_id;
         data_version = ((FSServerTaskArg *)rb->task->arg)->
             context.slice_op_ctx.info.data_version;
         memcpy(body_part->body, rb->task->data +
@@ -504,8 +506,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
             long2buff(data_version, body_part->data_version);
             int2buff(rb->body_length, body_part->body_len);
             if ((result=rpc_result_ring_add(&replication->context.caller.
-                            rpc_result_ctx, data_version, rb->task,
-                            rb->task_version)) != 0)
+                            rpc_result_ctx, data_group_id, data_version,
+                            rb->task, rb->task_version)) != 0)
             {
                 SF_G_CONTINUE_FLAG = false;
                 return result;
@@ -546,16 +548,6 @@ static inline void send_active_test_package(FSReplication *replication)
     SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
             SF_PROTO_ACTIVE_TEST_REQ, 0);
     sf_send_add_event(replication->task);
-}
-
-int replication_processors_deal_rpc_response(FSReplication *replication,
-        const uint64_t data_version)
-{
-    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
-        return rpc_result_ring_remove(&replication->context.caller.
-                rpc_result_ctx, data_version);
-    }
-    return 0;
 }
 
 static int deal_connected_replication(FSReplication *replication)

@@ -302,8 +302,9 @@ typedef struct fs_proto_replica_rpc_resp_body_header {
 
 typedef struct fs_proto_replica_rpc_resp_body_part {
     char data_version[8];
+    char data_group_id[4];
     char err_no[2];
-    char padding[6];
+    char padding[2];
 } FSProtoReplicaRPCRespBodyPart;
 
 #ifdef __cplusplus

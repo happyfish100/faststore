@@ -645,7 +645,8 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             }
             */
             r = replication_callee_push_to_rpc_result_queue(
-                    REPLICA_REPLICATION, op_ctx->info.data_version, result);
+                    REPLICA_REPLICATION, op_ctx->info.data_group_id,
+                    op_ctx->info.data_version, result);
             if (r != 0) {
                 return r;
             }
@@ -708,6 +709,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
     int count;
     int expect_body_len;
     short err_no;
+    int data_group_id;
     uint64_t data_version;
     FSProtoReplicaRPCRespBodyHeader *body_header;
     FSProtoReplicaRPCRespBodyPart *body_part;
@@ -741,6 +743,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
             sizeof(FSProtoReplicaRPCRespBodyHeader));
     bp_end = body_part + count;
     for (; body_part<bp_end; body_part++) {
+        data_group_id = buff2int(body_part->data_group_id);
         data_version = buff2long(body_part->data_version);
         err_no = buff2short(body_part->err_no);
         if (err_no != 0) {
@@ -753,13 +756,13 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
         }
 
         if ((result=replication_processors_deal_rpc_response(
-                        REPLICA_REPLICATION, data_version)) != 0)
+                        REPLICA_REPLICATION, data_group_id,
+                        data_version)) != 0)
         {
-            RESPONSE.error.length = sprintf(
-                    RESPONSE.error.message,
-                    "rpc_result_ring_remove fail, "
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "rpc_result_ring_remove fail, data_group_id: %d, "
                     "data_version: %"PRId64", result: %d",
-                    data_version, result);
+                    data_group_id, data_version, result);
             break;
         }
     }

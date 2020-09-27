@@ -20,6 +20,7 @@ typedef struct replication_rpc_entry {
 typedef struct replication_rpc_result {
     FSReplication *replication;
     short err_no;
+    int data_group_id;
     uint64_t data_version;
     struct replication_rpc_result *next;
 } ReplicationRPCResult;

@@ -4,6 +4,7 @@
 #define _REPLICATION_PROCESSOR_H_
 
 #include "replication_types.h"
+#include "rpc_result_ring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,8 +26,16 @@ int replication_processor_process(FSServerContext *server_ctx);
 
 void clean_connected_replications(FSServerContext *server_ctx);
 
-int replication_processors_deal_rpc_response(FSReplication *replication,
-        const uint64_t data_version);
+static inline int replication_processors_deal_rpc_response(
+        FSReplication *replication, const int data_group_id,
+        const uint64_t data_version)
+{
+    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
+        return rpc_result_ring_remove(&replication->context.caller.
+                rpc_result_ctx, data_group_id, data_version);
+    }
+    return 0;
+}
 
 static inline void set_replication_stage(FSReplication *
         replication, const int stage)
