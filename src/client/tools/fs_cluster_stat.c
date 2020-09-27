@@ -32,7 +32,7 @@ static void output(FSClientClusterStatEntry *stats, const int count)
             printf("\ndata_group_id: %d\n", stat->data_group_id);
             prev_data_group_id = stat->data_group_id;
         }
-        printf( "\tserver_id: %d, host: %s:%d, "
+        printf( "\tserver_id: %d, host: %s:%u, "
                 "status: %d (%s), "
                 "is_preseted: %d, "
                 "is_master: %d, "

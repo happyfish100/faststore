@@ -320,8 +320,8 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
                 } else if (myself != server) {
                     logError("file: "__FILE__", line: %d, "
                             "cluster config file: %s, my ip and port "
-                            "in more than one servers, %s:%d in "
-                            "server id %d, and %s:%d in server id %d",
+                            "in more than one servers, %s:%u in "
+                            "server id %d, and %s:%u in server id %d",
                             __LINE__, filename, found.ip_addr, found.port,
                             myself->id, local_ip, ports[i], server->id);
                     *err_no = EEXIST;

@@ -268,7 +268,7 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
         ctx->ring.end = ctx->ring.entries + (index + 1) % ctx->ring.size;
         matched = true;
     } else if (entry == ctx->ring.end) {
-        previous = ctx->ring.entries + (index + ctx->ring.size - 1) %
+        previous = ctx->ring.entries + (index - 1 + ctx->ring.size) %
             ctx->ring.size;
         next = ctx->ring.entries + (index + 1) % ctx->ring.size;
         if ((next != ctx->ring.start) &&

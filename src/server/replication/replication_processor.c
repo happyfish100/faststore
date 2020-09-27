@@ -290,7 +290,7 @@ static int send_join_server_package(FSReplication *replication)
                     out_buff, sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
     {
         logError("file: "__FILE__", line: %d, "
-                "send data to server %s:%d fail, "
+                "send data to server %s:%u fail, "
                 "errno: %d, error info: %s", __LINE__,
                 replication->connection_info.conn.ip_addr,
                 replication->connection_info.conn.port,
@@ -392,7 +392,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             {
                 replication->connection_info.last_errno = result;
                 logError("file: "__FILE__", line: %d, "
-                        "%dth connect to %s:%d fail, time used: %ds, "
+                        "%dth connect to %s:%u fail, time used: %ds, "
                         "errno: %d, error info: %s", __LINE__,
                         replication->connection_info.fail_count + 1,
                         replication->connection_info.conn.ip_addr,
@@ -414,7 +414,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             *prompt = '\0';
         }
         logInfo("file: "__FILE__", line: %d, "
-                "connect to slave %s:%d successfully%s.", __LINE__,
+                "connect to slave %s:%u successfully%s.", __LINE__,
                 replication->connection_info.conn.ip_addr,
                 replication->connection_info.conn.port, prompt);
 

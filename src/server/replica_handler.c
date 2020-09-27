@@ -74,7 +74,7 @@ int replica_recv_timeout_callback(struct fast_task_info *task)
             REPLICA_REPLICATION != NULL)
     {
         logError("file: "__FILE__", line: %d, "
-                "client %s:%d, sock: %d, server id: %d, recv timeout",
+                "client %s:%u, sock: %d, server id: %d, recv timeout",
                 __LINE__, task->client_ip, task->port, task->event.fd,
                 REPLICA_REPLICATION->peer->server->id);
         return ETIMEDOUT;

@@ -319,7 +319,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         restart_interval = cs_status[i].up_time -
             cs_status[i].last_shutdown_time;
         logDebug("file: "__FILE__", line: %d, "
-                "server_id: %d, ip addr %s:%d, version: %"PRId64", "
+                "server_id: %d, ip addr %s:%u, version: %"PRId64", "
                 "is_leader: %d, up_time: %d, restart interval: %d",
                 __LINE__, cs_status[i].server_id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
@@ -454,7 +454,7 @@ static int do_check_brainsplit(FSClusterServerInfo *cs)
 
     if (server_status.is_leader) {
         logWarning("file: "__FILE__", line: %d, "
-                "two leaders occurs, anonther leader is %s:%d, "
+                "two leaders occurs, anonther leader is %s:%u, "
                 "trigger re-select leader ...", __LINE__,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs->server));
@@ -548,7 +548,7 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
 
         if (new_leader != old_leader) {
             logInfo("file: "__FILE__", line: %d, "
-                    "the leader server id: %d, ip %s:%d",
+                    "the leader server id: %d, ip %s:%u",
                     __LINE__, new_leader->server->id,
                     CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
                     CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server));
@@ -729,7 +729,7 @@ static int cluster_select_leader()
 		}
 
 		logInfo("file: "__FILE__", line: %d, "
-			"I am the new leader, id: %d, ip %s:%d",
+			"I am the new leader, id: %d, ip %s:%u",
 			__LINE__, next_leader->server->id,
             CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
             CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
@@ -741,7 +741,7 @@ static int cluster_select_leader()
 		{
 			logInfo("file: "__FILE__", line: %d, "
 				"waiting for the candidate leader server id: %d, "
-                "ip %s:%d notify ...", __LINE__, next_leader->server->id,
+                "ip %s:%u notify ...", __LINE__, next_leader->server->id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
 			return ENOENT;
@@ -1110,7 +1110,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
 
     if (data_group_count > 0) {
         logDebug("file: "__FILE__", line: %d, "
-                "ping leader %s:%d, report_all: %d, "
+                "ping leader %s:%u, report_all: %d, "
                 "report data_group_count: %d", __LINE__,
                 conn->ip_addr, conn->port, report_all, data_group_count);
     }
@@ -1255,7 +1255,7 @@ static void *cluster_thread_entrance(void* arg)
             } else {
                 ++fail_count;
                 logError("file: "__FILE__", line: %d, "
-                        "%dth ping leader id: %d, ip %s:%d fail",
+                        "%dth ping leader id: %d, ip %s:%u fail",
                         __LINE__, fail_count, leader->server->id,
                         CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
                         CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));

@@ -12,7 +12,7 @@ typedef struct fs_client_cluster_stat_entry {
     bool is_preseted;
     bool is_master;
     char status;
-    short port;
+    uint16_t port;
     char ip_addr[IP_ADDRESS_SIZE];
     int64_t data_version;
 } FSClientClusterStatEntry;
