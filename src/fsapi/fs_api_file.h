@@ -28,11 +28,11 @@ extern "C" {
 #define fsapi_open(fi, path, flags, mode) \
     fsapi_open_ex(&g_fs_api_ctx, fi, path, flags, mode)
 
-#define fsapi_open_by_inode(fi, inode, flags) \
-    fsapi_open_by_inode_ex(&g_fs_api_ctx, fi, inode, flags)
+#define fsapi_open_by_inode(fi, inode, flags, mode) \
+    fsapi_open_by_inode_ex(&g_fs_api_ctx, fi, inode, flags, mode)
 
-#define fsapi_open_by_dentry(fi, dentry, flags) \
-    fsapi_open_by_dentry_ex(&g_fs_api_ctx, fi, dentry, flags)
+#define fsapi_open_by_dentry(fi, dentry, flags, mode) \
+    fsapi_open_by_dentry_ex(&g_fs_api_ctx, fi, dentry, flags, mode)
 
 #define fsapi_truncate(path, new_size) \
     fsapi_truncate_ex(&g_fs_api_ctx, path, new_size)
@@ -47,19 +47,22 @@ extern "C" {
     fsapi_rename_ex(&g_fs_api_ctx, old_path, new_path, 0)
 
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const char *path, const int flags, const mode_t mode);
+            const char *path, const int flags,
+            const FDIRClientOwnerModePair *omp);
 
     int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const int64_t inode, const int flags);
+            const int64_t inode, const int flags,
+            const FDIRClientOwnerModePair *omp);
 
     int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const FDIRDEntryInfo *dentry, const int flags);
+            const FDIRDEntryInfo *dentry, const int flags,
+            const FDIRClientOwnerModePair *omp);
 
     static inline int fsapi_create_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const char *path, const mode_t mode)
+            const char *path, const FDIRClientOwnerModePair *omp)
     {
         const int flags = O_CREAT | O_TRUNC | O_WRONLY;
-        return fsapi_open_ex(ctx, fi, path, flags, mode);
+        return fsapi_open_ex(ctx, fi, path, flags, omp);
     }
 
     int fsapi_close(FSAPIFileInfo *fi);
@@ -115,25 +118,13 @@ extern "C" {
             const char *new_path, const int flags);
 
     int fsapi_symlink_ex(FSAPIContext *ctx, const char *target,
-            const char *path, const mode_t mode);
-
-    static inline int fsapi_symlink(FSAPIContext *ctx, const char *target,
-            const char *path)
-    {
-        return fsapi_symlink_ex(ctx, target, path, ctx->default_mode);
-    }
+            const char *path, const FDIRClientOwnerModePair *omp);
 
     int fsapi_readlink(FSAPIContext *ctx, const char *path,
             char *buff, const int size);
 
     int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
-            const char *new_path, const mode_t mode);
-
-    static inline int fsapi_link(FSAPIContext *ctx, const char *old_path,
-            const char *new_path)
-    {
-        return fsapi_link_ex(ctx, old_path, new_path, ctx->default_mode);
-    }
+            const char *new_path, const FDIRClientOwnerModePair *omp);
 
 #ifdef __cplusplus
 }

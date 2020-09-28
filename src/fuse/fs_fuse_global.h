@@ -13,6 +13,11 @@ typedef enum {
     allow_root
 } FUSEAllowOthersMode;
 
+typedef enum {
+    owner_type_caller,
+    owner_type_fixed
+} FUSEOwnerType;
+
 typedef struct {
     char *ns;
     char *mountpoint;
@@ -23,6 +28,11 @@ typedef struct {
     double attribute_timeout;
     double entry_timeout;
     FUSEAllowOthersMode allow_others;
+    struct {
+        FUSEOwnerType type;
+        uid_t uid;
+        gid_t gid;
+    } owner;
 } FUSEGlobalVars;
 
 #ifdef __cplusplus

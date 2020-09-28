@@ -13,7 +13,7 @@ static int file_truncate(FSAPIContext *ctx, const int64_t oid,
         const int64_t new_size);
 
 static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
-        const mode_t mode, int result)
+        const FDIRClientOwnerModePair *omp, int result)
 {
     if (result == 0) {
         if (S_ISDIR(fi->dentry.stat.mode)) {
@@ -33,7 +33,7 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
             }
         } else if (result == ENOENT) {
             if ((result=fdir_client_create_dentry(fi->ctx->contexts.fdir,
-                    fullname, mode, &fi->dentry)) != 0)
+                    fullname, omp, &fi->dentry)) != 0)
             {
                 if (result == EEXIST) {
                     if ((fi->flags & O_EXCL)) {
@@ -80,16 +80,19 @@ static int deal_open_flags(FSAPIFileInfo *fi, FDIRDEntryFullName *fullname,
 }
 
 int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const char *path, const int flags, const mode_t mode)
+        const char *path, const int flags,
+        const FDIRClientOwnerModePair *omp)
 {
     FDIRDEntryFullName fullname;
+    FDIRClientOwnerModePair new_omp;
     int result;
-    mode_t new_mode;
 
-    if ((mode & S_IFMT)) {
-        new_mode = (mode & (~S_IFMT))  | S_IFREG;
+    new_omp.uid = omp->uid;
+    new_omp.gid = omp->gid;
+    if ((omp->mode & S_IFMT)) {
+        new_omp.mode = (omp->mode & (~S_IFMT)) | S_IFREG;
     } else {
-        new_mode = mode | S_IFREG;
+        new_omp.mode = omp->mode | S_IFREG;
     }
 
     fi->ctx = ctx;
@@ -99,7 +102,7 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     FC_SET_STRING(fullname.path, (char *)path);
     result = fdir_client_stat_dentry_by_path_ex(ctx->contexts.fdir,
             &fullname, LOG_DEBUG, &fi->dentry);
-    if ((result=deal_open_flags(fi, &fullname, new_mode, result)) != 0) {
+    if ((result=deal_open_flags(fi, &fullname, &new_omp, result)) != 0) {
         return result;
     }
 
@@ -108,7 +111,8 @@ int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
 }
 
 int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const FDIRDEntryInfo *dentry, const int flags)
+        const FDIRDEntryInfo *dentry, const int flags,
+        const FDIRClientOwnerModePair *omp)
 {
     int result;
 
@@ -117,7 +121,7 @@ int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     fi->flags = flags;
     fi->sessions.flock.mconn = NULL;
     result = 0;
-    if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
+    if ((result=deal_open_flags(fi, NULL, omp, result)) != 0) {
         return result;
     }
 
@@ -126,7 +130,8 @@ int fsapi_open_by_dentry_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
 }
 
 int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
-            const int64_t inode, const int flags)
+        const int64_t inode, const int flags,
+        const FDIRClientOwnerModePair *omp)
 {
     int result;
 
@@ -139,7 +144,7 @@ int fsapi_open_by_inode_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
     fi->ctx = ctx;
     fi->flags = flags;
     fi->sessions.flock.mconn = NULL;
-    if ((result=deal_open_flags(fi, NULL, 0755, result)) != 0) {
+    if ((result=deal_open_flags(fi, NULL, omp, result)) != 0) {
         return result;
     }
 
@@ -1068,7 +1073,7 @@ int fsapi_rename_ex(FSAPIContext *ctx, const char *old_path,
 }
 
 int fsapi_symlink_ex(FSAPIContext *ctx, const char *target,
-        const char *path, const mode_t mode)
+        const char *path, const FDIRClientOwnerModePair *omp)
 {
     FDIRDEntryFullName fullname;
     string_t link;
@@ -1078,7 +1083,7 @@ int fsapi_symlink_ex(FSAPIContext *ctx, const char *target,
     FC_SET_STRING(fullname.path, (char *)path);
     FC_SET_STRING(link, (char *)target);
     return fdir_client_symlink_dentry(ctx->contexts.fdir,
-            &link, &fullname, mode, &dentry);
+            &link, &fullname, omp, &dentry);
 }
 
 int fsapi_readlink(FSAPIContext *ctx, const char *path,
@@ -1095,7 +1100,7 @@ int fsapi_readlink(FSAPIContext *ctx, const char *path,
 }
 
 int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
-        const char *new_path, const mode_t mode)
+        const char *new_path, const FDIRClientOwnerModePair *omp)
 {
     FDIRDEntryFullName src_fullname;
     FDIRDEntryFullName dest_fullname;
@@ -1107,5 +1112,5 @@ int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
     FC_SET_STRING(dest_fullname.path, (char *)new_path);
 
     return fdir_client_link_dentry(ctx->contexts.fdir,
-            &src_fullname, &dest_fullname, mode, &dentry);
+            &src_fullname, &dest_fullname, omp, &dentry);
 }

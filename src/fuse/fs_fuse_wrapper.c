@@ -172,9 +172,9 @@ void fs_do_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, new_inode: %"PRId64", "
-            "flags: %"PRId64", atime bit: %d, mtime bit: %d",
-            __LINE__, __FUNCTION__, new_inode, options.flags,
-            options.atime, options.mtime);
+            "flags: %"PRId64", atime bit: %d, mtime bit: %d, uid bit: %d, "
+            "gid bit: %d", __LINE__, __FUNCTION__, new_inode, options.flags,
+            options.atime, options.mtime, options.uid, options.gid);
             */
 
     if (options.flags == 0) {
@@ -377,7 +377,7 @@ static void fs_do_releasedir(fuse_req_t req, fuse_ino_t ino,
 }
 
 static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
-        struct fuse_file_info *fi)
+        struct fuse_file_info *fi, const FDIRClientOwnerModePair *omp)
 {
     int result;
     FSAPIFileInfo *fh;
@@ -387,7 +387,7 @@ static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
         return ENOMEM;
     }
 
-    if ((result=fsapi_open_by_dentry(fh, dentry, fi->flags)) != 0) {
+    if ((result=fsapi_open_by_dentry(fh, dentry, fi->flags, omp)) != 0) {
         logError("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64", fh: %"PRId64", flags: %d, result: %d\n",
             __LINE__, __FUNCTION__, dentry->inode, fi->fh, fi->flags, result);
@@ -437,6 +437,7 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
         const char *name, mode_t mode, struct fuse_file_info *fi)
 {
+    FDIRClientOwnerModePair omp;
     int result;
     int64_t parent_inode;
     string_t nm;
@@ -448,9 +449,10 @@ static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
         return;
     }
 
+    FS_FUSE_SET_OMP_BY_REQ(omp, mode, req);
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_create_dentry_by_pname(parent_inode, &nm,
-                    mode, &dentry)) != 0)
+                    &omp, &dentry)) != 0)
     {
         if (result != EEXIST) {
             fuse_reply_err(req, ENOENT);
@@ -471,7 +473,7 @@ static void fs_do_create(fuse_req_t req, fuse_ino_t parent,
     }
 
     fi->flags &= ~(O_CREAT | O_EXCL);
-    if ((result=do_open(req, &dentry, fi)) != 0) {
+    if ((result=do_open(req, &dentry, fi, &omp)) != 0) {
         fuse_reply_err(req, result);
         return;
     }
@@ -486,6 +488,7 @@ static void do_mknod(fuse_req_t req, fuse_ino_t parent,
     int result;
     int64_t parent_inode;
     string_t nm;
+    FDIRClientOwnerModePair omp;
     FDIRDEntryInfo dentry;
     struct fuse_entry_param param;
 
@@ -500,9 +503,10 @@ static void do_mknod(fuse_req_t req, fuse_ino_t parent,
             __LINE__, __FUNCTION__, parent_inode, name, mode, S_ISDIR(mode));
             */
 
+    FS_FUSE_SET_OMP_BY_REQ(omp, mode, req);
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_create_dentry_by_pname(parent_inode, &nm,
-                    mode, &dentry)) != 0)
+                    &omp, &dentry)) != 0)
     {
         if (result == EEXIST || result == ENOENT) {
             fuse_reply_err(req, result);
@@ -601,7 +605,9 @@ void fs_do_rename(fuse_req_t req, fuse_ino_t oldparent, const char *oldname,
 static void fs_do_link(fuse_req_t req, fuse_ino_t ino,
         fuse_ino_t parent, const char *name)
 {
+    const struct fuse_ctx *fctx;
     FDIRDEntryInfo dentry;
+    FDIRClientOwnerModePair omp;
     struct fuse_entry_param param;
     int64_t parent_inode;
     string_t nm;
@@ -612,9 +618,11 @@ static void fs_do_link(fuse_req_t req, fuse_ino_t ino,
         return;
     }
 
+    fctx = fuse_req_ctx(req);
+    FS_FUSE_SET_OMP(omp, (0777 & (~fctx->umask)), fctx->uid, fctx->gid);
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_link_dentry_by_pname(ino, parent_inode,
-                    &nm, fs_api_default_mode(), &dentry)) == 0)
+                    &nm, &omp, &dentry)) == 0)
     {
         fill_entry_param(&dentry, &param);
         fuse_reply_entry(req, &param);
@@ -626,6 +634,8 @@ static void fs_do_link(fuse_req_t req, fuse_ino_t ino,
 static void fs_do_symlink(fuse_req_t req, const char *link,
         fuse_ino_t parent, const char *name)
 {
+    const struct fuse_ctx *fctx;
+    FDIRClientOwnerModePair omp;
     int64_t parent_inode;
     string_t nm;
     string_t lk;
@@ -644,10 +654,13 @@ static void fs_do_symlink(fuse_req_t req, const char *link,
             __LINE__, __FUNCTION__, link, parent_inode, name);
             */
 
+    fctx = fuse_req_ctx(req);
+    FS_FUSE_SET_OMP(omp, (0777 & (~fctx->umask)), fctx->uid, fctx->gid);
+
     FC_SET_STRING(lk, (char *)link);
     FC_SET_STRING(nm, (char *)name);
     if ((result=fsapi_symlink_dentry_by_pname(&lk, parent_inode,
-                    &nm, fs_api_default_mode(), &dentry)) == 0)
+                    &nm, &omp, &dentry)) == 0)
     {
         fill_entry_param(&dentry, &param);
         fuse_reply_entry(req, &param);
@@ -694,6 +707,7 @@ static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
 			  struct fuse_file_info *fi)
 {
     int result;
+    FDIRClientOwnerModePair omp;
     FDIRDEntryInfo dentry;
 
     /*
@@ -707,7 +721,10 @@ static void fs_do_open(fuse_req_t req, fuse_ino_t ino,
         return;
     }
 
-    if ((result=do_open(req, &dentry, fi)) != 0) {
+    omp.mode = dentry.stat.mode;
+    omp.uid = dentry.stat.uid;
+    omp.gid = dentry.stat.gid;
+    if ((result=do_open(req, &dentry, fi, &omp)) != 0) {
         fuse_reply_err(req, result);
         return;
     }

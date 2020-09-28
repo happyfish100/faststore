@@ -145,6 +145,7 @@ static int check_create_root_path()
 {
     int result;
     int64_t inode;
+    FDIRClientOwnerModePair omp;
 
     if ((result=fsapi_lookup_inode("/", &inode)) != 0) {
         if (result == ENOENT) {
@@ -153,8 +154,10 @@ static int check_create_root_path()
 
             FC_SET_STRING(fullname.ns, g_fuse_global_vars.ns);
             FC_SET_STRING(fullname.path, "/");
+
+            FS_FUSE_SET_OMP(omp, (0777 | S_IFDIR), geteuid(), getegid());
             result = fdir_client_create_dentry(g_fs_api_ctx.contexts.fdir,
-                    &fullname, 0775 | S_IFDIR, &dentry);
+                    &fullname, &omp, &dentry);
         }
     }
 

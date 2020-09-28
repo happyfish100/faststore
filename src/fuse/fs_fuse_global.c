@@ -4,6 +4,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <grp.h>
+#include <pwd.h>
 #include "fastcommon/common_define.h"
 
 #ifdef OS_LINUX
@@ -32,6 +34,12 @@
 #define INI_FUSE_SECTION_NAME             "FUSE"
 #define INI_IDEMPOTENCY_SECTION_NAME      "idempotency"
 #define IDEMPOTENCY_DEFAULT_WORK_THREADS  1
+
+#define FUSE_ALLOW_ALL_STR   "all"
+#define FUSE_ALLOW_ROOT_STR  "root"
+
+#define FUSE_OWNER_TYPE_CALLER_STR  "caller"
+#define FUSE_OWNER_TYPE_FIXED_STR   "fixed"
 
 FUSEGlobalVars g_fuse_global_vars;
 
@@ -96,6 +104,68 @@ static int load_fuse_mountpoint(IniFullContext *ini_ctx, string_t *mountpoint)
     return 0;
 }
 
+static int load_owner_config(IniFullContext *ini_ctx)
+{
+    int result;
+    char *owner_type;
+    char *owner_user;
+    char *owner_group;
+    struct group *group;
+    struct passwd *user;
+
+    owner_type = iniGetStrValue(ini_ctx->section_name,
+            "owner_type", ini_ctx->context);
+    if (owner_type == NULL || *owner_type == '\0') {
+        g_fuse_global_vars.owner.type = owner_type_caller;
+    } else if (strcasecmp(owner_type, FUSE_OWNER_TYPE_CALLER_STR) == 0) {
+        g_fuse_global_vars.owner.type = owner_type_caller;
+    } else if (strcasecmp(owner_type, FUSE_OWNER_TYPE_FIXED_STR) == 0) {
+        g_fuse_global_vars.owner.type = owner_type_fixed;
+    } else {
+        g_fuse_global_vars.owner.type = owner_type_caller;
+    }
+
+    if (g_fuse_global_vars.owner.type != owner_type_fixed) {
+        return 0;
+    }
+
+    owner_user = iniGetStrValue(ini_ctx->section_name,
+            "owner_user", ini_ctx->context);
+    if (owner_user == NULL || *owner_user == '\0') {
+        g_fuse_global_vars.owner.uid = geteuid();
+    } else {
+        user = getpwnam(owner_user);
+        if (user == NULL)
+        {
+            result = errno != 0 ? errno : ENOENT;
+            logError("file: "__FILE__", line: %d, "
+                    "getpwnam %s fail, errno: %d, error info: %s",
+                    __LINE__, owner_user, result, STRERROR(result));
+            return result;
+        }
+        g_fuse_global_vars.owner.uid = user->pw_uid;
+    }
+
+    owner_group = iniGetStrValue(ini_ctx->section_name,
+            "owner_group", ini_ctx->context);
+    if (owner_group == NULL || *owner_group == '\0') {
+        g_fuse_global_vars.owner.gid = getegid();
+    } else {
+        group = getgrnam(owner_group);
+        if (group == NULL) {
+            result = errno != 0 ? errno : ENOENT;
+            logError("file: "__FILE__", line: %d, "
+                    "getgrnam %s fail, errno: %d, error info: %s",
+                    __LINE__, owner_group, result, STRERROR(result));
+            return result;
+        }
+
+        g_fuse_global_vars.owner.gid = group->gr_gid;
+    }
+
+    return 0;
+}
+
 static int load_fuse_config(IniFullContext *ini_ctx)
 {
     string_t mountpoint;
@@ -143,9 +213,9 @@ static int load_fuse_config(IniFullContext *ini_ctx)
             "allow_others", ini_ctx->context);
     if (allow_others == NULL || *allow_others == '\0') {
         g_fuse_global_vars.allow_others = allow_none;
-    } else if (strcasecmp(allow_others, "all") == 0) {
+    } else if (strcasecmp(allow_others, FUSE_ALLOW_ALL_STR) == 0) {
         g_fuse_global_vars.allow_others = allow_all;
-    } else if (strcasecmp(allow_others, "root") == 0) {
+    } else if (strcasecmp(allow_others, FUSE_ALLOW_ROOT_STR) == 0) {
         g_fuse_global_vars.allow_others = allow_root;
     } else {
         g_fuse_global_vars.allow_others = allow_none;
@@ -159,7 +229,7 @@ static int load_fuse_config(IniFullContext *ini_ctx)
             section_name, "entry_timeout", ini_ctx->context,
             FS_FUSE_DEFAULT_ENTRY_TIMEOUT);
 
-    return 0;
+    return load_owner_config(ini_ctx);
 }
 
 static const char *get_allow_others_caption(
@@ -167,9 +237,22 @@ static const char *get_allow_others_caption(
 {
     switch (allow_others) {
         case allow_all:
-            return "all";
+            return FUSE_ALLOW_ALL_STR;
         case allow_root:
-            return "root";
+            return FUSE_ALLOW_ROOT_STR;
+        default:
+            return "";
+    }
+}
+
+static const char *get_owner_type_caption(
+        const FUSEOwnerType owner_type)
+{
+    switch (owner_type) {
+        case owner_type_caller:
+            return FUSE_OWNER_TYPE_CALLER_STR;
+        case owner_type_fixed:
+            return FUSE_OWNER_TYPE_FIXED_STR;
         default:
             return "";
     }
@@ -184,6 +267,7 @@ int fs_fuse_global_init(const char *config_filename)
     IniFullContext ini_ctx;
     SFContextIniConfig config;
     char sf_idempotency_config[256];
+    char owner_config[256];
 
     if ((result=iniLoadFromFile(config_filename, &iniContext)) != 0) {
         logError("file: "__FILE__", line: %d, "
@@ -278,14 +362,28 @@ int fs_fuse_global_init(const char *config_filename)
         *sf_idempotency_config = '\0';
     }
 
+    if (g_fuse_global_vars.owner.type == owner_type_fixed) {
+        struct passwd *user;
+        struct group *group;
+
+        user = getpwuid(g_fuse_global_vars.owner.uid);
+        group = getgrgid(g_fuse_global_vars.owner.gid);
+        snprintf(owner_config, sizeof(owner_config),
+                ", owner_user: %s, owner_group: %s",
+                user->pw_name, group->gr_name);
+    } else {
+        *owner_config = '\0';
+    }
+
     logInfo("FUSE library version %s, "
             "FastDIR namespace: %s, %sFUSE mountpoint: %s, "
-            "singlethread: %d, clone_fd: %d, max_idle_threads: %d, "
-            "allow_others: %s, auto_unmount: %d, "
+            "owner_type: %s%s, singlethread: %d, clone_fd: %d, "
+            "max_idle_threads: %d, allow_others: %s, auto_unmount: %d, "
             "attribute_timeout: %.1fs, entry_timeout: %.1fs",
             fuse_pkgversion(), g_fuse_global_vars.ns,
-            sf_idempotency_config,
-            g_fuse_global_vars.mountpoint, g_fuse_global_vars.singlethread,
+            sf_idempotency_config, g_fuse_global_vars.mountpoint,
+            get_owner_type_caption(g_fuse_global_vars.owner.type),
+            owner_config, g_fuse_global_vars.singlethread,
             g_fuse_global_vars.clone_fd, g_fuse_global_vars.max_idle_threads,
             get_allow_others_caption(g_fuse_global_vars.allow_others),
             g_fuse_global_vars.auto_unmount,

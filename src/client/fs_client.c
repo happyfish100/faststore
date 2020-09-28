@@ -180,12 +180,23 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     uint64_t req_id;
     SFNetRetryIntervalContext net_retry_ctx;
 
+    /*
+    static int64_t total_time_used = 0;
+    static int64_t conn_time_used = 0;
+    int64_t start_time;
+    int64_t time_used;
+    
+    start_time = get_current_time_us();
+    */
+
     if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
                         bs_key->block.hash_code), &result)) == NULL)
     {
         return SF_UNIX_ERRNO(result, EIO);
     }
+
+    //conn_time_used += get_current_time_us() - start_time;
 
     connection_params = client_ctx->conn_manager.get_connection_params(
             client_ctx, conn);
@@ -197,6 +208,8 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     *inc_alloc = *write_bytes = 0;
     new_key = *bs_key;
     remain = bs_key->slice.length;
+
+
     while (remain > 0) {
         if (remain <= connection_params->buffer_size) {
             bytes = remain;
@@ -297,6 +310,16 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     }
 
     SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+
+    /*
+    time_used = get_current_time_us() - start_time;
+    total_time_used += time_used;
+    fprintf(stderr, "slice offset: %d, length: %d, time used: %"PRId64" us, "
+            "total time used: %"PRId64" ms, conn_time_used: %"PRId64" ms\n",
+            bs_key->slice.offset, bs_key->slice.length, time_used,
+            total_time_used / 1000, conn_time_used / 1000);
+            */
+
     return SF_UNIX_ERRNO(result, EIO);
 }
 

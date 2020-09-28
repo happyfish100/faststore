@@ -28,8 +28,6 @@
 
 #define fs_api_destroy()  fs_api_destroy_ex(&g_fs_api_ctx)
 
-#define fs_api_default_mode()  g_fs_api_ctx.default_mode
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -40,7 +38,6 @@ extern "C" {
         ctx->contexts.fdir = fdir;
         ctx->contexts.fs = fs;
 
-        ctx->default_mode = 0777 & (~fc_get_umask());
         ctx->ns.str = ctx->ns_holder;
         ctx->ns.len = snprintf(ctx->ns_holder,
                 sizeof(ctx->ns_holder), "%s", ns);

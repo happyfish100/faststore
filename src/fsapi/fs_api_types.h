@@ -16,7 +16,6 @@ typedef struct fs_api_opendir_session {
 } FSAPIOpendirSession;
 
 typedef struct fs_api_context {
-    mode_t default_mode;
     string_t ns;  //namespace
     char ns_holder[NAME_MAX];
     struct {
