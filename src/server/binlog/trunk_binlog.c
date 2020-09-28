@@ -5,15 +5,15 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
+#include "sf/sf_binlog_writer.h"
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
-#include "../binlog/binlog_writer.h"
-#include "../binlog/binlog_loader.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
+#include "binlog_loader.h"
 #include "trunk_binlog.h"
 
-static BinlogWriterContext binlog_writer;
+static SFBinlogWriterContext binlog_writer;
 
 #define TRUNK_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
@@ -123,15 +123,15 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     return result;
 }
 
-int trunk_binlog_get_current_write_index()
+int trunk_sf_binlog_get_current_write_index()
 {
-    return binlog_get_current_write_index(&binlog_writer.writer);
+    return sf_binlog_get_current_write_index(&binlog_writer.writer);
 }
 
 static int init_binlog_writer()
 {
-    return binlog_writer_init(&binlog_writer, FS_TRUNK_BINLOG_SUBDIR_NAME,
-            FS_TRUNK_BINLOG_MAX_RECORD_SIZE);
+    return sf_binlog_writer_init(&binlog_writer, FS_TRUNK_BINLOG_SUBDIR_NAME,
+            BINLOG_BUFFER_SIZE, FS_TRUNK_BINLOG_MAX_RECORD_SIZE);
 }
 
 int trunk_binlog_init()
@@ -147,15 +147,15 @@ int trunk_binlog_init()
 
 void trunk_binlog_destroy()
 {
-    binlog_writer_finish(&binlog_writer.writer);
+    sf_binlog_writer_finish(&binlog_writer.writer);
 }
 
 int trunk_binlog_write(const char op_type, const int path_index,
         const FSTrunkIdInfo *id_info, const int64_t file_size)
 {
-    BinlogWriterBuffer *wbuffer;
+    SFBinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
         return ENOMEM;
     }
 
@@ -163,6 +163,6 @@ int trunk_binlog_write(const char op_type, const int path_index,
             "%d %c %d %"PRId64" %"PRId64" %"PRId64"\n",
             (int)g_current_time, op_type, path_index, id_info->id,
             id_info->subdir, file_size);
-    push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
+    sf_push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }

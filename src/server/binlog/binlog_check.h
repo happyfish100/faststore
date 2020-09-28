@@ -30,8 +30,8 @@ typedef struct {
     struct {
         int base_dg_id;
         int dg_count;
-        FSBinlogFilePosition *replicas;
-        FSBinlogFilePosition slice;
+        SFBinlogFilePosition *replicas;
+        SFBinlogFilePosition slice;
     } positions;
 } BinlogConsistencyContext;
 

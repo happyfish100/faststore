@@ -492,7 +492,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
     uint64_t last_data_version;
-    FSBinlogFilePosition position;
+    SFBinlogFilePosition position;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
     last_data_version = __sync_add_and_fetch(

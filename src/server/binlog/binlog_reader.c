@@ -15,9 +15,9 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
+#include "sf/sf_binlog_writer.h"
 #include "../server_global.h"
 #include "binlog_func.h"
-#include "binlog_writer.h"
 #include "binlog_reader.h"
 
 static int open_readable_binlog(ServerBinlogReader *reader)
@@ -105,7 +105,7 @@ static int do_binlog_read(ServerBinlogReader *reader)
     int read_bytes;
 
     if (reader->binlog_buffer.current != reader->binlog_buffer.buff) {
-        remain = BINLOG_BUFFER_REMAIN(reader->binlog_buffer);
+        remain = SF_BINLOG_BUFFER_REMAIN(reader->binlog_buffer);
         if (remain > 0) {
             memmove(reader->binlog_buffer.buff, reader->binlog_buffer.current,
                     remain);
@@ -116,7 +116,7 @@ static int do_binlog_read(ServerBinlogReader *reader)
     }
 
     read_bytes = reader->binlog_buffer.size -
-        BINLOG_BUFFER_LENGTH(reader->binlog_buffer);
+        SF_BINLOG_BUFFER_LENGTH(reader->binlog_buffer);
     if (read_bytes == 0) {
         return ENOSPC;
     }
@@ -139,7 +139,7 @@ int binlog_reader_read(ServerBinlogReader *reader)
         return result;
     }
 
-    if (reader->position.index < binlog_get_current_write_index(
+    if (reader->position.index < sf_binlog_get_current_write_index(
                 reader->writer))
     {
         reader->position.offset = 0;
@@ -163,7 +163,7 @@ int binlog_read_to_buffer(ServerBinlogReader *reader,
         return result;
     }
 
-    if (reader->position.index < binlog_get_current_write_index(
+    if (reader->position.index < sf_binlog_get_current_write_index(
                 reader->writer))
     {
         reader->position.offset = 0;
@@ -222,9 +222,9 @@ int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
     return 0;
 }
 
-int binlog_reader_init_ex(ServerBinlogReader *reader, const char *subdir_name,
-        const char *fname_suffix, struct binlog_writer_info *writer,
-        const FSBinlogFilePosition *pos)
+int binlog_reader_init_ex(ServerBinlogReader *reader,
+        const char *subdir_name, const char *fname_suffix,
+        SFBinlogWriterInfo *writer, const SFBinlogFilePosition *pos)
 {
     int result;
 
@@ -258,11 +258,11 @@ void binlog_reader_destroy(ServerBinlogReader *reader)
         reader->fd = -1;
     }
 
-    binlog_buffer_destroy(&reader->binlog_buffer);
+    sf_binlog_buffer_destroy(&reader->binlog_buffer);
 }
 
 bool binlog_reader_is_last_file(ServerBinlogReader *reader)
 {
-    return reader->position.index == binlog_get_current_write_index(
+    return reader->position.index == sf_binlog_get_current_write_index(
             reader->writer);
 }

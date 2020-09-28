@@ -31,14 +31,6 @@
 #define BINLOG_SOURCE_RPC           'C'  //by user call
 #define BINLOG_SOURCE_REPLAY        'R'  //by binlog replay
 
-#define BINLOG_FILE_MAX_SIZE   (1024 * 1024 * 1024)  //for binlog rotating by size
-#define BINLOG_FILE_PREFIX     "binlog"
-#define BINLOG_FILE_EXT_FMT    ".%06d"
-
-#define BINLOG_BUFFER_INIT_SIZE      4096
-#define BINLOG_BUFFER_LENGTH(buffer) ((buffer).end - (buffer).buff)
-#define BINLOG_BUFFER_REMAIN(buffer) ((buffer).end - (buffer).current)
-
 #define BINLOG_IS_INTERNAL_RECORD(op_type, data_version)  \
     (op_type == BINLOG_OP_TYPE_NO_OP || data_version == 0)
 
@@ -49,13 +41,6 @@ struct fs_binlog_record;
 
 typedef void (*data_thread_notify_func)(struct fs_binlog_record *record,
         const int result, const bool is_error);
-
-typedef struct server_binlog_buffer {
-    char *buff;    //the buffer pointer
-    char *current; //for the consumer
-    char *end;     //data end ptr
-    int size;      //the buffer size (capacity)
-} ServerBinlogBuffer;
 
 typedef struct binlog_common_fields {
     time_t timestamp;

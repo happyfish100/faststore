@@ -3,18 +3,17 @@
 #ifndef _BINLOG_READER_H_
 #define _BINLOG_READER_H_
 
+#include "sf/sf_binlog_writer.h"
 #include "binlog_types.h"
-
-struct binlog_writer_info;
 
 typedef struct server_binlog_reader {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char fname_suffix[FS_BINLOG_FILENAME_SUFFIX_SIZE];
-    struct binlog_writer_info *writer;  //for get current write index
+    SFBinlogWriterInfo *writer;  //for get current write index
     char filename[PATH_MAX];
     int fd;
-    FSBinlogFilePosition position;
-    ServerBinlogBuffer binlog_buffer;
+    SFBinlogFilePosition position;
+    SFBinlogBuffer binlog_buffer;
 } ServerBinlogReader;
 
 #ifdef __cplusplus
@@ -24,9 +23,9 @@ extern "C" {
 #define binlog_reader_init(reader, subdir_name, writer, pos) \
     binlog_reader_init_ex(reader, subdir_name, "", writer, pos)
 
-int binlog_reader_init_ex(ServerBinlogReader *reader, const char *subdir_name,
-        const char *fname_suffix, struct binlog_writer_info *writer,
-        const FSBinlogFilePosition *pos);
+int binlog_reader_init_ex(ServerBinlogReader *reader,
+        const char *subdir_name, const char *fname_suffix,
+        SFBinlogWriterInfo *writer, const SFBinlogFilePosition *pos);
 
 void binlog_reader_destroy(ServerBinlogReader *reader);
 
@@ -41,8 +40,8 @@ static inline void binlog_reader_get_filename_ex(const char *subdir_name,
         const char *fname_suffix, const int binlog_index,
         char *full_filename, const int size)
 {
-    snprintf(full_filename, size, "%s/%s/%s"BINLOG_FILE_EXT_FMT"%s",
-            DATA_PATH_STR, subdir_name, BINLOG_FILE_PREFIX,
+    snprintf(full_filename, size, "%s/%s/%s"SF_BINLOG_FILE_EXT_FMT"%s",
+            DATA_PATH_STR, subdir_name, SF_BINLOG_FILE_PREFIX,
             binlog_index, fname_suffix);
 }
 

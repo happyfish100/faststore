@@ -15,20 +15,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "binlog_loader.h"
-#include "binlog_writer.h"
 #include "binlog_func.h"
-
-int binlog_buffer_init_ex(ServerBinlogBuffer *buffer, const int size)
-{
-    buffer->buff = (char *)fc_malloc(size);
-    if (buffer->buff == NULL) {
-        return ENOMEM;
-    }
-
-    buffer->current = buffer->end = buffer->buff;
-    buffer->size = size;
-    return 0;
-}
 
 int binlog_unpack_common_fields(const string_t *line,
         BinlogCommonFields *fields, char *error_info)
@@ -217,8 +204,8 @@ static int find_timestamp(ServerBinlogReader *reader, const int length,
 }
 
 int binlog_get_position_by_timestamp(const char *subdir_name,
-        struct binlog_writer_info *writer, const time_t from_timestamp,
-        FSBinlogFilePosition *pos)
+        struct sf_binlog_writer_info *writer, const time_t from_timestamp,
+        SFBinlogFilePosition *pos)
 {
     int result;
     int offset;
@@ -227,7 +214,7 @@ int binlog_get_position_by_timestamp(const char *subdir_name,
     int remain_bytes;
     ServerBinlogReader reader;
 
-    binlog_index = binlog_get_current_write_index(writer);
+    binlog_index = sf_binlog_get_current_write_index(writer);
     if ((result=get_start_binlog_index_by_timestamp(subdir_name,
                     from_timestamp, &binlog_index)) != 0)
     {

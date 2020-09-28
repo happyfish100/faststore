@@ -33,15 +33,15 @@ typedef struct {
     int fd;
     int64_t file_size;
     char filename[PATH_MAX];
-    ServerBinlogBuffer buffer;
+    SFBinlogBuffer buffer;
 } BinlogRepairWriter;
 
 typedef struct {
     struct {
         const char *subdir_name;
         int data_group_id;
-        struct binlog_writer_info *writer;
-        FSBinlogFilePosition *pos;
+        struct sf_binlog_writer_info *writer;
+        SFBinlogFilePosition *pos;
         BinlogDataGroupVersionArray *varray;
     } input;
     BinlogRepairWriter out_writer;
@@ -254,8 +254,8 @@ static int binlog_write_to_file(BinlogRepairContext *ctx)
     int result;
     int len;
 
-    len = BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer);
-    if (ctx->out_writer.file_size + len <= BINLOG_FILE_MAX_SIZE) {
+    len = SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer);
+    if (ctx->out_writer.file_size + len <= SF_BINLOG_FILE_MAX_SIZE) {
         return do_write_to_file(ctx, len);
     }
 
@@ -271,13 +271,13 @@ static inline int write_one_line(BinlogRepairContext *ctx, string_t *line)
 {
     int result;
 
-    if (ctx->out_writer.file_size + BINLOG_BUFFER_LENGTH(ctx->out_writer.
-                buffer) + line->len > BINLOG_FILE_MAX_SIZE)
+    if (ctx->out_writer.file_size + SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.
+                buffer) + line->len > SF_BINLOG_FILE_MAX_SIZE)
     {
         if ((result=binlog_write_to_file(ctx)) != 0) {
             return result;
         }
-    } else if (ctx->out_writer.buffer.size - BINLOG_BUFFER_LENGTH(
+    } else if (ctx->out_writer.buffer.size - SF_BINLOG_BUFFER_LENGTH(
                 ctx->out_writer.buffer) < line->len)
     {
         if ((result=binlog_write_to_file(ctx)) != 0) {
@@ -390,7 +390,7 @@ static int binlog_filter(BinlogRepairContext *ctx)
         result = 0;
     }
     
-    if (result == 0 && BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer) > 0) {
+    if (result == 0 && SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer) > 0) {
         result = binlog_write_to_file(ctx);
     }
 
@@ -433,7 +433,7 @@ static int filter_to_files(BinlogRepairContext *ctx)
 static int binlog_repair_finish(const int data_group_id,
         const int start_binlog_index, const int end_binlog_index)
 {
-    BinlogWriterInfo *writer;
+    SFBinlogWriterInfo *writer;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char src_filename[PATH_MAX];
     char dest_filename[PATH_MAX];
@@ -492,9 +492,9 @@ static int binlog_repair_finish(const int data_group_id,
             */
 
     if ((rename_count > 0) || (end_binlog_index !=
-                binlog_get_current_write_index(writer)))
+                sf_binlog_get_current_write_index(writer)))
     {
-        if ((result=binlog_writer_set_binlog_index(writer,
+        if ((result=sf_binlog_writer_set_binlog_index(writer,
                         end_binlog_index)) != 0)
         {
             return result;
@@ -543,7 +543,7 @@ static int binlog_repair(BinlogRepairContext *ctx)
     int current_windex;
     int64_t file_size;
 
-    current_windex = binlog_get_current_write_index(ctx->input.writer);
+    current_windex = sf_binlog_get_current_write_index(ctx->input.writer);
     if (ctx->input.pos->index == current_windex) {
         binlog_reader_get_filename(ctx->input.subdir_name,
                 ctx->input.pos->index,
@@ -569,7 +569,7 @@ static int repair_context_init(BinlogRepairContext *ctx,
 
 static void repair_context_destroy(BinlogRepairContext *ctx)
 {
-    binlog_buffer_destroy(&ctx->out_writer.buffer);
+    sf_binlog_buffer_destroy(&ctx->out_writer.buffer);
 }
 
 int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
@@ -579,8 +579,8 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     int index;
     BinlogRepairContext repair_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    FSBinlogFilePosition *replica;
-    FSBinlogFilePosition *end;
+    SFBinlogFilePosition *replica;
+    SFBinlogFilePosition *end;
 
     if ((result=repair_context_init(&repair_ctx,
                     &ctx->version_arrays.slice)) != 0)

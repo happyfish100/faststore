@@ -4,7 +4,6 @@
 #define _SERVER_BINLOG_H_
 
 #include "binlog/binlog_types.h"
-#include "binlog/binlog_writer.h"
 #include "binlog/binlog_reader.h"
 #include "binlog/binlog_read_thread.h"
 #include "binlog/trunk_binlog.h"

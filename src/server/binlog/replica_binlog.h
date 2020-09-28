@@ -3,9 +3,9 @@
 #define _REPLICA_BINLOG_H
 
 #include "fastcommon/sched_thread.h"
+#include "sf/sf_binlog_writer.h"
 #include "../storage/object_block_index.h"
 #include "binlog_types.h"
-#include "binlog_writer.h"
 
 #define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
 #define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
@@ -13,7 +13,6 @@
 #define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
 #define REPLICA_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
 
-struct binlog_writer_info;
 struct server_binlog_reader;
 
 typedef struct replica_binlog_record {
@@ -37,7 +36,7 @@ extern "C" {
                 data_group_id);
     }
 
-    struct binlog_writer_info *replica_binlog_get_writer(
+    SFBinlogWriterInfo *replica_binlog_get_writer(
             const int data_group_id);
 
     int replica_binlog_get_current_write_index(const int data_group_id);
@@ -63,13 +62,13 @@ extern "C" {
     }
 
     int replica_binlog_get_last_record_ex(const char *filename,
-            ReplicaBinlogRecord *record, FSBinlogFilePosition *position,
+            ReplicaBinlogRecord *record, SFBinlogFilePosition *position,
             int *record_len);
 
     static inline int replica_binlog_get_last_record(const char *filename,
             ReplicaBinlogRecord *record)
     {
-        FSBinlogFilePosition position;
+        SFBinlogFilePosition position;
         int record_len;
 
         return replica_binlog_get_last_record_ex(filename,
@@ -78,7 +77,7 @@ extern "C" {
 
     static inline int replica_binlog_get_last_data_version_ex(
             const char *filename, uint64_t *data_version,
-            FSBinlogFilePosition *position, int *record_len)
+            SFBinlogFilePosition *position, int *record_len)
     {
         ReplicaBinlogRecord record;
         int result;
@@ -97,7 +96,7 @@ extern "C" {
     static inline int replica_binlog_get_last_data_version(
             const char *filename, uint64_t *data_version)
     {
-        FSBinlogFilePosition position;
+        SFBinlogFilePosition position;
         int record_len;
 
         return replica_binlog_get_last_data_version_ex(filename,
@@ -105,8 +104,8 @@ extern "C" {
     }
 
     int replica_binlog_get_position_by_dv(const char *subdir_name,
-            BinlogWriterInfo *writer, const uint64_t last_data_version,
-            FSBinlogFilePosition *pos, const bool ignore_dv_overflow);
+            SFBinlogWriterInfo *writer, const uint64_t last_data_version,
+            SFBinlogFilePosition *pos, const bool ignore_dv_overflow);
 
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);

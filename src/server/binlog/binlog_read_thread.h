@@ -11,7 +11,7 @@
 
 typedef struct binlog_read_thread_result {
     int err_no;
-    FSBinlogFilePosition binlog_position;
+    SFBinlogFilePosition binlog_position;
     BufferInfo buffer;
 } BinlogReadThreadResult;
 
@@ -32,8 +32,8 @@ extern "C" {
 #endif
 
 int binlog_read_thread_init(BinlogReadThreadContext *ctx,
-        const char *subdir_name, struct binlog_writer_info *writer,
-        const FSBinlogFilePosition *position, const int buffer_size);
+        const char *subdir_name, struct sf_binlog_writer_info *writer,
+        const SFBinlogFilePosition *position, const int buffer_size);
 
 static inline int binlog_read_thread_return_result_buffer(
         BinlogReadThreadContext *ctx, BinlogReadThreadResult *r)

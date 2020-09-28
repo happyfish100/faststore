@@ -23,8 +23,8 @@
 static void *binlog_read_thread_func(void *arg);
 
 int binlog_read_thread_init(BinlogReadThreadContext *ctx,
-        const char *subdir_name, struct binlog_writer_info *writer,
-        const FSBinlogFilePosition *position, const int buffer_size)
+        const char *subdir_name, struct sf_binlog_writer_info *writer,
+        const SFBinlogFilePosition *position, const int buffer_size)
 {
     int result;
     int i;

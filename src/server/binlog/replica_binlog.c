@@ -22,14 +22,14 @@
 #define MIN_EXPECT_FIELD_COUNT  BLOCK_EXPECT_FIELD_COUNT
 
 typedef struct {
-    BinlogWriterInfo **writers;
-    BinlogWriterInfo *holders;
+    SFBinlogWriterInfo **writers;
+    SFBinlogWriterInfo *holders;
     int count;
     int base_id;
 } BinlogWriterArray;
 
 static BinlogWriterArray binlog_writer_array = {NULL, 0};
-static BinlogWriterThread binlog_writer_thread;   //only one write thread
+static SFBinlogWriterThread binlog_writer_thread;   //only one write thread
 
 int replica_binlog_get_first_record(const char *filename,
         ReplicaBinlogRecord *record)
@@ -56,7 +56,7 @@ int replica_binlog_get_first_record(const char *filename,
 }
 
 int replica_binlog_get_last_record_ex(const char *filename,
-        ReplicaBinlogRecord *record, FSBinlogFilePosition *position,
+        ReplicaBinlogRecord *record, SFBinlogFilePosition *position,
         int *record_len)
 {
     char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
@@ -91,10 +91,10 @@ int replica_binlog_get_last_record_ex(const char *filename,
 }
 
 static int get_last_data_version_from_file_ex(const int data_group_id,
-        uint64_t *data_version, FSBinlogFilePosition *position,
+        uint64_t *data_version, SFBinlogFilePosition *position,
         int *record_len)
 {
-    BinlogWriterInfo *writer;
+    SFBinlogWriterInfo *writer;
     char filename[PATH_MAX];
     int result;
 
@@ -102,9 +102,9 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
     *record_len = 0;
     writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    position->index = binlog_get_current_write_index(writer);
+    position->index = sf_binlog_get_current_write_index(writer);
     while (position->index >= 0) {
-        binlog_writer_get_filename(writer->cfg.subdir_name,
+        sf_binlog_writer_get_filename(writer->cfg.subdir_name,
                 position->index, filename, sizeof(filename));
 
         if ((result=replica_binlog_get_last_data_version_ex(filename,
@@ -131,7 +131,7 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
 static inline int get_last_data_version_from_file(const int data_group_id,
         uint64_t *data_version)
 {
-    FSBinlogFilePosition position;
+    SFBinlogFilePosition position;
     int record_len;
 
     return get_last_data_version_from_file_ex(data_group_id,
@@ -142,15 +142,15 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
 {
     int bytes;
 
-    bytes = sizeof(BinlogWriterInfo) * my_data_group_count;
-    binlog_writer_array.holders = (BinlogWriterInfo *)fc_malloc(bytes);
+    bytes = sizeof(SFBinlogWriterInfo) * my_data_group_count;
+    binlog_writer_array.holders = (SFBinlogWriterInfo *)fc_malloc(bytes);
     if (binlog_writer_array.holders == NULL) {
         return ENOMEM;
     }
     memset(binlog_writer_array.holders, 0, bytes);
 
-    bytes = sizeof(BinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
-    binlog_writer_array.writers = (BinlogWriterInfo **)fc_malloc(bytes);
+    bytes = sizeof(SFBinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
+    binlog_writer_array.writers = (SFBinlogWriterInfo **)fc_malloc(bytes);
     if (binlog_writer_array.writers == NULL) {
         return ENOMEM;
     }
@@ -163,7 +163,7 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
 bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
         const uint64_t new_version)
 {
-    BinlogWriterInfo *writer;
+    SFBinlogWriterInfo *writer;
     uint64_t old_version;
 
     writer = binlog_writer_array.writers[myself->dg->id -
@@ -177,7 +177,7 @@ bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
         if (__sync_bool_compare_and_swap(&myself->data.version,
                     old_version, new_version))
         {
-            binlog_writer_change_next_version(writer, new_version + 1);
+            sf_binlog_writer_change_next_version(writer, new_version + 1);
             return true;
         }
     }
@@ -224,7 +224,7 @@ int replica_binlog_init()
 {
     FSIdArray *id_array;
     FSClusterDataServerInfo *myself;
-    BinlogWriterInfo *writer;
+    SFBinlogWriterInfo *writer;
     int data_group_id;
     int min_id;
     char filepath[PATH_MAX];
@@ -262,8 +262,8 @@ int replica_binlog_init()
 
     binlog_writer_array.base_id = min_id;
     writer = binlog_writer_array.holders;
-    if ((result=binlog_writer_init_thread_ex(&binlog_writer_thread,
-                    writer, FS_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
+    if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
+                    writer, SF_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
                     FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count)) != 0)
     {
         return result;
@@ -280,8 +280,9 @@ int replica_binlog_init()
         writer->thread = &binlog_writer_thread;
         binlog_writer_array.writers[data_group_id - min_id] = writer;
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
-        if ((result=binlog_writer_init_by_version(writer, subdir_name,
-                        myself->data.version + 1, 1024)) != 0)
+        if ((result=sf_binlog_writer_init_by_version(writer,
+                        subdir_name, myself->data.version + 1,
+                        BINLOG_BUFFER_SIZE, 1024)) != 0)
         {
             return result;
         }
@@ -299,11 +300,11 @@ int replica_binlog_init()
 void replica_binlog_destroy()
 {
     if (binlog_writer_array.count > 0) {
-        binlog_writer_finish(binlog_writer_array.writers[0]);
+        sf_binlog_writer_finish(binlog_writer_array.writers[0]);
     }
 }
 
-struct binlog_writer_info *replica_binlog_get_writer(const int data_group_id)
+SFBinlogWriterInfo *replica_binlog_get_writer(const int data_group_id)
 {
     return binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
@@ -311,9 +312,9 @@ struct binlog_writer_info *replica_binlog_get_writer(const int data_group_id)
 
 int replica_binlog_get_current_write_index(const int data_group_id)
 {
-    BinlogWriterInfo *writer;
+    SFBinlogWriterInfo *writer;
     writer = replica_binlog_get_writer(data_group_id);
-    return binlog_get_current_write_index(writer);
+    return sf_binlog_get_current_write_index(writer);
 }
 
 static inline int unpack_slice_record(string_t *cols, const int count,
@@ -396,12 +397,12 @@ int replica_binlog_record_unpack(const string_t *line,
     return result;
 }
 
-static BinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
-        const int64_t data_version, BinlogWriterInfo **writer)
+static SFBinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
+        const int64_t data_version, SFBinlogWriterInfo **writer)
 {
     *writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    return binlog_writer_alloc_versioned_buffer(*writer, data_version);
+    return sf_binlog_writer_alloc_versioned_buffer(*writer, data_version);
 }
 
 int replica_binlog_log_slice(const time_t current_time,
@@ -409,8 +410,8 @@ int replica_binlog_log_slice(const time_t current_time,
         const FSBlockSliceKeyInfo *bs_key, const int source,
         const int op_type)
 {
-    BinlogWriterInfo *writer;
-    BinlogWriterBuffer *wbuffer;
+    SFBinlogWriterInfo *writer;
+    SFBinlogWriterBuffer *wbuffer;
 
     if ((wbuffer=alloc_binlog_buffer(data_group_id,
                     data_version, &writer)) == NULL)
@@ -423,7 +424,7 @@ int replica_binlog_log_slice(const time_t current_time,
             (int64_t)current_time, data_version, source,
             op_type, bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
-    push_to_binlog_write_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }
 
@@ -431,8 +432,8 @@ int replica_binlog_log_block(const time_t current_time,
         const int data_group_id, const int64_t data_version,
         const FSBlockKey *bkey, const int source, const int op_type)
 {
-    BinlogWriterInfo *writer;
-    BinlogWriterBuffer *wbuffer;
+    SFBinlogWriterInfo *writer;
+    SFBinlogWriterBuffer *wbuffer;
 
     if ((wbuffer=alloc_binlog_buffer(data_group_id,
                     data_version, &writer)) == NULL)
@@ -444,12 +445,12 @@ int replica_binlog_log_block(const time_t current_time,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version,
             source, op_type, bkey->oid, bkey->offset);
-    push_to_binlog_write_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_write_queue(writer->thread, wbuffer);
     return 0;
 }
 
 static int find_position_by_buffer(ServerBinlogReader *reader,
-        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+        const uint64_t last_data_version, SFBinlogFilePosition *pos)
 {
     int result;
     char error_info[256];
@@ -497,7 +498,7 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
 }
 
 static int find_position_by_reader(ServerBinlogReader *reader,
-        const uint64_t last_data_version, FSBinlogFilePosition *pos)
+        const uint64_t last_data_version, SFBinlogFilePosition *pos)
 {
     int result;
 
@@ -511,8 +512,8 @@ static int find_position_by_reader(ServerBinlogReader *reader,
     return result;
 }
 
-static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
-        const uint64_t last_data_version, FSBinlogFilePosition *pos,
+static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
+        const uint64_t last_data_version, SFBinlogFilePosition *pos,
         const bool ignore_dv_overflow)
 {
     int result;
@@ -521,7 +522,7 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
     char filename[PATH_MAX];
     ServerBinlogReader reader;
 
-    binlog_writer_get_filename(subdir_name, pos->index,
+    sf_binlog_writer_get_filename(subdir_name, pos->index,
             filename, sizeof(filename));
     if ((result=replica_binlog_get_last_data_version_ex(filename,
                     &data_version, pos, &record_len)) != 0)
@@ -530,7 +531,7 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
     }
 
     if (last_data_version == data_version) {  //match the last record
-        if (pos->index < binlog_get_current_write_index(writer)) {
+        if (pos->index < sf_binlog_get_current_write_index(writer)) {
             pos->index++; //skip to next binlog
             pos->offset = 0;
         } else {
@@ -540,7 +541,7 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
     }
 
     if (last_data_version > data_version) {
-        if (pos->index < binlog_get_current_write_index(writer)) {
+        if (pos->index < sf_binlog_get_current_write_index(writer)) {
             pos->index++;   //skip to next binlog
             pos->offset = 0;
             return 0;
@@ -572,17 +573,17 @@ static int find_position(const char *subdir_name, BinlogWriterInfo *writer,
 }
 
 int replica_binlog_get_position_by_dv(const char *subdir_name,
-            BinlogWriterInfo *writer, const uint64_t last_data_version,
-            FSBinlogFilePosition *pos, const bool ignore_dv_overflow)
+            SFBinlogWriterInfo *writer, const uint64_t last_data_version,
+            SFBinlogFilePosition *pos, const bool ignore_dv_overflow)
 {
     int result;
     int binlog_index;
     char filename[PATH_MAX];
     uint64_t first_data_version;
 
-    binlog_index = binlog_get_current_write_index(writer);
+    binlog_index = sf_binlog_get_current_write_index(writer);
     while (binlog_index >= 0) {
-        binlog_writer_get_filename(subdir_name, binlog_index,
+        sf_binlog_writer_get_filename(subdir_name, binlog_index,
                 filename, sizeof(filename));
         if ((result=replica_binlog_get_first_data_version(
                         filename, &first_data_version)) != 0)
@@ -615,8 +616,8 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
 {
     int result;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    BinlogWriterInfo *writer;
-    FSBinlogFilePosition position;
+    SFBinlogWriterInfo *writer;
+    SFBinlogFilePosition position;
 
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
     writer = replica_binlog_get_writer(data_group_id);
@@ -670,7 +671,7 @@ int replica_binlog_get_last_lines(const int data_group_id, char *buff,
     remain_count = *count;
     for (i=0; i<2; i++) {
         current_count = remain_count;
-        binlog_writer_get_filename(subdir_name, current_index,
+        sf_binlog_writer_get_filename(subdir_name, current_index,
                 filename, sizeof(filename));
         result = fc_get_last_lines(filename, buff + *length,
                 buff_size - *length, &lines, &current_count);

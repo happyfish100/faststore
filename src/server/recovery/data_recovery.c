@@ -272,7 +272,7 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
     result = 0;
     replica_binlog_get_subdir_name(subdir_name, ctx->ds->dg->id);
     for (i=0; i<100 && SF_G_CONTINUE_FLAG; i++) {
-        binlog_writer_get_filename(subdir_name,
+        sf_binlog_writer_get_filename(subdir_name,
                 replica_binlog_get_current_write_index(
                     ctx->ds->dg->id), filename, sizeof(filename));
         if ((result=replica_binlog_get_last_data_version(

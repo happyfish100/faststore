@@ -117,11 +117,6 @@ typedef struct {
     int64_t size;   //alloced space size
 } FSTrunkSpaceInfo;
 
-typedef struct fs_binlog_file_position {
-    int index;      //current binlog file
-    int64_t offset; //current file offset
-} FSBinlogFilePosition;
-
 struct fs_replication;
 typedef struct fs_replication_array {
     struct fs_replication *replications;

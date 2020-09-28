@@ -66,7 +66,7 @@ extern "C" {
 #endif
 
     int binlog_loader_load(const char *subdir_name,
-            struct binlog_writer_info *writer,
+            struct sf_binlog_writer_info *writer,
             binlog_parse_line_func parse_line);
 
 

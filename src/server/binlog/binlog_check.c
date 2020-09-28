@@ -107,7 +107,7 @@ int binlog_consistency_init(BinlogConsistencyContext *ctx)
     min_dg_id = fs_cluster_cfg_get_min_data_group_id(id_array);
     max_dg_id = fs_cluster_cfg_get_max_data_group_id(id_array);
     ctx->positions.dg_count = max_dg_id - min_dg_id + 1;
-    bytes = sizeof(FSBinlogFilePosition) * ctx->positions.dg_count;
+    bytes = sizeof(SFBinlogFilePosition) * ctx->positions.dg_count;
     ctx->positions.replicas = fc_malloc(bytes);
     if (ctx->positions.replicas == NULL) {
         return ENOMEM;
@@ -230,8 +230,8 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
 }
 
 static int do_load_data_versions(const char *subdir_name,
-        struct binlog_writer_info *writer, const time_t from_timestamp,
-        FSBinlogFilePosition *pos, BinlogDataGroupVersionArray *varray)
+        SFBinlogWriterInfo *writer, const time_t from_timestamp,
+        SFBinlogFilePosition *pos, BinlogDataGroupVersionArray *varray)
 {
     int result;
     int read_bytes;
@@ -320,8 +320,8 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
     int data_group_id;
     int index;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    FSBinlogFilePosition *replica;
-    FSBinlogFilePosition *end;
+    SFBinlogFilePosition *replica;
+    SFBinlogFilePosition *end;
 
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
