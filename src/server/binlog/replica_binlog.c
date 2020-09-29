@@ -264,7 +264,8 @@ int replica_binlog_init()
     binlog_writer_array.base_id = min_id;
     writer = binlog_writer_array.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
-                    writer, SF_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
+                    writer, SF_BINLOG_THREAD_ORDER_MODE_FIXED,
+                    SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,
                     FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
                     use_fixed_buffer_size)) != 0)
     {
