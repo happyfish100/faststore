@@ -222,6 +222,7 @@ int replica_binlog_set_my_data_version(const int data_group_id)
 
 int replica_binlog_init()
 {
+    const bool use_fixed_buffer_size = true;
     FSIdArray *id_array;
     FSClusterDataServerInfo *myself;
     SFBinlogWriterInfo *writer;
@@ -264,7 +265,8 @@ int replica_binlog_init()
     writer = binlog_writer_array.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
                     writer, SF_BINLOG_WRITER_TYPE_ORDER_BY_VERSION,
-                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count)) != 0)
+                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
+                    use_fixed_buffer_size)) != 0)
     {
         return result;
     }
@@ -424,7 +426,7 @@ int replica_binlog_log_slice(const time_t current_time,
             (int64_t)current_time, data_version, source,
             op_type, bs_key->block.oid, bs_key->block.offset,
             bs_key->slice.offset, bs_key->slice.length);
-    sf_push_to_binlog_write_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
 
@@ -445,7 +447,7 @@ int replica_binlog_log_block(const time_t current_time,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version,
             source, op_type, bkey->oid, bkey->offset);
-    sf_push_to_binlog_write_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
 

@@ -299,7 +299,7 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             slice->space.store->index, slice->space.id_info.id,
             slice->space.id_info.subdir, slice->space.offset,
             slice->space.size);
-    sf_push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
+    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }
 
@@ -320,7 +320,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             SLICE_BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
-    sf_push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
+    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }
 
@@ -340,6 +340,6 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
             (int64_t)current_time, data_version, source,
             SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
             bkey->oid, bkey->offset);
-    sf_push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
+    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }

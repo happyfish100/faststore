@@ -163,6 +163,6 @@ int trunk_binlog_write(const char op_type, const int path_index,
             "%d %c %d %"PRId64" %"PRId64" %"PRId64"\n",
             (int)g_current_time, op_type, path_index, id_info->id,
             id_info->subdir, file_size);
-    sf_push_to_binlog_write_queue(&binlog_writer.thread, wbuffer);
+    sf_push_to_binlog_thread_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }
