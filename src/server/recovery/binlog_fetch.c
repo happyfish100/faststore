@@ -408,10 +408,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     pkg_len = sizeof(FSProtoHeader) + sizeof(*rheader);
     if (SLAVE_BINLOG_CHECK_LAST_ROWS > 0) {
         binlog_count = SLAVE_BINLOG_CHECK_LAST_ROWS;
-        buffer_size = binlog_count * FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
-        if (buffer_size > sizeof(out_buff) - pkg_len) {
-            buffer_size = sizeof(out_buff) - pkg_len;
-        }
+        buffer_size = sizeof(out_buff) - pkg_len;
         if ((result=replica_binlog_get_last_lines(ctx->ds->dg->id,
                 (char *)(rheader + 1), buffer_size, &binlog_count,
                 &binlog_length)) != 0)

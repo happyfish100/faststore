@@ -9,6 +9,7 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "sf/sf_func.h"
 #include "sf/sf_util.h"
 #include "sf/idempotency/client/client_channel.h"
 #include "sf/idempotency/client/receipt_handler.h"
@@ -69,6 +70,8 @@ int main(int argc, char *argv[])
         log_destroy();
         return 0;
     }
+
+    sf_enable_exit_on_oom();
 
     do {
         if ((result=setup_server_env(config_filename)) != 0) {

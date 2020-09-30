@@ -658,42 +658,13 @@ const char *replica_binlog_get_op_type_caption(const int op_type)
 int replica_binlog_get_last_lines(const int data_group_id, char *buff,
         const int buff_size, int *count, int *length)
 {
-    int result;
-    int remain_count;
-    int current_count;
-    int current_index;
-    int i;
-    char filename[PATH_MAX];
+    int current_windex;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    string_t lines;
 
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
-    current_index = replica_binlog_get_current_write_index(data_group_id);
-
-    *length = 0;
-    remain_count = *count;
-    for (i=0; i<2; i++) {
-        current_count = remain_count;
-        sf_binlog_writer_get_filename(subdir_name, current_index,
-                filename, sizeof(filename));
-        result = fc_get_last_lines(filename, buff + *length,
-                buff_size - *length, &lines, &current_count);
-        if (!(result == 0 || result == ENOENT)) {
-            return result;
-        }
-
-        memmove(buff + *length, lines.str, lines.len);
-        remain_count -= current_count;
-        *length += lines.len;
-        if (remain_count == 0 || current_index == 0) {
-            break;
-        }
-
-        --current_index;  //try previous binlog file
-    }
-
-    *count -= remain_count;
-    return 0;
+    current_windex = replica_binlog_get_current_write_index(data_group_id);
+    return sf_binlog_writer_get_last_lines(subdir_name,
+            current_windex, buff, buff_size, count, length);
 }
 
 int replica_binlog_unpack_records(const string_t *buffer,
