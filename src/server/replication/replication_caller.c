@@ -80,7 +80,7 @@ static inline void push_to_slave_replica_queue(FSReplication *replication,
 
     fc_queue_push_ex(&replication->context.caller.rpc_queue, rpc, &notify);
     if (notify) {
-        iovent_notify_thread(replication->task->thread_data);
+        ioevent_notify_thread(replication->task->thread_data);
     }
 }
 

@@ -92,7 +92,7 @@ int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
     r->err_no = err_no;
     fc_queue_push_ex(&replication->context.callee.done_queue, r, &notify);
     if (notify) {
-        iovent_notify_thread(replication->task->thread_data);
+        ioevent_notify_thread(replication->task->thread_data);
     }
 
     return 0;

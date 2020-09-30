@@ -138,7 +138,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
             event->type = event_type;
             fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
             if (notify) {
-                iovent_notify_thread(task->thread_data);
+                ioevent_notify_thread(task->thread_data);
             }
         } else {
             logDebug("file: "__FILE__", line: %d, "

@@ -240,7 +240,9 @@ void replication_common_terminate()
     end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
     for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++) {
-        iovent_notify_thread(replication->task->thread_data);
+        if (replication->task != NULL) {
+            ioevent_notify_thread(replication->task->thread_data);
+        }
     }
 }
 

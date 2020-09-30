@@ -449,7 +449,7 @@ void clean_connected_replications(FSServerContext *server_ctx)
 
     for (i=0; i<server_ctx->replica.connected.count; i++) {
         replication = server_ctx->replica.connected.replications[i];
-        iovent_add_to_deleted_list(replication->task);
+        ioevent_add_to_deleted_list(replication->task);
     }
 }
 
@@ -509,7 +509,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
                             rpc_result_ctx, data_group_id, data_version,
                             rb->task, rb->task_version)) != 0)
             {
-                SF_G_CONTINUE_FLAG = false;
+                sf_terminate_myself();
                 return result;
             }
         } else {
@@ -611,7 +611,7 @@ static int deal_replication_connected(FSServerContext *server_ctx)
         }
 
         if (result != 0) {
-            iovent_add_to_deleted_list(replication->task);
+            ioevent_add_to_deleted_list(replication->task);
         }
     }
 

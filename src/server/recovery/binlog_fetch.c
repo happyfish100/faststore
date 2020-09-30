@@ -449,7 +449,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                         "some mistake happen, program exit abnormally!",
                         __LINE__, ctx->ds->dg->id,
                         ctx->master->cs->server->id);
-                SF_G_CONTINUE_FLAG = false;
+                sf_terminate_myself();
             }
             break;
         }
