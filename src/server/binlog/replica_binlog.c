@@ -711,25 +711,22 @@ int replica_binlog_unpack_records(const string_t *buffer,
 
 static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
 {
-    int64_t sub;
+    int sub;
 
-    sub = r1->op_type - r2->op_type;
-    if (sub != 0) {
+    if ((sub=(int)r1->op_type - (int)r2->op_type) != 0) {
         return sub;
     }
 
-    sub = (int64_t)r1->bs_key.block.oid - (int64_t)r2->bs_key.block.oid;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
+    if ((sub=fc_compare_int64(r1->bs_key.block.oid,
+                    r2->bs_key.block.oid)) != 0)
+    {
+        return sub;
     }
 
-    sub = (int64_t)r1->bs_key.block.offset - (int64_t)r2->bs_key.block.offset;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
+    if ((sub=fc_compare_int64(r1->bs_key.block.offset,
+                    r2->bs_key.block.offset)) != 0)
+    {
+        return sub;
     }
 
     if (r1->op_type == REPLICA_BINLOG_OP_TYPE_DEL_BLOCK ||
@@ -738,8 +735,9 @@ static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
         return 0;
     }
 
-    sub = (int)r1->bs_key.slice.offset - (int)r2->bs_key.slice.offset;
-    if (sub != 0) {
+    if ((sub=(int)r1->bs_key.slice.offset -
+                (int)r2->bs_key.slice.offset) != 0)
+    {
         return sub;
     }
 

@@ -338,7 +338,9 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                     "error code is %d", result);
         }
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "binlog consistency check fail, %s", prompt);
+                "data group id: %d, slave server id: %d, "
+                "binlog consistency check fail, %s",
+                data_group_id, server_id, prompt);
         return result;
     }
 
