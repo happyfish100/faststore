@@ -20,6 +20,7 @@ static void usage(char *argv[])
 int main(int argc, char *argv[])
 {
     const char *config_filename = "/etc/fsapi/fuse.conf";
+    FDIRClientOwnerModePair omp;
 	int ch;
 	int result;
     int open_flags;
@@ -42,6 +43,9 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    omp.mode = 0755;
+    omp.uid = geteuid();
+    omp.gid = getegid();
     open_flags = 0;
     file_size_to_set = -1;
     while ((ch=getopt(argc, argv, "hc:o:n:i:l:S:AT")) != -1) {
@@ -111,8 +115,8 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=fsapi_open(&fi, filename, O_CREAT | O_WRONLY | open_flags,
-                    0755)) != 0)
+    if ((result=fsapi_open(&fi, filename, O_CREAT |
+                    O_WRONLY | open_flags, &omp)) != 0)
     {
         return result;
     }
@@ -138,7 +142,7 @@ int main(int argc, char *argv[])
     }
     fsapi_close(&fi);
 
-    if ((result=fsapi_open(&fi, filename, O_RDONLY, 0755)) != 0) {
+    if ((result=fsapi_open(&fi, filename, O_RDONLY, &omp)) != 0) {
         return result;
     }
     in_buff = (char *)malloc(length);

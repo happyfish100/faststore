@@ -13,7 +13,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
-#include "sf/sf_global.h"
+#include "sf/sf_func.h"
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../cluster_relationship.h"

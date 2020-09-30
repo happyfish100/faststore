@@ -24,6 +24,7 @@ static char *fs_filename;
 static int copy_file()
 {
 #define BUFFEER_SIZE  (128 * 1024)
+    FDIRClientOwnerModePair omp;
 	int result;
     int fd;
     FSAPIFileInfo fi;
@@ -46,8 +47,11 @@ static int copy_file()
         return result;
     }
 
+    omp.mode = 0755;
+    omp.uid = geteuid();
+    omp.gid = getegid();
     if ((result=fsapi_open(&fi, fs_filename,
-                    O_CREAT | O_WRONLY, 0755)) != 0)
+                    O_CREAT | O_WRONLY, &omp)) != 0)
     {
         return result;
     }

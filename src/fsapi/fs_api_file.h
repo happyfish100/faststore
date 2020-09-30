@@ -19,20 +19,17 @@
 extern "C" {
 #endif
 
-#define fsapi_create(fi, path, mode) \
-    fsapi_create_ex(&g_fs_api_ctx, fi, path, mode)
+#define fsapi_create(fi, path, omp) \
+    fsapi_create_ex(&g_fs_api_ctx, fi, path, omp)
 
-#define fsapi_create_by_inode(fi, parent_inode, name, mode) \
-    fsapi_create_by_inode_ex(&g_fs_api_ctx, fi, parent_inode, name, mode)
+#define fsapi_open(fi, path, flags, omp) \
+    fsapi_open_ex(&g_fs_api_ctx, fi, path, flags, omp)
 
-#define fsapi_open(fi, path, flags, mode) \
-    fsapi_open_ex(&g_fs_api_ctx, fi, path, flags, mode)
+#define fsapi_open_by_inode(fi, inode, flags, omp) \
+    fsapi_open_by_inode_ex(&g_fs_api_ctx, fi, inode, flags, omp)
 
-#define fsapi_open_by_inode(fi, inode, flags, mode) \
-    fsapi_open_by_inode_ex(&g_fs_api_ctx, fi, inode, flags, mode)
-
-#define fsapi_open_by_dentry(fi, dentry, flags, mode) \
-    fsapi_open_by_dentry_ex(&g_fs_api_ctx, fi, dentry, flags, mode)
+#define fsapi_open_by_dentry(fi, dentry, flags, omp) \
+    fsapi_open_by_dentry_ex(&g_fs_api_ctx, fi, dentry, flags, omp)
 
 #define fsapi_truncate(path, new_size) \
     fsapi_truncate_ex(&g_fs_api_ctx, path, new_size)
