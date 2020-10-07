@@ -27,16 +27,8 @@ static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 
 static int compare_trunk_info(const void *p1, const void *p2)
 {
-    int64_t sub;
-    sub = ((FSTrunkFileInfo *)p1)->id_info.id -
-        ((FSTrunkFileInfo *)p2)->id_info.id;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
-    } else {
-        return 0;
-    }
+    return fc_compare_int64(((FSTrunkFileInfo *)p1)->id_info.id,
+            ((FSTrunkFileInfo *)p2)->id_info.id);
 }
 
 static void trunk_free_func(void *ptr, const int delay_seconds)
@@ -100,20 +92,10 @@ int trunk_allocator_init(FSTrunkAllocator *allocator,
         }
     }
 
-    if ((result=init_pthread_lock(&allocator->lock)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "init_pthread_lock fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
+    if ((result=init_pthread_lock_cond_pair(&allocator->lcp)) != 0) {
         return result;
     }
         
-    if ((result=pthread_cond_init(&allocator->cond, NULL)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "pthread_cond_init fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
     if ((allocator->sl_trunks=uniq_skiplist_new(&G_SKIPLIST_FACTORY,
             FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT)) == NULL)
     {
@@ -159,9 +141,9 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     trunk_info->free_start = 0;
     FC_INIT_LIST_HEAD(&trunk_info->used.slice_head);
 
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     result = uniq_skiplist_insert(allocator->sl_trunks, trunk_info);
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
@@ -183,9 +165,9 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
     int result;
 
     target.id_info.id = id;
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     result = uniq_skiplist_delete(allocator->sl_trunks, &target);
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     return result;
 }
@@ -256,7 +238,7 @@ void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
     node->trunk_info = trunk_info;
     node->next = NULL;
 
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     if (freelist->head == NULL) {
         freelist->head = node;
         notify = true;
@@ -268,10 +250,10 @@ void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
 
     freelist->count++;
     trunk_info->status = FS_TRUNK_STATUS_ALLOCING;
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     if (notify) {
-        pthread_cond_signal(&allocator->cond);
+        pthread_cond_signal(&allocator->lcp.cond);
     }
 }
 
@@ -320,7 +302,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
     aligned_size = MEM_ALIGN(size);
     space_info = spaces;
 
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     do {
         if (freelist->head != NULL) {
             trunk_info = freelist->head->trunk_info;
@@ -355,7 +337,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
                 result = EAGAIN;
                 break;
             }
-            pthread_cond_wait(&allocator->cond, &allocator->lock);
+            pthread_cond_wait(&allocator->lcp.cond, &allocator->lcp.lock);
         }
 
         if (freelist->head == NULL) {
@@ -373,7 +355,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
         }
         result = 0;
     } while (0);
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     *count = space_info - spaces;
     return result;
@@ -503,7 +485,7 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
     FSTrunkFileInfo *trunk_info;
 
     target.id_info.id = slice->space.id_info.id;
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
                     allocator->sl_trunks, &target)) == NULL)
     {
@@ -522,7 +504,7 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
         fc_list_add_tail(&slice->dlink, &trunk_info->used.slice_head);
         result = 0;
     }
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     return result;
 }
@@ -535,7 +517,7 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
     FSTrunkFileInfo *trunk_info;
 
     target.id_info.id = slice->space.id_info.id;
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->lcp.lock);
     if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
                     allocator->sl_trunks, &target)) == NULL)
     {
@@ -549,7 +531,7 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
         fc_list_del_init(&slice->dlink);
         result = 0;
     }
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
     return result;
 }

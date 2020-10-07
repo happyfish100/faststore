@@ -4,6 +4,7 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_types.h"
 #include "store_path_index.h"
@@ -104,7 +105,7 @@ static int load_one_path(FSStorageConfig *storage_cfg,
     return 0;
 }
 
-int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
+static int storage_config_calc_path_reserved_space(FSStoragePathInfo *path_info)
 {
     struct statvfs sbuf;
     int64_t total_space;
@@ -117,9 +118,36 @@ int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
     }
 
     total_space = (int64_t)(sbuf.f_blocks) * sbuf.f_frsize;
-    path_info->avail_space = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
+    path_info->space_stat.avail = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
     path_info->reserved_space.value = total_space *
         path_info->reserved_space.ratio;
+
+    __sync_bool_compare_and_swap(&path_info->space_stat.
+            last_stat_time, 0, g_current_time);
+    return 0;
+}
+
+int storage_config_calc_path_avail_space(FSStoragePathInfo *path_info)
+{
+    struct statvfs sbuf;
+    time_t last_stat_time;
+
+    last_stat_time = __sync_add_and_fetch(&path_info->
+            space_stat.last_stat_time, 0);
+    if (last_stat_time == g_current_time) {
+        return 0;
+    }
+    __sync_bool_compare_and_swap(&path_info->space_stat.
+            last_stat_time, last_stat_time, g_current_time);
+
+    if (statvfs(path_info->store.path.str, &sbuf) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "statfs path %s fail, errno: %d, error info: %s.",
+                __LINE__, path_info->store.path.str, errno, STRERROR(errno));
+        return errno != 0 ? errno : EPERM;
+    }
+
+    path_info->space_stat.avail = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
     return 0;
 }
 
@@ -193,7 +221,9 @@ static int load_paths(FSStorageConfig *storage_cfg,
             return result;
         }
 
-        if ((result=storage_config_calc_path_spaces(parray->paths + i)) != 0) {
+        if ((result=storage_config_calc_path_reserved_space(
+                        parray->paths + i)) != 0)
+        {
             return result;
         }
     }
@@ -536,7 +566,7 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
                 p->store.index, p->write_thread_count,
                 p->read_thread_count, p->prealloc_trunks,
                 p->reserved_space.ratio * 100.00,
-                p->avail_space, p->reserved_space.value);
+                p->space_stat.avail, p->reserved_space.value);
     }
 }
 

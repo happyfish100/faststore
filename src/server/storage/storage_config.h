@@ -14,11 +14,17 @@ typedef struct {
         int64_t value;
         double ratio;
     } reserved_space;
-    int64_t avail_space;  //current available space
+
     struct {
-        volatile int64_t total_bytes;
-        volatile int64_t used_bytes;
-    } trunk_stat;
+        int64_t avail;  //current available space
+        volatile time_t last_stat_time;
+    } space_stat;  //for disk space
+
+    struct {
+        volatile int64_t total;
+        volatile int64_t used;
+        volatile int64_t avail;  //current available space
+    } trunk_stat;  //for trunk space
 } FSStoragePathInfo;
 
 typedef struct {
@@ -66,7 +72,7 @@ extern "C" {
     int storage_config_load(FSStorageConfig *storage_cfg,
             const char *storage_filename);
 
-    int storage_config_calc_path_spaces(FSStoragePathInfo *path_info);
+    int storage_config_calc_path_avail_space(FSStoragePathInfo *path_info);
 
     void storage_config_to_log(FSStorageConfig *storage_cfg);
 

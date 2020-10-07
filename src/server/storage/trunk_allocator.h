@@ -56,8 +56,7 @@ typedef struct {
     UniqSkiplist *sl_trunks;   //all trunks order by id
     FSTrunkFreelistPair *freelists; //current allocator map to disk write threads
     FSTrunkInfoPtrArray priority_array;  //for trunk reclaim
-    pthread_mutex_t lock;
-    pthread_cond_t cond;
+    pthread_lock_cond_pair_t lcp;
 } FSTrunkAllocator;
 
 #ifdef __cplusplus

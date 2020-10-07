@@ -78,6 +78,9 @@ static void create_trunk_done(struct trunk_io_buffer *record,
     task = (TrunkPreallocTask *)record->notify.arg;
     if (result == 0) {
         FSTrunkFileInfo *trunk_info;
+        FSStoragePathInfo *path_info;
+        time_t last_stat_time;
+
         if (storage_allocator_add_trunk_ex(record->space.
                     store->index, &record->space.id_info,
                     record->space.size, &trunk_info) == 0)
@@ -85,6 +88,15 @@ static void create_trunk_done(struct trunk_io_buffer *record,
             trunk_allocator_add_to_freelist(task->allocator,
                     task->freelist, trunk_info);
         }
+
+
+        //trigger avail space stat
+        path_info = STORAGE_CFG.paths_by_index.paths
+            [record->space.store->index];
+        last_stat_time = __sync_add_and_fetch(&path_info->
+                space_stat.last_stat_time, 0);
+        __sync_bool_compare_and_swap(&path_info->space_stat.
+                last_stat_time, last_stat_time, 0);
     }
     fast_mblock_free_object(&task->ctx->mblock, task);
 }
@@ -98,14 +110,14 @@ static int trunk_prealloc_deal_task(TrunkPreallocTask *task)
         return 0;
     }
 
-    if ((result=storage_config_calc_path_spaces(task->allocator->
+    if ((result=storage_config_calc_path_avail_space(task->allocator->
                     path_info)) != 0)
     {
         return result;
     }
 
-    if (task->allocator->path_info->avail_space - STORAGE_CFG.trunk_file_size <
-            task->allocator->path_info->reserved_space.value)
+    if (task->allocator->path_info->space_stat.avail - STORAGE_CFG.
+            trunk_file_size < task->allocator->path_info->reserved_space.value)
     {
         //TODO: trunk space reclaim
         //FS_TRUNK_STATUS_ALLOCING
