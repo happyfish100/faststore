@@ -294,6 +294,7 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
 
     htable->need_lock = need_lock;
     htable->modify_sallocator = modify_sallocator;
+    htable->modify_used_space = false;
     return 0;
 }
 
@@ -355,7 +356,8 @@ static inline int do_delete_slice(OBHashtable *htable,
         return result;
     }
     if (htable->modify_sallocator) {
-        return storage_allocator_delete_slice(slice);
+        return storage_allocator_delete_slice(slice,
+                htable->modify_used_space);
     } else {
         return 0;
     }
@@ -370,7 +372,7 @@ static inline int do_add_slice(OBHashtable *htable,
         return result;
     }
     if (htable->modify_sallocator) {
-        return storage_allocator_add_slice(slice);
+        return storage_allocator_add_slice(slice, htable->modify_used_space);
     } else {
         return 0;
     }
@@ -754,7 +756,8 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
             if (htable->modify_sallocator) {
-                storage_allocator_delete_slice(slice);
+                storage_allocator_delete_slice(slice,
+                        htable->modify_used_space);
             }
         }
 

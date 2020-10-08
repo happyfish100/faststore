@@ -6,6 +6,12 @@
 #include "../server_types.h"
 
 typedef struct {
+    volatile int64_t total;
+    volatile int64_t used;
+    volatile int64_t avail;  //current available space
+} FSTrunkSpaceStat;
+
+typedef struct {
     FSStorePath store;
     int write_thread_count;
     int read_thread_count;
@@ -20,11 +26,7 @@ typedef struct {
         volatile time_t last_stat_time;
     } space_stat;  //for disk space
 
-    struct {
-        volatile int64_t total;
-        volatile int64_t used;
-        volatile int64_t avail;  //current available space
-    } trunk_stat;  //for trunk space
+    FSTrunkSpaceStat trunk_stat;  //for trunk space
 } FSStoragePathInfo;
 
 typedef struct {

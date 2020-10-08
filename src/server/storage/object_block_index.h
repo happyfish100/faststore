@@ -30,6 +30,7 @@ typedef struct {
     OBEntry **buckets;
     bool need_lock;
     bool modify_sallocator; //if modify storage allocator
+    bool modify_used_space; //if modify used space
 } OBHashtable;
 
 typedef struct ob_slice_entry {
@@ -132,6 +133,11 @@ extern "C" {
     {
         int dec_alloc;
         return ob_index_delete_block(bkey, NULL, &dec_alloc);
+    }
+
+    static inline void ob_index_enable_modify_used_space()
+    {
+        g_ob_hashtable.modify_used_space = true;
     }
 
 #ifdef __cplusplus

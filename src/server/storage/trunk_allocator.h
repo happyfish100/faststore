@@ -16,6 +16,8 @@
 #define FS_TRUNK_STATUS_ALLOCING    1
 #define FS_TRUNK_STATUS_RECLAIMING  2
 
+#define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
+
 typedef struct {
     FSTrunkIdInfo id_info;
     int status;
@@ -104,6 +106,9 @@ extern "C" {
     //to reclaim trunk space
     const FSTrunkInfoPtrArray *trunk_allocator_avail_space_top_n(
             FSTrunkAllocator *allocator, const int count);
+
+    void trunk_allocator_trunk_stat(FSTrunkAllocator *allocator,
+            FSTrunkSpaceStat *stat);
 
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
 

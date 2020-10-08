@@ -410,6 +410,7 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "i am already leader");
+        cluster_relationship_trigger_reselect_leader();
         return EEXIST;
     }
 

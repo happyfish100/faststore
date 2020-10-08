@@ -23,7 +23,6 @@ static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 #define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
 #define G_FREE_NODE_ALLOCATOR g_trunk_allocator_vars.free_node_allocator
 #define G_SKIPLIST_FACTORY    g_trunk_allocator_vars.skiplist_factory
-#define TRUNK_AVAIL_SPACE_SIZE(trunk) ((trunk)->size - (trunk)->free_start)
 
 static int compare_trunk_info(const void *p1, const void *p2)
 {
@@ -179,6 +178,8 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
         space_info->offset = trunk_info->free_start; \
         space_info->size = alloc_size;         \
         trunk_info->free_start += alloc_size;  \
+        __sync_sub_and_fetch(&allocator->path_info-> \
+                trunk_stat.avail, alloc_size);  \
     } while (0)
 
 static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
@@ -306,7 +307,7 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
     do {
         if (freelist->head != NULL) {
             trunk_info = freelist->head->trunk_info;
-            remain_bytes = TRUNK_AVAIL_SPACE_SIZE(trunk_info);
+            remain_bytes = FS_TRUNK_AVAIL_SPACE(trunk_info);
             if (remain_bytes < aligned_size) {
                 if (!blocked && freelist->count <= 1) {
                     result = EAGAIN;
@@ -348,10 +349,12 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
         trunk_info = freelist->head->trunk_info;
         TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, aligned_size);
         space_info++;
-        if (TRUNK_AVAIL_SPACE_SIZE(trunk_info) <
+        if (FS_TRUNK_AVAIL_SPACE(trunk_info) <
                 STORAGE_CFG.discard_remain_space_size)
         {
             remove_trunk_from_freelist(allocator, freelist);
+            __sync_sub_and_fetch(&allocator->path_info->trunk_stat.avail,
+                    FS_TRUNK_AVAIL_SPACE(trunk_info));
         }
         result = 0;
     } while (0);
@@ -447,7 +450,7 @@ const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
     end = allocator->priority_array.trunks + count;
     uniq_skiplist_iterator(allocator->sl_trunks, &it);
     while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
-        remain_size = TRUNK_AVAIL_SPACE_SIZE(trunk_info);
+        remain_size = FS_TRUNK_AVAIL_SPACE(trunk_info);
         if (remain_size < FS_FILE_BLOCK_SIZE) {
             continue;
         }
@@ -461,14 +464,14 @@ const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
             allocator->priority_array.trunks[allocator->
                 priority_array.count++] = trunk_info;
             continue;
-        } else if (remain_size <= TRUNK_AVAIL_SPACE_SIZE(
+        } else if (remain_size <= FS_TRUNK_AVAIL_SPACE(
                     allocator->priority_array.trunks[0]))
         {
             continue;
         }
 
         pp = allocator->priority_array.trunks + 1;
-        while ((pp < end) && (remain_size > TRUNK_AVAIL_SPACE_SIZE(*pp))) {
+        while ((pp < end) && (remain_size > FS_TRUNK_AVAIL_SPACE(*pp))) {
             *(pp - 1) = *pp;
             pp++;
         }
@@ -536,6 +539,19 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
     return result;
 }
 
+void trunk_allocator_trunk_stat(FSTrunkAllocator *allocator,
+        FSTrunkSpaceStat *stat)
+{
+    UniqSkiplistIterator it;
+    FSTrunkFileInfo *trunk_info;
+
+    uniq_skiplist_iterator(allocator->sl_trunks, &it);
+    while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
+        stat->total += trunk_info->size;
+        stat->used += trunk_info->used.bytes;
+    }
+}
+
 void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)
 {
     logInfo("trunk id: %"PRId64", subdir: %"PRId64", status: %d, "
@@ -544,5 +560,5 @@ void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)
             trunk_info->id_info.id, trunk_info->id_info.subdir,
             trunk_info->status, trunk_info->used.count, trunk_info->used.bytes,
             trunk_info->size, trunk_info->free_start,
-            TRUNK_AVAIL_SPACE_SIZE(trunk_info));
+            FS_TRUNK_AVAIL_SPACE(trunk_info));
 }

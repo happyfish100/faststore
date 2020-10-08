@@ -81,23 +81,27 @@ static void create_trunk_done(struct trunk_io_buffer *record,
         FSStoragePathInfo *path_info;
         time_t last_stat_time;
 
+        path_info = STORAGE_CFG.paths_by_index.paths
+            [record->space.store->index];
+        __sync_add_and_fetch(&path_info->trunk_stat.total,
+                record->space.size);
         if (storage_allocator_add_trunk_ex(record->space.
                     store->index, &record->space.id_info,
                     record->space.size, &trunk_info) == 0)
         {
             trunk_allocator_add_to_freelist(task->allocator,
                     task->freelist, trunk_info);
+            __sync_add_and_fetch(&path_info->trunk_stat.avail,
+                    record->space.size);
         }
 
-
         //trigger avail space stat
-        path_info = STORAGE_CFG.paths_by_index.paths
-            [record->space.store->index];
         last_stat_time = __sync_add_and_fetch(&path_info->
                 space_stat.last_stat_time, 0);
         __sync_bool_compare_and_swap(&path_info->space_stat.
                 last_stat_time, last_stat_time, 0);
     }
+
     fast_mblock_free_object(&task->ctx->mblock, task);
 }
 

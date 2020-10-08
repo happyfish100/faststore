@@ -98,16 +98,32 @@ extern "C" {
                 size, space_info, count);
     }
 
-    static inline int storage_allocator_add_slice(OBSliceEntry *slice)
+    static inline int storage_allocator_add_slice(OBSliceEntry *slice,
+            const bool modify_used_space)
     {
-        return trunk_allocator_add_slice(g_allocator_mgr->allocator_ptr_array.
-                allocators[slice->space.store->index], slice);
+        FSTrunkAllocator *allocator;
+
+        allocator = g_allocator_mgr->allocator_ptr_array.
+            allocators[slice->space.store->index];
+        if (modify_used_space) {
+            __sync_add_and_fetch(&allocator->path_info->
+                    trunk_stat.used, slice->space.size);
+        }
+        return trunk_allocator_add_slice(allocator, slice);
     }
 
-    static inline int storage_allocator_delete_slice(OBSliceEntry *slice)
+    static inline int storage_allocator_delete_slice(OBSliceEntry *slice,
+            const bool modify_used_space)
     {
-        return trunk_allocator_delete_slice(g_allocator_mgr->allocator_ptr_array.
-                allocators[slice->space.store->index], slice);
+        FSTrunkAllocator *allocator;
+
+        allocator = g_allocator_mgr->allocator_ptr_array.
+            allocators[slice->space.store->index];
+        if (modify_used_space) {
+            __sync_sub_and_fetch(&allocator->path_info->
+                    trunk_stat.used, slice->space.size);
+        }
+        return trunk_allocator_delete_slice(allocator, slice);
     }
 
 #ifdef __cplusplus
