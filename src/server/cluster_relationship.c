@@ -1357,12 +1357,34 @@ int cluster_relationship_destroy()
 void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs)
 {
     FSClusterServerDetectEntry *entry;
+    FSClusterServerDetectEntry *end;
+    bool found;
 
+    found = false;
     PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
-    if (INACTIVE_SERVER_ARRAY.count < INACTIVE_SERVER_ARRAY.alloc) {
-        entry = INACTIVE_SERVER_ARRAY.entries + INACTIVE_SERVER_ARRAY.count;
-        SET_SERVER_DETECT_ENTRY(entry, cs);
-        INACTIVE_SERVER_ARRAY.count++;
+    if (INACTIVE_SERVER_ARRAY.count > 0) {
+        end = INACTIVE_SERVER_ARRAY.entries + INACTIVE_SERVER_ARRAY.count;
+        for (entry=INACTIVE_SERVER_ARRAY.entries; entry<end; entry++) {
+            if (entry->cs == cs) {
+                found = true;
+                break;
+            }
+        }
+    }
+    if (!found) {
+        if (INACTIVE_SERVER_ARRAY.count < INACTIVE_SERVER_ARRAY.alloc) {
+            entry = INACTIVE_SERVER_ARRAY.entries + INACTIVE_SERVER_ARRAY.count;
+            SET_SERVER_DETECT_ENTRY(entry, cs);
+            INACTIVE_SERVER_ARRAY.count++;
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "server id: %d, add to inactive array fail "
+                    "because array is full", __LINE__, cs->server->id);
+        }
+    } else {
+        logWarning("file: "__FILE__", line: %d, "
+                "server id: %d, already in inactive array!",
+                __LINE__, cs->server->id);
     }
     PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
 }
