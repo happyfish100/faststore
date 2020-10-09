@@ -5,17 +5,7 @@
 #include "fastcommon/fast_mpool.h"
 #include "fs_types.h"
 #include "fs_proto.h"
-
-typedef struct fs_client_cluster_stat_entry {
-    int data_group_id;
-    int server_id;
-    bool is_preseted;
-    bool is_master;
-    char status;
-    uint16_t port;
-    char ip_addr[IP_ADDRESS_SIZE];
-    int64_t data_version;
-} FSClientClusterStatEntry;
+#include "client_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,9 +39,16 @@ extern "C" {
     int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
             const int data_group_index, FSClientServerEntry *server);
 
+    int fs_client_proto_get_leader(FSClientContext *client_ctx,
+            ConnectionInfo *conn, FSClientServerEntry *leader);
+
     int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
             const ConnectionInfo *spec_conn, const int data_group_id,
             FSClientClusterStatEntry *stats, const int size, int *count);
+
+    int fs_client_proto_cluster_space_stat(FSClientContext *client_ctx,
+            ConnectionInfo *conn, FSClientServerSpaceStat *stat,
+            const int size, int *count);
 
 #ifdef __cplusplus
 }

@@ -403,6 +403,10 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     client_ctx->conn_manager.get_master_connection(client_ctx, \
             arg1, result)
 
+#define GET_LEADER_CONNECTION(client_ctx, arg1, result)        \
+    client_ctx->conn_manager.get_leader_connection(client_ctx, \
+            arg1, result)
+
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
         const int req_cmd, const int resp_cmd,
@@ -414,4 +418,12 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
             FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
             fs_client_proto_bs_operate, key, req_cmd, resp_cmd,
             enoent_log_level, inc_alloc);
+}
+
+int fs_client_cluster_space_stat(FSClientContext *client_ctx,
+        FCServerInfo *server, FSClientServerSpaceStat *stat,
+        const int size, int *count)
+{
+    SF_CLIENT_IDEMPOTENCY_QUERY_WRAPPER(client_ctx, GET_LEADER_CONNECTION,
+            server, fs_client_proto_cluster_space_stat, stat, size, count);
 }

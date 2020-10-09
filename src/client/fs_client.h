@@ -111,6 +111,9 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
 #define fs_client_block_delete(client_ctx, bkey, dec_alloc) \
     fs_client_block_delete_ex(client_ctx, bkey, LOG_DEBUG, dec_alloc)
 
+int fs_client_cluster_space_stat(FSClientContext *client_ctx,
+        FCServerInfo *server, FSClientServerSpaceStat *stat,
+        const int size, int *count);
 
 #ifdef __cplusplus
 }

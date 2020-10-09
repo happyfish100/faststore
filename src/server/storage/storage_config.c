@@ -7,6 +7,7 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_types.h"
+#include "../server_global.h"
 #include "store_path_index.h"
 #include "storage_config.h"
 
@@ -108,7 +109,6 @@ static int load_one_path(FSStorageConfig *storage_cfg,
 static int storage_config_calc_path_reserved_space(FSStoragePathInfo *path_info)
 {
     struct statvfs sbuf;
-    int64_t total_space;
 
     if (statvfs(path_info->store.path.str, &sbuf) != 0) {
         logError("file: "__FILE__", line: %d, "
@@ -117,9 +117,9 @@ static int storage_config_calc_path_reserved_space(FSStoragePathInfo *path_info)
         return errno != 0 ? errno : EPERM;
     }
 
-    total_space = (int64_t)(sbuf.f_blocks) * sbuf.f_frsize;
+    path_info->space_stat.total = (int64_t)(sbuf.f_blocks) * sbuf.f_frsize;
     path_info->space_stat.avail = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
-    path_info->reserved_space.value = total_space *
+    path_info->reserved_space.value = path_info->space_stat.total *
         path_info->reserved_space.ratio;
 
     __sync_bool_compare_and_swap(&path_info->space_stat.
@@ -149,6 +149,33 @@ int storage_config_calc_path_avail_space(FSStoragePathInfo *path_info)
 
     path_info->space_stat.avail = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
     return 0;
+}
+
+void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss)
+{
+    FSStoragePathInfo **pp;
+    FSStoragePathInfo **end;
+    FSClusterServerSpaceStat stat;
+    int64_t disk_avail;
+
+    stat.total = stat.used = stat.avail = 0;
+    end = STORAGE_CFG.paths_by_index.paths + STORAGE_CFG.paths_by_index.count;
+    for (pp=STORAGE_CFG.paths_by_index.paths; pp<end; pp++) {
+        if (*pp == NULL) {
+            continue;
+        }
+
+        storage_config_calc_path_avail_space(*pp);
+        disk_avail = (*pp)->space_stat.avail  - (*pp)->reserved_space.value;
+        if (disk_avail < 0) {
+            disk_avail = 0;
+        }
+        stat.total += (*pp)->trunk_stat.total + disk_avail;
+        stat.avail += (*pp)->trunk_stat.avail + disk_avail;
+        stat.used += (*pp)->trunk_stat.used;
+    }
+
+    *ss = stat;
 }
 
 static int load_paths(FSStorageConfig *storage_cfg,

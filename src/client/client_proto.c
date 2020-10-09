@@ -417,6 +417,34 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     return result;
 }
 
+int fs_client_proto_get_leader(FSClientContext *client_ctx,
+        ConnectionInfo *conn, FSClientServerEntry *leader)
+{
+    int result;
+    FSProtoHeader *header;
+    SFResponseInfo response;
+    FSProtoGetServerResp server_resp;
+    char out_buff[sizeof(FSProtoHeader)];
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_LEADER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+                    &response, client_ctx->network_timeout,
+                    FS_SERVICE_PROTO_GET_LEADER_RESP, (char *)&server_resp,
+                    sizeof(FSProtoGetServerResp))) != 0)
+    {
+        sf_log_network_error(&response, conn, result);
+    } else {
+        leader->server_id = buff2int(server_resp.server_id);
+        memcpy(leader->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
+        *(leader->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
+        leader->conn.port = buff2short(server_resp.port);
+    }
+
+    return result;
+}
+
 int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         const ConnectionInfo *spec_conn, const int data_group_id,
         FSClientClusterStatEntry *stats, const int size, int *count)
@@ -517,6 +545,83 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         if (in_buff != NULL) {
             free(in_buff);
         }
+    }
+
+    return result;
+}
+
+int fs_client_proto_cluster_space_stat(FSClientContext *client_ctx,
+        ConnectionInfo *conn, FSClientServerSpaceStat *stat,
+        const int size, int *count)
+{
+    char out_buff[sizeof(FSProtoHeader)];
+    char in_buff[4 * 1024];
+    FSProtoHeader *proto_header;
+    FSProtoDiskSpaceStatRespBodyHeader *body_header;
+    FSProtoDiskSpaceStatRespBodyPart *body_part;
+    FSClientServerSpaceStat *ps;
+    FSClientServerSpaceStat *send;
+    SFResponseInfo response;
+    int body_len;
+    int min_blen;
+    int expect_len;
+    int result;
+
+    proto_header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ, 0);
+    response.error.length = 0;
+    do {
+        if ((result=sf_send_and_recv_response_ex1(conn, out_buff,
+                        sizeof(out_buff), &response, client_ctx->network_timeout,
+                        FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP, in_buff,
+                        sizeof(in_buff), &body_len)) != 0)
+        {
+            break;
+        }
+
+        min_blen = sizeof(FSProtoDiskSpaceStatRespBodyHeader) +
+            sizeof(FSProtoDiskSpaceStatRespBodyPart);
+        if (body_len < min_blen) {
+            response.error.length = snprintf(response.error.message,
+                    sizeof(response.error.message), "invalid response "
+                    "body length: %d < min length: %d", body_len, min_blen);
+            result = EINVAL;
+            break;
+        }
+
+        body_header = (FSProtoDiskSpaceStatRespBodyHeader *)in_buff;
+        *count = buff2int(body_header->count);
+        expect_len = sizeof(FSProtoDiskSpaceStatRespBodyPart) * (*count);
+        if (body_len != expect_len) {
+            response.error.length = snprintf(response.error.message,
+                    sizeof(response.error.message), "invalid response "
+                    "body length: %d != expect length: %d",
+                    body_len, expect_len);
+            result = EINVAL;
+            break;
+        }
+
+        if (*count > size) {
+            response.error.length = snprintf(response.error.message,
+                    sizeof(response.error.message), "response server "
+                    "count: %d exceeds entry size: %d", *count, size);
+            result = ENOSPC;
+            break;
+        }
+
+        body_part = (FSProtoDiskSpaceStatRespBodyPart *)(body_header + 1);
+        send = stat + *count;
+        for (ps=stat; ps<send; ps++, body_part++) {
+            ps->server_id = buff2long(body_part->server_id);
+            ps->stat.total = buff2long(body_part->total);
+            ps->stat.avail = buff2long(body_part->avail);
+            ps->stat.used = buff2long(body_part->used);
+        }
+    } while (0);
+
+    if (result != 0) {
+        *count = 0;
+        sf_log_network_error(&response, conn, result);
     }
 
     return result;

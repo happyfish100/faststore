@@ -396,6 +396,41 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     return 0;
 }
 
+static int cluster_deal_report_disk_space(struct fast_task_info *task)
+{
+    int result;
+    FSProtoReportDiskSpaceReq *req;
+    FSClusterServerSpaceStat stat;
+
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoReportDiskSpaceReq))) != 0)
+    {
+        return result;
+    }
+
+    if (CLUSTER_PEER == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "please join first");
+        return EINVAL;
+    }
+
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    req = (FSProtoReportDiskSpaceReq *)REQUEST.body;
+    stat.total = buff2int(req->total);
+    stat.avail = buff2int(req->avail);
+    stat.used = buff2int(req->used);
+    CLUSTER_PEER->space_stat = stat;
+    return 0;
+}
+
 static int cluster_deal_next_leader(struct fast_task_info *task)
 {
     int result;
@@ -485,6 +520,9 @@ int cluster_deal_task(struct fast_task_info *task)
                 break;
             case FS_CLUSTER_PROTO_PING_LEADER_REQ:
                 result = cluster_deal_ping_leader(task);
+                break;
+            case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ:
+                result = cluster_deal_report_disk_space(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

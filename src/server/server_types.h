@@ -156,6 +156,8 @@ typedef struct fs_cluster_data_server_ptr_array {
     int alloc;
 } FSClusterDataServerPtrArray;
 
+typedef FSClusterSpaceStat FSClusterServerSpaceStat;
+
 typedef struct fs_cluster_server_info {
     FCServerInfo *server;
     FSReplicationPtrArray repl_ptr_array;
@@ -166,6 +168,7 @@ typedef struct fs_cluster_server_info {
     volatile int active; //for push topology change notify
     int server_index;    //for offset
     int link_index;      //for next links
+    FSClusterServerSpaceStat space_stat;
 } FSClusterServerInfo;
 
 typedef struct fs_cluster_server_array {

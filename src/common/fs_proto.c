@@ -46,6 +46,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "CLUSTER_STAT_REQ";
         case FS_SERVICE_PROTO_CLUSTER_STAT_RESP:
             return "CLUSTER_STAT_RESP";
+        case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
+            return "DISK_SPACE_STAT_REQ";
+        case FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP:
+            return "DISK_SPACE_STAT_RESP";
         case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
             return "SLICE_WRITE_REQ";
         case FS_SERVICE_PROTO_SLICE_WRITE_RESP:
@@ -74,6 +78,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_READABLE_SERVER_REQ";
         case FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP:
             return "GET_READABLE_SERVER_RESP";
+        case FS_SERVICE_PROTO_GET_LEADER_REQ:
+            return "GET_LEADER_REQ";
+        case FS_SERVICE_PROTO_GET_LEADER_RESP:
+            return "GET_LEADER_RESP";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
             return "GET_SERVER_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP:
@@ -90,6 +98,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "PING_LEADER_REQ";
         case FS_CLUSTER_PROTO_PING_LEADER_RESP:
             return "PING_LEADER_RESP";
+        case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ:
+            return "REPORT_DISK_SPACE_REQ";
+        case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP:
+            return "REPORT_DISK_SPACE_RESP";
         case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
             return "ACTIVATE_SERVER";
         case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:

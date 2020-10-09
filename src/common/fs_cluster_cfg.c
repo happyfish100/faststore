@@ -231,6 +231,7 @@ static int check_server_data_mappings(FSClusterConfig *cluster_cfg,
     FSIdArray server_ids;
     FSServerDataMapping *mapping;
     FSServerDataMapping *mend;
+    int result;
 
     INIT_ID_ARRAY(server_ids);
     mend = cluster_cfg->server_data_mappings.mappings +
@@ -239,12 +240,14 @@ static int check_server_data_mappings(FSClusterConfig *cluster_cfg,
             mapping<mend; mapping++)
     {
         if (mapping->data_group.count == 0) {
-            if (check_realloc_id_array(&server_ids, 1) == 0) {
-                server_ids.ids[server_ids.count++] = mapping->server_id;
+            if ((result=check_realloc_id_array(&server_ids, 1)) != 0) {
+                return result;
             }
+            server_ids.ids[server_ids.count++] = mapping->server_id;
         }
     }
 
+    cluster_cfg->unused_server_count = server_ids.count;
     if (server_ids.ids != NULL) {
         char id_buff[1024];
 
@@ -747,6 +750,15 @@ static int find_group_indexes_in_cluster_config(FSClusterConfig *cluster_cfg,
         return ENOENT;
     }
 
+    cluster_cfg->replica_group_index = fc_server_get_group_index(
+            &cluster_cfg->server_cfg, "replica");
+    if (cluster_cfg->replica_group_index < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file: %s, replica group not configurated",
+                __LINE__, filename);
+        return ENOENT;
+    }
+
     return 0;
 }
 
@@ -1190,4 +1202,55 @@ int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
     resolve_path(ini_ctx->filename, cluster_cfg_filename,
             cluster_full_filename, sizeof(cluster_full_filename));
     return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename);
+}
+
+const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(
+        FSClusterConfig *cluster_cfg)
+{
+    int count;
+    int bytes;
+    FCServerInfo **pp;
+
+    if (cluster_cfg->used_server_array.count > 0) {
+        return &cluster_cfg->used_server_array;
+    }
+
+    count = FC_SID_SERVER_COUNT(cluster_cfg->server_cfg) -
+        cluster_cfg->unused_server_count;
+    bytes = sizeof(FCServerInfo *) * count;
+    cluster_cfg->used_server_array.servers =
+        (FCServerInfo **)fc_malloc(bytes);
+    if (cluster_cfg->used_server_array.servers == NULL) {
+        return NULL;
+    }
+
+    pp = cluster_cfg->used_server_array.servers;
+    if (cluster_cfg->unused_server_count == 0) {
+        FCServerInfo *server;
+        FCServerInfo *end;
+
+        end = FC_SID_SERVERS(cluster_cfg->server_cfg) +
+            FC_SID_SERVER_COUNT(cluster_cfg->server_cfg);
+        for (server=FC_SID_SERVERS(cluster_cfg->server_cfg);
+                server<end; server++)
+        {
+            *pp++ = server;
+        }
+    } else {
+        FSServerDataMapping *mapping;
+        FSServerDataMapping *mend;
+
+        mend = cluster_cfg->server_data_mappings.mappings +
+            cluster_cfg->server_data_mappings.count;
+        for (mapping=cluster_cfg->server_data_mappings.mappings;
+                mapping<mend; mapping++)
+        {
+            if (mapping->data_group.count > 0) {
+                *pp++ = fc_server_get_by_id(&cluster_cfg->server_cfg,
+                        mapping->server_id);
+            }
+        }
+    }
+
+    return &cluster_cfg->used_server_array;
 }

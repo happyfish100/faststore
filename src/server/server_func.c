@@ -366,9 +366,11 @@ int server_load_config(const char *filename)
         return result;
     }
 
+    /*
     if ((result=find_group_indexes_in_cluster_config(filename)) != 0) {
         return result;
     }
+    */
 
     if ((result=load_storage_cfg(&ini_context, filename)) != 0) {
         return result;

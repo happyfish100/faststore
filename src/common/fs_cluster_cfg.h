@@ -49,6 +49,8 @@ typedef struct {
     FSServerGroupArray server_groups;
     FSDataGroupArray data_groups;
     FSServerDataMappingArray server_data_mappings;
+    FCServerInfoPtrArray used_server_array;
+    int unused_server_count;
     int cluster_group_index;
     int replica_group_index;
     int service_group_index;
@@ -147,6 +149,9 @@ extern "C" {
             return -1;
         }
     }
+
+    const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(
+            FSClusterConfig *cluster_cfg);
 
     void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 

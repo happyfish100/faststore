@@ -16,6 +16,10 @@ typedef ConnectionInfo *(*fs_get_connection_func)(
         struct fs_client_context *client_ctx,
         const int data_group_index, int *err_no);
 
+typedef ConnectionInfo *(*fs_get_server_connection_func)(
+        struct fs_client_context *client_ctx,
+        FCServerInfo *server, int *err_no);
+
 typedef ConnectionInfo *(*fs_get_spec_connection_func)(
         struct fs_client_context *client_ctx,
         const ConnectionInfo *target, int *err_no);
@@ -54,18 +58,40 @@ typedef struct fs_client_data_group_array {
     int count;
 } FSClientDataGroupArray;
 
+typedef struct fs_client_cluster_stat_entry {
+    int data_group_id;
+    int server_id;
+    bool is_preseted;
+    bool is_master;
+    char status;
+    uint16_t port;
+    char ip_addr[IP_ADDRESS_SIZE];
+    int64_t data_version;
+} FSClientClusterStatEntry;
+
+typedef struct fs_client_server_space_stat {
+    int server_id;
+    FSClusterSpaceStat stat;
+} FSClientServerSpaceStat;
+
 typedef struct fs_connection_manager {
     /* get the specify connection by ip and port */
     fs_get_spec_connection_func get_spec_connection;
 
-    /* get one connection of the configured servers */
+    /* get one connection of the configured servers by data group */
     fs_get_connection_func get_connection;
+
+    /* get one connection of the server */
+    fs_get_server_connection_func get_server_connection;
 
     /* get the master connection from the server */
     fs_get_connection_func get_master_connection;
 
     /* get one readable connection from the server */
     fs_get_connection_func get_readable_connection;
+
+    /* get the leader connection from the server */
+    fs_get_server_connection_func get_leader_connection;
 
     /* push back to connection pool when use connection pool */
     fs_release_connection_func release_connection;

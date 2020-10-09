@@ -7,8 +7,8 @@
 
 typedef struct {
     volatile int64_t total;
-    volatile int64_t used;
     volatile int64_t avail;  //current available space
+    volatile int64_t used;
 } FSTrunkSpaceStat;
 
 typedef struct {
@@ -22,6 +22,7 @@ typedef struct {
     } reserved_space;
 
     struct {
+        int64_t total;
         int64_t avail;  //current available space
         volatile time_t last_stat_time;
     } space_stat;  //for disk space
@@ -75,6 +76,8 @@ extern "C" {
             const char *storage_filename);
 
     int storage_config_calc_path_avail_space(FSStoragePathInfo *path_info);
+
+    void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss);
 
     void storage_config_to_log(FSStorageConfig *storage_cfg);
 

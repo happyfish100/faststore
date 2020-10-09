@@ -28,11 +28,15 @@
 #define FS_SERVICE_PROTO_SERVICE_STAT_RESP       42
 #define FS_SERVICE_PROTO_CLUSTER_STAT_REQ        43
 #define FS_SERVICE_PROTO_CLUSTER_STAT_RESP       44
+#define FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ     45
+#define FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP    46
 
-#define FS_SERVICE_PROTO_GET_MASTER_REQ           45
-#define FS_SERVICE_PROTO_GET_MASTER_RESP          46
-#define FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ  49
-#define FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP 50
+#define FS_SERVICE_PROTO_GET_MASTER_REQ           51
+#define FS_SERVICE_PROTO_GET_MASTER_RESP          52
+#define FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ  53
+#define FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP 54
+#define FS_SERVICE_PROTO_GET_LEADER_REQ           55
+#define FS_SERVICE_PROTO_GET_LEADER_RESP          56
 
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
@@ -44,6 +48,8 @@
 #define FS_CLUSTER_PROTO_ACTIVATE_SERVER         67
 #define FS_CLUSTER_PROTO_PING_LEADER_REQ         69
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
+#define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ   71
+#define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP  72
 #define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     75  //notify next leader to other servers
 #define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      76  //commit next leader to other servers
 #define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
@@ -163,6 +169,7 @@ typedef struct fs_proto_service_stat_resp {
 
 typedef struct fs_proto_cluster_stat_resp_body_header {
     char count[4];
+    char padding[4];
 } FSProtoClusterStatRespBodyHeader;
 
 typedef struct fs_proto_cluster_stat_resp_body_part {
@@ -176,6 +183,19 @@ typedef struct fs_proto_cluster_stat_resp_body_part {
     char status;
     char padding[4];
 } FSProtoClusterStatRespBodyPart;
+
+typedef struct fs_proto_disk_space_stat_resp_body_header {
+    char count[4];
+    char padding[4];
+} FSProtoDiskSpaceStatRespBodyHeader;
+
+typedef struct fs_proto_disk_space_stat_resp_body_part {
+    char server_id[4];
+    char padding[4];
+    char total[8];
+    char used[8];
+    char avail[8];
+} FSProtoDiskSpaceStatRespBodyPart;
 
 typedef struct fs_proto_get_readable_server_req {
     char data_group_id[4];
@@ -247,6 +267,12 @@ typedef struct fs_proto_ping_leader_req_body_part {
     char status;
     char padding[3];
 } FSProtoPingLeaderReqBodyPart;
+
+typedef struct fs_proto_report_disk_space_req {
+    char total[8];
+    char used[8];
+    char avail[8];
+} FSProtoReportDiskSpaceReq;
 
 typedef struct fs_proto_replia_fetch_binlog_first_req_header {
     char last_data_version[8]; //NOT including

@@ -1077,7 +1077,9 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         return status;
     }
 
-    if (header_proto.cmd == FS_CLUSTER_PROTO_PING_LEADER_RESP) {
+    if (header_proto.cmd == FS_CLUSTER_PROTO_PING_LEADER_RESP ||
+            header_proto.cmd == FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)
+    {
         return 0;
     } else if (header_proto.cmd == FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS) {
         return cluster_process_leader_push(response, in_buff, body_len);
@@ -1139,6 +1141,37 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
 #define proto_ping_leader(conn) \
     proto_ping_leader_ex(conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, false)
 
+static int proto_report_disk_space(ConnectionInfo *conn,
+        const FSClusterServerSpaceStat *stat)
+{
+    FSProtoHeader *header;
+    SFResponseInfo response;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReportDiskSpaceReq)];
+    FSProtoReportDiskSpaceReq *req;
+    int result;
+
+    header = (FSProtoHeader *)out_buff;
+    req = (FSProtoReportDiskSpaceReq *)(header + 1);
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ,
+            sizeof(FSProtoReportDiskSpaceReq));
+    long2buff(stat->total, req->total);
+    long2buff(stat->avail, req->avail);
+    long2buff(stat->used, req->used);
+
+    response.error.length = 0;
+    if ((result=tcpsenddata_nb(conn->sock, out_buff, sizeof(out_buff),
+                    SF_G_NETWORK_TIMEOUT)) == 0)
+    {
+        result = cluster_recv_from_leader(conn, &response,
+                1000 * SF_G_NETWORK_TIMEOUT, false);
+    }
+
+    if (result != 0) {
+        sf_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
 
 static int cluster_try_recv_push_data(ConnectionInfo *conn)
 {
@@ -1168,27 +1201,37 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
     return 0;
 }
 
-static int cluster_ping_leader(ConnectionInfo *conn)
+static int leader_check()
 {
     int result;
     int inactive_count;
-    FSClusterServerInfo *leader;
+    static time_t last_stat_time = 0;
 
-    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
-        sleep(1);
-        PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
-        inactive_count = INACTIVE_SERVER_ARRAY.count;
-        PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
-        if (inactive_count > 0) {
-            if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
-                return result;
-            }
-        }
-
-        leader_deal_data_version_changes();
-        cluster_topology_check_and_make_delay_decisions();
-        return 0;  //do not need ping myself
+    sleep(1);
+    if (g_current_time - last_stat_time >= 10) {
+        last_stat_time = g_current_time;
+        storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
     }
+
+    PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
+    inactive_count = INACTIVE_SERVER_ARRAY.count;
+    PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
+    if (inactive_count > 0) {
+        if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
+            return result;
+        }
+    }
+
+    leader_deal_data_version_changes();
+    cluster_topology_check_and_make_delay_decisions();
+    return 0;  //do not need ping myself
+}
+
+static int follower_ping(ConnectionInfo *conn)
+{
+    int result;
+    static time_t last_stat_time = 0;
+    FSClusterServerInfo *leader;
 
     leader = CLUSTER_LEADER_ATOM_PTR;
     if (leader == NULL) {
@@ -1218,11 +1261,26 @@ static int cluster_ping_leader(ConnectionInfo *conn)
         return result;
     }
 
-    if ((result=proto_ping_leader(conn)) != 0) {
+    result = proto_ping_leader(conn);
+    if (result == 0 && g_current_time - last_stat_time >= 10) {
+        last_stat_time = g_current_time;
+        storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+        result = proto_report_disk_space(conn,
+                &CLUSTER_MYSELF_PTR->space_stat);
+    }
+    if (result != 0) {
         conn_pool_disconnect_server(conn);
     }
-
     return result;
+}
+
+static inline int cluster_ping_leader(ConnectionInfo *conn)
+{
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
+        return leader_check();
+    } else {
+        return follower_ping(conn);
+    }
 }
 
 static void *cluster_thread_entrance(void* arg)
@@ -1236,6 +1294,7 @@ static void *cluster_thread_entrance(void* arg)
 
     memset(&mconn, 0, sizeof(mconn));
     mconn.sock = -1;
+    storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
 
     fail_count = 0;
     sleep_seconds = 1;

@@ -283,6 +283,40 @@ static int service_deal_get_master(struct fast_task_info *task)
     return 0;
 }
 
+static int service_deal_get_leader(struct fast_task_info *task)
+{
+    int result;
+    FSProtoGetServerResp *resp;
+    FSClusterServerInfo *leader;
+    const FCAddressInfo *addr;
+
+    if ((result=server_expect_body_length(task, 0)) != 0) {
+        return result;
+    }
+
+    leader = CLUSTER_LEADER_ATOM_PTR;
+    if (leader == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "the leader NOT exist");
+        return SF_RETRIABLE_ERROR_NO_SERVER;
+    }
+
+    resp = (FSProtoGetServerResp *)REQUEST.body;
+    addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
+                leader->server), task->client_ip);
+
+    int2buff(leader->server->id, resp->server_id);
+    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
+            addr->conn.ip_addr);
+    short2buff(addr->conn.port, resp->port);
+
+    RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_GET_LEADER_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
 static FSClusterDataServerInfo *get_readable_server(
         FSClusterDataGroupInfo *group, const SFDataReadRule read_rule)
 {
@@ -461,6 +495,39 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     int2buff(body_part - part_start, body_header->count);
     RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}
+
+static int service_deal_disk_space_stat(struct fast_task_info *task)
+{
+    int result;
+    FSProtoDiskSpaceStatRespBodyHeader *body_header;
+    FSProtoDiskSpaceStatRespBodyPart *part_start;
+    FSProtoDiskSpaceStatRespBodyPart *body_part;
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+
+    if ((result=server_expect_body_length(task, 0)) != 0) {
+        return result;
+    }
+
+    body_header = (FSProtoDiskSpaceStatRespBodyHeader *)REQUEST.body;
+    part_start = (FSProtoDiskSpaceStatRespBodyPart *)(REQUEST.body +
+            sizeof(FSProtoDiskSpaceStatRespBodyHeader));
+    body_part = part_start;
+
+	end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++, body_part++) {
+        int2buff(cs->server->id, body_part->server_id);
+        long2buff(cs->space_stat.total, body_part->total);
+        long2buff(cs->space_stat.avail, body_part->avail);
+        long2buff(cs->space_stat.used, body_part->used);
+    }
+
+    int2buff(body_part - part_start, body_header->count);
+    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.cmd = FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP;
     TASK_ARG->context.response_done = true;
     return 0;
 }
@@ -656,8 +723,14 @@ int service_deal_task(struct fast_task_info *task)
             case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
                 result = service_deal_get_readable_server(task);
                 break;
+            case FS_SERVICE_PROTO_GET_LEADER_REQ:
+                result = service_deal_get_leader(task);
+                break;
             case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
                 result = service_deal_cluster_stat(task);
+                break;
+            case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
+                result = service_deal_disk_space_stat(task);
                 break;
             case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
                 if ((result=sf_server_deal_setup_channel(task,

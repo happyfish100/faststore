@@ -56,6 +56,21 @@ static ConnectionInfo *make_connection(FSClientContext *client_ctx,
     return NULL;
 }
 
+static ConnectionInfo *get_server_connection(FSClientContext *client_ctx,
+        FCServerInfo *server, int *err_no)
+{
+    FCAddressPtrArray *addr_array;
+    ConnectionInfo *conn;
+
+    addr_array = &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server);
+    if ((conn=make_connection(client_ctx, addr_array, err_no)) == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "server id: %d, get_server_connection fail",
+                __LINE__, server->id);
+    }
+    return conn;
+}
+
 static ConnectionInfo *get_connection(FSClientContext *client_ctx,
         const int data_group_index, int *err_no)
 {
@@ -243,6 +258,57 @@ static void close_connection(FSClientContext *client_ctx,
             conn_manager.args, conn, true);
 }
 
+static ConnectionInfo *get_leader_connection(FSClientContext *client_ctx,
+        FCServerInfo *server, int *err_no)
+{
+    ConnectionInfo *conn;
+    FSClientServerEntry leader;
+    SFNetRetryIntervalContext net_retry_ctx;
+    int i;
+
+    sf_init_net_retry_interval_context(&net_retry_ctx,
+            &client_ctx->net_retry_cfg.interval_mm,
+            &client_ctx->net_retry_cfg.connect);
+    i = 0;
+    while (1) {
+        do {
+            if ((conn=get_server_connection(client_ctx, server,
+                            err_no)) == NULL)
+            {
+                break;
+            }
+
+            if ((*err_no=fs_client_proto_get_leader(client_ctx,
+                            conn, &leader)) != 0)
+            {
+                close_connection(client_ctx, conn);
+                break;
+            }
+
+            if (FC_CONNECTION_SERVER_EQUAL1(*conn, leader.conn)) {
+                return conn;
+            }
+            release_connection(client_ctx, conn);
+            if ((conn=get_spec_connection(client_ctx,
+                            &leader.conn, err_no)) == NULL)
+            {
+                break;
+            }
+
+            return conn;
+        } while (0);
+
+        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx,
+                client_ctx->net_retry_cfg.
+                connect.times, ++i, *err_no);
+    }
+
+    logError("file: "__FILE__", line: %d, "
+            "get_leader_connection fail, errno: %d",
+            __LINE__, *err_no);
+    return NULL;
+}
+
 static const struct fs_connection_parameters *get_connection_params(
         struct fs_client_context *client_ctx, ConnectionInfo *conn)
 {
@@ -353,9 +419,11 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
 
     conn_manager->args = cp;
     conn_manager->get_connection = get_connection;
+    conn_manager->get_server_connection = get_server_connection;
     conn_manager->get_spec_connection = get_spec_connection;
     conn_manager->get_master_connection = get_master_connection;
     conn_manager->get_readable_connection = get_readable_connection;
+    conn_manager->get_leader_connection = get_leader_connection;
     conn_manager->release_connection = release_connection;
     conn_manager->close_connection = close_connection;
     conn_manager->get_connection_params = get_connection_params;
