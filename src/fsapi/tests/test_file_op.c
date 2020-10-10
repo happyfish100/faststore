@@ -115,6 +115,18 @@ int main(int argc, char *argv[])
         return result;
     }
 
+    {
+        struct statvfs stbuf;
+        if (fsapi_statvfs(filename, &stbuf) == 0) {
+            printf("%s fs id: %ld, total: %"PRId64" MB, free: %"PRId64" MB, "
+                    "avail: %"PRId64" MB, f_namemax: %ld, f_flag: %ld\n", filename,
+                    stbuf.f_fsid, (int64_t)(stbuf.f_blocks * stbuf.f_frsize) / (1024 * 1024),
+                    (int64_t)(stbuf.f_bfree * stbuf.f_frsize) / (1024 * 1024),
+                    (int64_t)(stbuf.f_bavail * stbuf.f_frsize) / (1024 * 1024),
+                    stbuf.f_namemax, stbuf.f_flag);
+        }
+    }
+
     if ((result=fsapi_open(&fi, filename, O_CREAT |
                     O_WRONLY | open_flags, &omp)) != 0)
     {

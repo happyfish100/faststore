@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <fcntl.h>
 #include "fs_api_types.h"
 
@@ -42,6 +43,9 @@ extern "C" {
 
 #define fsapi_rename(old_path, new_path)  \
     fsapi_rename_ex(&g_fs_api_ctx, old_path, new_path, 0)
+
+#define fsapi_statvfs(path, stbuf)  \
+    fsapi_statvfs_ex(&g_fs_api_ctx, path, stbuf)
 
     int fsapi_open_ex(FSAPIContext *ctx, FSAPIFileInfo *fi,
             const char *path, const int flags,
@@ -122,6 +126,9 @@ extern "C" {
 
     int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
             const char *new_path, const FDIRClientOwnerModePair *omp);
+
+    int fsapi_statvfs_ex(FSAPIContext *ctx, const char *path,
+            struct statvfs *stbuf);
 
 #ifdef __cplusplus
 }

@@ -591,7 +591,7 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
 
         body_header = (FSProtoDiskSpaceStatRespBodyHeader *)in_buff;
         *count = buff2int(body_header->count);
-        expect_len = sizeof(FSProtoDiskSpaceStatRespBodyPart) * (*count);
+        expect_len = sizeof(*body_header) + sizeof(*body_part) * (*count);
         if (body_len != expect_len) {
             response.error.length = snprintf(response.error.message,
                     sizeof(response.error.message), "invalid response "
@@ -612,7 +612,7 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
         body_part = (FSProtoDiskSpaceStatRespBodyPart *)(body_header + 1);
         send = stats + *count;
         for (ps=stats; ps<send; ps++, body_part++) {
-            ps->server_id = buff2long(body_part->server_id);
+            ps->server_id = buff2int(body_part->server_id);
             ps->stat.total = buff2long(body_part->total);
             ps->stat.avail = buff2long(body_part->avail);
             ps->stat.used = buff2long(body_part->used);

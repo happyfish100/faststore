@@ -1114,3 +1114,29 @@ int fsapi_link_ex(FSAPIContext *ctx, const char *old_path,
     return fdir_client_link_dentry(ctx->contexts.fdir,
             &src_fullname, &dest_fullname, omp, &dentry);
 }
+
+int fsapi_statvfs_ex(FSAPIContext *ctx, const char *path,
+        struct statvfs *stbuf)
+{
+    int result;
+    FSClusterSpaceStat stat;
+
+    if ((result=fs_client_cluster_space_stat(ctx->contexts.fs, &stat)) != 0) {
+        return result;
+    }
+
+    stbuf->f_bsize = stbuf->f_frsize = 512;
+    stbuf->f_blocks = stat.total / stbuf->f_frsize;
+    stbuf->f_bfree = (stat.total - stat.used) / stbuf->f_frsize;
+    stbuf->f_bavail = stat.avail / stbuf->f_frsize;
+
+    //TODO
+    stbuf->f_files = 1234;
+    stbuf->f_ffree = 1234567;
+    stbuf->f_favail = 123456;
+
+    stbuf->f_namemax = NAME_MAX;
+    stbuf->f_fsid = 12345678;
+    stbuf->f_flag = 0;
+    return 0;
+}
