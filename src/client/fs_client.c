@@ -1,4 +1,6 @@
 #include <stdlib.h>
+#include "fastcommon/fc_list.h"
+#include "fastcommon/skiplist_set.h"
 #include "sf/idempotency/client/client_channel.h"
 #include "sf/idempotency/client/rpc_wrapper.h"
 #include "client_global.h"
@@ -420,10 +422,116 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
             enoent_log_level, inc_alloc);
 }
 
-int fs_client_cluster_space_stat(FSClientContext *client_ctx,
-        FCServerInfo *server, FSClientServerSpaceStat *stat,
+int fs_client_server_group_space_stat(FSClientContext *client_ctx,
+        FCServerInfo *server, FSClientServerSpaceStat *stats,
         const int size, int *count)
 {
     SF_CLIENT_IDEMPOTENCY_QUERY_WRAPPER(client_ctx, GET_LEADER_CONNECTION,
-            server, fs_client_proto_cluster_space_stat, stat, size, count);
+            server, fs_client_proto_server_group_space_stat,
+            stats, size, count);
+}
+
+static int cluster_space_stat(FSClientContext *client_ctx,
+        SkiplistSet *sl, FSClusterSpaceStat *stat)
+{
+    struct {
+        FSClientServerSpaceStat stats[FS_MAX_GROUP_SERVERS];
+        int count;
+    } stat_array;
+    int result;
+    FSClientServerSpaceStat *cur;
+    FSClientServerSpaceStat *end;
+    FCServerInfo *server;
+    FCServerInfo target;
+    FSClusterSpaceStat min_stat;
+
+    stat->total = stat->avail = stat->used = 0;
+    while ((server=(FCServerInfo *)skiplist_set_get_first(sl)) != NULL) {
+        if (fs_client_server_group_space_stat(client_ctx, server,
+                    stat_array.stats, FS_MAX_GROUP_SERVERS,
+                    &stat_array.count) != 0)
+        {
+            if ((result=skiplist_set_delete(sl, server)) != 0) {
+                logError("file: "__FILE__", line: %d, "
+                        "remove server id: %d fail, result: %d",
+                        __LINE__, server->id, result);
+                return result;
+            }
+            continue;
+        }
+
+        min_stat.total = min_stat.avail = min_stat.used = 0;
+        end = stat_array.stats + stat_array.count;
+        for (cur=stat_array.stats; cur<end; cur++) {
+            if ((cur->stat.total > 0) && ((min_stat.total == 0) ||
+                        (cur->stat.used > min_stat.used)))
+            {
+                min_stat.total = cur->stat.total;
+                min_stat.avail = cur->stat.avail;
+                min_stat.used = cur->stat.used;
+            }
+
+            target.id = cur->server_id;
+            if ((result=skiplist_set_delete(sl, &target)) != 0) {
+                logError("file: "__FILE__", line: %d, "
+                        "remove server id: %d fail, result: %d",
+                        __LINE__, cur->server_id, result);
+                return result;
+            }
+        }
+
+        logInfo("file: "__FILE__", line: %d, "
+                "stat server id: %d, total: %"PRId64" MB, "
+                "avail: %"PRId64" MB, used: %"PRId64" MB",
+                __LINE__, server->id, min_stat.total / (1024 * 1024),
+                min_stat.avail / (1024 * 1024), min_stat.used / (1024 * 1024));
+
+        stat->total += min_stat.total;
+        stat->avail += min_stat.avail;
+        stat->used += min_stat.used;
+    }
+
+    return 0;
+}
+
+static int compare_server(const void *p1, const void *p2)
+{
+    return ((FCServerInfo *)p1)->id - ((FCServerInfo *)p2)->id;
+}
+
+int fs_client_cluster_space_stat(FSClientContext *client_ctx,
+        FSClusterSpaceStat *stat)
+{
+    const int min_alloc_elements_once = 2;
+    int result;
+    int level_count;
+    SkiplistSet sl;
+    const FCServerInfoPtrArray *parray;
+    FCServerInfo **pp;
+    FCServerInfo **end;
+
+    parray = fs_cluster_cfg_get_used_servers(client_ctx->cluster_cfg.ptr);
+    if (parray == NULL) {
+        return ENOMEM;
+    }
+
+    level_count = skiplist_get_proper_level(parray->count);
+    if ((result=skiplist_set_init_ex(&sl, level_count, compare_server,
+                    NULL, min_alloc_elements_once)) != 0)
+    {
+        return result;
+    }
+
+    end = parray->servers + parray->count;
+    for (pp=parray->servers; pp<end; pp++) {
+        if ((result=skiplist_set_insert(&sl, *pp)) != 0) {
+            break;
+        }
+    }
+
+    if (result == 0) {
+        result = cluster_space_stat(client_ctx, &sl, stat);
+    }
+    skiplist_set_destroy(&sl);
+    return result;
 }

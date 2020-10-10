@@ -550,8 +550,8 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_proto_cluster_space_stat(FSClientContext *client_ctx,
-        ConnectionInfo *conn, FSClientServerSpaceStat *stat,
+int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
+        ConnectionInfo *conn, FSClientServerSpaceStat *stats,
         const int size, int *count)
 {
     char out_buff[sizeof(FSProtoHeader)];
@@ -610,8 +610,8 @@ int fs_client_proto_cluster_space_stat(FSClientContext *client_ctx,
         }
 
         body_part = (FSProtoDiskSpaceStatRespBodyPart *)(body_header + 1);
-        send = stat + *count;
-        for (ps=stat; ps<send; ps++, body_part++) {
+        send = stats + *count;
+        for (ps=stats; ps<send; ps++, body_part++) {
             ps->server_id = buff2long(body_part->server_id);
             ps->stat.total = buff2long(body_part->total);
             ps->stat.avail = buff2long(body_part->avail);

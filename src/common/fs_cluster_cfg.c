@@ -1252,5 +1252,6 @@ const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(
         }
     }
 
+    cluster_cfg->used_server_array.count = count;
     return &cluster_cfg->used_server_array;
 }

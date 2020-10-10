@@ -46,8 +46,8 @@ extern "C" {
             const ConnectionInfo *spec_conn, const int data_group_id,
             FSClientClusterStatEntry *stats, const int size, int *count);
 
-    int fs_client_proto_cluster_space_stat(FSClientContext *client_ctx,
-            ConnectionInfo *conn, FSClientServerSpaceStat *stat,
+    int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
+            ConnectionInfo *conn, FSClientServerSpaceStat *stats,
             const int size, int *count);
 
 #ifdef __cplusplus
