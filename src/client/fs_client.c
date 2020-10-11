@@ -480,11 +480,13 @@ static int cluster_space_stat(FSClientContext *client_ctx,
             }
         }
 
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "stat server id: %d, total: %"PRId64" MB, "
                 "avail: %"PRId64" MB, used: %"PRId64" MB",
                 __LINE__, server->id, min_stat.total / (1024 * 1024),
                 min_stat.avail / (1024 * 1024), min_stat.used / (1024 * 1024));
+                */
 
         stat->total += min_stat.total;
         stat->avail += min_stat.avail;

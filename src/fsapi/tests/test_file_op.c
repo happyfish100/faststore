@@ -115,6 +115,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
+    /*
     {
         struct statvfs stbuf;
         if (fsapi_statvfs(filename, &stbuf) == 0) {
@@ -126,6 +127,7 @@ int main(int argc, char *argv[])
                     stbuf.f_namemax, stbuf.f_flag);
         }
     }
+    */
 
     if ((result=fsapi_open(&fi, filename, O_CREAT |
                     O_WRONLY | open_flags, &omp)) != 0)
