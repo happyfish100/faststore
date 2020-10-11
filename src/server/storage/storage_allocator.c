@@ -142,11 +142,13 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
         trunk_allocator_array_to_freelists(allocator, trunk_ptr_array);
         trunk_allocator_prealloc_trunks(allocator);
 
+        /*
         logInfo("path index: %d, total: %"PRId64" MB, used: %"PRId64" MB, "
                 "avail: %"PRId64" MB", allocator->path_info->store.index,
                 allocator->path_info->trunk_stat.total / (1024 * 1024),
                 allocator->path_info->trunk_stat.used / (1024 * 1024),
                 allocator->path_info->trunk_stat.avail / (1024 * 1024));
+                */
     }
 
     return 0;

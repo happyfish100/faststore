@@ -78,7 +78,7 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
 
     if (i == array->count) {
         logError("file: "__FILE__", line: %d, "
-                "can't found replication slave id: %d",
+                "can't found replication server id: %d",
                 __LINE__, replication->peer->server->id);
         return ENOENT;
     }
@@ -413,7 +413,7 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             *prompt = '\0';
         }
         logInfo("file: "__FILE__", line: %d, "
-                "connect to slave %s:%u successfully%s.", __LINE__,
+                "connect to server %s:%u successfully%s.", __LINE__,
                 replication->connection_info.conn.ip_addr,
                 replication->connection_info.conn.port, prompt);
 

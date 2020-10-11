@@ -173,6 +173,19 @@ void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss)
         stat.total += (*pp)->trunk_stat.total + disk_avail;
         stat.avail += (*pp)->trunk_stat.avail + disk_avail;
         stat.used += (*pp)->trunk_stat.used;
+
+        /*
+        logInfo("trunk {total: %"PRId64" MB, avail: %"PRId64" MB, "
+                "used: %"PRId64" MB, reserved: %"PRId64" MB}, "
+                "disk_avail: %"PRId64" MB, sum {total: %"PRId64" MB, "
+                "avail: %"PRId64" MB, used: %"PRId64" MB}",
+                (*pp)->trunk_stat.total / (1024 * 1024),
+                (*pp)->trunk_stat.avail / (1024 * 1024),
+                (*pp)->trunk_stat.used / (1024 * 1024),
+                (*pp)->reserved_space.value / (1024 * 1024),
+                disk_avail / (1024 * 1024), stat.total / (1024 * 1024),
+                stat.avail / (1024 * 1024), stat.used / (1024 * 1024));
+                */
     }
 
     *ss = stat;
