@@ -942,18 +942,19 @@ static void fs_do_flock(fuse_req_t req, fuse_ino_t ino,
 
 static void fs_do_statfs(fuse_req_t req, fuse_ino_t ino)
 {
+    int result;
     struct statvfs stbuf;
 
-    if (statvfs("/", &stbuf) < 0) {
-        fuse_reply_err(req, errno != 0 ? errno : ENOENT);
+    if ((result=fsapi_statvfs("/", &stbuf)) == 0) {
+        fuse_reply_statfs(req, &stbuf);
+    } else {
+        fuse_reply_err(req, result);
     }
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "ino: %"PRId64, __LINE__, __FUNCTION__, ino);
             */
-
-    fuse_reply_statfs(req, &stbuf);
 }
 
 static void fs_do_fallocate(fuse_req_t req, fuse_ino_t ino, int mode,

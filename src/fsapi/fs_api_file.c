@@ -1119,24 +1119,32 @@ int fsapi_statvfs_ex(FSAPIContext *ctx, const char *path,
         struct statvfs *stbuf)
 {
     int result;
-    FSClusterSpaceStat stat;
+    FSClusterSpaceStat sstat;
+    FDIRInodeStat istat;
 
-    if ((result=fs_client_cluster_space_stat(ctx->contexts.fs, &stat)) != 0) {
+    if ((result=fs_client_cluster_space_stat(
+                    ctx->contexts.fs, &sstat)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fdir_client_namespace_stat(ctx->contexts.
+                    fdir, &ctx->ns, &istat)) != 0)
+    {
         return result;
     }
 
     stbuf->f_bsize = stbuf->f_frsize = 512;
-    stbuf->f_blocks = stat.total / stbuf->f_frsize;
-    stbuf->f_bfree = (stat.total - stat.used) / stbuf->f_frsize;
-    stbuf->f_bavail = stat.avail / stbuf->f_frsize;
+    stbuf->f_blocks = sstat.total / stbuf->f_frsize;
+    stbuf->f_bfree = (sstat.total - sstat.used) / stbuf->f_frsize;
+    stbuf->f_bavail = sstat.avail / stbuf->f_frsize;
 
-    //TODO
-    stbuf->f_files = 1234;
-    stbuf->f_ffree = 1234567;
-    stbuf->f_favail = 123456;
+    stbuf->f_files = istat.total;
+    stbuf->f_ffree = istat.total - istat.used;
+    stbuf->f_favail = istat.avail;
 
     stbuf->f_namemax = NAME_MAX;
-    stbuf->f_fsid = 12345678;
+    stbuf->f_fsid = 0;
     stbuf->f_flag = 0;
     return 0;
 }

@@ -63,10 +63,6 @@ typedef struct {
     int64_t ignore;
 } FSCounterTripple;
 
-typedef struct fs_cluster_space_stat {
-    int64_t total;
-    int64_t avail;
-    int64_t used;
-} FSClusterSpaceStat;
+typedef SFSpaceStat FSClusterSpaceStat;
 
 #endif
