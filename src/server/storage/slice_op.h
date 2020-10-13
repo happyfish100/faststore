@@ -21,6 +21,15 @@ extern "C" {
         return 0;
     }
 
+    static inline void fs_free_slice_op_ctx(FSSliceSNPairArray *parray)
+    {
+        if (parray->slice_sn_pairs != NULL) {
+            free(parray->slice_sn_pairs);
+            parray->slice_sn_pairs = NULL;
+            parray->alloc = 0;
+        }
+    }
+
     int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
             const bool reclaim_alloc);
 

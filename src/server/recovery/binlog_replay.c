@@ -71,6 +71,7 @@ typedef struct binlog_replay_context {
         ReplayThreadContext *contexts;
         ReplayThreadContext fixed[FIXED_THREAD_CONTEXT_COUNT];
         ReplayTaskInfo *tasks;   //holder
+        int task_count;
     } thread_env;
     ReplicaBinlogRecord record;
     DataRecoveryContext *recovery_ctx;
@@ -601,6 +602,7 @@ static int init_replay_tasks(DataRecoveryContext *ctx)
     BinlogReplayContext *replay_ctx;
     ReplayTaskInfo *task;
     ReplayTaskInfo *end;
+    int result;
     int count;
     int bytes;
 
@@ -618,7 +620,12 @@ static int init_replay_tasks(DataRecoveryContext *ctx)
         task->op_ctx.info.write_binlog.immediately = true;
         task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;
+
+        if ((result=fs_init_slice_op_ctx(&task->op_ctx.update.sarray)) != 0) {
+            return result;
+        }
     }
+    replay_ctx->thread_env.task_count = count;
 
     return 0;
 }
@@ -677,15 +684,22 @@ static int int_replay_context(DataRecoveryContext *ctx)
 static void destroy_replay_context(BinlogReplayContext *replay_ctx)
 {
     ReplayThreadContext *context;
-    ReplayThreadContext *end;
+    ReplayThreadContext *cend;
+    ReplayTaskInfo *task;
+    ReplayTaskInfo *tend;
 
-    end = replay_ctx->thread_env.contexts + RECOVERY_THREADS_PER_DATA_GROUP;
-    for (context=replay_ctx->thread_env.contexts; context<end; context++) {
+    cend = replay_ctx->thread_env.contexts + RECOVERY_THREADS_PER_DATA_GROUP;
+    for (context=replay_ctx->thread_env.contexts; context<cend; context++) {
         fc_queue_destroy(&context->queues.freelist);
         fc_queue_destroy(&context->queues.waiting);
 
         destroy_pthread_lock_cond_pair(&context->notify.lcp);
         ob_index_free_slice_ptr_array(&context->slice_ptr_array);
+    }
+
+    tend = replay_ctx->thread_env.tasks + replay_ctx->thread_env.task_count;
+    for (task=replay_ctx->thread_env.tasks; task<tend; task++) {
+        fs_free_slice_op_ctx(&task->op_ctx.update.sarray);
     }
     free(replay_ctx->thread_env.tasks);
 
