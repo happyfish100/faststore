@@ -405,9 +405,14 @@ static int do_open(fuse_req_t req, FDIRDEntryInfo *dentry,
 
 static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
+#define USER_PERM_MASK(mask)  ((mask << 6) & 0700)
+#define GROUP_PERM_MASK(mask) ((mask << 3) & 0070)
+#define OTHER_PERM_MASK(mask) (mask & 0007)
+
     int result;
     int64_t new_inode;
     FDIRDEntryInfo dentry;
+    const struct fuse_ctx *fctx;
 
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -420,14 +425,24 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
     }
 
     if (mask != F_OK) {
-        if ((dentry.stat.mode & mask) != mask) {
-            result = EPERM;
+        fctx = fuse_req_ctx(req);
+        if (fctx->uid != 0) {
+            if (fctx->uid == dentry.stat.uid) {
+                result = (dentry.stat.mode & USER_PERM_MASK(mask)) ==
+                    USER_PERM_MASK(mask) ? 0 : EPERM;
+            } else if (fctx->gid == dentry.stat.gid) {
+                result = (dentry.stat.mode & GROUP_PERM_MASK(mask)) ==
+                        GROUP_PERM_MASK(mask) ? 0 : EPERM;
+            } else {
+                result = (dentry.stat.mode & OTHER_PERM_MASK(mask)) ==
+                    OTHER_PERM_MASK(mask) ? 0 : EPERM;
+            }
         }
     }
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "ino: %"PRId64", mask: %o, result: %d", __LINE__,
+            "ino: %"PRId64", mask: 0%o, result: %d", __LINE__,
             __FUNCTION__, ino, mask, result);
             */
 
