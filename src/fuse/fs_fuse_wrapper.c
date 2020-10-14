@@ -427,7 +427,6 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
     int result;
     int64_t new_inode;
     FDIRDEntryInfo dentry;
-    const struct fuse_ctx *fctx;
 
     if (fs_convert_inode(ino, &new_inode) != 0) {
         fuse_reply_err(req, ENOENT);
@@ -439,7 +438,9 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
         return;
     }
 
+    /*
     if (mask != F_OK) {
+        const struct fuse_ctx *fctx;
         fctx = fuse_req_ctx(req);
         if (fctx->uid != 0) {
             if (fctx->uid == dentry.stat.uid) {
@@ -454,6 +455,7 @@ static void fs_do_access(fuse_req_t req, fuse_ino_t ino, int mask)
             }
         }
     }
+    */
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
