@@ -192,7 +192,7 @@ static void server_log_configs()
             sz_replica_config, sizeof(sz_replica_config));
 
     snprintf(sz_server_config, sizeof(sz_server_config),
-            "my server id = %d, data_path = %s, "
+            "my server id = %d, data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
@@ -201,7 +201,7 @@ static void server_log_configs()
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d",
-            CLUSTER_MY_SERVER_ID, DATA_PATH_STR,
+            CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
@@ -299,6 +299,12 @@ int server_load_config(const char *filename)
 
     if ((result=load_data_path_config(&ini_context, filename)) != 0) {
         return result;
+    }
+
+    DATA_THREAD_COUNT = iniGetIntValue(NULL, "data_threads",
+            &ini_context, FS_DEFAULT_DATA_THREAD_COUNT);
+    if (DATA_THREAD_COUNT <= 0) {
+        DATA_THREAD_COUNT = FS_DEFAULT_DATA_THREAD_COUNT;
     }
 
     REPLICA_CHANNELS_BETWEEN_TWO_SERVERS = iniGetIntValue(NULL,

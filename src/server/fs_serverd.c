@@ -47,6 +47,7 @@
 #include "cluster_handler.h"
 #include "replica_handler.h"
 #include "cluster_relationship.h"
+#include "data_thread.h"
 #include "server_storage.h"
 #include "server_binlog.h"
 #include "server_replication.h"
@@ -166,6 +167,10 @@ int main(int argc, char *argv[])
         }
 
         if ((result=trunk_io_thread_init()) != 0) {
+            break;
+        }
+
+        if ((result=data_thread_init()) != 0) {
             break;
         }
 

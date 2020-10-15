@@ -46,6 +46,7 @@ typedef struct server_global_vars {
 
     struct {
         string_t path;   //data path
+        int thread_count;
         int binlog_buffer_size;
         int local_binlog_check_last_seconds;
         int slave_binlog_check_last_rows;
@@ -95,6 +96,7 @@ typedef struct server_global_vars {
 
 #define NEXT_TASK_VERSION     g_server_global_vars.next_task_version
 
+#define DATA_THREAD_COUNT     g_server_global_vars.data.thread_count
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
 #define DATA_PATH             g_server_global_vars.data.path
 #define DATA_PATH_STR         DATA_PATH.str
