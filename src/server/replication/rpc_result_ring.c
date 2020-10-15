@@ -32,6 +32,7 @@
 #include "sf/sf_global.h"
 #include "../../common/fs_cluster_cfg.h"
 #include "../server_global.h"
+#include "../data_thread.h"
 #include "rpc_result_ring.h"
 
 static int init_rpc_result_instance(FSReplicaRPCResultInstance *instance,
@@ -112,7 +113,8 @@ static inline void desc_task_waiting_rpc_count(
                     entry->waiting_task->arg)->context.
                 service.waiting_rpc_count, 1) == 0)
     {
-        sf_nio_notify(entry->waiting_task, SF_NIO_STAGE_CONTINUE);
+        data_thread_notify(task_arg->context.slice_op_ctx.data_thread_ctx);
+        //sf_nio_notify(entry->waiting_task, SF_NIO_STAGE_CONTINUE);
     }
 }
 

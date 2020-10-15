@@ -36,6 +36,7 @@
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../data_thread.h"
 #include "../binlog/binlog_reader.h"
 #include "replication_common.h"
 #include "replication_caller.h"
@@ -320,18 +321,20 @@ static int send_join_server_package(FSReplication *replication)
 
 static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
 {
-    if (rb->task_version != ((FSServerTaskArg *)
-                rb->task->arg)->task_version)
-    {
+    FSServerTaskArg *task_arg;
+
+    task_arg = (FSServerTaskArg *)rb->task->arg;
+    if (rb->task_version != task_arg->task_version) {
         logWarning("file: "__FILE__", line: %d, "
                 "task %p already cleanup", __LINE__, rb->task);
         return;
     }
 
-    if (__sync_sub_and_fetch(&((FSServerTaskArg *)rb->task->arg)->
-                context.service.waiting_rpc_count, 1) == 0)
+    if (__sync_sub_and_fetch(&task_arg->context.service.
+                waiting_rpc_count, 1) == 0)
     {
-        sf_nio_notify(rb->task, SF_NIO_STAGE_CONTINUE);
+        data_thread_notify(task_arg->context.slice_op_ctx.data_thread_ctx);
+        //sf_nio_notify(rb->task, SF_NIO_STAGE_CONTINUE);
     }
 }
 

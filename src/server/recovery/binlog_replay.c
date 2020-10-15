@@ -193,7 +193,8 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                             read_bytes);
                     task->op_ctx.info.bs_key.slice.length = read_bytes;
                 }
-                if ((result=fs_slice_write(&task->op_ctx, buff)) == 0) {
+                task->op_ctx.info.buff = buff;
+                if ((result=fs_slice_write(&task->op_ctx)) == 0) {
                     PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
                     while (!task->thread_ctx->notify.done) {
                         pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,

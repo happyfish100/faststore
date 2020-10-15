@@ -45,6 +45,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "server_storage.h"
+#include "data_thread.h"
 #include "data_update_handler.h"
 
 static int parse_check_block_key_ex(struct fast_task_info *task,
@@ -332,7 +333,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         FSSliceOpContext *op_ctx)
 {
     FSProtoSliceWriteReqHeader *req_header;
-    char *buff;
     int result;
 
     if ((result=sf_server_check_min_body_length(&RESPONSE,
@@ -368,7 +368,7 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return EINVAL;
     }
 
-    buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
+    op_ctx->info.buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
         op_ctx->notify.func = master_slice_write_done_notify;
     } else {
@@ -400,12 +400,18 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     op_ctx->info.write_binlog.log_replica = true;
     op_ctx->info.write_binlog.immediately =
         TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+
+    return push_to_data_thread_queue(task,
+            DATA_OPERATION_SLICE_WRITE, op_ctx);
+
+    /*
     if ((result=fs_slice_write(op_ctx, buff)) != 0) {
         du_handler_set_slice_op_error_msg(task, op_ctx, "write", result);
         return result;
     }
 
     return TASK_STATUS_CONTINUE;
+    */
 }
 
 int du_handler_deal_slice_allocate(struct fast_task_info *task,
@@ -431,6 +437,11 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     op_ctx->info.write_binlog.log_replica = true;
     op_ctx->info.write_binlog.immediately =
         TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+
+    return push_to_data_thread_queue(task,
+            DATA_OPERATION_SLICE_ALLOCATE, op_ctx);
+
+    /*
     if ((result=fs_slice_allocate_ex(op_ctx, ((FSServerContext *)
                         task->thread_data->arg)->slice_ptr_array)) != 0)
     {
@@ -439,6 +450,7 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     }
 
     return do_replica(task, FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
+    */
 }
 
 int du_handler_deal_slice_delete(struct fast_task_info *task,
@@ -464,12 +476,18 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     op_ctx->info.write_binlog.log_replica = true;
     op_ctx->info.write_binlog.immediately =
         TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+
+    return push_to_data_thread_queue(task,
+            DATA_OPERATION_SLICE_DELETE, op_ctx);
+
+    /*
     if ((result=fs_delete_slices(op_ctx)) != 0) {
         du_handler_set_slice_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 
     return do_replica(task, FS_SERVICE_PROTO_SLICE_DELETE_RESP);
+    */
 }
 
 int du_handler_deal_block_delete(struct fast_task_info *task,
@@ -495,12 +513,18 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     op_ctx->info.write_binlog.log_replica = true;
     op_ctx->info.write_binlog.immediately =
         TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE;
+
+    return push_to_data_thread_queue(task,
+            DATA_OPERATION_BLOCK_DELETE, op_ctx);
+
+    /*
     if ((result=fs_delete_block(op_ctx)) != 0) {
         set_block_op_error_msg(task, op_ctx, "delete", result);
         return result;
     }
 
     return do_replica(task, FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
+    */
 }
 
 FSServerContext *du_handler_alloc_server_context()

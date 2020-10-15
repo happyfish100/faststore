@@ -20,6 +20,7 @@
 #include "sf/sf_global.h"
 #include "../common/fs_proto.h"
 #include "../server_global.h"
+#include "../data_thread.h"
 #include "../dio/trunk_io_thread.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
@@ -205,9 +206,7 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
 
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
         slice_write_finish(op_ctx);
-        if (op_ctx->notify.func != NULL) {
-            op_ctx->notify.func(op_ctx);
-        }
+        data_thread_notify(op_ctx->data_thread_ctx);
     }
 }
 
@@ -299,8 +298,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
-        const bool reclaim_alloc)
+int fs_slice_write_ex(FSSliceOpContext *op_ctx, const bool reclaim_alloc)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
@@ -321,12 +319,12 @@ int fs_slice_write_ex(FSSliceOpContext *op_ctx, char *buff,
     if (op_ctx->update.sarray.count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
                             op_ctx->update.sarray.slice_sn_pairs[0].slice,
-                            buff, slice_write_done, op_ctx);
+                            op_ctx->info.buff, slice_write_done, op_ctx);
     } else {
         int length;
         char *ps;
 
-        ps = buff;
+        ps = op_ctx->info.buff;
         slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
             op_ctx->update.sarray.count;
         for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
@@ -585,9 +583,7 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
 
     ob_index_free_slice(slice);
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
-        if (op_ctx->notify.func != NULL) {
-            op_ctx->notify.func(op_ctx);
-        }
+        data_thread_notify(op_ctx->data_thread_ctx);
     }
 }
 
@@ -596,8 +592,7 @@ static void slice_read_done(struct trunk_io_buffer *record, const int result)
     do_read_done(record->slice, (FSSliceOpContext *)record->notify.arg, result);
 }
 
-int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
-        OBSlicePtrArray *sarray)
+int fs_slice_read_ex(FSSliceOpContext *op_ctx, OBSlicePtrArray *sarray)
 {
     int result;
     int offset;
@@ -620,7 +615,7 @@ int fs_slice_read_ex(FSSliceOpContext *op_ctx, char *buff,
 
     op_ctx->done_bytes = 0;
     op_ctx->counter = sarray->count;
-    ps = buff;
+    ps = op_ctx->info.buff;
     offset = op_ctx->info.bs_key.slice.offset;
     end = sarray->slices + sarray->count;
     for (pp=sarray->slices; pp<end; pp++) {

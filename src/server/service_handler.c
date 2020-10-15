@@ -47,6 +47,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "server_storage.h"
+#include "data_thread.h"
 #include "common_handler.h"
 #include "data_update_handler.h"
 #include "service_handler.h"
@@ -220,7 +221,6 @@ static int service_deal_slice_read(struct fast_task_info *task)
 {
     int result;
     FSProtoSliceReadReqHeader *req_header;
-    char *buff;
 
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
     if ((result=server_expect_body_length(task,
@@ -244,9 +244,14 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return EOVERFLOW;
     }
 
-    buff = REQUEST.body;
+    OP_CTX_INFO.buff = REQUEST.body;
     OP_CTX_NOTIFY.func = slice_read_done_notify;
     OP_CTX_NOTIFY.arg = task;
+
+    return push_to_data_thread_queue(task,
+            DATA_OPERATION_SLICE_READ, &SLICE_OP_CTX);
+
+    /*
     result = fs_slice_read_ex(&SLICE_OP_CTX, buff,
             SERVER_CTX->slice_ptr_array);
     if (result != 0) {
@@ -255,6 +260,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     }
     
     return TASK_STATUS_CONTINUE;
+    */
 }
 
 static int service_deal_get_master(struct fast_task_info *task)

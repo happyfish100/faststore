@@ -32,6 +32,8 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "server_global.h"
+#include "server_storage.h"
+#include "server_replication.h"
 #include "data_thread.h"
 
 #define DATA_THREAD_RUNNING_COUNT g_data_thread_vars.running_count
@@ -43,11 +45,23 @@ static inline int init_thread_ctx(FSDataThreadContext *context)
 {
     int result;
 
+    if ((result=init_pthread_lock_cond_pair(&context->lc_pair)) != 0) {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&context->allocator,
+                    "data_operation", sizeof(FSDataOperation),
+                    4 * 1024, 0, NULL, NULL, true)) != 0)
+    {
+        return result;
+    }
+
     if ((result=fc_queue_init(&context->queue, (long)
                     (&((FSDataOperation *)NULL)->next))) != 0)
     {
         return result;
     }
+
     return 0;
 }
 
@@ -114,7 +128,9 @@ void data_thread_destroy()
         for (context=g_data_thread_vars.thread_array.contexts;
                 context<end; context++)
         {
+            destroy_pthread_lock_cond_pair(&context->lc_pair);
             fc_queue_destroy(&context->queue);
+            fast_mblock_destroy(&context->allocator);
         }
         free(g_data_thread_vars.thread_array.contexts);
         g_data_thread_vars.thread_array.contexts = NULL;
@@ -143,12 +159,77 @@ void data_thread_terminate()
     }
 }
 
-static int deal_binlog_one_record(FSDataThreadContext *thread_ctx,
+#define DATA_THREAD_COND_WAIT(thread_ctx) \
+    do {  \
+        pthread_cond_wait(&thread_ctx->lc_pair.cond,  \
+                &thread_ctx->lc_pair.lock);  \
+    } while (!thread_ctx->notify_done && SF_G_CONTINUE_FLAG)
+
+static void deal_binlog_one_record(FSDataThreadContext *thread_ctx,
         FSDataOperation *op)
 {
+    struct fast_task_info *task;
     int result;
 
-    result = 0;
+    task = op->task;
+    op->ctx->data_thread_ctx = thread_ctx;
+
+    switch (op->operation) {
+        case DATA_OPERATION_SLICE_READ:
+            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
+            thread_ctx->notify_done = false;
+            if ((op->ctx->result=fs_slice_read_ex(op->ctx,
+                            SERVER_CTX->slice_ptr_array)) == 0)
+            {
+                DATA_THREAD_COND_WAIT(thread_ctx);
+            }
+            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
+            break;
+        case DATA_OPERATION_SLICE_WRITE:
+            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
+            thread_ctx->notify_done = false;
+            if ((op->ctx->result=fs_slice_write(op->ctx)) == 0) {
+                DATA_THREAD_COND_WAIT(thread_ctx);
+            }
+            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
+            break;
+        case DATA_OPERATION_SLICE_ALLOCATE:
+            op->ctx->result = fs_slice_allocate_ex(op->ctx,
+                    SERVER_CTX->slice_ptr_array);
+            break;
+        case DATA_OPERATION_SLICE_DELETE:
+            op->ctx->result = fs_delete_slices(op->ctx);
+            break;
+        case DATA_OPERATION_BLOCK_DELETE:
+            op->ctx->result = fs_delete_block(op->ctx);
+            break;
+        default:
+            op->ctx->result = EINVAL;
+            logInfo("file: "__FILE__", line: %d, "
+                    "unkown operation: %d", __LINE__, op->operation);
+            break;
+    }
+
+    if (op->ctx->result == 0) {
+        if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
+            thread_ctx->notify_done = false;
+            if ((result=replication_caller_push_to_slave_queues(task)) ==
+                    TASK_STATUS_CONTINUE)
+            {
+                DATA_THREAD_COND_WAIT(thread_ctx);
+            }
+            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
+        }
+
+        if (!SLICE_OP_CTX.info.write_binlog.immediately) {
+            result = fs_log_data_update(REQUEST.header.cmd,
+                    &SLICE_OP_CTX, result);
+        }
+    }
+
+    op->ctx->notify.func(op->ctx);
+
     /*
     logInfo("file: "__FILE__", line: %d, record: %p, "
             "operation: %d, hash code: %u, inode: %"PRId64
@@ -156,8 +237,6 @@ static int deal_binlog_one_record(FSDataThreadContext *thread_ctx,
              record, record->operation, record->hash_code,
              record->inode, record->data_version, result);
              */
-
-    return result;
 }
 
 static void *data_thread_func(void *arg)
@@ -178,6 +257,7 @@ static void *data_thread_func(void *arg)
             current = op;
             op = op->next;
             deal_binlog_one_record(thread_ctx, current);
+            fast_mblock_free_object(&thread_ctx->allocator, current);
         } while (op != NULL);
     }
 
