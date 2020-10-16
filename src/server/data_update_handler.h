@@ -59,7 +59,7 @@ static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
         task, FSSliceOpContext *op_ctx, const char *caption, const int result)
 {
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
-            "slice %s fail, result: %d, block {oid: %"PRId64", "
+            "%s fail, result: %d, block {oid: %"PRId64", "
             "offset: %"PRId64"}, slice {offset: %d, length: %d}",
             caption, result, op_ctx->info.bs_key.block.oid,
             op_ctx->info.bs_key.block.offset,

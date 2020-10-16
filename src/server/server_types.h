@@ -105,7 +105,7 @@
 #define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
-#define OP_CTX_NOTIFY     TASK_CTX.slice_op_ctx.notify
+#define OP_CTX_NOTIFY_FUNC TASK_CTX.slice_op_ctx.notify_func
 
 #define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
 

@@ -34,6 +34,7 @@
 #include "../../common/fs_func.h"
 #include "../../client/fs_client.h"
 #include "../server_global.h"
+#include "../data_thread.h"
 #include "../cluster_relationship.h"
 #include "../server_binlog.h"
 #include "../server_replication.h"
@@ -142,11 +143,11 @@ void binlog_replay_destroy()
 {
 }
 
-static void slice_write_done_notify(FSSliceOpContext *op_ctx)
+static void slice_write_done_notify(FSDataOperation *op)
 {
     ReplayThreadContext *thread_ctx;
 
-    thread_ctx = (ReplayThreadContext *)op_ctx->notify.arg;
+    thread_ctx = ((ReplayTaskInfo *)op->arg)->thread_ctx;
     PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lcp.lock);
     if (!thread_ctx->notify.done) {
         thread_ctx->notify.done = true;
@@ -159,14 +160,16 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
 {
     int result;
     int read_bytes;
+    int operation;
     bool log_padding;
+    int64_t *success_ptr;
 
     log_padding = false;
+    operation = DATA_OPERATION_NONE;
+    success_ptr = NULL;
     switch (task->op_type) {
         case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
-            task->thread_ctx->notify.done = false;
             task->thread_ctx->stat.write.total++;
-
             if (task->op_ctx.info.bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
                 logError("file: "__FILE__", line: %d, "
                         "slice length: %d > block size: %d!",
@@ -194,20 +197,8 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                     task->op_ctx.info.bs_key.slice.length = read_bytes;
                 }
                 task->op_ctx.info.buff = buff;
-                if ((result=fs_slice_write(&task->op_ctx)) == 0) {
-                    PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
-                    while (!task->thread_ctx->notify.done) {
-                        pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
-                                &task->thread_ctx->notify.lcp.lock);
-                    }
-                    PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
-
-                    if (task->op_ctx.result == 0) {
-                        task->thread_ctx->stat.write.success++;
-                    } else {
-                        result = task->op_ctx.result;
-                    }
-                }
+                operation = DATA_OPERATION_SLICE_WRITE;
+                success_ptr = &task->thread_ctx->stat.write.success;
             } else if (result == ENODATA) {
                 logWarning("file: "__FILE__", line: %d, "
                         "oid: %"PRId64", block offset: %"PRId64", "
@@ -224,21 +215,13 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
             break;
         case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
             task->thread_ctx->stat.allocate.total++;
-            if ((result=fs_slice_allocate_ex(&task->op_ctx, &task->
-                            thread_ctx->slice_ptr_array)) == 0)
-            {
-                task->thread_ctx->stat.allocate.success++;
-            }
+            operation = DATA_OPERATION_SLICE_ALLOCATE;
+            success_ptr = &task->thread_ctx->stat.allocate.success;
             break;
         case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
             task->thread_ctx->stat.remove.total++;
-            if ((result=fs_delete_slices(&task->op_ctx)) == 0) {
-                task->thread_ctx->stat.remove.success++;
-            } else if (result == ENOENT) {
-                result = 0;
-                log_padding = true;
-                task->thread_ctx->stat.remove.ignore++;
-            }
+            operation = DATA_OPERATION_SLICE_DELETE;
+            success_ptr = &task->thread_ctx->stat.remove.success;
             break;
         default:
             logError("file: "__FILE__", line: %d, "
@@ -246,6 +229,32 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                     __LINE__, task->op_type, task->op_type);
             result = EINVAL;
             break;
+    }
+
+    if (operation != DATA_OPERATION_NONE) {
+        PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
+        task->thread_ctx->notify.done = false;
+        if ((result=push_to_data_thread_queue(operation,
+                        DATA_SOURCE_SLAVE_RECOVERY, task, &task->op_ctx,
+                        &task->thread_ctx->slice_ptr_array)) == 0)
+        {
+            while (!task->thread_ctx->notify.done) {
+                pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
+                        &task->thread_ctx->notify.lcp.lock);
+            }
+            result = task->op_ctx.result;
+        }
+        PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
+
+        if (result == 0) {
+            (*success_ptr)++;
+        } else if (result == ENOENT) {
+            if (operation == DATA_OPERATION_SLICE_DELETE) {
+                result = 0;
+                log_padding = true;
+                task->thread_ctx->stat.remove.ignore++;
+            }
+        }
     }
 
     if (result == 0) {
@@ -603,8 +612,7 @@ static int init_rthread_context(ReplayThreadContext *thread_ctx,
 
     end = tasks + RECOVERY_MAX_QUEUE_DEPTH;
     for (task=tasks; task<end; task++) {
-        task->op_ctx.notify.func = slice_write_done_notify;
-        task->op_ctx.notify.arg = thread_ctx;
+        task->op_ctx.notify_func = slice_write_done_notify;
         task->thread_ctx = thread_ctx;
         fc_queue_push_ex(&thread_ctx->queues.freelist, task, &notify);
     }
@@ -633,7 +641,6 @@ static int init_replay_tasks(DataRecoveryContext *ctx)
     end = replay_ctx->thread_env.tasks + count;
     for (task=replay_ctx->thread_env.tasks; task<end; task++) {
         task->op_ctx.info.write_binlog.log_replica = true;
-        task->op_ctx.info.write_binlog.immediately = true;
         task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;
 

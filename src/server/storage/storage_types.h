@@ -23,17 +23,10 @@
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
 #define FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT  4
 
-#define DATA_OPERATION_SLICE_READ     'r'
-#define DATA_OPERATION_SLICE_WRITE    'w'
-#define DATA_OPERATION_SLICE_ALLOCATE 'a'
-#define DATA_OPERATION_SLICE_DELETE   'd'
-#define DATA_OPERATION_BLOCK_DELETE   'D'
-
-struct fs_slice_op_context;
-
-typedef void (*fs_slice_op_notify_func)(struct fs_slice_op_context *ctx);
-
 struct ob_slice_entry;
+struct fs_data_operation;
+
+typedef void (*fs_data_op_notify_func)(struct fs_data_operation *op);
 
 typedef struct {
     struct ob_slice_entry *slice;
@@ -46,15 +39,10 @@ typedef struct {
     FSSliceSNPair *slice_sn_pairs;
 } FSSliceSNPairArray;
 
-typedef struct {
-    fs_slice_op_notify_func func;
-    void *arg;
-} FSNotifyFuncArgPair;
-
 struct fs_cluster_data_server_info;
 struct fs_data_thread_context;
 typedef struct fs_slice_op_context {
-    FSNotifyFuncArgPair notify;
+    fs_data_op_notify_func notify_func;
     struct fs_data_thread_context *data_thread_ctx;  //for signal data thread
     volatile short counter;
     short result;
@@ -63,7 +51,6 @@ typedef struct fs_slice_op_context {
     struct {
         struct {
             bool log_replica;  //false for trunk reclaim
-            bool immediately;  //false for master update
         } write_binlog;
         short source;           //for binlog write
         int data_group_id;

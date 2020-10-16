@@ -145,7 +145,6 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
     FSSliceSNPair *slice_sn_end;
     int result;
     int inc_alloc;
-    bool free_slices;
 
     do {
         if (op_ctx->result != 0) {
@@ -173,16 +172,7 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
         SLICE_OP_CHECK_UNLOCK(op_ctx);
     } while (0);
 
-    if (op_ctx->result == 0) {
-        free_slices = !op_ctx->info.write_binlog.log_replica;
-        if (op_ctx->info.write_binlog.immediately) {
-            fs_log_slice_write(op_ctx);
-        }
-    } else {
-        free_slices = true;
-    }
-
-    if (free_slices) {
+    if (op_ctx->result != 0) {
         free_slice_array(&op_ctx->update.sarray);
     }
 }
@@ -421,7 +411,6 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     int inc;
     int n;
     int k;
-    bool free_slices;
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
 
@@ -504,16 +493,7 @@ int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
     }
     SLICE_OP_CHECK_UNLOCK(op_ctx);
 
-    if (result == 0) {
-        free_slices = !op_ctx->info.write_binlog.log_replica;
-        if (op_ctx->info.write_binlog.immediately) {
-            result = fs_log_slice_allocate(op_ctx);
-        }
-    } else {
-        free_slices = true;
-    }
-
-    if (free_slices) {
+    if (result != 0) {
         free_slice_array(&op_ctx->update.sarray);
     }
 
@@ -662,12 +642,6 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
     }
     SLICE_OP_CHECK_UNLOCK(op_ctx);
 
-    if (result == 0) {
-        if (op_ctx->info.write_binlog.immediately) {
-            result = fs_log_delete_slices(op_ctx);
-        }
-    }
-
     return result;
 }
 
@@ -705,12 +679,6 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
     }
     SLICE_OP_CHECK_UNLOCK(op_ctx);
 
-    if (result == 0) {
-        if (op_ctx->info.write_binlog.immediately) {
-            result = fs_log_delete_block(op_ctx);
-        }
-    }
-
     return result;
 }
 
@@ -734,33 +702,4 @@ int fs_log_delete_block(FSSliceOpContext *op_ctx)
     }
 
     return 0;
-}
-
-int fs_log_data_update(const unsigned char req_cmd,
-        FSSliceOpContext *op_ctx, const int result)
-{
-    if (result == 0) {
-        switch (req_cmd) {
-            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-                return fs_log_slice_write(op_ctx);
-            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-                return fs_log_slice_allocate(op_ctx);
-            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-                return fs_log_delete_slices(op_ctx);
-            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-                return fs_log_delete_block(op_ctx);
-            default:
-                logError("file: "__FILE__", line: %d, "
-                        "invalid req cmd: %d (%s)", __LINE__,
-                        req_cmd, fs_get_cmd_caption(req_cmd));
-                return EINVAL;
-        }
-    } else {
-        if (req_cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
-                req_cmd == FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ)
-        {
-            free_slice_array(&op_ctx->update.sarray);
-        }
-        return result;
-    }
 }

@@ -187,15 +187,15 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
-static void slice_read_done_notify(FSSliceOpContext *notify)
+static void slice_read_done_notify(FSDataOperation *op)
 {
     struct fast_task_info *task;
 
-    task = (struct fast_task_info *)notify->notify.arg;
-    if (notify->result != 0) {
+    task = (struct fast_task_info *)op->arg;
+    if (op->ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
-                "%s", STRERROR(notify->result));
+                "%s", STRERROR(op->ctx->result));
 
         logError("file: "__FILE__", line: %d, "
                 "client ip: %s, read slice fail, "
@@ -205,15 +205,15 @@ static void slice_read_done_notify(FSSliceOpContext *notify)
                 __LINE__, task->client_ip,
                 OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
                 OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
-                notify->result, STRERROR(notify->result));
+                op->ctx->result, STRERROR(op->ctx->result));
         TASK_ARG->context.log_level = LOG_NOTHING;
     } else {
         RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
-        RESPONSE.header.body_len = notify->done_bytes;
+        RESPONSE.header.body_len = op->ctx->done_bytes;
         TASK_ARG->context.response_done = true;
     }
 
-    RESPONSE_STATUS = notify->result;
+    RESPONSE_STATUS = op->ctx->result;
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
 }
 
@@ -245,22 +245,17 @@ static int service_deal_slice_read(struct fast_task_info *task)
     }
 
     OP_CTX_INFO.buff = REQUEST.body;
-    OP_CTX_NOTIFY.func = slice_read_done_notify;
-    OP_CTX_NOTIFY.arg = task;
-
-    return push_to_data_thread_queue(task,
-            DATA_OPERATION_SLICE_READ, &SLICE_OP_CTX);
-
-    /*
-    result = fs_slice_read_ex(&SLICE_OP_CTX, buff,
-            SERVER_CTX->slice_ptr_array);
-    if (result != 0) {
-        du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX, "read", result);
+    OP_CTX_NOTIFY_FUNC = slice_read_done_notify;
+    if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
+                    DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX,
+                    SERVER_CTX->slice_ptr_array)) != 0)
+    {
+        du_handler_set_slice_op_error_msg(task,&SLICE_OP_CTX,
+                "slice read", result);
         return result;
     }
     
     return TASK_STATUS_CONTINUE;
-    */
 }
 
 static int service_deal_get_master(struct fast_task_info *task)

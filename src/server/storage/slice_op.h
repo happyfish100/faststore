@@ -88,9 +88,6 @@ extern "C" {
     int fs_log_delete_slices(FSSliceOpContext *op_ctx);
     int fs_log_delete_block(FSSliceOpContext *op_ctx);
 
-    int fs_log_data_update(const unsigned char req_cmd,
-            FSSliceOpContext *op_ctx, const int result);
-
 #ifdef __cplusplus
 }
 #endif
