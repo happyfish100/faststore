@@ -558,14 +558,14 @@ static inline int replica_check_replication_task(struct fast_task_info *task)
     return 0;
 }
 
-static inline int replica_deal_actvie_test_req(struct fast_task_info *task)
+static inline int replica_deal_active_test_req(struct fast_task_info *task)
 {
     int result;
 
     if ((result=replica_check_replication_task(task)) != 0) {
         return result;
     }
-    return sf_proto_deal_actvie_test(task, &REQUEST, &RESPONSE);
+    return sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
 }
 
 static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
@@ -813,7 +813,7 @@ int replica_deal_task(struct fast_task_info *task)
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-                result = replica_deal_actvie_test_req(task);
+                result = replica_deal_active_test_req(task);
                 break;
             case SF_PROTO_ACTIVE_TEST_RESP:
                 result = replica_check_replication_task(task);

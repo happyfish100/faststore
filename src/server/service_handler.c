@@ -190,6 +190,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
 static void slice_read_done_notify(FSDataOperation *op)
 {
     struct fast_task_info *task;
+    int log_level;
 
     task = (struct fast_task_info *)op->arg;
     if (op->ctx->result != 0) {
@@ -197,14 +198,18 @@ static void slice_read_done_notify(FSDataOperation *op)
                 sizeof(RESPONSE.error.message),
                 "%s", STRERROR(op->ctx->result));
 
-        logError("file: "__FILE__", line: %d, "
+        log_level = (op->ctx->result == ENOENT) ? LOG_WARNING : LOG_ERR;
+        log_it_ex(&g_log_context, log_level,
+                "file: "__FILE__", line: %d, "
                 "client ip: %s, read slice fail, "
                 "oid: %"PRId64", block offset: %"PRId64", "
                 "slice offset: %d, length: %d, "
                 "errno: %d, error info: %s",
                 __LINE__, task->client_ip,
-                OP_CTX_INFO.bs_key.block.oid, OP_CTX_INFO.bs_key.block.offset,
-                OP_CTX_INFO.bs_key.slice.offset, OP_CTX_INFO.bs_key.slice.length,
+                OP_CTX_INFO.bs_key.block.oid,
+                OP_CTX_INFO.bs_key.block.offset,
+                OP_CTX_INFO.bs_key.slice.offset,
+                OP_CTX_INFO.bs_key.slice.length,
                 op->ctx->result, STRERROR(op->ctx->result));
         TASK_ARG->context.log_level = LOG_NOTHING;
     } else {
@@ -710,7 +715,7 @@ int service_deal_task(struct fast_task_info *task)
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
                 RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-                result = sf_proto_deal_actvie_test(task, &REQUEST, &RESPONSE);
+                result = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
                 break;
             case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
                 result = service_deal_client_join(task);
