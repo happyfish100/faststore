@@ -781,12 +781,9 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
     return result;
 }
 
-int replica_deal_task(struct fast_task_info *task)
+int replica_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
-    int stage;
-
-    stage = SF_NIO_TASK_STAGE_FETCH(task);
 
     /*
     logInfo("file: "__FILE__", line: %d, "
@@ -796,7 +793,6 @@ int replica_deal_task(struct fast_task_info *task)
             */
 
     if (stage == SF_NIO_STAGE_CONTINUE) {
-        sf_nio_swap_stage(task, stage, SF_NIO_STAGE_SEND);
         if (TASK_ARG->context.deal_func != NULL) {
             result = TASK_ARG->context.deal_func(task);
         } else {
