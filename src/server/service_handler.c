@@ -198,7 +198,7 @@ static void slice_read_done_notify(FSDataOperation *op)
                 sizeof(RESPONSE.error.message),
                 "%s", STRERROR(op->ctx->result));
 
-        log_level = (op->ctx->result == ENOENT) ? LOG_WARNING : LOG_ERR;
+        log_level = (op->ctx->result == ENOENT) ? LOG_DEBUG : LOG_ERR;
         log_it_ex(&g_log_context, log_level,
                 "file: "__FILE__", line: %d, "
                 "client ip: %s, read slice fail, "

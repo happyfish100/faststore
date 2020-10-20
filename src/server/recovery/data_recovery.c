@@ -422,6 +422,12 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
 
+            /*
+            logInfo("data group id: %d, last_data_version: %"PRId64", "
+                    "binlog_size: %"PRId64, ctx->ds->dg->id,
+                    ctx->fetch.last_data_version, binlog_size);
+                    */
+
             if (binlog_size == 0) {
                 break;
             }
@@ -508,15 +514,7 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
                 ctx.fetch.last_data_version);
                 */
 
-        ctx.stage = DATA_RECOVERY_STAGE_FETCH;
-    } while (result == 0 && !ctx.is_online);
-
-    do {
-        if (result != 0) {
-            break;
-        }
-
-        if ((result=data_recovery_unlink_sys_data(&ctx)) !=  0) {
+        if ((result=data_recovery_unlink_sys_data(&ctx)) != 0) {
             break;
         }
         if ((result=data_recovery_unlink_replay_binlog(&ctx)) != 0) {
@@ -525,7 +523,9 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
         if ((result=data_recovery_unlink_fetched_binlog(&ctx)) != 0) {
             break;
         }
-    } while (0);
+
+        ctx.stage = DATA_RECOVERY_STAGE_FETCH;
+    } while (!ctx.is_online);
 
     destroy_data_recovery_ctx(&ctx);
     return result;
