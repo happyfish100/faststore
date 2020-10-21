@@ -53,32 +53,9 @@ extern "C" {
         return fs_slice_write_ex(op_ctx, reclaim_alloc);
     }
 
-    int fs_slice_allocate_ex(FSSliceOpContext *op_ctx,
-            OBSlicePtrArray *sarray);
+    int fs_slice_allocate(FSSliceOpContext *op_ctx);
 
-    static inline int fs_slice_allocate(FSSliceOpContext *op_ctx)
-    {
-        OBSlicePtrArray sarray;
-        int result;
-
-        ob_index_init_slice_ptr_array(&sarray);
-        result = fs_slice_allocate_ex(op_ctx, &sarray);
-        ob_index_free_slice_ptr_array(&sarray);
-        return result;
-    }
-
-    int fs_slice_read_ex(FSSliceOpContext *op_ctx, OBSlicePtrArray *sarray);
-
-    static inline int fs_slice_read(FSSliceOpContext *op_ctx)
-    {
-        OBSlicePtrArray sarray;
-        int result;
-
-        ob_index_init_slice_ptr_array(&sarray);
-        result = fs_slice_read_ex(op_ctx, &sarray);
-        ob_index_free_slice_ptr_array(&sarray);
-        return result;
-    }
+    int fs_slice_read(FSSliceOpContext *op_ctx);
 
     int fs_delete_slices(FSSliceOpContext *op_ctx);
     int fs_delete_block(FSSliceOpContext *op_ctx);

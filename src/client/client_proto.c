@@ -158,7 +158,7 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
         } else {
             if (response.header.body_len > curr_len) {
                 response.error.length = sprintf(response.error.message,
-                        "reponse body length: %d > slice length: %d",
+                        "response body length: %d > slice length: %d",
                         response.header.body_len, curr_len);
                 result = EINVAL;
                 break;

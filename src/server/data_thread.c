@@ -204,9 +204,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             is_update = false;
             PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
             thread_ctx->notify_done = false;
-            if ((op->ctx->result=fs_slice_read_ex(op->ctx,
-                            op->slice_ptr_array)) == 0)
-            {
+            if ((op->ctx->result=fs_slice_read(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
             PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
@@ -222,8 +220,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             break;
         case DATA_OPERATION_SLICE_ALLOCATE:
             is_update = true;
-            op->ctx->result = fs_slice_allocate_ex(op->ctx,
-                    op->slice_ptr_array);
+            op->ctx->result = fs_slice_allocate(op->ctx);
             break;
         case DATA_OPERATION_SLICE_DELETE:
             is_update = true;

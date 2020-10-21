@@ -37,7 +37,6 @@ typedef struct fs_data_operation {
     int source;
     FSSliceOpContext *ctx;
     void *arg;
-    struct ob_slice_ptr_array *slice_ptr_array;
     struct fs_data_operation *next;  //for queue
 } FSDataOperation;
 
@@ -69,8 +68,7 @@ extern "C" {
     void data_thread_terminate();
 
     static inline int push_to_data_thread_queue(const int operation,
-            const int source, void *arg, FSSliceOpContext *op_ctx,
-            struct ob_slice_ptr_array *slice_ptr_array)
+            const int source, void *arg, FSSliceOpContext *op_ctx)
     {
         FSDataThreadContext *context;
         FSDataOperation *op;
@@ -87,7 +85,6 @@ extern "C" {
         op->source = source;
         op->arg = arg;
         op->ctx = op_ctx;
-        op->slice_ptr_array = slice_ptr_array;
         fc_queue_push(&context->queue, op);
         return 0;
     }

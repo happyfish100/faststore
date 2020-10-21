@@ -116,23 +116,6 @@ typedef struct {
     int inc_alloc;
 } FSUpdateOutput;  //for idempotency
 
-typedef struct {
-    int index;   //the inner index is important!
-    string_t path;
-} FSStorePath;
-
-typedef struct {
-    int64_t id;
-    int64_t subdir;     //in which subdir
-} FSTrunkIdInfo;
-
-typedef struct {
-    FSStorePath *store;
-    FSTrunkIdInfo id_info;
-    int64_t offset; //offset of the trunk file
-    int64_t size;   //alloced space size
-} FSTrunkSpaceInfo;
-
 struct fs_replication;
 typedef struct fs_replication_array {
     struct fs_replication *replications;
@@ -376,7 +359,6 @@ typedef struct fs_server_context {
         } replica;
     };
 
-    struct ob_slice_ptr_array *slice_ptr_array;  //must be the last
 } FSServerContext;
 
 #endif

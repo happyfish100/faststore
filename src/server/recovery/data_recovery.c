@@ -309,7 +309,8 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
     }
 
     log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
-            "waiting binlog write done time count: %d", __LINE__, i);
+            "data group id: %d, waiting binlog write done time count: %d",
+            __LINE__, ctx->ds->dg->id, i);
     return result;
 }
 

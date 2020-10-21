@@ -74,22 +74,12 @@ OBHashtable g_ob_hashtable = {0, 0, NULL};
 
 static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
 {
-    int64_t sub;
-
-    sub = bkey1->oid - bkey2->oid;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
+    int sub;
+    if ((sub=fc_compare_int64(bkey1->oid, bkey2->oid)) != 0) {
+        return sub;
     }
 
-    sub = bkey1->offset - bkey2->offset;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
-    }
-    return 0;
+    return fc_compare_int64(bkey1->offset, bkey2->offset);
 }
 
 static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
@@ -403,13 +393,18 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
         return NULL;
     }
 
-    *slice = *src;
+    slice->ob = src->ob;
+    slice->type = src->type;
+    slice->space = src->space;
     if (offset > src->ssize.offset) {
-        slice->read_offset += offset - src->ssize.offset;
+        slice->read_offset = src->read_offset + (offset - src->ssize.offset);
         slice->ssize.offset = offset;
+    } else {
+        slice->read_offset = src->read_offset;
+        slice->ssize.offset = src->ssize.offset;
     }
     slice->ssize.length = length;
-    slice->ref_count = 1;
+    __sync_add_and_fetch(&slice->ref_count, 1);
     return slice;
 }
 

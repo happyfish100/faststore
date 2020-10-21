@@ -17,52 +17,7 @@
 #ifndef _OBJECT_BLOCK_INDEX_H
 #define _OBJECT_BLOCK_INDEX_H
 
-#include "fastcommon/fc_list.h"
-#include "fastcommon/uniq_skiplist.h"
 #include "../server_types.h"
-
-typedef enum ob_slice_type {
-    OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
-    OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
-} OBSliceType;
-
-typedef struct {
-    UniqSkiplistFactory factory;
-    struct fast_mblock_man ob_allocator;    //for ob_entry
-    struct fast_mblock_man slice_allocator; //for slice_entry 
-    pthread_mutex_t lock;
-} OBSharedContext;
-
-typedef struct ob_entry {
-    FSBlockKey bkey;
-    UniqSkiplist *slices;  //the element is OBSliceEntry
-    struct ob_entry *next; //for hashtable
-} OBEntry;
-
-typedef struct {
-    int64_t count;
-    int64_t capacity;
-    OBEntry **buckets;
-    bool need_lock;
-    bool modify_sallocator; //if modify storage allocator
-    bool modify_used_space; //if modify used space
-} OBHashtable;
-
-typedef struct ob_slice_entry {
-    OBEntry *ob;
-    OBSliceType type;    //in file or memory as fallocate
-    int read_offset;     //offset of the space start offset
-    volatile int ref_count;
-    FSSliceSize ssize;
-    FSTrunkSpaceInfo space;
-    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
-} OBSliceEntry;
-
-typedef struct ob_slice_ptr_array {
-    int64_t alloc;
-    int64_t count;
-    OBSliceEntry **slices;
-} OBSlicePtrArray;
 
 #ifdef __cplusplus
 extern "C" {

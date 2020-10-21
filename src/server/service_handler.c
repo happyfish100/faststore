@@ -183,7 +183,6 @@ static int service_deal_service_stat(struct fast_task_info *task)
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;
     TASK_ARG->context.response_done = true;
-
     return 0;
 }
 
@@ -252,8 +251,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     OP_CTX_INFO.buff = REQUEST.body;
     OP_CTX_NOTIFY_FUNC = slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
-                    DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX,
-                    SERVER_CTX->slice_ptr_array)) != 0)
+                    DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX)) != 0)
     {
         du_handler_set_slice_op_error_msg(task,&SLICE_OP_CTX,
                 "slice read", result);

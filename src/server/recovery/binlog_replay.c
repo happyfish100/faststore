@@ -72,7 +72,6 @@ typedef struct replay_thread_context {
     } notify;
 
     ReplayStatInfo stat;
-    struct ob_slice_ptr_array slice_ptr_array;
     struct binlog_replay_context *replay_ctx;
 } ReplayThreadContext;
 
@@ -235,8 +234,8 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
         PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
         task->thread_ctx->notify.done = false;
         if ((result=push_to_data_thread_queue(operation,
-                        DATA_SOURCE_SLAVE_RECOVERY, task, &task->op_ctx,
-                        &task->thread_ctx->slice_ptr_array)) == 0)
+                        DATA_SOURCE_SLAVE_RECOVERY, task,
+                        &task->op_ctx)) == 0)
         {
             while (!task->thread_ctx->notify.done) {
                 pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
@@ -619,7 +618,6 @@ static int init_rthread_context(ReplayThreadContext *thread_ctx,
         fc_queue_push_ex(&thread_ctx->queues.freelist, task, &notify);
     }
 
-    ob_index_init_slice_ptr_array(&thread_ctx->slice_ptr_array);
     return 0;
 }
 
@@ -719,7 +717,6 @@ static void destroy_replay_context(BinlogReplayContext *replay_ctx)
         fc_queue_destroy(&context->queues.waiting);
 
         destroy_pthread_lock_cond_pair(&context->notify.lcp);
-        ob_index_free_slice_ptr_array(&context->slice_ptr_array);
     }
 
     tend = replay_ctx->thread_env.tasks + replay_ctx->thread_env.task_count;

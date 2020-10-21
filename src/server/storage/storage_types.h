@@ -17,7 +17,9 @@
 #ifndef _STORAGE_TYPES_H
 #define _STORAGE_TYPES_H
 
+#include "fastcommon/fc_list.h"
 #include "fastcommon/shared_buffer.h"
+#include "fastcommon/uniq_skiplist.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
@@ -29,6 +31,23 @@ struct fs_data_operation;
 typedef void (*fs_data_op_notify_func)(struct fs_data_operation *op);
 
 typedef struct {
+    int index;   //the inner index is important!
+    string_t path;
+} FSStorePath;
+
+typedef struct {
+    int64_t id;
+    int64_t subdir;     //in which subdir
+} FSTrunkIdInfo;
+
+typedef struct {
+    FSStorePath *store;
+    FSTrunkIdInfo id_info;
+    int64_t offset; //offset of the trunk file
+    int64_t size;   //alloced space size
+} FSTrunkSpaceInfo;
+
+typedef struct {
     struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
 } FSSliceSNPair;
@@ -38,6 +57,49 @@ typedef struct {
     int alloc;
     FSSliceSNPair *slice_sn_pairs;
 } FSSliceSNPairArray;
+
+typedef enum ob_slice_type {
+    OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
+    OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
+} OBSliceType;
+
+typedef struct {
+    UniqSkiplistFactory factory;
+    struct fast_mblock_man ob_allocator;    //for ob_entry
+    struct fast_mblock_man slice_allocator; //for slice_entry
+    pthread_mutex_t lock;
+} OBSharedContext;
+
+typedef struct ob_entry {
+    FSBlockKey bkey;
+    UniqSkiplist *slices;  //the element is OBSliceEntry
+    struct ob_entry *next; //for hashtable
+} OBEntry;
+
+typedef struct {
+    int64_t count;
+    int64_t capacity;
+    OBEntry **buckets;
+    bool need_lock;
+    bool modify_sallocator; //if modify storage allocator
+    bool modify_used_space; //if modify used space
+} OBHashtable;
+
+typedef struct ob_slice_entry {
+    OBEntry *ob;
+    OBSliceType type;    //in file or memory as fallocate
+    int read_offset;     //offset of the space start offset
+    volatile int ref_count;
+    FSSliceSize ssize;
+    FSTrunkSpaceInfo space;
+    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
+} OBSliceEntry;
+
+typedef struct ob_slice_ptr_array {
+    int64_t alloc;
+    int64_t count;
+    OBSliceEntry **slices;
+} OBSlicePtrArray;
 
 struct fs_cluster_data_server_info;
 struct fs_data_thread_context;
@@ -67,6 +129,8 @@ typedef struct fs_slice_op_context {
         int space_changed;  //increase /decrease space in bytes for slice operate
         FSSliceSNPairArray sarray;
     } update;  //for slice update
+
+    struct ob_slice_ptr_array slice_ptr_array;
 
 } FSSliceOpContext;
 

@@ -310,7 +310,7 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
     if ((result=push_to_data_thread_queue(operation,
                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER ?
                    DATA_SOURCE_MASTER_SERVICE : DATA_SOURCE_SLAVE_REPLICA,
-                   task, op_ctx, SERVER_CTX->slice_ptr_array)) != 0)
+                   task, op_ctx)) != 0)
     {
         const char *caption;
         caption = fs_get_data_operation_caption(operation);
@@ -460,17 +460,12 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
 
 FSServerContext *du_handler_alloc_server_context()
 {
-    int bytes;
     FSServerContext *server_context;
 
-    bytes = sizeof(FSServerContext) + sizeof(struct ob_slice_ptr_array);
-    server_context = (FSServerContext *)fc_malloc(bytes);
+    server_context = (FSServerContext *)fc_malloc(sizeof(FSServerContext));
     if (server_context == NULL) {
         return NULL;
     }
-    memset(server_context, 0, bytes);
-
-    server_context->slice_ptr_array = (struct ob_slice_ptr_array *)
-        (server_context + 1);
+    memset(server_context, 0, sizeof(FSServerContext));
     return server_context;
 }
