@@ -125,6 +125,7 @@ typedef struct fs_client_context {
     struct {
         FSClusterConfig *ptr;
         FSClusterConfig holder;
+        int group_index;
     } cluster_cfg;
     FSConnectionManager conn_manager;
     bool inited;
@@ -138,7 +139,8 @@ typedef struct fs_client_context {
 
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \
-    client_ctx->cluster_cfg.ptr->service_group_index
+    client_ctx->cluster_cfg.group_index
+
 #define FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server) \
     (server)->group_addrs[FS_CFG_SERVICE_INDEX(client_ctx)].address_array
 

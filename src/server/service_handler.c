@@ -37,12 +37,12 @@
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
 #include "sf/sf_configs.h"
+#include "sf/idempotency/server/server_channel.h"
+#include "sf/idempotency/server/server_handler.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
 #include "replication/replication_common.h"
-#include "sf/idempotency/server/server_channel.h"
-#include "sf/idempotency/server/server_handler.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -98,73 +98,6 @@ void service_task_finish_cleanup(struct fast_task_info *task)
     sf_task_finish_clean_up(task);
 }
 
-static int service_deal_client_join(struct fast_task_info *task)
-{
-    int result;
-    int data_group_count;
-    int file_block_size;
-    uint32_t channel_id;
-    int key;
-    int flags;
-    FSProtoClientJoinReq *req;
-    FSProtoClientJoinResp *join_resp;
-
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoClientJoinReq))) != 0)
-    {
-        return result;
-    }
-
-    req = (FSProtoClientJoinReq *)REQUEST.body;
-    data_group_count = buff2int(req->data_group_count);
-    file_block_size = buff2int(req->file_block_size);
-    flags = buff2int(req->flags);
-    channel_id = buff2int(req->idempotency.channel_id);
-    key = buff2int(req->idempotency.key);
-    if (data_group_count != FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX)) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "client data group count: %d != mine: %d",
-                data_group_count, FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX));
-        return EINVAL;
-    }
-    if (file_block_size != FS_FILE_BLOCK_SIZE) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "file block size: %d != mine: %d",
-                file_block_size, FS_FILE_BLOCK_SIZE);
-        return EINVAL;
-    }
-
-    if ((flags & FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST) != 0) {
-        if (IDEMPOTENCY_CHANNEL != NULL) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "channel already exist, the channel id: %d",
-                    IDEMPOTENCY_CHANNEL->id);
-            return EEXIST;
-        }
-
-        IDEMPOTENCY_CHANNEL = idempotency_channel_find_and_hold(
-                channel_id, key, &result);
-        if (IDEMPOTENCY_CHANNEL == NULL) {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "find channel fail, channel id: %d, result: %d",
-                    channel_id, result);
-            return SF_RETRIABLE_ERROR_NO_CHANNEL;
-        }
-
-        SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_CHANNEL_USER;
-    }
-
-    join_resp = (FSProtoClientJoinResp *)REQUEST.body;
-    int2buff(g_sf_global_vars.min_buff_size - (sizeof(FSProtoHeader) +
-            4 * sizeof(FSProtoSliceWriteReqHeader) +
-            sizeof(FSProtoReplicaRPCReqBodyPart)),
-            join_resp->buffer_size);
-    RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_CLIENT_JOIN_RESP;
-    TASK_ARG->context.response_done = true;
-    return 0;
-}
-
 static int service_deal_service_stat(struct fast_task_info *task)
 {
     int result;
@@ -186,56 +119,21 @@ static int service_deal_service_stat(struct fast_task_info *task)
     return 0;
 }
 
-static void slice_read_done_notify(FSDataOperation *op)
-{
-    struct fast_task_info *task;
-    int log_level;
-
-    task = (struct fast_task_info *)op->arg;
-    if (op->ctx->result != 0) {
-        RESPONSE.error.length = snprintf(RESPONSE.error.message,
-                sizeof(RESPONSE.error.message),
-                "%s", STRERROR(op->ctx->result));
-
-        log_level = (op->ctx->result == ENOENT) ? LOG_DEBUG : LOG_ERR;
-        log_it_ex(&g_log_context, log_level,
-                "file: "__FILE__", line: %d, "
-                "client ip: %s, read slice fail, "
-                "oid: %"PRId64", block offset: %"PRId64", "
-                "slice offset: %d, length: %d, "
-                "errno: %d, error info: %s",
-                __LINE__, task->client_ip,
-                OP_CTX_INFO.bs_key.block.oid,
-                OP_CTX_INFO.bs_key.block.offset,
-                OP_CTX_INFO.bs_key.slice.offset,
-                OP_CTX_INFO.bs_key.slice.length,
-                op->ctx->result, STRERROR(op->ctx->result));
-        TASK_ARG->context.log_level = LOG_NOTHING;
-    } else {
-        RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
-        RESPONSE.header.body_len = op->ctx->done_bytes;
-        TASK_ARG->context.response_done = true;
-    }
-
-    RESPONSE_STATUS = op->ctx->result;
-    sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
-}
-
 static int service_deal_slice_read(struct fast_task_info *task)
 {
     int result;
-    FSProtoSliceReadReqHeader *req_header;
+    FSProtoServiceSliceReadReq *req;
 
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
     if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoSliceReadReqHeader))) != 0)
+                    sizeof(FSProtoServiceSliceReadReq))) != 0)
     {
         return result;
     }
 
-    req_header = (FSProtoSliceReadReqHeader *)REQUEST.body;
+    req = (FSProtoServiceSliceReadReq *)REQUEST.body;
     if ((result=du_handler_parse_check_readable_block_slice(
-                    task, &req_header->bs)) != 0)
+                    task, &req->bs)) != 0)
     {
         return result;
     }
@@ -248,8 +146,12 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return EOVERFLOW;
     }
 
+    /*
+    if (__sync_add_and_fetch(&OP_CTX_INFO.myself->is_master, 0) &&
+            */
+
     OP_CTX_INFO.buff = REQUEST.body;
-    OP_CTX_NOTIFY_FUNC = slice_read_done_notify;
+    OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
                     DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX)) != 0)
     {
@@ -336,119 +238,6 @@ static int service_deal_get_leader(struct fast_task_info *task)
     return 0;
 }
 
-static FSClusterDataServerInfo *get_readable_server(
-        FSClusterDataGroupInfo *group, const SFDataReadRule read_rule)
-{
-    int index;
-    int acc_index;
-    int active_count;
-    int i;
-    FSClusterDataServerInfo *ds;
-    FSClusterDataServerInfo *send;
-
-    if (group->data_server_array.count == 1) {
-        return (FSClusterDataServerInfo *)__sync_fetch_and_add(
-                &group->master, 0);
-    }
-
-    index = rand() % group->data_server_array.count;
-    if (__sync_add_and_fetch(&group->data_server_array.servers[index].
-                status, 0) == FS_SERVER_STATUS_ACTIVE)
-    {
-        if (read_rule != sf_data_read_rule_slave_first ||
-                !__sync_add_and_fetch(&group->data_server_array.
-                    servers[index].is_master, 0))
-        {
-            return group->data_server_array.servers + index;
-        }
-    }
-
-    acc_index = 0;
-    send = group->data_server_array.servers + group->data_server_array.count;
-    for (i=0; i<group->data_server_array.count; i++) {
-        active_count = 0;
-        for (ds=group->data_server_array.servers; ds<send; ds++) {
-            if (__sync_add_and_fetch(&ds->status, 0) !=
-                    FS_SERVER_STATUS_ACTIVE)
-            {
-                continue;
-            }
-
-            active_count++;
-            if (read_rule == sf_data_read_rule_slave_first &&
-                    __sync_add_and_fetch(&ds->is_master, 0)) {
-                continue;
-            }
-
-            if (acc_index++ == index) {
-                return ds;
-            }
-        }
-
-        if (active_count == 0) {
-            return NULL;
-        } else if (active_count == 1) {
-            break;
-        }
-    }
-
-    return (FSClusterDataServerInfo *)__sync_fetch_and_add(
-            &group->master, 0);
-}
-
-static int service_deal_get_readable_server(struct fast_task_info *task)
-{
-    int result;
-    int data_group_id;
-    SFDataReadRule read_rule;
-    FSClusterDataGroupInfo *group;
-    FSClusterDataServerInfo *ds;
-    FSProtoGetReadableServerReq *req;
-    FSProtoGetServerResp *resp;
-    const FCAddressInfo *addr;
-
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoGetReadableServerReq))) != 0)
-    {
-        return result;
-    }
-
-    req = (FSProtoGetReadableServerReq *)REQUEST.body;
-    data_group_id = buff2int(req->data_group_id);
-    read_rule = req->read_rule;
-    if ((group=fs_get_data_group(data_group_id)) == NULL) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "data_group_id: %d not exist", data_group_id);
-        return ENOENT;
-    }
-
-    if (read_rule == sf_data_read_rule_master_only) {
-        ds = (FSClusterDataServerInfo *)__sync_fetch_and_add(
-                &group->master, 0);
-    } else {
-        ds = get_readable_server(group, read_rule);
-    }
-
-    if (ds == NULL) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "no active server, read rule: %d", read_rule);
-        return SF_RETRIABLE_ERROR_NO_SERVER;
-    }
-
-    resp = (FSProtoGetServerResp *)REQUEST.body;
-    addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
-                ds->cs->server), task->client_ip);
-
-    int2buff(ds->cs->server->id, resp->server_id);
-    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
-            addr->conn.ip_addr);
-    short2buff(addr->conn.port, resp->port);
-
-    RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP;
-    TASK_ARG->context.response_done = true;
-    return 0;
-}
 
 static int service_deal_cluster_stat(struct fast_task_info *task)
 {
@@ -711,8 +500,8 @@ int service_deal_task(struct fast_task_info *task, const int stage)
                 RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
                 result = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
                 break;
-            case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
-                result = service_deal_client_join(task);
+            case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
+                result = du_handler_deal_client_join(task);
                 break;
             case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
                 result = service_deal_service_stat(task);
@@ -735,8 +524,9 @@ int service_deal_task(struct fast_task_info *task, const int stage)
             case FS_SERVICE_PROTO_GET_MASTER_REQ:
                 result = service_deal_get_master(task);
                 break;
-            case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
-                result = service_deal_get_readable_server(task);
+            case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
+                result = du_handler_deal_get_readable_server(task,
+                        SERVICE_GROUP_INDEX);
                 break;
             case FS_SERVICE_PROTO_GET_LEADER_REQ:
                 result = service_deal_get_leader(task);

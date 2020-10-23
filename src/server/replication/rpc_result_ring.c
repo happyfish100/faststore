@@ -93,19 +93,23 @@ int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
 }
 
 static inline void desc_task_waiting_rpc_count(
+        FSReplicaRPCResultInstance *instance,
         FSReplicaRPCResultEntry *entry)
 {
     FSServerTaskArg *task_arg;
 
     if (entry->waiting_task == NULL) {
+        logWarning("file: "__FILE__", line: %d, "
+                "task is NULL, data group id: %d, data_version: %"PRId64,
+                __LINE__, instance->data_group_id, entry->data_version);
         return;
     }
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
     if (entry->task_version != task_arg->task_version) {
         logWarning("file: "__FILE__", line: %d, "
-                "task %p already cleanup",
-                __LINE__, entry->waiting_task);
+                "data group id: %d, task %p already cleanup",
+                __LINE__, instance->data_group_id, entry->waiting_task);
         return;
     }
 
@@ -113,8 +117,8 @@ static inline void desc_task_waiting_rpc_count(
                     entry->waiting_task->arg)->context.
                 service.waiting_rpc_count, 1) == 0)
     {
-        data_thread_notify(task_arg->context.slice_op_ctx.data_thread_ctx);
-        //sf_nio_notify(entry->waiting_task, SF_NIO_STAGE_CONTINUE);
+        data_thread_notify((FSDataThreadContext *)
+                task_arg->context.slice_op_ctx.arg);
     }
 }
 
@@ -133,7 +137,7 @@ static void rpc_result_instance_clear_queue_all(FSReplicaRPCResultContext *ctx,
         deleted = current;
         current = current->next;
 
-        desc_task_waiting_rpc_count(deleted);
+        desc_task_waiting_rpc_count(instance, deleted);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
     }
 
@@ -152,7 +156,7 @@ static void rpc_result_instance_clear_all(FSReplicaRPCResultContext *ctx,
 
     index = instance->ring.start - instance->ring.entries;
     while (instance->ring.start != instance->ring.end) {
-        desc_task_waiting_rpc_count(instance->ring.start);
+        desc_task_waiting_rpc_count(instance, instance->ring.start);
         instance->ring.start->data_version = 0;
         instance->ring.start->waiting_task = NULL;
 
@@ -198,10 +202,10 @@ static int rpc_result_instance_clear_queue_timeouts(
 
         logWarning("file: "__FILE__", line: %d, "
                 "waiting push response timeout, "
-                "data_version: %"PRId64", task: %p",
-                __LINE__, deleted->data_version,
+                "data group id: %d, data_version: %"PRId64", task: %p",
+                __LINE__, instance->data_group_id, deleted->data_version,
                 deleted->waiting_task);
-        desc_task_waiting_rpc_count(deleted);
+        desc_task_waiting_rpc_count(instance, deleted);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
         ++count;
     }
@@ -229,11 +233,11 @@ static void rpc_result_instance_clear_timeouts(
         {
             logWarning("file: "__FILE__", line: %d, "
                     "waiting push response timeout, "
-                    "data_version: %"PRId64", task: %p",
-                    __LINE__, instance->ring.start->data_version,
-                    instance->ring.start->waiting_task);
+                    "data group id: %d, data_version: %"PRId64,
+                    __LINE__, instance->data_group_id,
+                    instance->ring.start->data_version);
 
-            desc_task_waiting_rpc_count(instance->ring.start);
+            desc_task_waiting_rpc_count(instance, instance->ring.start);
             instance->ring.start->data_version = 0;
             instance->ring.start->waiting_task = NULL;
 
@@ -421,7 +425,7 @@ static int remove_from_queue(FSReplicaRPCResultContext *ctx,
         }
     }
 
-    desc_task_waiting_rpc_count(entry);
+    desc_task_waiting_rpc_count(instance, entry);
     fast_mblock_free_object(&ctx->rentry_allocator, entry);
     return 0;
 }
@@ -450,7 +454,7 @@ int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
                 }
             }
 
-            desc_task_waiting_rpc_count(entry);
+            desc_task_waiting_rpc_count(instance, entry);
             entry->data_version = 0;
             entry->waiting_task = NULL;
             return 0;

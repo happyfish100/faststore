@@ -49,9 +49,9 @@ const char *fs_get_server_status_caption(const int status)
 const char *fs_get_cmd_caption(const int cmd)
 {
     switch (cmd) {
-        case FS_SERVICE_PROTO_CLIENT_JOIN_REQ:
+        case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
             return "CLIENT_JOIN_REQ";
-        case FS_SERVICE_PROTO_CLIENT_JOIN_RESP:
+        case FS_COMMON_PROTO_CLIENT_JOIN_RESP:
             return "CLIENT_JOIN_RESP";
         case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
             return "SERVICE_STAT_REQ";
@@ -89,9 +89,9 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_MASTER_REQ";
         case FS_SERVICE_PROTO_GET_MASTER_RESP:
             return "GET_MASTER_RESP";
-        case FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ:
+        case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
             return "GET_READABLE_SERVER_REQ";
-        case FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP:
+        case FS_COMMON_PROTO_GET_READABLE_SERVER_RESP:
             return "GET_READABLE_SERVER_RESP";
         case FS_SERVICE_PROTO_GET_LEADER_REQ:
             return "GET_LEADER_REQ";
@@ -145,6 +145,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "ACTIVE_CONFIRM_REQ";
         case FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP:
             return "ACTIVE_CONFIRM_RESP";
+        case FS_REPLICA_PROTO_SLICE_READ_REQ:
+            return "REPLICA_SLICE_READ_REQ";
+        case FS_REPLICA_PROTO_SLICE_READ_RESP:
+            return "REPLICA_SLICE_READ_RESP";
         default:
             return sf_get_cmd_caption(cmd);
     }

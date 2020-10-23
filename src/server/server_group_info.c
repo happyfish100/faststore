@@ -601,17 +601,12 @@ FSClusterServerInfo *fs_get_server_by_id(const int server_id)
     return NULL;
 }
 
-FSClusterDataServerInfo *fs_get_data_server(const int data_group_id,
-        const int server_id)
+FSClusterDataServerInfo *fs_get_data_server_ex(
+        FSClusterDataGroupInfo *group, const int server_id)
 {
-    FSClusterDataGroupInfo *group;
     FSClusterDataServerArray *ds_array;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
-
-    if ((group=fs_get_data_group(data_group_id)) == NULL) {
-        return NULL;
-    }
 
     ds_array = &group->data_server_array;
     end = ds_array->servers + ds_array->count;
@@ -623,7 +618,7 @@ FSClusterDataServerInfo *fs_get_data_server(const int data_group_id,
 
     logError("file: "__FILE__", line: %d, "
             "data_group_id: %d, server_id: %d not exist",
-            __LINE__, data_group_id, server_id);
+            __LINE__, group->id, server_id);
     return NULL;
 }
 

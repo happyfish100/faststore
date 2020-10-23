@@ -192,16 +192,23 @@ static inline int log_data_update(const int operation,
     }
 }
 
+static void data_thread_read_done_callback(
+        FSSliceOpContext *op_ctx, void *arg)
+{
+    data_thread_notify((FSDataThreadContext *)arg);
+}
+
 static void deal_one_operation(FSDataThreadContext *thread_ctx,
         FSDataOperation *op)
 {
     bool is_update;
     int result;
 
-    op->ctx->data_thread_ctx = thread_ctx;
+    op->ctx->arg = thread_ctx;
     switch (op->operation) {
         case DATA_OPERATION_SLICE_READ:
             is_update = false;
+            op->ctx->read_done_callback = data_thread_read_done_callback;
             PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
             thread_ctx->notify_done = false;
             if ((op->ctx->result=fs_slice_read(op->ctx)) == 0) {

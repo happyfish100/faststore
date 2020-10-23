@@ -340,7 +340,8 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     return SF_UNIX_ERRNO(result, EIO);
 }
 
-int fs_client_slice_read(FSClientContext *client_ctx,
+int fs_client_slice_read_ex(FSClientContext *client_ctx,
+        const int slave_id, const int req_cmd, const int resp_cmd,
         const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes)
 {
     ConnectionInfo *conn;
@@ -367,8 +368,9 @@ int fs_client_slice_read(FSClientContext *client_ctx,
     remain = bs_key->slice.length;
     i = 0;
     while (remain > 0) {
-        if ((result=fs_client_proto_slice_read(client_ctx, conn,
-                        &new_key, buff + *read_bytes, &bytes)) == 0)
+        if ((result=fs_client_proto_slice_read_ex(client_ctx, conn,
+                        slave_id, req_cmd, resp_cmd, &new_key,
+                        buff + *read_bytes, &bytes)) == 0)
         {
             *read_bytes += bytes;
             break;

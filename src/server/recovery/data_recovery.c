@@ -303,6 +303,8 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx)
     }
 
     if (i < 3) {
+        log_level = LOG_DEBUG;
+    } else if (i < 10) {
         log_level = LOG_INFO;
     } else {
         log_level = LOG_WARNING;

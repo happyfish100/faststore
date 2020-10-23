@@ -25,9 +25,13 @@
 #include "sf/sf_proto.h"
 #include "fs_types.h"
 
-#define FS_SERVICE_PROTO_CLIENT_JOIN_REQ         23
-#define FS_SERVICE_PROTO_CLIENT_JOIN_RESP        24
+//service and replica commands
+#define FS_COMMON_PROTO_CLIENT_JOIN_REQ           23
+#define FS_COMMON_PROTO_CLIENT_JOIN_RESP          24
+#define FS_COMMON_PROTO_GET_READABLE_SERVER_REQ   53
+#define FS_COMMON_PROTO_GET_READABLE_SERVER_RESP  54
 
+//service commands
 #define FS_SERVICE_PROTO_SLICE_WRITE_REQ         25
 #define FS_SERVICE_PROTO_SLICE_WRITE_RESP        26
 #define FS_SERVICE_PROTO_SLICE_READ_REQ          27
@@ -48,8 +52,6 @@
 
 #define FS_SERVICE_PROTO_GET_MASTER_REQ           51
 #define FS_SERVICE_PROTO_GET_MASTER_RESP          52
-#define FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ  53
-#define FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP 54
 #define FS_SERVICE_PROTO_GET_LEADER_REQ           55
 #define FS_SERVICE_PROTO_GET_LEADER_RESP          56
 
@@ -80,6 +82,8 @@
 #define FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP  86
 #define FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ      87
 #define FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP     88
+#define FS_REPLICA_PROTO_SLICE_READ_REQ          89
+#define FS_REPLICA_PROTO_SLICE_READ_RESP         90
 
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
@@ -139,9 +143,15 @@ typedef struct fs_proto_block_delete_req {
     FSProtoBlockKey bkey;
 } FSProtoBlockDeleteReq;
 
-typedef struct fs_proto_slice_read_req_header {
+typedef struct fs_proto_service_slice_read_req{
     FSProtoBlockSlice bs;
-} FSProtoSliceReadReqHeader;
+} FSProtoServiceSliceReadReq;
+
+typedef struct fs_proto_replica_slice_read_req {
+    char slave_id[4];
+    char padding[4];
+    FSProtoBlockSlice bs;
+} FSProtoReplicaSliceReadReq;
 
 typedef struct {
     unsigned char servers[16];
@@ -219,7 +229,7 @@ typedef struct fs_proto_get_readable_server_req {
 } FSProtoGetReadableServerReq;
 
 /* for FS_SERVICE_PROTO_GET_MASTER_RESP and
-   FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP
+   FS_COMMON_PROTO_GET_READABLE_SERVER_RESP
    */
 typedef struct fs_proto_get_server_resp {
     char ip_addr[IP_ADDRESS_SIZE];

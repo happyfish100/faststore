@@ -27,8 +27,11 @@
 
 struct ob_slice_entry;
 struct fs_data_operation;
+struct fs_slice_op_context;
 
 typedef void (*fs_data_op_notify_func)(struct fs_data_operation *op);
+typedef void (*fs_read_done_callback_func)(
+        struct fs_slice_op_context *op_ctx, void *arg);
 
 typedef struct {
     int index;   //the inner index is important!
@@ -104,8 +107,9 @@ typedef struct ob_slice_ptr_array {
 struct fs_cluster_data_server_info;
 struct fs_data_thread_context;
 typedef struct fs_slice_op_context {
-    fs_data_op_notify_func notify_func;
-    struct fs_data_thread_context *data_thread_ctx;  //for signal data thread
+    fs_data_op_notify_func notify_func;  //for data thread
+    fs_read_done_callback_func read_done_callback;
+    void *arg;  //for signal data thread or nio task
     volatile short counter;
     short result;
     int done_bytes;

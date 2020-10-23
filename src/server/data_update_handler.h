@@ -23,6 +23,7 @@
 #include <string.h>
 #include "fastcommon/fast_task_queue.h"
 #include "server_types.h"
+#include "data_thread.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -43,6 +44,11 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
 void du_handler_idempotency_request_finish(struct fast_task_info *task,
         const int result);
 
+void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
+        struct fast_task_info *task);
+
+void du_handler_slice_read_done_notify(FSDataOperation *op);
+
 int du_handler_deal_slice_write(struct fast_task_info *task,
         FSSliceOpContext *op_ctx);
 
@@ -54,6 +60,11 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
 
 int du_handler_deal_block_delete(struct fast_task_info *task,
         FSSliceOpContext *op_ctx);
+
+int du_handler_deal_client_join(struct fast_task_info *task);
+
+int du_handler_deal_get_readable_server(struct fast_task_info *task,
+        const int group_index);
 
 static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
         task, FSSliceOpContext *op_ctx, const char *caption, const int result)

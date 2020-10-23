@@ -196,7 +196,7 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
 
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
         slice_write_finish(op_ctx);
-        data_thread_notify(op_ctx->data_thread_ctx);
+        data_thread_notify((FSDataThreadContext *)op_ctx->arg);
     }
 }
 
@@ -564,7 +564,7 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
 
     ob_index_free_slice(slice);
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
-        data_thread_notify(op_ctx->data_thread_ctx);
+        op_ctx->read_done_callback(op_ctx, op_ctx->arg);
     }
 }
 

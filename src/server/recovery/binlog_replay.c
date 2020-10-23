@@ -134,6 +134,8 @@ int binlog_replay_init()
         return result;
     }
     g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
+    g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
+        client_ctx.cluster_cfg.ptr->replica_group_index;
 
     return 0;
 }
@@ -178,9 +180,10 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 break;
             }
 
-            if ((result=fs_client_slice_read(&g_fs_client_vars.
-                            client_ctx, &task->op_ctx.info.bs_key,
-                            buff, &read_bytes)) == 0)
+            if ((result=fs_client_slice_read_by_slave(&g_fs_client_vars.
+                            client_ctx, task->thread_ctx->replay_ctx->
+                            recovery_ctx->is_online ? CLUSTER_MY_SERVER_ID : 0,
+                            &task->op_ctx.info.bs_key, buff, &read_bytes)) == 0)
             {
                 if (read_bytes != task->op_ctx.info.bs_key.slice.length) {
                     logWarning("file: "__FILE__", line: %d, "
@@ -289,6 +292,7 @@ static void binlog_replay_run(void *arg, void *thread_data)
     ReplayThreadContext *thread_ctx;
     ReplayTaskInfo *task;
     char *buff;
+    int result;
 
     buff = (char *)thread_data;
     thread_ctx = (ReplayThreadContext *)arg;
@@ -302,10 +306,11 @@ static void binlog_replay_run(void *arg, void *thread_data)
         }
 
         do {
-            if (deal_task(task, buff) != 0) {
+            result = deal_task(task, buff);
+            fc_queue_push(&thread_ctx->queues.freelist, task);
+            if (result != 0) {
                 break;
             }
-            fc_queue_push(&thread_ctx->queues.freelist, task);
 
             task = (ReplayTaskInfo *)fc_queue_try_pop(
                     &thread_ctx->queues.waiting);
@@ -334,7 +339,7 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
     buffer = &replay_ctx->r->buffer;
     end = buffer->buff + buffer->length;
     p = buffer->buff;
-    while (p < end) {
+    while (p < end && SF_G_CONTINUE_FLAG && replay_ctx->continue_flag) {
         line_end = (char *)memchr(p, '\n', end - p);
         if (line_end == NULL) {
             strcpy(error_info, "expect end line (\\n)");
@@ -356,16 +361,17 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
         thread_ctx = replay_ctx->thread_env.contexts +
             FS_BLOCK_HASH_CODE(replay_ctx->record.bs_key.block) %
             RECOVERY_THREADS_PER_DATA_GROUP;
-        while (1) {
+        task = NULL;
+        while (SF_G_CONTINUE_FLAG && replay_ctx->continue_flag) {
             if ((task=(ReplayTaskInfo *)fc_queue_pop(
                             &thread_ctx->queues.freelist)) != NULL)
             {
                 break;
             }
+        }
 
-            if (!SF_G_CONTINUE_FLAG) {
-                return EINTR;
-            }
+        if (!(SF_G_CONTINUE_FLAG && replay_ctx->continue_flag)) {
+            return EINTR;
         }
 
         task->op_type = replay_ctx->record.op_type;
@@ -553,7 +559,7 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             __LINE__, subdir_name, position.offset);
 
     result = 0;
-    while (SF_G_CONTINUE_FLAG) {
+    while (SF_G_CONTINUE_FLAG && replay_ctx->continue_flag) {
         if ((replay_ctx->r=binlog_read_thread_fetch_result(
                         &replay_ctx->rdthread_ctx)) == NULL)
         {

@@ -131,6 +131,8 @@ int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
 
     if (result == 0) {
         client_ctx->inited = true;
+        client_ctx->cluster_cfg.group_index = client_ctx->
+            cluster_cfg.ptr->service_group_index;
     }
     return result;
 }

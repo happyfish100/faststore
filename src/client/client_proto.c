@@ -97,15 +97,19 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_proto_slice_read(FSClientContext *client_ctx,
-        ConnectionInfo *conn, const FSBlockSliceKeyInfo *bs_key,
+int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const int slave_id, const int req_cmd,
+        const int resp_cmd, const FSBlockSliceKeyInfo *bs_key,
         char *buff, int *read_bytes)
 {
     const FSConnectionParameters *connection_params;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoSliceReadReqHeader)];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReplicaSliceReadReq)];
     FSProtoHeader *proto_header;
-    FSProtoSliceReadReqHeader *req_header;
     SFResponseInfo response;
+    FSProtoServiceSliceReadReq *sreq;
+    FSProtoReplicaSliceReadReq *rreq;
+    FSProtoBlockSlice *proto_bs;
+    int body_len;
     int hole_start;
     int hole_len;
     int buff_offet;
@@ -115,10 +119,18 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
     int result;
 
     proto_header = (FSProtoHeader *)out_buff;
-    req_header = (FSProtoSliceReadReqHeader *)(proto_header + 1);
-    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_READ_REQ,
-            sizeof(FSProtoSliceReadReqHeader));
-    proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
+    if (req_cmd == FS_SERVICE_PROTO_SLICE_READ_REQ) {
+        body_len = sizeof(FSProtoServiceSliceReadReq);
+        sreq = (FSProtoServiceSliceReadReq *)(proto_header + 1);
+        proto_bs = &sreq->bs;
+    } else {
+        body_len = sizeof(FSProtoReplicaSliceReadReq);
+        rreq = (FSProtoReplicaSliceReadReq *)(proto_header + 1);
+        int2buff(slave_id, rreq->slave_id);
+        proto_bs = &rreq->bs;
+    }
+    SF_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
+    proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
 
     connection_params = client_ctx->conn_manager.get_connection_params(
             client_ctx, conn);
@@ -134,20 +146,19 @@ int fs_client_proto_slice_read(FSClientContext *client_ctx,
         }
 
         int2buff(bs_key->slice.offset + buff_offet,
-                req_header->bs.slice_size.offset);
-        int2buff(curr_len, req_header->bs.slice_size.length);
+                proto_bs->slice_size.offset);
+        int2buff(curr_len, proto_bs->slice_size.length);
 
         response.error.length = 0;
         if ((result=sf_send_and_recv_response_header(conn,
-                        out_buff, sizeof(out_buff), &response,
-                        client_ctx->network_timeout)) != 0)
+                        out_buff, sizeof(FSProtoHeader) + body_len,
+                        &response, client_ctx->network_timeout)) != 0)
         {
             break;
         }
 
-        if ((result=sf_check_response(conn, &response,
-                        client_ctx->network_timeout,
-                        FS_SERVICE_PROTO_SLICE_READ_RESP)) != 0)
+        if ((result=sf_check_response(conn, &response, client_ctx->
+                        network_timeout, resp_cmd)) != 0)
         {
             if (result == ENOENT) {  //ignore errno ENOENT
                 bytes = 0;
@@ -339,11 +350,11 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
             req->data_group_count);
     int2buff(FS_FILE_BLOCK_SIZE, req->file_block_size);
 
-    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_CLIENT_JOIN_REQ,
+    SF_PROTO_SET_HEADER(proto_header, FS_COMMON_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, client_ctx->network_timeout,
-                    FS_SERVICE_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
+                    FS_COMMON_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {
         sf_log_network_error(&response, conn, result);
@@ -413,11 +424,11 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     req = (FSProtoGetReadableServerReq *)(header + 1);
     int2buff(data_group_index + 1, req->data_group_id);
     req->read_rule = client_ctx->read_rule;
-    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_READABLE_SERVER_REQ,
+    SF_PROTO_SET_HEADER(header, FS_COMMON_PROTO_GET_READABLE_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
                     &response, client_ctx->network_timeout,
-                    FS_SERVICE_PROTO_GET_READABLE_SERVER_RESP,
+                    FS_COMMON_PROTO_GET_READABLE_SERVER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
         sf_log_network_error(&response, conn, result);

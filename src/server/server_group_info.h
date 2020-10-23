@@ -31,8 +31,8 @@ int server_group_info_destroy();
 
 FSClusterServerInfo *fs_get_server_by_id(const int server_id);
 
-FSClusterDataServerInfo *fs_get_data_server(const int data_group_id,
-        const int server_id);
+FSClusterDataServerInfo *fs_get_data_server_ex(
+        FSClusterDataGroupInfo *group, const int server_id);
 
 int fs_downgrade_data_server_status(const int old_status, int *new_status);
 
@@ -65,6 +65,18 @@ static inline FSClusterDataGroupInfo *fs_get_data_group(const int data_group_id)
     }
 
     return CLUSTER_DATA_RGOUP_ARRAY.groups + index;
+}
+
+static inline FSClusterDataServerInfo *fs_get_data_server(
+        const int data_group_id, const int server_id)
+{
+    FSClusterDataGroupInfo *group;
+
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        return NULL;
+    }
+
+    return fs_get_data_server_ex(group, server_id);
 }
 
 static inline FSClusterDataServerInfo *fs_get_my_data_server(

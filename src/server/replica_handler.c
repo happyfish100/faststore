@@ -41,6 +41,7 @@
 #include "server_global.h"
 #include "server_func.h"
 #include "server_binlog.h"
+#include "server_storage.h"
 #include "server_group_info.h"
 #include "server_replication.h"
 #include "cluster_topology.h"
@@ -781,6 +782,78 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
     return result;
 }
 
+
+static int replica_deal_slice_read(struct fast_task_info *task)
+{
+    int result;
+    int slave_id;
+    bool direct_read;
+    FSProtoReplicaSliceReadReq *req;
+
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_SLICE_READ_RESP;
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoReplicaSliceReadReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoReplicaSliceReadReq *)REQUEST.body;
+    if ((result=du_handler_parse_check_readable_block_slice(
+                    task, &req->bs)) != 0)
+    {
+        return result;
+    }
+
+    if (OP_CTX_INFO.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "read slice length: %d > task buffer size: %d",
+                OP_CTX_INFO.bs_key.slice.length, (int)(
+                    task->size - sizeof(FSProtoHeader)));
+        return EOVERFLOW;
+    }
+
+    slave_id = buff2int(req->slave_id);
+    if (slave_id == 0) {
+        direct_read = false;
+    } else if (__sync_add_and_fetch(&OP_CTX_INFO.myself->is_master, 0)) {
+        /*
+        FSClusterDataServerInfo *slave;
+        if ((slave=fs_get_data_server_ex(OP_CTX_INFO.
+                        myself->dg, slave_id)) == NULL)
+        {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, server id: %d not exist",
+                    OP_CTX_INFO.myself->dg->id, slave_id);
+            return ENOENT;
+        }
+        */
+        direct_read = true;
+    } else {
+        direct_read = false;
+    }
+
+    logInfo("direct_read======: %d", direct_read);
+
+    OP_CTX_INFO.buff = REQUEST.body;
+    if (direct_read) {
+        SLICE_OP_CTX.read_done_callback = (fs_read_done_callback_func)
+            du_handler_slice_read_done_callback;
+        SLICE_OP_CTX.arg = task;
+        result = fs_slice_read(&SLICE_OP_CTX);
+    } else {
+        OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
+        result = push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
+                DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX);
+    }
+
+    if (result != 0) {
+        du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX,
+                "replica slice read", result);
+        return result;
+    }
+    return TASK_STATUS_CONTINUE;
+}
+
 int replica_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
@@ -826,6 +899,13 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 result = replica_deal_join_server_resp(task);
                 TASK_ARG->context.need_response = false;
                 break;
+            case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
+                result = du_handler_deal_client_join(task);
+                break;
+            case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
+                result = du_handler_deal_get_readable_server(task,
+                        REPLICA_GROUP_INDEX);
+                break;
             case FS_REPLICA_PROTO_RPC_REQ:
                 if ((result=replica_deal_rpc_req(task)) == 0) {
                     TASK_ARG->context.need_response = false;
@@ -843,6 +923,9 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 break;
             case FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ:
                 result = replica_deal_active_confirm(task);
+                break;
+            case FS_REPLICA_PROTO_SLICE_READ_REQ:
+                result = replica_deal_slice_read(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

@@ -85,7 +85,8 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc);
 
-int fs_client_slice_read(FSClientContext *client_ctx,
+int fs_client_slice_read_ex(FSClientContext *client_ctx,
+        const int slave_id, const int req_cmd, const int resp_cmd,
         const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
@@ -100,6 +101,17 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
             FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ,   \
             FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP,  \
             enoent_log_level, inc_alloc)
+
+#define fs_client_slice_read(client_ctx, bs_key, buff, read_bytes) \
+    fs_client_slice_read_ex(client_ctx, 0, FS_SERVICE_PROTO_SLICE_READ_REQ, \
+            FS_SERVICE_PROTO_SLICE_READ_RESP, bs_key, buff, read_bytes)
+
+#define fs_client_slice_read_by_slave(client_ctx, \
+        slave_id, bs_key, buff, read_bytes) \
+    fs_client_slice_read_ex(client_ctx, slave_id, \
+            FS_REPLICA_PROTO_SLICE_READ_REQ,  \
+            FS_REPLICA_PROTO_SLICE_READ_RESP, \
+            bs_key, buff, read_bytes)
 
 #define fs_client_slice_delete_ex(client_ctx, bs_key, \
         enoent_log_level, dec_alloc) \

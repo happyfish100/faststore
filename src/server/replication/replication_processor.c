@@ -333,8 +333,8 @@ static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
     if (__sync_sub_and_fetch(&task_arg->context.service.
                 waiting_rpc_count, 1) == 0)
     {
-        data_thread_notify(task_arg->context.slice_op_ctx.data_thread_ctx);
-        //sf_nio_notify(rb->task, SF_NIO_STAGE_CONTINUE);
+        data_thread_notify((FSDataThreadContext *)
+                task_arg->context.slice_op_ctx.arg);
     }
 }
 

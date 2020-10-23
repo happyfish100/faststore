@@ -26,13 +26,20 @@
 extern "C" {
 #endif
 
+#define fs_client_proto_slice_read(client_ctx, conn, bs_key, buff, read_bytes) \
+        fs_client_proto_slice_read_ex(client_ctx,     \
+            conn, 0, FS_SERVICE_PROTO_SLICE_READ_REQ, \
+            FS_SERVICE_PROTO_SLICE_READ_RESP,  \
+            bs_key, buff, read_bytes)
+
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id,
             const FSBlockSliceKeyInfo *bs_key, const char *data,
             int *inc_alloc);
 
-    int fs_client_proto_slice_read(FSClientContext *client_ctx,
-            ConnectionInfo *conn, const FSBlockSliceKeyInfo *bs_key,
+    int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
+            ConnectionInfo *conn, const int slave_id, const int req_cmd,
+            const int resp_cmd, const FSBlockSliceKeyInfo *bs_key,
             char *buff, int *read_bytes);
 
     int fs_client_proto_bs_operate(FSClientContext *client_ctx,
