@@ -317,6 +317,7 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
 
 #define SLAVE_CHECK_DATA_VERSION(op_ctx) \
     do {  \
+        uint64_t rpc_last_version; \
         if (TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE) { \
             if (op_ctx->info.data_version < op_ctx->info. \
                     myself->replica.rpc_start_version)    \
@@ -329,6 +330,19 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
                         myself->replica.rpc_start_version); \
                 return 0;  \
             }  \
+            rpc_last_version = __sync_fetch_and_add(&op_ctx->info. \
+                    myself->replica.rpc_last_version, 0);  \
+            while (op_ctx->info.data_version > rpc_last_version) { \
+                if (__sync_bool_compare_and_swap(&op_ctx->info.myself-> \
+                            replica.rpc_last_version, \
+                            rpc_last_version, \
+                            op_ctx->info.data_version))  \
+                {  \
+                    break; \
+                }  \
+                rpc_last_version = __sync_fetch_and_add(&op_ctx->info. \
+                        myself->replica.rpc_last_version, 0); \
+            } \
         }  \
     } while (0)
 

@@ -196,6 +196,7 @@ typedef struct fs_cluster_data_server_info {
     struct {
         pthread_lock_cond_pair_t notify; //lock and waiting for slave status change
         uint64_t rpc_start_version;      //for slave check data version
+        volatile uint64_t rpc_last_version;  //check rpc finished when recovery
     } replica;
 
     struct {

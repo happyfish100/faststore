@@ -79,8 +79,8 @@ static inline void set_data_version(FSSliceOpContext *op_ctx)
             if (op_ctx->info.data_version <= old_version) {
                 break;
             }
-            if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
-                        data.version, old_version,
+            if (__sync_bool_compare_and_swap(&op_ctx->info.
+                        myself->data.version, old_version,
                         op_ctx->info.data_version))
             {
                 break;
