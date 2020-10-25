@@ -146,10 +146,6 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return EOVERFLOW;
     }
 
-    /*
-    if (__sync_add_and_fetch(&OP_CTX_INFO.myself->is_master, 0) &&
-            */
-
     OP_CTX_INFO.buff = REQUEST.body;
     OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,

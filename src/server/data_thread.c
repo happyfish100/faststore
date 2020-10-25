@@ -64,89 +64,100 @@ static inline int init_thread_ctx(FSDataThreadContext *context)
     return 0;
 }
 
-static int init_data_thread_array()
+static int init_data_thread_array(FSDataThreadArray *thread_array,
+        const int count)
 {
     int result;
+    int thread_count;
     int bytes;
     FSDataThreadContext *context;
     FSDataThreadContext *end;
 
-    bytes = sizeof(FSDataThreadContext) * DATA_THREAD_COUNT;
-    g_data_thread_vars.thread_array.contexts =
-        (FSDataThreadContext *)fc_malloc(bytes);
-    if (g_data_thread_vars.thread_array.contexts == NULL) {
+    bytes = sizeof(FSDataThreadContext) * count;
+    thread_array->contexts = (FSDataThreadContext *)fc_malloc(bytes);
+    if (thread_array->contexts == NULL) {
         return ENOMEM;
     }
-    memset(g_data_thread_vars.thread_array.contexts, 0, bytes);
+    memset(thread_array->contexts, 0, bytes);
 
-    end = g_data_thread_vars.thread_array.contexts + DATA_THREAD_COUNT;
-    for (context=g_data_thread_vars.thread_array.contexts;
+    end = thread_array->contexts + count;
+    for (context=thread_array->contexts;
             context<end; context++)
     {
         if ((result=init_thread_ctx(context)) != 0) {
             return result;
         }
     }
-    g_data_thread_vars.thread_array.count = DATA_THREAD_COUNT;
-    return 0;
+    thread_array->count = count;
+
+    thread_count = thread_array->count;
+    return create_work_threads_ex(&thread_count, data_thread_func,
+            thread_array->contexts, sizeof(FSDataThreadContext), NULL,
+            SF_G_THREAD_STACK_SIZE);
 }
 
 int data_thread_init()
 {
     int result;
     int count;
+    int thread_count;
+    int n;
 
-    if ((result=init_data_thread_array()) != 0) {
+    count = (DATA_THREAD_COUNT + 1) / 2;
+    if ((result=init_data_thread_array(&g_data_thread_vars.
+                    thread_arrays.master, count)) != 0)
+    {
+        return result;
+    }
+    if ((result=init_data_thread_array(&g_data_thread_vars.
+                    thread_arrays.slave, count)) != 0)
+    {
         return result;
     }
 
-    count = g_data_thread_vars.thread_array.count;
-    if ((result=create_work_threads_ex(&count, data_thread_func,
-            g_data_thread_vars.thread_array.contexts,
-            sizeof(FSDataThreadContext), NULL,
-            SF_G_THREAD_STACK_SIZE)) == 0)
+    thread_count = 2 * count;
+    n = 0;
+    while (__sync_add_and_fetch(&DATA_THREAD_RUNNING_COUNT, 0) <
+            thread_count && n++ < 100)
     {
-        count = 0;
-        while (__sync_add_and_fetch(&DATA_THREAD_RUNNING_COUNT, 0) <
-                g_data_thread_vars.thread_array.count && count++ < 100)
-        {
-            fc_sleep_ms(1);
-        }
+        fc_sleep_ms(10);
     }
-    return result;
+
+    return 0;
 }
 
-void data_thread_destroy()
+static void destroy_data_thread_array(FSDataThreadArray *thread_array)
 {
-    if (g_data_thread_vars.thread_array.contexts != NULL) {
+    if (thread_array->contexts != NULL) {
         FSDataThreadContext *context;
         FSDataThreadContext *end;
 
-        end = g_data_thread_vars.thread_array.contexts +
-            g_data_thread_vars.thread_array.count;
-        for (context=g_data_thread_vars.thread_array.contexts;
-                context<end; context++)
-        {
+        end = thread_array->contexts + thread_array->count;
+        for (context=thread_array->contexts; context<end; context++) {
             destroy_pthread_lock_cond_pair(&context->lc_pair);
             fc_queue_destroy(&context->queue);
             fast_mblock_destroy(&context->allocator);
         }
-        free(g_data_thread_vars.thread_array.contexts);
-        g_data_thread_vars.thread_array.contexts = NULL;
+        free(thread_array->contexts);
+        thread_array->contexts = NULL;
+        thread_array->count = 0;
     }
 }
 
-void data_thread_terminate()
+void data_thread_destroy()
+{
+    destroy_data_thread_array(&g_data_thread_vars.thread_arrays.master);
+    destroy_data_thread_array(&g_data_thread_vars.thread_arrays.slave);
+}
+
+static void terminate_data_thread_array(FSDataThreadArray *thread_array)
 {
     FSDataThreadContext *context;
     FSDataThreadContext *end;
     int count;
 
-    end = g_data_thread_vars.thread_array.contexts +
-        g_data_thread_vars.thread_array.count;
-    for (context=g_data_thread_vars.thread_array.contexts;
-            context<end; context++)
-    {
+    end = thread_array->contexts + thread_array->count;
+    for (context=thread_array->contexts; context<end; context++) {
         fc_queue_terminate(&context->queue);
     }
 
@@ -154,8 +165,14 @@ void data_thread_terminate()
     while (__sync_add_and_fetch(&DATA_THREAD_RUNNING_COUNT, 0) != 0 &&
             count++ < 100)
     {
-        fc_sleep_ms(1);
+        fc_sleep_ms(10);
     }
+}
+
+void data_thread_terminate()
+{
+    terminate_data_thread_array(&g_data_thread_vars.thread_arrays.master);
+    terminate_data_thread_array(&g_data_thread_vars.thread_arrays.slave);
 }
 
 #define DATA_THREAD_COND_WAIT(thread_ctx) \

@@ -53,7 +53,10 @@ typedef struct fs_data_thread_array {
 } FSDataThreadArray;
 
 typedef struct fdir_data_thread_variables {
-    FSDataThreadArray thread_array;
+    struct {
+        FSDataThreadArray master;  //for master data groups
+        FSDataThreadArray slave;   //for slave data groups
+    } thread_arrays;
     volatile int running_count;
 } FSDataThreadVariables;
 
@@ -73,9 +76,16 @@ extern "C" {
         FSDataThreadContext *context;
         FSDataOperation *op;
 
-        context = g_data_thread_vars.thread_array.contexts +
-            FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
-            g_data_thread_vars.thread_array.count;
+        if (__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
+            context = g_data_thread_vars.thread_arrays.master.contexts +
+                FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
+                g_data_thread_vars.thread_arrays.master.count;
+        } else {
+            context = g_data_thread_vars.thread_arrays.slave.contexts +
+                FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
+                g_data_thread_vars.thread_arrays.slave.count;
+        }
+
         op = (FSDataOperation *)fast_mblock_alloc_object(&context->allocator);
         if (op == NULL) {
             return ENOMEM;

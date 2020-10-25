@@ -303,8 +303,12 @@ int server_load_config(const char *filename)
 
     DATA_THREAD_COUNT = iniGetIntValue(NULL, "data_threads",
             &ini_context, FS_DEFAULT_DATA_THREAD_COUNT);
-    if (DATA_THREAD_COUNT <= 0) {
-        DATA_THREAD_COUNT = FS_DEFAULT_DATA_THREAD_COUNT;
+    if (DATA_THREAD_COUNT < FS_MIN_DATA_THREAD_COUNT) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s , data_threads: %d is too small, "
+                "set it to %d", __LINE__, filename, DATA_THREAD_COUNT,
+                FS_MIN_DATA_THREAD_COUNT);
+        DATA_THREAD_COUNT = FS_MIN_DATA_THREAD_COUNT;
     }
 
     REPLICA_CHANNELS_BETWEEN_TWO_SERVERS = iniGetIntValue(NULL,

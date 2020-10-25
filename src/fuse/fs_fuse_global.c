@@ -353,8 +353,6 @@ int fs_fuse_global_init(const char *config_filename)
     if (g_fdir_client_vars.client_ctx.idempotency_enabled ||
             g_fs_client_vars.client_ctx.idempotency_enabled)
     {
-        char sf_global_cfg[512];
-        char sf_context_cfg[512];
         int len;
 
         len = sprintf(sf_idempotency_config,
@@ -368,11 +366,7 @@ int fs_fuse_global_init(const char *config_filename)
                 sf_idempotency_config + len,
                 sizeof(sf_idempotency_config) - len, true);
 
-        sf_global_config_to_string(sf_global_cfg,
-                sizeof sf_global_cfg);
-        sf_context_config_to_string(&g_sf_context,
-                sf_context_cfg, sizeof sf_context_cfg);
-        logInfo("%s, %s", sf_global_cfg, sf_context_cfg);
+        sf_log_config();
     } else {
         *sf_idempotency_config = '\0';
     }
