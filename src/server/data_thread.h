@@ -19,7 +19,7 @@
 #define _DATA_THREAD_H_
 
 #include "fastcommon/fc_queue.h"
-#include "server_types.h"
+#include "storage/slice_op.h"
 
 #define DATA_OPERATION_NONE           '\0'
 #define DATA_OPERATION_SLICE_READ     'r'
@@ -112,6 +112,26 @@ extern "C" {
                 return "block delete";
             default:
                 return "unkown";
+        }
+    }
+
+    static inline int log_data_update(const int operation,
+            FSSliceOpContext *op_ctx)
+    {
+        switch (operation) {
+            case DATA_OPERATION_SLICE_WRITE:
+                return fs_log_slice_write(op_ctx);
+            case DATA_OPERATION_SLICE_ALLOCATE:
+                return fs_log_slice_allocate(op_ctx);
+            case DATA_OPERATION_SLICE_DELETE:
+                return fs_log_delete_slices(op_ctx);
+            case DATA_OPERATION_BLOCK_DELETE:
+                return fs_log_delete_block(op_ctx);
+            default:
+                logError("file: "__FILE__", line: %d, "
+                        "invalid operation: %d",
+                        __LINE__, operation);
+                return EINVAL;
         }
     }
 

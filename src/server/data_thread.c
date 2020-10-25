@@ -32,7 +32,6 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "server_global.h"
-#include "server_storage.h"
 #include "server_replication.h"
 #include "data_thread.h"
 
@@ -172,27 +171,7 @@ void data_thread_terminate()
         }  \
     } while (0)
 
-static inline int log_data_update(const int operation,
-        FSSliceOpContext *op_ctx)
-{
-    switch (operation) {
-        case DATA_OPERATION_SLICE_WRITE:
-            return fs_log_slice_write(op_ctx);
-        case DATA_OPERATION_SLICE_ALLOCATE:
-            return fs_log_slice_allocate(op_ctx);
-        case DATA_OPERATION_SLICE_DELETE:
-            return fs_log_delete_slices(op_ctx);
-        case DATA_OPERATION_BLOCK_DELETE:
-            return fs_log_delete_block(op_ctx);
-        default:
-            logError("file: "__FILE__", line: %d, "
-                    "invalid operation: %d",
-                    __LINE__, operation);
-            return EINVAL;
-    }
-}
-
-static void data_thread_read_done_callback(
+static void data_thread_rw_done_callback(
         FSSliceOpContext *op_ctx, void *arg)
 {
     data_thread_notify((FSDataThreadContext *)arg);
@@ -208,7 +187,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
     switch (op->operation) {
         case DATA_OPERATION_SLICE_READ:
             is_update = false;
-            op->ctx->read_done_callback = data_thread_read_done_callback;
+            op->ctx->rw_done_callback = data_thread_rw_done_callback;
             PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
             thread_ctx->notify_done = false;
             if ((op->ctx->result=fs_slice_read(op->ctx)) == 0) {
@@ -218,6 +197,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             break;
         case DATA_OPERATION_SLICE_WRITE:
             is_update = true;
+            op->ctx->rw_done_callback = data_thread_rw_done_callback;
             PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
             thread_ctx->notify_done = false;
             if ((op->ctx->result=fs_slice_write(op->ctx)) == 0) {

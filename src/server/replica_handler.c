@@ -834,7 +834,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
 
     OP_CTX_INFO.buff = REQUEST.body;
     if (direct_read) {
-        SLICE_OP_CTX.read_done_callback = (fs_read_done_callback_func)
+        SLICE_OP_CTX.rw_done_callback = (fs_rw_done_callback_func)
             du_handler_slice_read_done_callback;
         SLICE_OP_CTX.arg = task;
         result = fs_slice_read(&SLICE_OP_CTX);

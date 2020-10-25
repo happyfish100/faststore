@@ -30,7 +30,7 @@ struct fs_data_operation;
 struct fs_slice_op_context;
 
 typedef void (*fs_data_op_notify_func)(struct fs_data_operation *op);
-typedef void (*fs_read_done_callback_func)(
+typedef void (*fs_rw_done_callback_func)(
         struct fs_slice_op_context *op_ctx, void *arg);
 
 typedef struct {
@@ -108,7 +108,7 @@ struct fs_cluster_data_server_info;
 struct fs_data_thread_context;
 typedef struct fs_slice_op_context {
     fs_data_op_notify_func notify_func;  //for data thread
-    fs_read_done_callback_func read_done_callback;
+    fs_rw_done_callback_func rw_done_callback; //for caller (data or nio thread)
     void *arg;  //for signal data thread or nio task
     volatile short counter;
     short result;

@@ -278,8 +278,10 @@ static void destroy_data_recovery_ctx(DataRecoveryContext *ctx)
 static int waiting_binlog_write_done(DataRecoveryContext *ctx,
         const uint64_t waiting_data_version)
 {
+#define MAX_WAITING_COUNT  50
     int result;
-    int i;
+    int r;
+    int count;
     int log_level;
     uint64_t data_version;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
@@ -288,13 +290,14 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx,
 
     result = ETIMEDOUT;
     replica_binlog_get_subdir_name(subdir_name, ctx->ds->dg->id);
-    for (i=0; i<300 && SF_G_CONTINUE_FLAG; i++) {
+    for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
         sf_binlog_writer_get_filename(subdir_name,
                 replica_binlog_get_current_write_index(
                     ctx->ds->dg->id), filename, sizeof(filename));
-        if ((result=replica_binlog_get_last_data_version(
+        if ((r=replica_binlog_get_last_data_version(
                         filename, &data_version)) != 0)
         {
+            result = r;
             break;
         }
 
@@ -302,21 +305,25 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx,
             result = 0;
             break;
         }
-        fc_sleep_ms(10);
+        fc_sleep_ms(100);
     }
 
     if (result == 0) {
-        if (i < 3) {
+        if (count < 3) {
             log_level = LOG_DEBUG;
-        } else if (i < 10) {
+        } else if (count < 10) {
             log_level = LOG_INFO;
         } else {
             log_level = LOG_WARNING;
         }
-        sprintf(prompt, "time count: %d", i);
+        sprintf(prompt, "time count: %d", count);
     } else {
         log_level = LOG_ERR;
-        sprintf(prompt, "timeout");
+        if (result == ETIMEDOUT) {
+            sprintf(prompt, "timeout");
+        } else {
+            sprintf(prompt, "fail, result: %d", result);
+        }
     }
 
     log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
@@ -524,7 +531,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
 
 static int data_recovery_waiting_rpc_done(FSClusterDataServerInfo *ds)
 {
-#define MAX_WAITING_COUNT  300
+#define MAX_WAITING_COUNT  50
     uint64_t rpc_last_version;
     uint64_t current_version;
     int result;
@@ -542,7 +549,7 @@ static int data_recovery_waiting_rpc_done(FSClusterDataServerInfo *ds)
     while ((current_version=__sync_fetch_and_add(&ds->data.version, 0)) <
             rpc_last_version && ++count < MAX_WAITING_COUNT)
     {
-        fc_sleep_ms(10);
+        fc_sleep_ms(100);
     }
 
     if (count < MAX_WAITING_COUNT) {
