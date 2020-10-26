@@ -67,8 +67,8 @@ typedef struct {
         TimeInfo end_time;
     } write_cache_to_hd;
 
-    int write_threads_per_disk;
-    int read_threads_per_disk;
+    int write_threads_per_path;
+    int read_threads_per_path;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;

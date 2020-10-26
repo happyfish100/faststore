@@ -76,9 +76,10 @@ static inline int fs_client_init_ex(FSClientContext *client_ctx,
 **/
 void fs_client_destroy_ex(FSClientContext *client_ctx);
 
-
 int fs_alloc_group_servers(FSServerGroup *server_group,
         const int alloc_size);
+
+void fs_client_log_config(FSClientContext *client_ctx);
 
 #ifdef __cplusplus
 }

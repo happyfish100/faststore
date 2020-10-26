@@ -249,14 +249,14 @@ static int load_paths(FSStorageConfig *storage_cfg,
 
         parray->paths[i].write_thread_count = iniGetIntValue(section_name,
                 "write_threads", ini_context, storage_cfg->
-                write_threads_per_disk);
+                write_threads_per_path);
         if (parray->paths[i].write_thread_count <= 0) {
             parray->paths[i].write_thread_count = 1;
         }
 
         parray->paths[i].read_thread_count = iniGetIntValue(section_name,
                 "read_threads", ini_context, storage_cfg->
-                read_threads_per_disk);
+                read_threads_per_path);
         if (parray->paths[i].read_thread_count <= 0) {
             parray->paths[i].read_thread_count = 1;
         }
@@ -324,16 +324,16 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->object_block.shared_locks_count = 163;
     }
 
-    storage_cfg->write_threads_per_disk = iniGetIntValue(NULL,
-            "write_threads_per_disk", ini_context, 1);
-    if (storage_cfg->write_threads_per_disk <= 0) {
-        storage_cfg->write_threads_per_disk = 1;
+    storage_cfg->write_threads_per_path = iniGetIntValue(NULL,
+            "write_threads_per_path", ini_context, 1);
+    if (storage_cfg->write_threads_per_path <= 0) {
+        storage_cfg->write_threads_per_path = 1;
     }
 
-    storage_cfg->read_threads_per_disk = iniGetIntValue(NULL,
-            "read_threads_per_disk", ini_context, 1);
-    if (storage_cfg->read_threads_per_disk <= 0) {
-        storage_cfg->read_threads_per_disk = 1;
+    storage_cfg->read_threads_per_path = iniGetIntValue(NULL,
+            "read_threads_per_path", ini_context, 1);
+    if (storage_cfg->read_threads_per_path <= 0) {
+        storage_cfg->read_threads_per_path = 1;
     }
 
     storage_cfg->prealloc_trunks_per_writer = iniGetIntValue(NULL,
@@ -610,6 +610,10 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
     FSStoragePathInfo *p;
     FSStoragePathInfo *end;
 
+    if (parray->count == 0) {
+        return;
+    }
+
     logInfo("%s count: %d", caption, parray->count);
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
@@ -627,8 +631,8 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
 
 void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
-    logInfo("storage config, write_threads_per_disk: %d, "
-            "read_threads_per_disk: %d, "
+    logInfo("storage config, write_threads_per_path: %d, "
+            "read_threads_per_path: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_locks_count: %d, "
@@ -640,8 +644,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "discard_remain_space_size: %d, "
             "write_cache_to_hd: { on_usage: %.2f%%, start_time: %02d:%02d, "
             "end_time: %02d:%02d }, reclaim_trunks_on_usage: %.2f%%",
-            storage_cfg->write_threads_per_disk,
-            storage_cfg->read_threads_per_disk,
+            storage_cfg->write_threads_per_path,
+            storage_cfg->read_threads_per_path,
             storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->object_block.hashtable_capacity,
             storage_cfg->object_block.shared_locks_count,

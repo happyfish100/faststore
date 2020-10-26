@@ -28,7 +28,6 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         IniFullContext *ini_ctx)
 {
     char *pBasePath;
-    char net_retry_output[256];
     int result;
 
     pBasePath = iniGetStrValue(NULL, "base_path", ini_ctx->context);
@@ -41,15 +40,15 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         chopPath(g_fs_client_vars.base_path);
         if (!fileExists(g_fs_client_vars.base_path)) {
             logError("file: "__FILE__", line: %d, "
-                "\"%s\" can't be accessed, error info: %s",
-                __LINE__, g_fs_client_vars.base_path,
-                STRERROR(errno));
+                    "\"%s\" can't be accessed, error info: %s",
+                    __LINE__, g_fs_client_vars.base_path,
+                    STRERROR(errno));
             return errno != 0 ? errno : ENOENT;
         }
         if (!isDir(g_fs_client_vars.base_path)) {
             logError("file: "__FILE__", line: %d, "
-                "\"%s\" is not a directory!",
-                __LINE__, g_fs_client_vars.base_path);
+                    "\"%s\" is not a directory!",
+                    __LINE__, g_fs_client_vars.base_path);
             return ENOTDIR;
         }
     }
@@ -82,10 +81,16 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
+    return 0;
+}
+
+void fs_client_log_config(FSClientContext *client_ctx)
+{
+    char net_retry_output[256];
+
     sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
             net_retry_output, sizeof(net_retry_output));
-
-    logDebug("FastStore v%d.%02d, "
+    logInfo("FastStore v%d.%02d, "
             "base_path: %s, "
             "connect_timeout: %d, "
             "network_timeout: %d, "
@@ -102,8 +107,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
 
-    fs_cluster_cfg_to_log(client_ctx->cluster_cfg.ptr);
-    return 0;
+    //fs_cluster_cfg_to_log(client_ctx->cluster_cfg.ptr);
 }
 
 int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
