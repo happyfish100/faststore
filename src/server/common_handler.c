@@ -156,11 +156,13 @@ int handler_deal_task_done(struct fast_task_info *task)
     if (time_used > 100 * 1000) {
         logWarning("file: "__FILE__", line: %d, "
                 "process a request timed used: %s us, "
-                "cmd: %d (%s), req body len: %d, resp body len: %d",
-                __LINE__, long_to_comma_str(time_used, time_buff),
+                "req cmd: %d (%s), req body len: %d, resp cmd: %d (%s), "
+                "status: %d, resp body len: %d", __LINE__,
+                long_to_comma_str(time_used, time_buff),
                 REQUEST.header.cmd, fs_get_cmd_caption(REQUEST.header.cmd),
-                REQUEST.header.body_len,
-                RESPONSE.header.body_len);
+                REQUEST.header.body_len, RESPONSE.header.cmd,
+                fs_get_cmd_caption(RESPONSE.header.cmd),
+                RESPONSE_STATUS, RESPONSE.header.body_len);
     }
 
     switch (REQUEST.header.cmd) {

@@ -144,9 +144,11 @@ void binlog_replay_destroy()
 {
 }
 
-static void slice_write_done_notify(FSSliceOpContext *op_ctx,
-        ReplayThreadContext *thread_ctx)
+static void slice_write_done_notify(FSDataOperation *op)
 {
+    ReplayThreadContext *thread_ctx;
+
+    thread_ctx = ((ReplayTaskInfo *)op->arg)->thread_ctx;
     PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lcp.lock);
     if (!thread_ctx->notify.done) {
         thread_ctx->notify.done = true;
@@ -199,17 +201,6 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
                 task->op_ctx.info.buff = buff;
                 operation = DATA_OPERATION_SLICE_WRITE;
                 success_ptr = &task->thread_ctx->stat.write.success;
-
-                PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
-                task->thread_ctx->notify.done = false;
-                if ((result=fs_slice_write(&task->op_ctx)) == 0) {
-                    while (!task->thread_ctx->notify.done) {
-                        pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
-                                &task->thread_ctx->notify.lcp.lock);
-                    }
-                    result = task->op_ctx.result;
-                }
-                PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
             } else if (result == ENODATA) {
                 logWarning("file: "__FILE__", line: %d, "
                         "oid: %"PRId64", block offset: %"PRId64", "
@@ -228,19 +219,11 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
             task->thread_ctx->stat.allocate.total++;
             operation = DATA_OPERATION_SLICE_ALLOCATE;
             success_ptr = &task->thread_ctx->stat.allocate.success;
-            result = fs_slice_allocate(&task->op_ctx);
             break;
         case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
             task->thread_ctx->stat.remove.total++;
             operation = DATA_OPERATION_SLICE_DELETE;
-            result = fs_delete_slices(&task->op_ctx);
-            if (result == 0) {
-                success_ptr = &task->thread_ctx->stat.remove.success;
-            } else if (result == ENOENT) {
-                result = 0;
-                log_padding = true;
-                task->thread_ctx->stat.remove.ignore++;
-            }
+            success_ptr = &task->thread_ctx->stat.remove.success;
             break;
         default:
             logError("file: "__FILE__", line: %d, "
@@ -250,11 +233,34 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
             break;
     }
 
-    if (result == 0) {
-        if (success_ptr != NULL) {
+    if (operation != DATA_OPERATION_NONE) {
+        PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
+        task->thread_ctx->notify.done = false;
+        if ((result=push_to_data_thread_queue(operation,
+                        DATA_SOURCE_SLAVE_RECOVERY, task,
+                        &task->op_ctx)) == 0)
+        {
+            while (!task->thread_ctx->notify.done) {
+                pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
+                        &task->thread_ctx->notify.lcp.lock);
+            }
+            result = task->op_ctx.result;
+        }
+        PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
+
+        if (result == 0) {
             (*success_ptr)++;
-            result = log_data_update(operation, &task->op_ctx);
-        } else if (log_padding) {
+        } else if (result == ENOENT) {
+            if (operation == DATA_OPERATION_SLICE_DELETE) {
+                result = 0;
+                log_padding = true;
+                task->thread_ctx->stat.remove.ignore++;
+            }
+        }
+    }
+
+    if (result == 0) {
+        if (log_padding) {
             result = replica_binlog_log_no_op(task->thread_ctx->
                     replay_ctx->recovery_ctx->ds->dg->id,
                     task->op_ctx.info.data_version,
@@ -351,6 +357,7 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
         }
 
         fs_calc_block_hashcode(&replay_ctx->record.bs_key.block);
+
         thread_ctx = replay_ctx->thread_env.contexts +
             FS_BLOCK_HASH_CODE(replay_ctx->record.bs_key.block) %
             RECOVERY_THREADS_PER_DATA_GROUP;
@@ -611,9 +618,7 @@ static int init_rthread_context(ReplayThreadContext *thread_ctx,
 
     end = tasks + RECOVERY_MAX_QUEUE_DEPTH;
     for (task=tasks; task<end; task++) {
-        task->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
-            slice_write_done_notify;
-        task->op_ctx.arg = thread_ctx;
+        task->op_ctx.notify_func = slice_write_done_notify;
         task->thread_ctx = thread_ctx;
         fc_queue_push_ex(&thread_ctx->queues.freelist, task, &notify);
     }
