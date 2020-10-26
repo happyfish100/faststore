@@ -439,9 +439,10 @@ static int cluster_deal_report_disk_space(struct fast_task_info *task)
     }
 
     req = (FSProtoReportDiskSpaceReq *)REQUEST.body;
-    stat.total = buff2int(req->total);
-    stat.avail = buff2int(req->avail);
-    stat.used = buff2int(req->used);
+    stat.total = buff2long(req->total);
+    stat.avail = buff2long(req->avail);
+    stat.used = buff2long(req->used);
+
     CLUSTER_PEER->space_stat = stat;
     return 0;
 }
