@@ -384,8 +384,8 @@ int fs_fuse_global_init(const char *config_filename)
         *owner_config = '\0';
     }
 
-    fdir_client_log_config();
-    fs_client_log_config();
+    fdir_client_log_config(g_fs_api_ctx.contexts.fdir);
+    fs_client_log_config(g_fs_api_ctx.contexts.fs);
 
     logInfo("FUSE library version %s, "
             "FastDIR namespace: %s, %sFUSE mountpoint: %s, "
