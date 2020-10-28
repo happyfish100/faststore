@@ -106,15 +106,7 @@ static inline void desc_task_waiting_rpc_count(
     }
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
-    if (entry->task_version != task_arg->task_version) {
-        logWarning("file: "__FILE__", line: %d, "
-                "data group id: %d, task %p already cleanup",
-                __LINE__, instance->data_group_id, entry->waiting_task);
-        return;
-    }
-
-    if (__sync_sub_and_fetch(&((FSServerTaskArg *)
-                    entry->waiting_task->arg)->context.
+    if (__sync_sub_and_fetch(&task_arg->context.
                 service.waiting_rpc_count, 1) == 0)
     {
         data_thread_notify((FSDataThreadContext *)
@@ -294,7 +286,7 @@ void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx)
 
 static int add_to_queue(FSReplicaRPCResultContext *ctx,
         FSReplicaRPCResultInstance *instance, const uint64_t data_version,
-        struct fast_task_info *waiting_task, const int64_t task_version)
+        struct fast_task_info *waiting_task)
 {
     FSReplicaRPCResultEntry *entry;
     FSReplicaRPCResultEntry *previous;
@@ -308,7 +300,6 @@ static int add_to_queue(FSReplicaRPCResultContext *ctx,
 
     entry->data_version = data_version;
     entry->waiting_task = waiting_task;
-    entry->task_version = task_version;
     entry->expires = g_current_time + SF_G_NETWORK_TIMEOUT;
 
     if (instance->queue.tail == NULL) {  //empty queue
@@ -344,7 +335,7 @@ static int add_to_queue(FSReplicaRPCResultContext *ctx,
 
 int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
         const int data_group_id, const uint64_t data_version,
-        struct fast_task_info *waiting_task, const int64_t task_version)
+        struct fast_task_info *waiting_task)
 {
     FSReplicaRPCResultInstance *instance;
     FSReplicaRPCResultEntry *entry;
@@ -377,7 +368,6 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
     if (matched) {
         entry->data_version = data_version;
         entry->waiting_task = waiting_task;
-        entry->task_version = task_version;
         entry->expires = g_current_time + SF_G_NETWORK_TIMEOUT;
         return 0;
     }
@@ -386,7 +376,7 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
             "data group id: %d, can't found data version %"PRId64", "
             "in the ring", __LINE__, instance->data_group_id, data_version);
     return add_to_queue(ctx, instance, data_version,
-            waiting_task, task_version);
+            waiting_task);
 }
 
 static int remove_from_queue(FSReplicaRPCResultContext *ctx,

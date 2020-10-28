@@ -33,6 +33,7 @@
 #include "fastcommon/ioevent_loop.h"
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
+#include "sf/sf_service.h"
 #include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
@@ -109,7 +110,6 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
 #define REPLICATION_BIND_TASK(replication, task) \
     do { \
         replication->task = task;  \
-        replication->task_version = TASK_ARG->task_version;  \
         SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
         REPLICA_REPLICATION = replication;  \
     } while (0)
@@ -132,18 +132,10 @@ int replication_processor_bind_thread(FSReplication *replication)
     struct fast_task_info *task;
     FSServerContext *server_ctx;
 
-    task = free_queue_pop();
-    if (task == NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "malloc task buff failed, you should "
-                "increase the parameter: max_connections",
-                __LINE__);
+    if ((task=sf_alloc_init_task(&REPLICA_SF_CTX, -1)) == NULL) {
         return ENOMEM;
     }
 
-    task->canceled = false;
-    task->ctx = &REPLICA_SF_CTX;
-    task->event.fd = -1;
     task->thread_data = REPLICA_SF_CTX.thread_data +
         replication->thread_index % REPLICA_SF_CTX.work_threads;
 
@@ -324,12 +316,6 @@ static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
     FSServerTaskArg *task_arg;
 
     task_arg = (FSServerTaskArg *)rb->task->arg;
-    if (rb->task_version != task_arg->task_version) {
-        logWarning("file: "__FILE__", line: %d, "
-                "task %p already cleanup", __LINE__, rb->task);
-        return;
-    }
-
     if (__sync_sub_and_fetch(&task_arg->context.service.
                 waiting_rpc_count, 1) == 0)
     {
@@ -516,25 +502,19 @@ static int replication_rpc_from_queue(FSReplication *replication)
             context.slice_op_ctx.info.data_version;
         memcpy(body_part->body, rb->task->data +
                 rb->body_offset, rb->body_length);
-        if (rb->task_version == ((FSServerTaskArg *)
-                    rb->task->arg)->task_version)
+
+        ++count;
+        task->length = pkg_len;
+        long2buff(data_version, body_part->data_version);
+        int2buff(rb->body_length, body_part->body_len);
+        if ((result=rpc_result_ring_add(&replication->context.caller.
+                        rpc_result_ctx, data_group_id, data_version,
+                        rb->task)) != 0)
         {
-            ++count;
-            task->length = pkg_len;
-            long2buff(data_version, body_part->data_version);
-            int2buff(rb->body_length, body_part->body_len);
-            if ((result=rpc_result_ring_add(&replication->context.caller.
-                            rpc_result_ctx, data_group_id, data_version,
-                            rb->task, rb->task_version)) != 0)
-            {
-                sf_terminate_myself();
-                return result;
-            }
-        } else {
-            logWarning("file: "__FILE__", line: %d, "
-                    "task %p already cleanup", __LINE__, rb->task);
-            decrease_task_waiting_rpc_count(rb);
+            sf_terminate_myself();
+            return result;
         }
+
         deleted = rb;
         rb = rb->nexts[replication->peer->link_index];
 

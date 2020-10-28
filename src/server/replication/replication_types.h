@@ -24,7 +24,6 @@
 #include "../server_types.h"
 
 typedef struct replication_rpc_entry {
-    uint64_t task_version;
     struct fast_task_info *task;
     volatile short reffer_count;
     short body_offset;

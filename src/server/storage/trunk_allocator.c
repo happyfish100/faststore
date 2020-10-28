@@ -508,8 +508,9 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
                     allocator->sl_trunks, &target)) == NULL)
     {
         logError("file: "__FILE__", line: %d, "
-                "trunk id: %"PRId64" not exist",
-                __LINE__, slice->space.id_info.id);
+                "store path index: %d, trunk id: %"PRId64" not exist",
+                __LINE__, allocator->path_info->store.index,
+                slice->space.id_info.id);
         result = ENOENT;
     } else {
         /* for loading slice binlog */
@@ -540,8 +541,9 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
                     allocator->sl_trunks, &target)) == NULL)
     {
         logError("file: "__FILE__", line: %d, "
-                "trunk id: %"PRId64" not exist",
-                __LINE__, slice->space.id_info.id);
+                "store path index: %d, trunk id: %"PRId64" not exist",
+                __LINE__, allocator->path_info->store.index,
+                slice->space.id_info.id);
         result = ENOENT;
     } else {
         trunk_info->used.bytes -= slice->space.size;

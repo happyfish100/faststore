@@ -35,6 +35,7 @@
 #include "sf/sf_util.h"
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
+#include "sf/sf_service.h"
 #include "sf/sf_global.h"
 #include "sf/sf_configs.h"
 #include "sf/idempotency/server/server_channel.h"
@@ -148,9 +149,7 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
 void du_handler_idempotency_request_finish(struct fast_task_info *task,
         const int result)
 {
-    if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
-            IDEMPOTENCY_REQUEST != NULL)
-    {
+    if (IDEMPOTENCY_REQUEST != NULL) {
         IDEMPOTENCY_REQUEST->finished = true;
         IDEMPOTENCY_REQUEST->output.result = result;
         ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
@@ -193,6 +192,7 @@ void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
 
     RESPONSE_STATUS = op_ctx->result;
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    sf_release_task(task);
 }
 
 void du_handler_slice_read_done_notify(FSDataOperation *op)
@@ -256,6 +256,7 @@ static void master_data_update_done_notify(FSDataOperation *op)
     du_handler_idempotency_request_finish(task, op->ctx->result);
     RESPONSE_STATUS = op->ctx->result;
     sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    sf_release_task(task);
 }
 
 static void slave_data_update_done_notify(FSDataOperation *op)
@@ -289,9 +290,7 @@ static void slave_data_update_done_notify(FSDataOperation *op)
     {
         FSReplication *replication;
         replication = REPLICA_REPLICATION;
-        if (replication != NULL && replication->task_version ==
-                TASK_ARG->task_version)
-        {
+        if (replication != NULL) {
             replication_callee_push_to_rpc_result_queue(replication,
                     op->ctx->info.data_group_id, op->ctx->info.data_version,
                     op->ctx->result);
@@ -303,6 +302,7 @@ static void slave_data_update_done_notify(FSDataOperation *op)
         shared_buffer_release(op_buffer_ctx->buffer);
         replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
     }
+    sf_release_task(task);
 }
 
 static inline void set_block_op_error_msg(struct fast_task_info *task,
@@ -352,6 +352,7 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
 {
     int result;
 
+    sf_hold_task(task);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
@@ -371,6 +372,7 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
         } else {
             du_handler_set_slice_op_error_msg(task, op_ctx, caption, result);
         }
+        sf_release_task(task);
         return result;
     }
 

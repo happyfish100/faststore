@@ -31,7 +31,7 @@ void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx);
 
 int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
         const int data_group_id, const uint64_t data_version,
-        struct fast_task_info *waiting_task, const int64_t task_version);
+        struct fast_task_info *waiting_task);
 
 int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
         const int data_group_id, const uint64_t data_version);

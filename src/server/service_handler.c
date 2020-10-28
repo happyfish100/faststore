@@ -35,6 +35,7 @@
 #include "sf/sf_util.h"
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
+#include "sf/sf_service.h"
 #include "sf/sf_global.h"
 #include "sf/sf_configs.h"
 #include "sf/idempotency/server/server_channel.h"
@@ -93,8 +94,6 @@ void service_task_finish_cleanup(struct fast_task_info *task)
                 SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL);
     }
 
-    ((FSServerTaskArg *)task->arg)->task_version =
-        __sync_add_and_fetch(&NEXT_TASK_VERSION, 1);
     sf_task_finish_clean_up(task);
 }
 
@@ -146,13 +145,15 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return EOVERFLOW;
     }
 
+    sf_hold_task(task);
     OP_CTX_INFO.buff = REQUEST.body;
     OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
                     DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX)) != 0)
     {
-        du_handler_set_slice_op_error_msg(task,&SLICE_OP_CTX,
+        du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX,
                 "slice read", result);
+        sf_release_task(task);
         return result;
     }
     
@@ -478,8 +479,8 @@ int service_deal_task(struct fast_task_info *task, const int stage)
             */
 
     if (stage == SF_NIO_STAGE_CONTINUE) {
-        if (TASK_ARG->context.deal_func != NULL) {
-            result = TASK_ARG->context.deal_func(task);
+        if (task->continue_callback != NULL) {
+            result = task->continue_callback(task);
         } else {
             result = RESPONSE_STATUS;
             if (result == TASK_STATUS_CONTINUE) {

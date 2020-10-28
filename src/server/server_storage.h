@@ -22,7 +22,7 @@
 #include "storage/store_path_index.h"
 #include "storage/trunk_id_info.h"
 #include "storage/trunk_prealloc.h"
-//#include "storage/trunk_reclaim.h"
+#include "storage/trunk_reclaim.h"
 #include "storage/trunk_allocator.h"
 #include "storage/storage_allocator.h"
 #include "storage/object_block_index.h"

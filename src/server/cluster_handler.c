@@ -102,8 +102,6 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                 __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
     }
 
-    ((FSServerTaskArg *)task->arg)->task_version =
-        __sync_add_and_fetch(&NEXT_TASK_VERSION, 1);
     sf_task_finish_clean_up(task);
 }
 
@@ -485,15 +483,9 @@ int cluster_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
 
-    /*
-    logInfo("file: "__FILE__", line: %d, "
-            "nio stage: %d, SF_NIO_STAGE_CONTINUE: %d", __LINE__,
-            stage, SF_NIO_STAGE_CONTINUE);
-            */
-
     if (stage == SF_NIO_STAGE_CONTINUE) {
-        if (TASK_ARG->context.deal_func != NULL) {
-            result = TASK_ARG->context.deal_func(task);
+        if (task->continue_callback != NULL) {
+            result = task->continue_callback(task);
         } else {
             result = RESPONSE_STATUS;
             if (result == TASK_STATUS_CONTINUE) {

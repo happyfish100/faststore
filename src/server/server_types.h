@@ -238,7 +238,6 @@ typedef struct fs_cluster_data_group_array {
 
 typedef struct fs_rpc_result_entry {
     uint64_t data_version;
-    uint64_t task_version;
     time_t expires;
     struct fast_task_info *waiting_task;
     struct fs_rpc_result_entry *next;
@@ -281,7 +280,6 @@ typedef struct fs_replication_context {
 } FSReplicationContext;
 
 typedef struct fs_replication {
-    uint64_t task_version;  //for check task
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
     short stage;
@@ -303,7 +301,6 @@ typedef struct fs_replication {
 typedef struct {
     SFRequestInfo request;
     SFResponseInfo response;
-    int (*deal_func)(struct fast_task_info *task);
     bool response_done;
     char log_level;   //level for error log
     bool need_response;
@@ -335,7 +332,6 @@ typedef struct {
 } FSServerTaskContext;
 
 typedef struct server_task_arg {
-    uint64_t task_version;
     int64_t req_start_time;
 
     FSServerTaskContext context;
