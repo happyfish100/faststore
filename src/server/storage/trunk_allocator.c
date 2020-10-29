@@ -26,16 +26,8 @@
 #include "trunk_prealloc.h"
 #include "trunk_allocator.h"
 
-typedef struct {
-    bool allocator_inited;
-    struct fast_mblock_man trunk_allocator;
-    struct fast_mblock_man free_node_allocator;
-    UniqSkiplistFactory skiplist_factory;
-} TrunkAllocatorGlobalVars;
+TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 
-static TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
-
-#define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
 #define G_FREE_NODE_ALLOCATOR g_trunk_allocator_vars.free_node_allocator
 #define G_SKIPLIST_FACTORY    g_trunk_allocator_vars.skiplist_factory
 

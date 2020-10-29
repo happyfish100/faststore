@@ -48,12 +48,17 @@ int server_storage_init()
         return result;
     }
 
+    if ((result=trunk_util_man_init()) != 0) {
+        return result;
+    }
+
 	return 0;
 }
 
 void server_storage_destroy()
 {
     trunk_binlog_destroy();
+    trunk_id_info_destroy();
 }
  
 void server_storage_terminate()

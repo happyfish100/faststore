@@ -143,4 +143,21 @@ typedef struct fs_slice_op_buffer_context {
     SharedBuffer *buffer;
 } FSSliceOpBufferContext;
 
+typedef struct fs_trunk_file_info {
+    FSTrunkIdInfo id_info;
+    int status;
+    struct {
+        int count;  //slice count
+        int64_t bytes;
+        struct fc_list_head slice_head; //OBSliceEntry double link
+    } used;
+    int64_t size;        //file size
+    int64_t free_start;  //free space offset
+
+    struct {
+        volatile char in_queue;
+        struct fs_trunk_file_info *next;
+    } util;  //for util manager queue
+} FSTrunkFileInfo;
+
 #endif

@@ -14,9 +14,11 @@
  */
 
 
-#ifndef _TRUNK_ID_INFO_H
-#define _TRUNK_ID_INFO_H
+#ifndef _TRUNK_UTIL_MAN_H
+#define _TRUNK_UTIL_MAN_H
 
+#include "fastcommon/uniq_skiplist.h"
+#include "fastcommon/multi_skiplist.h"
 #include "../../common/fs_types.h"
 #include "storage_config.h"
 
@@ -24,15 +26,7 @@
 extern "C" {
 #endif
 
-    int trunk_id_info_init();
-
-    void trunk_id_info_destroy();
-
-    int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info);
-
-    int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info);
-
-    int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info);
+    int trunk_util_man_init();
 
 #ifdef __cplusplus
 }

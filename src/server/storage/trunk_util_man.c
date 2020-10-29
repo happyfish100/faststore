@@ -22,15 +22,17 @@
 #include "fastcommon/fc_queue.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
-#include "trunk_reclaim.h"
+#include "trunk_util_man.h"
 
-typedef struct trunk_reclaim_task_info {
+typedef struct trunk_util_man_task_info {
     bool urgent;
-    struct trunk_reclaim_task_info *next;
+    struct trunk_util_man_task_info *next;
 } TrunkReclaimTaskInfo;
 
-typedef struct trunk_reclaim_thread_context {
+typedef struct trunk_util_man_thread_context {
     struct fast_mblock_man task_allocator;
+    UniqSkiplistFactory skiplist_factory;
+    UniqSkiplist *sl_trunks;   //order by used size and id
     struct fc_queue queue;
     pthread_t tid;
     bool running;
@@ -38,12 +40,12 @@ typedef struct trunk_reclaim_thread_context {
 
 static TrunkReclaimThreadContext reclaim_thread_ctx;
 
-static int trunk_reclaim_deal_task(TrunkReclaimTaskInfo *task)
+static int trunk_util_man_deal_task(TrunkReclaimTaskInfo *task)
 {
     return 0;
 }
 
-static void *trunk_reclaim_thread_func(void *arg)
+static void *trunk_util_man_thread_func(void *arg)
 {
     TrunkReclaimThreadContext *thread;
     TrunkReclaimTaskInfo *task;
@@ -56,7 +58,7 @@ static void *trunk_reclaim_thread_func(void *arg)
             continue;
         }
 
-        if (trunk_reclaim_deal_task(task) != 0) {
+        if (trunk_util_man_deal_task(task) != 0) {
             logCrit("file: "__FILE__", line: %d, "
                     "deal_binlog_records fail, "
                     "program exit!", __LINE__);
@@ -69,24 +71,24 @@ static void *trunk_reclaim_thread_func(void *arg)
     return NULL;
 }
 
-int trunk_reclaim_init()
+int trunk_util_man_init()
 {
     int result;
 
     if ((result=fast_mblock_init_ex1(&reclaim_thread_ctx.task_allocator,
-                    "trunk_reclaim_task", sizeof(TrunkReclaimTaskInfo),
+                    "trunk_util_man_task", sizeof(TrunkReclaimTaskInfo),
                     1024, 0, NULL, NULL, true)) != 0)
     {
         return result;
     }
 
     if ((result=fc_queue_init(&reclaim_thread_ctx.queue, (long)
-                    (&((TrunkReclaimTaskInfo *)NULL)->next))) != 0)
+                    (&((FSTrunkFileInfo *)NULL)->util.next))) != 0)
     {
         return result;
     }
 
     return fc_create_thread(&reclaim_thread_ctx.tid,
-            trunk_reclaim_thread_func, &reclaim_thread_ctx,
+            trunk_util_man_thread_func, &reclaim_thread_ctx,
             SF_G_THREAD_STACK_SIZE);
 }

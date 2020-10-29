@@ -33,18 +33,6 @@
 
 #define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
 
-typedef struct {
-    FSTrunkIdInfo id_info;
-    int status;
-    struct {
-        int count;  //slice count
-        int64_t bytes;
-        struct fc_list_head slice_head; //OBSliceEntry double link
-    } used;
-    int64_t size;        //file size
-    int64_t free_start;  //free space offset
-} FSTrunkFileInfo;
-
 typedef struct fs_trunk_free_node {
     FSTrunkFileInfo *trunk_info;
     struct fs_trunk_free_node *next;
@@ -76,9 +64,23 @@ typedef struct {
     pthread_lock_cond_pair_t lcp;
 } FSTrunkAllocator;
 
+typedef struct {
+    bool allocator_inited;
+    struct fast_mblock_man trunk_allocator;
+    struct fast_mblock_man free_node_allocator;
+    UniqSkiplistFactory skiplist_factory;
+} TrunkAllocatorGlobalVars;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define G_TRUNK_ALLOCATOR     g_trunk_allocator_vars.trunk_allocator
+
+#define free_trunk_file_info_ptr(trunk_info) \
+        fast_mblock_free_object(&G_TRUNK_ALLOCATOR, trunk_info)
+
+    extern TrunkAllocatorGlobalVars g_trunk_allocator_vars;
 
     int trunk_allocator_init(FSTrunkAllocator *allocator,
             FSStoragePathInfo *path_info);
