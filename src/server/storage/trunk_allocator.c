@@ -24,6 +24,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "trunk_prealloc.h"
+#include "trunk_util_man.h"
 #include "trunk_allocator.h"
 
 TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
@@ -151,7 +152,9 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     result = uniq_skiplist_insert(allocator->sl_trunks, trunk_info);
     PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);
 
-    if (result != 0) {
+    if (result == 0) {
+        trunk_util_man_push(trunk_info, TRUNK_UTIL_EVENT_CREATE);
+    } else {
         logError("file: "__FILE__", line: %d, "
                 "add trunk fail, trunk id: %"PRId64", "
                 "errno: %d, error info: %s", __LINE__,
@@ -538,9 +541,11 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
                 slice->space.id_info.id);
         result = ENOENT;
     } else {
-        trunk_info->used.bytes -= slice->space.size;
+        __sync_fetch_and_sub(&trunk_info->used.bytes, slice->space.size);
         trunk_info->used.count--;
         fc_list_del_init(&slice->dlink);
+
+        trunk_util_man_push(trunk_info, TRUNK_UTIL_EVENT_UPDATE);
         result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->lcp.lock);

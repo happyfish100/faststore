@@ -22,11 +22,19 @@
 #include "../../common/fs_types.h"
 #include "storage_config.h"
 
+#define TRUNK_UTIL_EVENT_NONE      0
+#define TRUNK_UTIL_EVENT_CREATE   'C'
+#define TRUNK_UTIL_EVENT_UPDATE   'U'
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
     int trunk_util_man_init();
+
+    int trunk_util_man_start();
+
+    int trunk_util_man_push(FSTrunkFileInfo *trunk, const int event);
 
 #ifdef __cplusplus
 }

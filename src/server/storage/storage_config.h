@@ -37,6 +37,11 @@ typedef struct {
     } reserved_space;
 
     struct {
+        int64_t value;
+        double ratio;
+    } prealloc_space;
+
+    struct {
         int64_t total;
         int64_t avail;  //current available space
         volatile time_t last_stat_time;
@@ -73,14 +78,21 @@ typedef struct {
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
     int discard_remain_space_size;
-    int prealloc_trunks_per_writer;
     int prealloc_trunk_threads;
     int fd_cache_capacity_per_read_thread;
     struct {
         int shared_locks_count;
         int64_t hashtable_capacity;
     } object_block;
-    double reclaim_trunks_on_usage;
+    double reclaim_trunks_on_path_usage;
+    double never_reclaim_on_trunk_usage;
+
+    struct {
+        double ratio_per_path;
+        TimeInfo start_time;
+        TimeInfo end_time;
+    } prealloc_space;
+
 } FSStorageConfig;
 
 #ifdef __cplusplus
