@@ -349,6 +349,13 @@ static int load_global_items(FSStorageConfig *storage_cfg,
                 (int64_t)FS_TRUNK_FILE_MAX_SIZE);
         storage_cfg->trunk_file_size = FS_TRUNK_FILE_MAX_SIZE;
     }
+    if (storage_cfg->trunk_file_size <= FS_FILE_BLOCK_SIZE) {
+        logError("file: "__FILE__", line: %d, "
+                "trunk_file_size: %"PRId64" is too small, "
+                "<= block size %d", __LINE__, storage_cfg->
+                trunk_file_size, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
 
     discard_size = iniGetStrValue(NULL, "discard_remain_space_size",
             ini_ctx->context);
@@ -627,7 +634,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "start_time: %02d:%02d, end_time: %02d:%02d }, "
             "prealloc_trunk_threads: %d, "
             "reserved_space_per_disk: %.2f%%, "
-            "trunk_file_size: %d MB, "
+            "trunk_file_size: %"PRId64" MB, "
             "max_trunk_files_per_subdir: %d, "
             "discard_remain_space_size: %d, "
 #if 0
@@ -648,7 +655,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->prealloc_space.end_time.minute,
             storage_cfg->prealloc_trunk_threads,
             storage_cfg->reserved_space_per_disk * 100.00,
-            (int)(storage_cfg->trunk_file_size / (1024 * 1024)),
+            storage_cfg->trunk_file_size / (1024 * 1024),
             storage_cfg->max_trunk_files_per_subdir,
             storage_cfg->discard_remain_space_size,
             /*
