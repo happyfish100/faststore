@@ -33,16 +33,11 @@
 
 #define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
 
-typedef struct fs_trunk_free_node {
-    FSTrunkFileInfo *trunk_info;
-    struct fs_trunk_free_node *next;
-} FSTrunkFreeNode;
-
 typedef struct {
     int count;
     int prealloc_trunks;
-    FSTrunkFreeNode *head;  //allocate from head
-    FSTrunkFreeNode *tail;  //push to tail
+    FSTrunkFileInfo *head;  //allocate from head
+    FSTrunkFileInfo *tail;  //push to tail
 } FSTrunkFreelist;
 
 typedef struct {
@@ -59,15 +54,15 @@ typedef struct {
 typedef struct {
     FSStoragePathInfo *path_info;
     UniqSkiplist *sl_trunks;   //all trunks order by id
-    FSTrunkFreelistPair *freelists; //current allocator map to disk write threads
+    FSTrunkFreelistPair freelist;   //trunk freelist pool
     FSTrunkInfoPtrArray priority_array;  //for trunk reclaim
     pthread_lock_cond_pair_t lcp;
 } FSTrunkAllocator;
 
 typedef struct {
     bool allocator_inited;
+    bool data_load_done;
     struct fast_mblock_man trunk_allocator;
-    struct fast_mblock_man free_node_allocator;
     UniqSkiplistFactory skiplist_factory;
 } TrunkAllocatorGlobalVars;
 
@@ -111,21 +106,13 @@ extern "C" {
     void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info);
 
-    void trunk_allocator_array_to_freelists(FSTrunkAllocator *allocator,
-            const FSTrunkInfoPtrArray *trunk_ptr_array);
-
     void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator);
 
     //to find freelist when startup 
     const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
             FSTrunkAllocator *allocator, const int count);
 
-    //to reclaim trunk space
-    const FSTrunkInfoPtrArray *trunk_allocator_avail_space_top_n(
-            FSTrunkAllocator *allocator, const int count);
-
-    void trunk_allocator_trunk_stat(FSTrunkAllocator *allocator,
-            FSTrunkSpaceStat *stat);
+    void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
 

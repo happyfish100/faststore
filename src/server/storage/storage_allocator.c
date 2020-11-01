@@ -117,45 +117,22 @@ static void log_trunk_ptr_array(const FSTrunkInfoPtrArray *trunk_ptr_array)
 }
 */
 
-static int64_t sum_trunk_avail_space(const FSTrunkInfoPtrArray *trunk_ptr_array)
-{
-    FSTrunkFileInfo **pp;
-    FSTrunkFileInfo **end;
-    int64_t avail;
-
-    avail = 0;
-    end = trunk_ptr_array->trunks + trunk_ptr_array->count;
-    for (pp=trunk_ptr_array->trunks; pp<end; pp++) {
-        avail += FS_TRUNK_AVAIL_SPACE(*pp);
-    }
-
-    return avail;
-}
-
 static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
 {
     FSTrunkAllocator *allocator;
     FSTrunkAllocator *end;
-    int n;
-    const FSTrunkInfoPtrArray *trunk_ptr_array;
 
     end = allocator_ctx->all.allocators + allocator_ctx->all.count;
     for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
-        trunk_allocator_trunk_stat(allocator,
-                &allocator->path_info->trunk_stat);
-
-        n = allocator->path_info->write_thread_count *
-            (2 + allocator->path_info->prealloc_trunks);
-        trunk_ptr_array = trunk_allocator_free_size_top_n(allocator, n);
-
-        allocator->path_info->trunk_stat.avail =
-            sum_trunk_avail_space(trunk_ptr_array);
+        trunk_allocator_deal_on_ready(allocator);
 
         //logInfo("top n: %d, trunk_ptr_array count: %d", n, trunk_ptr_array->count);
         //log_trunk_ptr_array(trunk_ptr_array);
 
-        trunk_allocator_array_to_freelists(allocator, trunk_ptr_array);
-        trunk_allocator_prealloc_trunks(allocator);
+        //trunk_allocator_array_to_freelists(allocator, trunk_ptr_array);
+        
+        //TODO
+        //trunk_allocator_prealloc_trunks(allocator);
 
         /*
         logInfo("path index: %d, total: %"PRId64" MB, used: %"PRId64" MB, "
@@ -173,6 +150,7 @@ int storage_allocator_prealloc_trunk_freelists()
 {
     int result;
 
+    g_trunk_allocator_vars.data_load_done = true;
     if ((result=prealloc_trunk_freelist(&g_allocator_mgr->write_cache)) != 0) {
         return result;
     }

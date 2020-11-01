@@ -155,6 +155,10 @@ typedef struct fs_trunk_file_info {
     int64_t free_start;  //free space offset
 
     struct {
+        struct fs_trunk_file_info *next;
+    } alloc;  //for space allocate
+
+    struct {
         volatile char event;
         int64_t last_used_bytes;
         struct fs_trunk_file_info *next;

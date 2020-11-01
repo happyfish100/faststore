@@ -141,6 +141,7 @@ extern "C" {
         return trunk_allocator_delete_slice(allocator, slice);
     }
 
+
 #ifdef __cplusplus
 }
 #endif
