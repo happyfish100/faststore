@@ -65,6 +65,7 @@ typedef struct fs_trunk_allocator {
     pthread_mutex_t lock;
     struct {
         bool finished;
+        time_t last_deal_time;
         pthread_lock_cond_pair_t lcp;  //for notify
         struct fc_queue queue;  //trunk event queue for nodify
         struct fs_trunk_allocator *next; //for event notify queue
@@ -119,7 +120,7 @@ extern "C" {
     int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);
 
-    void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
+    int trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFileInfo *trunk_info);
 
     void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator);
@@ -127,6 +128,9 @@ extern "C" {
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
+
+    int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
+            const FSTrunkFileInfo *t2);
 
 #ifdef __cplusplus
 }

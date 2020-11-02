@@ -24,7 +24,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "trunk_prealloc.h"
-#include "trunk_util_man.h"
+#include "trunk_reclaim.h"
 #include "trunk_allocator.h"
 
 TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
@@ -45,7 +45,7 @@ static int compare_trunk_by_id(const FSTrunkFileInfo *t1,
     return fc_compare_int64(t1->id_info.id, t2->id_info.id);
 }
 
-static int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
+int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
         const FSTrunkFileInfo *t2)
 {
     int sub;
@@ -305,17 +305,21 @@ static void add_to_freelist(FSTrunkAllocator *allocator,
         FS_TRUNK_AVAIL_SPACE(trunk_info));
 }
 
-void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
+int trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
         FSTrunkFileInfo *trunk_info)
 {
+    int result;
     FSTrunkFreelist *freelist;
 
     if (allocator->freelist.reclaim.count < 2) {
         freelist = &allocator->freelist.reclaim;
+        result = EAGAIN;
     } else {
         freelist = &allocator->freelist.normal;
+        result = 0;
     }
     add_to_freelist(allocator, freelist, trunk_info);
+    return result;
 }
 
 static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
