@@ -199,7 +199,7 @@ int trunk_prealloc_init()
     TrunkPreallocThreadContext *ctx;
     TrunkPreallocThreadContext *end;
 
-    prealloc_thread_count = STORAGE_CFG.prealloc_trunk_threads;
+    prealloc_thread_count = STORAGE_CFG.trunk_allocator_threads;
     bytes = sizeof(TrunkPreallocThreadContext) * prealloc_thread_count;
     thread_contexts = (TrunkPreallocThreadContext *)fc_malloc(bytes);
     if (thread_contexts == NULL) {

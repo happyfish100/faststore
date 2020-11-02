@@ -187,10 +187,6 @@ int main(int argc, char *argv[])
             return result;
         }
 
-        if ((result=trunk_util_man_start()) != 0) {
-            break;
-        }
-
         if ((result=server_recovery_init()) != 0) {
             break;
         }

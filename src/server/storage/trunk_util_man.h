@@ -21,10 +21,7 @@
 #include "fastcommon/multi_skiplist.h"
 #include "../../common/fs_types.h"
 #include "storage_config.h"
-
-#define TRUNK_UTIL_EVENT_NONE      0
-#define TRUNK_UTIL_EVENT_CREATE   'C'
-#define TRUNK_UTIL_EVENT_UPDATE   'U'
+#include "trunk_allocator.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,7 +31,7 @@ extern "C" {
 
     int trunk_util_man_start();
 
-    int trunk_util_man_push(FSTrunkFileInfo *trunk, const int event);
+    int trunk_util_man_push(FSTrunkAllocator *allocater);
 
 #ifdef __cplusplus
 }

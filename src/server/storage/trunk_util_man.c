@@ -20,35 +20,31 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/fc_queue.h"
+#include "fastcommon/common_blocked_queue.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../server_global.h"
 #include "trunk_util_man.h"
 
-typedef struct trunk_util_man_thread_context {
-    UniqSkiplistFactory skiplist_factory;
-    UniqSkiplist *sl_trunks;   //order by used size and id
-    struct fc_queue queue;
+typedef struct trunk_reclaim_thread_info {
+    struct common_blocked_queue queue;
     pthread_t tid;
     bool running;
-} TrunkReclaimThreadContext;
+} TrunkReclaimThreadInfo;
 
-static TrunkReclaimThreadContext reclaim_thread_ctx;
+typedef struct trunk_reclaim_thread_array {
+    int count;
+    TrunkReclaimThreadInfo *threads;
+} TrunkReclaimThreadArray;
 
-static int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
-        const FSTrunkFileInfo *t2)
-{
-    int sub;
+typedef struct trunk_reclaim_context {
+    volatile int running_count;
+    TrunkReclaimThreadArray thread_array;
+} TrunkReclaimContext;
 
-    if ((sub=fc_compare_int64(t1->util.last_used_bytes,
-                    t2->util.last_used_bytes)) != 0)
-    {
-        return sub;
-    }
+static TrunkReclaimContext reclaim_ctx;
 
-    return fc_compare_int64(t1->id_info.id, t2->id_info.id);
-}
-
+/*
 static int trunk_util_man_deal_event(FSTrunkFileInfo *trunk)
 {
     UniqSkiplistNode *node;
@@ -58,7 +54,7 @@ static int trunk_util_man_deal_event(FSTrunkFileInfo *trunk)
 
     event = __sync_add_and_fetch(&trunk->util.event, 0);
     do {
-        if (event == TRUNK_UTIL_EVENT_CREATE) {
+        if (event == FS_TRUNK_UTIL_EVENT_CREATE) {
             trunk->util.last_used_bytes = __sync_fetch_and_add(
                     &trunk->used.bytes, 0);
             result = uniq_skiplist_insert(reclaim_thread_ctx.
@@ -94,86 +90,103 @@ static int trunk_util_man_deal_event(FSTrunkFileInfo *trunk)
             trunk->util.last_used_bytes, trunk->used.bytes);
 
     __sync_bool_compare_and_swap(&trunk->util.event,
-            event, TRUNK_UTIL_EVENT_NONE);
+            event, FS_TRUNK_UTIL_EVENT_NONE);
     return result;
+}
+*/
+
+static void deal_allocate_request(struct common_blocked_node *head)
+{
+    FSTrunkAllocator *allocator;
+    //int result;
+
+    while (head != NULL && SF_G_CONTINUE_FLAG) {
+        allocator = (FSTrunkAllocator *)head->data;
+        head = head->next;
+    }
 }
 
 static void *trunk_util_man_thread_func(void *arg)
 {
-    TrunkReclaimThreadContext *thread;
-    FSTrunkFileInfo *trunk;
-    int result;
+    TrunkReclaimThreadInfo *thread;
+    struct common_blocked_node *head;
 
-    thread = (TrunkReclaimThreadContext *)arg;
+    thread = (TrunkReclaimThreadInfo *)arg;
     thread->running = true;
     while (SF_G_CONTINUE_FLAG) {
-        trunk = (FSTrunkFileInfo *)fc_queue_pop(&thread->queue);
-        if (trunk == NULL) {
+        head = common_blocked_queue_pop_all_nodes(&thread->queue);
+        if (head == NULL) {
             continue;
         }
 
-        if ((result=trunk_util_man_deal_event(trunk)) != 0) {
-            logCrit("file: "__FILE__", line: %d, "
-                    "deal trunk event fail, errno: %d, error info: %s, "
-                    "program exit!", __LINE__, result, STRERROR(result));
-            sf_terminate_myself();
-        }
+        deal_allocate_request(head);
+        common_blocked_queue_free_all_nodes(&thread->queue, head);
     }
 
     thread->running = false;
     return NULL;
 }
 
-int trunk_util_man_init()
+static int init_thread_ctx_array()
 {
-    const int init_level_count = 12;
-    const int max_level_count = 20;
-    const int alloc_skiplist_once = 1;
-    const int min_alloc_elements_once = 2;
-    const int delay_free_seconds = 0;
-    const bool bidirection = true;
     int result;
+    int bytes;
+    const int alloc_elements_once = 4096;
+    TrunkReclaimThreadInfo *thread;
+    TrunkReclaimThreadInfo *end;
 
-    if ((result=fc_queue_init(&reclaim_thread_ctx.queue, (long)
-                    (&((FSTrunkFileInfo *)NULL)->util.next))) != 0)
-    {
-        return result;
-    }
-
-    if ((result=uniq_skiplist_init_ex2(&reclaim_thread_ctx.skiplist_factory,
-                    max_level_count, (skiplist_compare_func)
-                    compare_trunk_by_size_id, NULL,
-                    alloc_skiplist_once, min_alloc_elements_once,
-                    delay_free_seconds, bidirection)) != 0)
-    {
-        return result;
-    }
-
-    if ((reclaim_thread_ctx.sl_trunks=uniq_skiplist_new(
-                    &reclaim_thread_ctx.skiplist_factory,
-                    init_level_count)) == NULL)
-    {
+    reclaim_ctx.thread_array.count = STORAGE_CFG.trunk_allocator_threads;
+    bytes = sizeof(TrunkReclaimThreadInfo) * reclaim_ctx.thread_array.count;
+    reclaim_ctx.thread_array.threads =
+        (TrunkReclaimThreadInfo *)fc_malloc(bytes);
+    if (reclaim_ctx.thread_array.threads == NULL) {
         return ENOMEM;
     }
 
-    return 0;
-}
+    end = reclaim_ctx.thread_array.threads +
+        reclaim_ctx.thread_array.count;
+    for (thread=reclaim_ctx.thread_array.threads; thread<end; thread++) {
+        if ((result=common_blocked_queue_init_ex(&thread->queue,
+                        alloc_elements_once)) != 0)
+        {
+            return result;
+        }
 
-int trunk_util_man_start()
-{
-    return fc_create_thread(&reclaim_thread_ctx.tid,
-            trunk_util_man_thread_func, &reclaim_thread_ctx,
-            SF_G_THREAD_STACK_SIZE);
-}
-
-int trunk_util_man_push(FSTrunkFileInfo *trunk, const int event)
-{
-    if (!__sync_bool_compare_and_swap(&trunk->util.event,
-                TRUNK_UTIL_EVENT_NONE, event))
-    {
-        return EEXIST;
+        if ((result=fc_create_thread(&thread->tid, trunk_util_man_thread_func,
+                        thread, SF_G_THREAD_STACK_SIZE)) != 0)
+        {
+            return result;
+        }
     }
 
-    fc_queue_push(&reclaim_thread_ctx.queue, trunk);
     return 0;
+}
+
+int trunk_util_man_init()
+{
+    return init_thread_ctx_array();
+}
+
+int trunk_allocate(FSTrunkAllocator *allocator)
+{
+    int result;
+
+    TrunkReclaimThreadInfo *thread;
+    thread = reclaim_ctx.thread_array.threads + allocator->path_info->
+        store.index % reclaim_ctx.thread_array.count;
+    PTHREAD_MUTEX_LOCK(&allocator->reclaim.lcp.lock);
+    allocator->reclaim.finished = false;
+    if ((result=common_blocked_queue_push(&thread->queue, allocator)) == 0) {
+        while (!allocator->reclaim.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&allocator->reclaim.lcp.cond,
+                    &allocator->reclaim.lcp.lock);
+        }
+
+        if (!allocator->reclaim.finished) {
+            result = EINTR;
+        }
+    }
+    PTHREAD_MUTEX_UNLOCK(&allocator->reclaim.lcp.lock);
+
+    return result;
 }

@@ -79,7 +79,7 @@ typedef struct {
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
     int discard_remain_space_size;
-    int prealloc_trunk_threads;
+    int trunk_allocator_threads;
     int fd_cache_capacity_per_read_thread;
     struct {
         int shared_locks_count;

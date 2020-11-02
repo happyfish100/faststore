@@ -31,6 +31,10 @@
 #define FS_TRUNK_STATUS_ALLOCING    1
 #define FS_TRUNK_STATUS_RECLAIMING  2
 
+#define FS_TRUNK_UTIL_EVENT_NONE      0
+#define FS_TRUNK_UTIL_EVENT_CREATE   'C'
+#define FS_TRUNK_UTIL_EVENT_UPDATE   'U'
+
 #define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
 
 typedef struct {
@@ -51,15 +55,20 @@ typedef struct {
     FSTrunkFileInfo **trunks;
 } FSTrunkInfoPtrArray;
 
-typedef struct {
+typedef struct fs_trunk_allocator {
     FSStoragePathInfo *path_info;
     struct {
         UniqSkiplist *by_id;   //order by id
         UniqSkiplist *by_size; //order by used size and id
     } trunks;
-    struct fc_queue event_queue;  //trunk event queue for nodify
     FSTrunkFreelistPair freelist; //trunk freelist pool
-    pthread_lock_cond_pair_t lcp;
+    pthread_mutex_t lock;
+    struct {
+        bool finished;
+        pthread_lock_cond_pair_t lcp;  //for notify
+        struct fc_queue queue;  //trunk event queue for nodify
+        struct fs_trunk_allocator *next; //for event notify queue
+    } reclaim; //for trunk reclaim
 } FSTrunkAllocator;
 
 typedef struct {
