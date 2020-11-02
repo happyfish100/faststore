@@ -45,6 +45,7 @@ typedef struct {
         int64_t total;
         int64_t avail;  //current available space
         volatile time_t last_stat_time;
+        double used_ratio;
     } space_stat;  //for disk space
 
     FSTrunkSpaceStat trunk_stat;  //for trunk space

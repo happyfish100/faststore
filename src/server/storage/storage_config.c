@@ -100,6 +100,13 @@ static int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
     path_info->prealloc_space.value = path_info->space_stat.total *
         path_info->prealloc_space.ratio;
 
+    if (sbuf.f_blocks > 0) {
+        path_info->space_stat.used_ratio = (double)(sbuf.f_blocks -
+                sbuf.f_bavail) / (double)sbuf.f_blocks;
+    }
+
+    logInfo("used ratio: %.2f%%", 100 * path_info->space_stat.used_ratio);
+
     __sync_bool_compare_and_swap(&path_info->space_stat.
             last_stat_time, 0, g_current_time);
     return 0;
@@ -126,6 +133,11 @@ int storage_config_calc_path_avail_space(FSStoragePathInfo *path_info)
     }
 
     path_info->space_stat.avail = (int64_t)(sbuf.f_bavail) * sbuf.f_frsize;
+    if (sbuf.f_blocks > 0) {
+        path_info->space_stat.used_ratio = (double)(sbuf.f_blocks -
+                sbuf.f_bavail) / (double)sbuf.f_blocks;
+    }
+
     return 0;
 }
 

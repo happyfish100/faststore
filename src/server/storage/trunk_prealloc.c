@@ -105,7 +105,7 @@ static void create_trunk_done(struct trunk_io_buffer *record,
                     record->space.size, &trunk_info) == 0)
         {
             trunk_allocator_add_to_freelist(task->allocator,
-                    task->freelist, trunk_info);
+                    trunk_info);
             __sync_add_and_fetch(&path_info->trunk_stat.avail,
                     record->space.size);
         }

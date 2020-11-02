@@ -53,17 +53,22 @@ typedef struct {
 
 typedef struct {
     FSStoragePathInfo *path_info;
-    UniqSkiplist *sl_trunks;   //all trunks order by id
-    FSTrunkFreelistPair freelist;   //trunk freelist pool
-    FSTrunkInfoPtrArray priority_array;  //for trunk reclaim
+    struct {
+        UniqSkiplist *by_id;   //order by id
+        UniqSkiplist *by_size; //order by used size and id
+    } trunks;
+    struct fc_queue event_queue;  //trunk event queue for nodify
+    FSTrunkFreelistPair freelist; //trunk freelist pool
     pthread_lock_cond_pair_t lcp;
 } FSTrunkAllocator;
 
 typedef struct {
-    bool allocator_inited;
     bool data_load_done;
     struct fast_mblock_man trunk_allocator;
-    UniqSkiplistFactory skiplist_factory;
+    struct {
+        UniqSkiplistFactory by_id;
+        UniqSkiplistFactory by_size;
+    } skiplist_factories;
 } TrunkAllocatorGlobalVars;
 
 #ifdef __cplusplus
@@ -77,7 +82,9 @@ extern "C" {
 
     extern TrunkAllocatorGlobalVars g_trunk_allocator_vars;
 
-    int trunk_allocator_init(FSTrunkAllocator *allocator,
+    int trunk_allocator_init();
+
+    int trunk_allocator_init_instance(FSTrunkAllocator *allocator,
             FSStoragePathInfo *path_info);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
@@ -104,13 +111,9 @@ extern "C" {
             OBSliceEntry *slice);
 
     void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
-            FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info);
+            FSTrunkFileInfo *trunk_info);
 
     void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator);
-
-    //to find freelist when startup 
-    const FSTrunkInfoPtrArray *trunk_allocator_free_size_top_n(
-            FSTrunkAllocator *allocator, const int count);
 
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
