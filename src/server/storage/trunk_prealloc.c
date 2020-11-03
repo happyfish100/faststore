@@ -51,12 +51,18 @@ typedef struct trunk_prealloc_task {
     struct trunk_prealloc_task *next;
 } TrunkPreallocTask;
 
-typedef struct trunk_prealloc_thread_context {
+typedef struct trunk_prealloc_thread_arg {
+    int result;
+    pthread_lock_cond_pair_t lcp; //for allocate done notify
+} TrunkPreallocThreadArg;
+
+typedef struct trunk_prealloc_context {
     TrunkPreallocatorArray preallocator_array;
     pthread_lock_cond_pair_t lcp; //for task alloc notify
     struct fast_mblock_man task_allocator;
     struct fc_queue queue;
     FCThreadPool thread_pool;
+    TrunkPreallocThreadArg *thread_args;
     time_t prealloc_end_time;
     bool in_progress;
     volatile bool finished;
@@ -64,10 +70,25 @@ typedef struct trunk_prealloc_thread_context {
 
 static TrunkPreallocContext prealloc_ctx;
 
+static void allocate_done_callback(FSTrunkAllocator *allocator,
+        const int result, void *arg)
+{
+    TrunkPreallocThreadArg *thread_arg;
+
+    thread_arg = (TrunkPreallocThreadArg *)arg;
+    PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
+    thread_arg->result = result;
+    pthread_cond_signal(&thread_arg->lcp.cond);
+    PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
+}
+
 static void prealloc_thread_pool_run(void *arg, void *thread_data)
 {
+    TrunkPreallocThreadArg *thread_arg;
     TrunkPreallocTask *task;
+    int result;
 
+    thread_arg = (TrunkPreallocThreadArg *)arg;
     while (!prealloc_ctx.finished) {
         task = (TrunkPreallocTask *)fc_queue_try_pop(&prealloc_ctx.queue);
         if (task == NULL) {
@@ -75,7 +96,27 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
             continue;
         }
 
-        if (trunk_allocate(task->preallocator->allocator) == 0) {
+        logInfo("prealloc task: %p, store path: %s", task,
+                task->preallocator->allocator->path_info->store.path.str);
+
+        PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
+        thread_arg->result = -1;
+        if ((result=trunk_allocate_ex(task->preallocator->allocator,
+                        allocate_done_callback, thread_arg)) == 0)
+        {
+            while (thread_arg->result == -1 && SF_G_CONTINUE_FLAG) {
+                pthread_cond_wait(&thread_arg->lcp.cond,
+                        &thread_arg->lcp.lock);
+            }
+
+            result = thread_arg->result >= 0 ? thread_arg->result : EINTR;
+        }
+        PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
+
+        logInfo("task: %p, store path: %s, prealloc result: %d", task,
+                task->preallocator->allocator->path_info->store.path.str, result);
+
+        if (result == 0) {
             __sync_sub_and_fetch(&task->preallocator->stat.dealings, 1);
         }
 
@@ -226,7 +267,7 @@ static TrunkPreallocatorInfo *prealloc_trunks(TrunkPreallocatorInfo *head)
     return head;
 }
 
-static int prealloc_trunks_func(void *args)
+static int do_prealloc_trunks()
 {
     TrunkPreallocatorInfo *head;
     struct tm tm_end;
@@ -238,6 +279,10 @@ static int prealloc_trunks_func(void *args)
     tm_end.tm_hour = STORAGE_CFG.prealloc_space.end_time.hour;
     tm_end.tm_min = STORAGE_CFG.prealloc_space.end_time.minute;
     prealloc_ctx.prealloc_end_time = mktime(&tm_end);
+
+    //TODO
+    prealloc_ctx.prealloc_end_time = g_current_time + 60;
+
     if (g_current_time > prealloc_ctx.prealloc_end_time) {
         logWarning("file: "__FILE__", line: %d, "
                 "current time: %ld > end time: %ld, skip prealloc trunks!",
@@ -255,7 +300,7 @@ static int prealloc_trunks_func(void *args)
     prealloc_ctx.finished = false;
     for (i=0; i<STORAGE_CFG.trunk_prealloc_threads; i++) {
         fc_thread_pool_run(&prealloc_ctx.thread_pool,
-                prealloc_thread_pool_run, NULL);
+                prealloc_thread_pool_run, prealloc_ctx.thread_args + i);
     }
 
     do {
@@ -274,14 +319,28 @@ static int prealloc_trunks_func(void *args)
     prealloc_ctx.finished = true;
 
     i = 0;
-    while (fc_thread_pool_running_count(&prealloc_ctx.thread_pool) > 0 &&
-            i++ < 300)
-    {
+    while (fc_thread_pool_dealing_count(&prealloc_ctx.thread_pool) > 0) {
         sleep(1);
     }
 
     log_and_reset_preallocators(&prealloc_ctx.preallocator_array);
     return 0;
+}
+
+static int prealloc_trunks_func(void *args)
+{
+    int result;
+
+    if (prealloc_ctx.in_progress) {
+        logWarning("file: "__FILE__", line: %d, "
+                "prealloc trunks in progress!", __LINE__);
+        return EINPROGRESS;
+    }
+
+    prealloc_ctx.in_progress = true;
+    result = do_prealloc_trunks();
+    prealloc_ctx.in_progress = false;
+    return result;
 }
 
 static int trunk_prealloc_setup_schedule()
@@ -291,10 +350,38 @@ static int trunk_prealloc_setup_schedule()
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
             STORAGE_CFG.prealloc_space.start_time, 86400,
+            /*
+    INIT_SCHEDULE_ENTRY1(scheduleEntry, sched_generate_next_id(),
+            TIME_NONE, TIME_NONE, TIME_NONE, 60,
+            */
+
             prealloc_trunks_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);
+}
+
+static int init_thread_args()
+{
+    TrunkPreallocThreadArg *p;
+    TrunkPreallocThreadArg *end;
+    int result;
+
+    prealloc_ctx.thread_args = (TrunkPreallocThreadArg *)fc_malloc(
+            sizeof(TrunkPreallocThreadArg) *
+            STORAGE_CFG.trunk_prealloc_threads);
+    if (prealloc_ctx.thread_args == NULL) {
+        return ENOMEM;
+    }
+
+    end = prealloc_ctx.thread_args + STORAGE_CFG.trunk_prealloc_threads;
+    for (p=prealloc_ctx.thread_args; p<end; p++) {
+        if ((result=init_pthread_lock_cond_pair(&p->lcp)) != 0) {
+            return result;
+        }
+    }
+
+    return 0;
 }
 
 int trunk_prealloc_init()
@@ -326,7 +413,10 @@ int trunk_prealloc_init()
         return result;
     }
 
-    
+    if ((result=init_thread_args()) != 0) {
+        return result;
+    }
+
     if ((result=init_preallocator_array(&prealloc_ctx.
                     preallocator_array)) != 0)
     {

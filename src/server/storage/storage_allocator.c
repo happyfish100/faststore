@@ -117,7 +117,7 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
     end = allocator_ctx->all.allocators + allocator_ctx->all.count;
     for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
         trunk_allocator_deal_on_ready(allocator);
-        trunk_allocator_prealloc_trunks(allocator);
+        trunk_allocator_keep_water_mark(allocator);
 
         /*
         logInfo("path index: %d, total: %"PRId64" MB, used: %"PRId64" MB, "

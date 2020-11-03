@@ -23,15 +23,19 @@
 #include "storage_config.h"
 #include "trunk_allocator.h"
 
+typedef void (*trunk_allocate_done_callback)(FSTrunkAllocator *allocator,
+        const int result, void *arg);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
     int trunk_reclaim_init();
 
-    int trunk_reclaim_start();
+    int trunk_allocate_ex(FSTrunkAllocator *allocator,
+            trunk_allocate_done_callback callback, void *arg);
 
-    int trunk_allocate(FSTrunkAllocator *allocator);
+#define trunk_allocate(allocator) trunk_allocate_ex(allocator, NULL, NULL)
 
 #ifdef __cplusplus
 }

@@ -85,12 +85,6 @@ static inline int push_trunk_util_change_event(FSTrunkAllocator *allocator,
     return 0;
 }
 
-static void init_freelists(FSTrunkAllocator *allocator)
-{
-    allocator->freelist.normal.prealloc_trunks =
-        allocator->freelist.reclaim.prealloc_trunks = 2;
-}
-
 int trunk_allocator_init()
 {
     int alloc_skiplist_once;
@@ -162,7 +156,8 @@ int trunk_allocator_init_instance(FSTrunkAllocator *allocator,
     }
 
     allocator->path_info = path_info;
-    init_freelists(allocator);
+    allocator->freelist.normal.water_mark_trunks =
+        allocator->freelist.reclaim.water_mark_trunks = 2;
     return 0;
 }
 
@@ -248,27 +243,36 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     }
     freelist->count--;
 
-    //TODO
-    //trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+    PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
+            FS_TRUNK_UTIL_EVENT_CREATE);
+    if (freelist->count < freelist->water_mark_trunks) {
+        trunk_allocate(allocator);
+    }
 }
 
-static void prealloc_trunks(FSTrunkAllocator *allocator,
+static void keep_freelist_water_mark(FSTrunkAllocator *allocator,
         FSTrunkFreelist *freelist)
 {
     int count;
     int i;
 
-    count = freelist->prealloc_trunks - freelist->count;
-    logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
+    logInfo("%s freelist count: %d, water_mark count: %d",
+            allocator->path_info->store.path.str,
+            freelist->count, freelist->water_mark_trunks);
+    if (freelist->count >= freelist->water_mark_trunks) {
+        return;
+    }
+
+    count = freelist->water_mark_trunks - freelist->count;
     for (i=0; i<count; i++) {
-        //trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+        trunk_allocate(allocator);
     }
 }
 
-void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator)
+void trunk_allocator_keep_water_mark(FSTrunkAllocator *allocator)
 {
-    prealloc_trunks(allocator, &allocator->freelist.normal);
-    prealloc_trunks(allocator, &allocator->freelist.reclaim);
+    keep_freelist_water_mark(allocator, &allocator->freelist.normal);
+    keep_freelist_water_mark(allocator, &allocator->freelist.reclaim);
 }
 
 static void add_to_freelist(FSTrunkAllocator *allocator,

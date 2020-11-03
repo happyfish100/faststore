@@ -39,7 +39,7 @@
 
 typedef struct {
     int count;
-    int prealloc_trunks;
+    int water_mark_trunks;
     FSTrunkFileInfo *head;  //allocate from head
     FSTrunkFileInfo *tail;  //push to tail
 } FSTrunkFreelist;
@@ -124,7 +124,7 @@ extern "C" {
     int trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFileInfo *trunk_info);
 
-    void trunk_allocator_prealloc_trunks(FSTrunkAllocator *allocator);
+    void trunk_allocator_keep_water_mark(FSTrunkAllocator *allocator);
 
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
