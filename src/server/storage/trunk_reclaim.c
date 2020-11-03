@@ -126,15 +126,13 @@ static void create_trunk_done(struct trunk_io_buffer *record,
 
         __sync_add_and_fetch(&allocator->path_info->
                 trunk_stat.total, record->space.size);
-        if (storage_allocator_add_trunk_ex(record->space.
-                    store->index, &record->space.id_info,
-                    record->space.size, &trunk_info) == 0)
-        {
-            if (trunk_allocator_add_to_freelist(allocator,
-                        trunk_info) == 0)
-            {
-                allocator->reclaim.finished = true;
-            }
+
+        allocator->reclaim.result = storage_allocator_add_trunk_ex(
+                record->space.store->index, &record->space.id_info,
+                record->space.size, &trunk_info);
+        if (allocator->reclaim.result == 0) {
+            allocator->reclaim.result = trunk_allocator_add_to_freelist(
+                    allocator, trunk_info);
             __sync_add_and_fetch(&allocator->path_info->trunk_stat.avail,
                     record->space.size);
         }
@@ -145,7 +143,7 @@ static void create_trunk_done(struct trunk_io_buffer *record,
         __sync_bool_compare_and_swap(&allocator->path_info->space_stat.
                 last_stat_time, last_stat_time, 0);
     } else {
-        allocator->reclaim.finished = true;
+        allocator->reclaim.result = result;
     }
 
     PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
@@ -207,7 +205,9 @@ static int do_reclaim_trunk(TrunkReclaimThreadInfo *thread)
         (thread->allocator->path_info->space_stat.used_ratio -
          STORAGE_CFG.reclaim_trunks_on_path_usage) /
         (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage);
-    if ((double)trunk->used.bytes / (double)trunk->size >= ratio_thredhold) {
+    if ((double)__sync_fetch_and_add(&trunk->used.bytes, 0) /
+            (double)trunk->size >= ratio_thredhold)
+    {
         return ENOENT;
     }
 
@@ -291,7 +291,7 @@ int trunk_reclaim_init()
     TrunkReclaimThreadInfo *thread;
     TrunkReclaimThreadInfo *end;
 
-    reclaim_ctx.thread_array.count = STORAGE_CFG.trunk_allocator_threads;
+    reclaim_ctx.thread_array.count = STORAGE_CFG.trunk_prealloc_threads;
     bytes = sizeof(TrunkReclaimThreadInfo) * reclaim_ctx.thread_array.count;
     reclaim_ctx.thread_array.threads =
         (TrunkReclaimThreadInfo *)fc_malloc(bytes);
@@ -331,15 +331,13 @@ int trunk_allocate(FSTrunkAllocator *allocator)
         store.index % reclaim_ctx.thread_array.count;
     PTHREAD_MUTEX_LOCK(&allocator->reclaim.lcp.lock);
     allocator->reclaim.finished = false;
+    allocator->reclaim.result = EINTR;
     if ((result=common_blocked_queue_push(&thread->queue, allocator)) == 0) {
         while (!allocator->reclaim.finished && SF_G_CONTINUE_FLAG) {
             pthread_cond_wait(&allocator->reclaim.lcp.cond,
                     &allocator->reclaim.lcp.lock);
         }
-
-        if (!allocator->reclaim.finished) {
-            result = EINTR;
-        }
+        result = allocator->reclaim.result;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->reclaim.lcp.lock);
 

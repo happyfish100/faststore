@@ -99,13 +99,17 @@ static int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
         path_info->reserved_space.ratio;
     path_info->prealloc_space.value = path_info->space_stat.total *
         path_info->prealloc_space.ratio;
-
+    path_info->prealloc_space.trunk_count = (path_info->prealloc_space.
+            value + STORAGE_CFG.trunk_file_size - 1) /
+        STORAGE_CFG.trunk_file_size;
     if (sbuf.f_blocks > 0) {
         path_info->space_stat.used_ratio = (double)(sbuf.f_blocks -
                 sbuf.f_bavail) / (double)sbuf.f_blocks;
     }
 
-    logInfo("used ratio: %.2f%%", 100 * path_info->space_stat.used_ratio);
+    logInfo("used ratio: %.2f%%, prealloc_space.trunk_count: %d",
+            100 * path_info->space_stat.used_ratio,
+            path_info->prealloc_space.trunk_count);
 
     __sync_bool_compare_and_swap(&path_info->space_stat.
             last_stat_time, 0, g_current_time);
@@ -328,10 +332,10 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         return result;
     }
 
-    storage_cfg->trunk_allocator_threads = iniGetIntValue(NULL,
-            "trunk_allocator_threads", ini_ctx->context, 1);
-    if (storage_cfg->trunk_allocator_threads <= 0) {
-        storage_cfg->trunk_allocator_threads = 1;
+    storage_cfg->trunk_prealloc_threads = iniGetIntValue(NULL,
+            "trunk_prealloc_threads", ini_ctx->context, 1);
+    if (storage_cfg->trunk_prealloc_threads <= 0) {
+        storage_cfg->trunk_prealloc_threads = 1;
     }
 
     storage_cfg->max_trunk_files_per_subdir = iniGetIntValue(NULL,
@@ -644,7 +648,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "object_block_shared_locks_count: %d, "
             "prealloc_space: {ratio_per_path: %.2f%%, "
             "start_time: %02d:%02d, end_time: %02d:%02d }, "
-            "trunk_allocator_threads: %d, "
+            "trunk_prealloc_threads: %d, "
             "reserved_space_per_disk: %.2f%%, "
             "trunk_file_size: %"PRId64" MB, "
             "max_trunk_files_per_subdir: %d, "
@@ -665,7 +669,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->prealloc_space.start_time.minute,
             storage_cfg->prealloc_space.end_time.hour,
             storage_cfg->prealloc_space.end_time.minute,
-            storage_cfg->trunk_allocator_threads,
+            storage_cfg->trunk_prealloc_threads,
             storage_cfg->reserved_space_per_disk * 100.00,
             storage_cfg->trunk_file_size / (1024 * 1024),
             storage_cfg->max_trunk_files_per_subdir,

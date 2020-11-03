@@ -27,9 +27,6 @@ extern "C" {
 
     int trunk_prealloc_init();
 
-    int trunk_prealloc_push(FSTrunkAllocator *allocator,
-            FSTrunkFreelist *freelist, const int target_count);
-
 #ifdef __cplusplus
 }
 #endif

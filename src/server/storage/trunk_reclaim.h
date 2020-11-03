@@ -31,7 +31,7 @@ extern "C" {
 
     int trunk_reclaim_start();
 
-    int trunk_reclaim_push(FSTrunkAllocator *allocater);
+    int trunk_allocate(FSTrunkAllocator *allocator);
 
 #ifdef __cplusplus
 }

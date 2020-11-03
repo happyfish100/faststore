@@ -191,6 +191,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=trunk_prealloc_init()) != 0) {
+            return result;
+        }
+
         fs_proto_init();
         //sched_print_all_entries();
 

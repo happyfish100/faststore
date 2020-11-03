@@ -45,6 +45,7 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
     if (allocator_ctx->all.allocators == NULL) {
         return ENOMEM;
     }
+    memset(allocator_ctx->all.allocators, 0, bytes);
 
     bytes = sizeof(FSTrunkAllocator *) * parray->count;
     allocator_ctx->avail.allocators = (FSTrunkAllocator **)fc_malloc(bytes);

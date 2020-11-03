@@ -87,17 +87,6 @@ static inline int push_trunk_util_change_event(FSTrunkAllocator *allocator,
 
 static void init_freelists(FSTrunkAllocator *allocator)
 {
-/*
-    FSTrunkFreelistPair *pair;
-    FSTrunkFreelistPair *end;
-
-    end = allocator->freelists + allocator->path_info->write_thread_count;
-    for (pair=allocator->freelists; pair<end; pair++) {
-        pair->normal.prealloc_trunks = allocator->path_info->prealloc_trunks;
-        pair->reclaim.prealloc_trunks = 2;
-    }
-*/
-
     allocator->freelist.normal.prealloc_trunks =
         allocator->freelist.reclaim.prealloc_trunks = 2;
 }
@@ -259,7 +248,8 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     }
     freelist->count--;
 
-    trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+    //TODO
+    //trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
 }
 
 static void prealloc_trunks(FSTrunkAllocator *allocator,
@@ -269,9 +259,9 @@ static void prealloc_trunks(FSTrunkAllocator *allocator,
     int i;
 
     count = freelist->prealloc_trunks - freelist->count;
-    //logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
+    logInfo("%s prealloc count: %d", allocator->path_info->store.path.str, count);
     for (i=0; i<count; i++) {
-        trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
+        //trunk_prealloc_push(allocator, freelist, freelist->prealloc_trunks);
     }
 }
 
@@ -550,6 +540,9 @@ void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)
         }
     }
 
+    logInfo("path index: %d, reclaim free trunks: %d, normal free trunks: %d",
+            allocator->path_info->store.index, allocator->freelist.reclaim.count,
+            allocator->freelist.normal.count);
 }
 
 void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)

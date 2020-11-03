@@ -65,6 +65,7 @@ typedef struct fs_trunk_allocator {
     pthread_mutex_t lock;
     struct {
         bool finished;
+        int result;  //deal result
         time_t last_deal_time;
         pthread_lock_cond_pair_t lcp;  //for notify
         struct fc_queue queue;  //trunk event queue for nodify
@@ -131,6 +132,16 @@ extern "C" {
 
     int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
             const FSTrunkFileInfo *t2);
+
+    static inline int trunk_allocator_get_freelist_count(
+            FSTrunkAllocator *allocator)
+    {
+        int count;
+        PTHREAD_MUTEX_LOCK(&allocator->lock);
+        count = allocator->freelist.normal.count;
+        PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+        return count;
+    }
 
 #ifdef __cplusplus
 }

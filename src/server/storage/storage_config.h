@@ -39,6 +39,7 @@ typedef struct {
     struct {
         int64_t value;
         double ratio;
+        int trunk_count;  //calculate by: value / trunk_file_size
     } prealloc_space;
 
     struct {
@@ -79,7 +80,7 @@ typedef struct {
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
     int discard_remain_space_size;
-    int trunk_allocator_threads;
+    int trunk_prealloc_threads;
     int fd_cache_capacity_per_read_thread;
     struct {
         int shared_locks_count;
