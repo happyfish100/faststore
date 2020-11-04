@@ -60,27 +60,17 @@ OBHashtable g_ob_hashtable = {0, 0, NULL};
 
 #define OB_INDEX_SHARED_CTX_LOCK(htable, ctx) \
     do {  \
-        if (htable->need_lock) { \
-            PTHREAD_MUTEX_LOCK(&ctx->lock);  \
+        if ((htable)->need_lock) { \
+            PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);  \
         } \
     } while (0)
 
 #define OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx) \
     do {  \
-        if (htable->need_lock) { \
-            PTHREAD_MUTEX_UNLOCK(&ctx->lock);  \
+        if ((htable)->need_lock) { \
+            PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);  \
         } \
     } while (0)
-
-static int compare_block_key(const FSBlockKey *bkey1, const FSBlockKey *bkey2)
-{
-    int sub;
-    if ((sub=fc_compare_int64(bkey1->oid, bkey2->oid)) != 0) {
-        return sub;
-    }
-
-    return fc_compare_int64(bkey1->offset, bkey2->offset);
-}
 
 static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         const FSBlockKey *bkey, const bool create_flag, OBEntry **pprev)
@@ -99,7 +89,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         }
         *pprev = NULL;
     } else {
-        cmpr = compare_block_key(bkey, &(*bucket)->bkey);
+        cmpr = ob_index_compare_block_key(bkey, &(*bucket)->bkey);
         if (cmpr == 0) {
             *pprev = NULL;
             return *bucket;
@@ -108,7 +98,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         } else {
             *pprev = *bucket;
             while ((*pprev)->next != NULL) {
-                cmpr = compare_block_key(bkey, &(*pprev)->next->bkey);
+                cmpr = ob_index_compare_block_key(bkey, &(*pprev)->next->bkey);
                 if (cmpr == 0) {
                     return (*pprev)->next;
                 } else if (cmpr < 0) {
@@ -149,7 +139,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
 #define get_ob_entry(ctx, bucket, bkey, create_flag)  \
     get_ob_entry_ex(ctx, bucket, bkey, create_flag, NULL)
 
-OBEntry *ob_index_get_ob_entry(OBHashtable *htable,
+OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
         const FSBlockKey *bkey)
 {
     OBEntry *ob;
@@ -160,6 +150,32 @@ OBEntry *ob_index_get_ob_entry(OBHashtable *htable,
     OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
 
     return ob;
+}
+
+OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
+{
+    OBEntry *ob;
+    OB_INDEX_SET_BUCKET_AND_CTX(&g_ob_hashtable, *bkey);
+
+    OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
+    ob = get_ob_entry(ctx, bucket, bkey, false);
+    if (ob != NULL) {
+        ++(ob->reclaiming_count);
+    }
+    OB_INDEX_SHARED_CTX_UNLOCK(&g_ob_hashtable, ctx);
+
+    return ob;
+}
+
+void ob_index_reclaim_unlock(OBEntry *ob)
+{
+    OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, ob->bkey);
+
+    OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
+    if (--(ob->reclaiming_count) == 0) {
+        pthread_cond_broadcast(&ctx->lcp.cond);
+    }
+    OB_INDEX_SHARED_CTX_UNLOCK(&g_ob_hashtable, ctx);
 }
 
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
@@ -273,10 +289,7 @@ static int init_ob_shared_ctx_array()
             return result;
         }
 
-        if ((result=init_pthread_lock(&ctx->lock)) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "init_pthread_lock fail, errno: %d, error info: %s",
-                    __LINE__, result, STRERROR(result));
+        if ((result=init_pthread_lock_cond_pair(&ctx->lcp)) != 0) {
             return result;
         }
     }
@@ -319,7 +332,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
 
         ctx = ob_shared_ctx_array.contexts + (bucket - htable->buckets) %
             ob_shared_ctx_array.count;
-        PTHREAD_MUTEX_LOCK(&ctx->lock);
+        PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
 
         ob = *bucket;
         do {
@@ -330,7 +343,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
             fast_mblock_free_object(&ctx->ob_allocator, deleted);
         } while (ob != NULL);
 
-        PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+        PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
     }
 
     free(htable->buckets);
@@ -607,9 +620,9 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     int inc_alloc;
 
     OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     result = add_slice(&g_ob_hashtable, ctx, slice->ob, slice, &inc_alloc);
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return result;
 }

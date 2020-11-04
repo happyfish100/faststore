@@ -26,6 +26,7 @@
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
 #include "storage_allocator.h"
+#include "trunk_reclaim.h"
 #include "trunk_maker.h"
 
 struct trunk_maker_thread_info;
@@ -44,6 +45,7 @@ typedef struct trunk_maker_thread_info {
         bool finished;
         pthread_lock_cond_pair_t lcp; //for notify
     } allocate;
+    TrunkReclaimContext reclaim_ctx;
     struct fast_mblock_man task_allocator;
     struct fc_queue queue;
     pthread_t tid;
@@ -224,12 +226,12 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     }
 
     if (trunk->used.bytes > 0) {
-        result = EINPROGRESS;  //TODO
+        result = trunk_reclaim(task->allocator, trunk,
+                &thread->reclaim_ctx);
     } else {
         result = 0;
     }
 
-    //TODO reclaim the trunk
     logInfo("path index: %d, reclaiming trunk used bytes: %"PRId64,
             task->allocator->path_info->store.index, trunk->used.bytes);
     if (result == 0) {

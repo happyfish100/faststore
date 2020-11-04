@@ -37,6 +37,9 @@ extern "C" {
 #define ob_index_get_slices(bs_key, sarray) \
     ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray)
 
+#define ob_index_get_ob_entry(bkey) \
+    ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey)
+
 #define ob_index_alloc_slice(bkey) \
     ob_index_alloc_slice_ex(&g_ob_hashtable, bkey, 1)
 
@@ -62,7 +65,7 @@ extern "C" {
             const FSBlockKey *bkey,
             uint64_t *sn, int *dec_alloc);
 
-    OBEntry *ob_index_get_ob_entry(OBHashtable *htable,
+    OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey);
 
     OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
@@ -109,6 +112,20 @@ extern "C" {
     {
         g_ob_hashtable.modify_used_space = true;
     }
+
+    static inline int ob_index_compare_block_key(const FSBlockKey *bkey1,
+            const FSBlockKey *bkey2)
+    {
+        int sub;
+        if ((sub=fc_compare_int64(bkey1->oid, bkey2->oid)) != 0) {
+            return sub;
+        }
+
+        return fc_compare_int64(bkey1->offset, bkey2->offset);
+    }
+
+    OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey);
+    void ob_index_reclaim_unlock(OBEntry *ob);
 
 #ifdef __cplusplus
 }

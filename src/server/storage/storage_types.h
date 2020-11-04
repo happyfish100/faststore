@@ -70,11 +70,12 @@ typedef struct {
     UniqSkiplistFactory factory;
     struct fast_mblock_man ob_allocator;    //for ob_entry
     struct fast_mblock_man slice_allocator; //for slice_entry
-    pthread_mutex_t lock;
+    pthread_lock_cond_pair_t lcp;   //for lock and notify
 } OBSharedContext;
 
 typedef struct ob_entry {
     FSBlockKey bkey;
+    int reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
 } OBEntry;

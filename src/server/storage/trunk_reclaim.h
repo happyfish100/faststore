@@ -23,14 +23,42 @@
 #include "storage_config.h"
 #include "trunk_allocator.h"
 
-typedef void (*trunk_allocate_done_callback)(FSTrunkAllocator *allocator,
-        const int result, void *arg);
+struct trunk_reclaim_slice_info;
+
+typedef struct trunk_reclaim_block_info {
+    OBEntry *ob;
+    struct trunk_reclaim_slice_info *head;
+} TrunkReclaimBlockInfo;
+
+typedef struct trunk_reclaim_slice_info {
+    FSBlockSliceKeyInfo bs_key;
+    struct trunk_reclaim_slice_info *next;
+} TrunkReclaimSliceInfo;
+
+typedef struct trunk_reclaim_block_array {
+    int count;
+    int alloc;
+    TrunkReclaimBlockInfo *blocks;
+} TrunkReclaimBlockArray;
+
+typedef struct trunk_reclaim_slice_array {
+    int count;
+    int alloc;
+    TrunkReclaimSliceInfo *slices;
+} TrunkReclaimSliceArray;
+
+typedef struct trunk_reclaim_context {
+    TrunkReclaimBlockArray barray;
+    TrunkReclaimSliceArray sarray;
+} TrunkReclaimContext;
+
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int trunk_reclaim_init();
+    int trunk_reclaim(FSTrunkAllocator *allocator, FSTrunkFileInfo *trunk,
+            TrunkReclaimContext *rctx);
 
 #ifdef __cplusplus
 }
