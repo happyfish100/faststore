@@ -32,11 +32,6 @@ extern "C" {
 
     int trunk_reclaim_init();
 
-    int trunk_allocate_ex(FSTrunkAllocator *allocator,
-            trunk_allocate_done_callback callback, void *arg);
-
-#define trunk_allocate(allocator) trunk_allocate_ex(allocator, NULL, NULL)
-
 #ifdef __cplusplus
 }
 #endif

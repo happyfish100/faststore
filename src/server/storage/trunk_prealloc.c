@@ -26,7 +26,7 @@
 #include "../server_global.h"
 #include "../dio/trunk_io_thread.h"
 #include "storage_allocator.h"
-#include "trunk_reclaim.h"
+#include "trunk_maker.h"
 #include "trunk_prealloc.h"
 
 typedef struct trunk_preallocator_info {
@@ -101,7 +101,7 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
 
         PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
         thread_arg->result = -1;
-        if ((result=trunk_allocate_ex(task->preallocator->allocator,
+        if ((result=trunk_maker_allocate_ex(task->preallocator->allocator,
                         allocate_done_callback, thread_arg)) == 0)
         {
             while (thread_arg->result == -1 && SF_G_CONTINUE_FLAG) {
@@ -348,12 +348,14 @@ static int trunk_prealloc_setup_schedule()
     ScheduleArray scheduleArray;
     ScheduleEntry scheduleEntry;
 
+    //TODO
+            /*
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
             STORAGE_CFG.prealloc_space.start_time, 86400,
-            /*
+            */
+
     INIT_SCHEDULE_ENTRY1(scheduleEntry, sched_generate_next_id(),
             TIME_NONE, TIME_NONE, TIME_NONE, 60,
-            */
 
             prealloc_trunks_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
@@ -402,6 +404,7 @@ int trunk_prealloc_init()
     {
         return result;
     }
+    prealloc_ctx.task_allocator.exceed_log_level = LOG_NOTHING;
 
     if ((result=init_pthread_lock_cond_pair(&prealloc_ctx.lcp)) != 0) {
         return result;

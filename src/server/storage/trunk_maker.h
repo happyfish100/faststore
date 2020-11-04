@@ -13,29 +13,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//server_storage.h
 
-#ifndef _SERVER_STORAGE_H_
-#define _SERVER_STORAGE_H_
+#ifndef _TRUNK_MAKER_H
+#define _TRUNK_MAKER_H
 
-#include "storage/storage_config.h"
-#include "storage/store_path_index.h"
-#include "storage/trunk_id_info.h"
-#include "storage/trunk_maker.h"
-#include "storage/trunk_prealloc.h"
-#include "storage/trunk_reclaim.h"
-#include "storage/trunk_allocator.h"
-#include "storage/storage_allocator.h"
-#include "storage/object_block_index.h"
-#include "storage/slice_op.h"
+#include "fastcommon/uniq_skiplist.h"
+#include "fastcommon/multi_skiplist.h"
+#include "../../common/fs_types.h"
+#include "storage_config.h"
+#include "trunk_allocator.h"
+
+typedef void (*trunk_allocate_done_callback)(FSTrunkAllocator *allocator,
+        const int result, void *arg);
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int server_storage_init();
-void server_storage_destroy();
-void server_storage_terminate();
+    int trunk_maker_init();
+
+    int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
+            trunk_allocate_done_callback callback, void *arg);
+
+#define trunk_maker_allocate(allocator) \
+    trunk_maker_allocate_ex(allocator, NULL, NULL)
 
 #ifdef __cplusplus
 }

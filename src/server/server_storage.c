@@ -40,6 +40,10 @@ int server_storage_init()
         return result;
     }
 
+    if ((result=trunk_maker_init()) != 0) {
+        return result;
+    }
+
     if ((result=trunk_reclaim_init()) != 0) {
         return result;
     }

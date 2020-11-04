@@ -23,8 +23,7 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
-#include "trunk_prealloc.h"
-#include "trunk_reclaim.h"
+#include "trunk_maker.h"
 #include "trunk_allocator.h"
 
 TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
@@ -246,7 +245,7 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
             FS_TRUNK_UTIL_EVENT_CREATE);
     if (freelist->count < freelist->water_mark_trunks) {
-        trunk_allocate(allocator);
+        trunk_maker_allocate(allocator);
     }
 }
 
@@ -265,7 +264,7 @@ static void keep_freelist_water_mark(FSTrunkAllocator *allocator,
 
     count = freelist->water_mark_trunks - freelist->count;
     for (i=0; i<count; i++) {
-        trunk_allocate(allocator);
+        trunk_maker_allocate(allocator);
     }
 }
 
