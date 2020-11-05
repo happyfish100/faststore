@@ -50,12 +50,19 @@ typedef struct trunk_reclaim_slice_array {
 typedef struct trunk_reclaim_context {
     TrunkReclaimBlockArray barray;
     TrunkReclaimSliceArray sarray;
+    FSSliceOpContext op_ctx;
+    int buffer_size;
+    struct {
+        bool finished;
+        pthread_lock_cond_pair_t lcp; //for notify
+    } notify;
 } TrunkReclaimContext;
 
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+    int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx);
 
     int trunk_reclaim(FSTrunkAllocator *allocator, FSTrunkFileInfo *trunk,
             TrunkReclaimContext *rctx);

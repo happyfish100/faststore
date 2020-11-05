@@ -71,8 +71,8 @@ typedef struct {
 
 static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
 
-static int add_slice(OBHashtable *htable, ReplicaBinlogRecord *record,
-        const OBSliceType stype)
+static inline int add_slice(OBHashtable *htable,
+        ReplicaBinlogRecord *record, const OBSliceType stype)
 {
     OBSliceEntry *slice;
     int inc_alloc;
@@ -84,7 +84,7 @@ static int add_slice(OBHashtable *htable, ReplicaBinlogRecord *record,
 
     slice->type = stype;
     slice->ssize = record->bs_key.slice;
-    return ob_index_add_slice_ex(htable, slice, NULL, &inc_alloc);
+    return ob_index_add_slice_ex(htable, slice, NULL, &inc_alloc, false);
 }
 
 static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
@@ -146,12 +146,12 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                 if (op_type == REPLICA_BINLOG_OP_TYPE_DEL_SLICE) {
                     result = ob_index_delete_slices_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key,
-                            NULL, &dec_alloc);
+                            NULL, &dec_alloc, false);
                     target_len = dedup_ctx->record.bs_key.slice.length;
                 } else {
                     result = ob_index_delete_block_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key.
-                            block, NULL, &dec_alloc);
+                            block, NULL, &dec_alloc, false);
                     target_len = FS_FILE_BLOCK_SIZE;
                 }
 
@@ -487,7 +487,7 @@ static void htable_reverse_remove(BinlogHashtables *htables)
                     bs_key.block = slice->ob->bkey;
                     bs_key.slice = slice->ssize;
                     ob_index_delete_slices_ex(&htables->remove,
-                            &bs_key, NULL, &dec_alloc);
+                            &bs_key, NULL, &dec_alloc, false);
                 }
             } while (0);
 

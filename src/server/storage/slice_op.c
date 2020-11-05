@@ -158,7 +158,8 @@ static void slice_write_finish(FSSliceOpContext *op_ctx)
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
             if ((result=ob_index_add_slice(slice_sn_pair->slice,
-                            &slice_sn_pair->sn, &inc_alloc)) != 0)
+                            &slice_sn_pair->sn, &inc_alloc, op_ctx->
+                            info.source == BINLOG_SOURCE_RECLAIM)) != 0)
             {
                 op_ctx->result = result;
                 break;
@@ -334,9 +335,8 @@ int fs_slice_write_ex(FSSliceOpContext *op_ctx, const bool reclaim_alloc)
     return result;
 }
 
-static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
-        OBSlicePtrArray *sarray, FSSliceSize *ssizes,
-        const int max_size, int *count)
+static int get_slice_index_holes(FSSliceOpContext *op_ctx,
+        FSSliceSize *ssizes, const int max_size, int *count)
 {
     int result;
     int offset;
@@ -344,9 +344,12 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
     OBSliceEntry **pp;
     OBSliceEntry **end;
 
-    if ((result=ob_index_get_slices(bs_key, sarray)) != 0) {
+    if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
+                    &op_ctx->slice_ptr_array, op_ctx->info.
+                    source == BINLOG_SOURCE_RECLAIM)) != 0)
+    {
         if (result == ENOENT) {
-            ssizes[0] = bs_key->slice;
+            ssizes[0] = op_ctx->info.bs_key.slice;
             *count = 1;
             return 0;
         } else {
@@ -357,15 +360,16 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
 
     /*
     logInfo("file: "__FILE__", line: %d, "
-            "read sarray->count: %"PRId64", target slice offset: %d, "
-            "length: %d", __LINE__, sarray->count, bs_key->slice.offset,
-            bs_key->slice.length);
+            "read sarray.count: %"PRId64", target slice offset: %d, "
+            "length: %d", __LINE__, op_ctx->slice_ptr_array.count,
+            op_ctx->info.bs_key.slice.offset,
+            op_ctx->info.bs_key.slice.length);
             */
 
     *count = 0;
-    offset = bs_key->slice.offset;
-    end = sarray->slices + sarray->count;
-    for (pp=sarray->slices; pp<end; pp++) {
+    offset = op_ctx->info.bs_key.slice.offset;
+    end = op_ctx->slice_ptr_array.slices + op_ctx->slice_ptr_array.count;
+    for (pp=op_ctx->slice_ptr_array.slices; pp<end; pp++) {
         hole_len = (*pp)->ssize.offset - offset;
         if (hole_len > 0) {
             if (*count < max_size) {
@@ -377,20 +381,22 @@ static int get_slice_index_holes(const FSBlockSliceKeyInfo *bs_key,
 
         /*
         logInfo("slice %d. type: %c (0x%02x), offset: %d, "
-                "length: %d, hole_len: %d", (int)(pp - sarray->slices),
-                (*pp)->type, (*pp)->type, (*pp)->ssize.offset,
-                (*pp)->ssize.length, hole_len);
+                "length: %d, hole_len: %d", (int)(pp - op_ctx->
+                slice_ptr_array.slices), (*pp)->type, (*pp)->type,
+                (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
                 */
 
         offset = (*pp)->ssize.offset + (*pp)->ssize.length;
         ob_index_free_slice(*pp);
     }
 
-    if (offset < bs_key->slice.offset + bs_key->slice.length) {
+    if (offset < op_ctx->info.bs_key.slice.offset +
+            op_ctx->info.bs_key.slice.length)
+    {
         if (*count < max_size) {
             ssizes[*count].offset = offset;
-            ssizes[*count].length = (bs_key->slice.offset +
-                    bs_key->slice.length) - offset;
+            ssizes[*count].length = (op_ctx->info.bs_key.slice.offset +
+                    op_ctx->info.bs_key.slice.length) - offset;
         }
         (*count)++;
     }
@@ -416,8 +422,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
     op_ctx->update.sarray.count = 0;
     op_ctx->update.space_changed = 0;
     ssizes = fixed_ssizes;
-    if ((result=get_slice_index_holes(&op_ctx->info.bs_key,
-                    &op_ctx->slice_ptr_array, ssizes,
+    if ((result=get_slice_index_holes(op_ctx, ssizes,
                     FS_SLICE_HOLES_FIXED_COUNT, &count)) != 0)
     {
         if (result != -ENOSPC) {
@@ -430,9 +435,8 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
             if (ssizes == NULL) {
                 return ENOMEM;
             }
-            if ((result=get_slice_index_holes(&op_ctx->info.bs_key,
-                            &op_ctx->slice_ptr_array, ssizes, alloc,
-                            &count)) == 0)
+            if ((result=get_slice_index_holes(op_ctx, ssizes,
+                            alloc, &count)) == 0)
             {
                 break;
             }
@@ -483,7 +487,8 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
         if ((result=ob_index_add_slice(slice_sn_pair->slice,
-                        &slice_sn_pair->sn, &inc)) != 0)
+                        &slice_sn_pair->sn, &inc, op_ctx->info.
+                        source == BINLOG_SOURCE_RECLAIM)) != 0)
         {
             break;
         }
@@ -584,7 +589,8 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     OBSliceEntry **end;
 
     if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
-                    &op_ctx->slice_ptr_array)) != 0)
+                    &op_ctx->slice_ptr_array, op_ctx->info.
+                    source == BINLOG_SOURCE_RECLAIM)) != 0)
     {
         return result;
     }
@@ -641,7 +647,8 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
 
     SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
-                    &op_ctx->info.sn, &op_ctx->update.space_changed)) == 0)
+                    &op_ctx->info.sn, &op_ctx->update.space_changed,
+                    op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
         set_data_version(op_ctx);
     }
@@ -678,7 +685,8 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
 
     SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
-                    &op_ctx->info.sn, &op_ctx->update.space_changed)) == 0)
+                    &op_ctx->info.sn, &op_ctx->update.space_changed,
+                    op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
         set_data_version(op_ctx);
     }

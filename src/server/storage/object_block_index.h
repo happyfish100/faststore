@@ -25,17 +25,17 @@ extern "C" {
 
     extern OBHashtable g_ob_hashtable;
 
-#define ob_index_add_slice(slice, sn, inc_alloc) \
-    ob_index_add_slice_ex(&g_ob_hashtable, slice, sn, inc_alloc)
+#define ob_index_add_slice(slice, sn, inc_alloc, is_reclaim) \
+    ob_index_add_slice_ex(&g_ob_hashtable, slice, sn, inc_alloc, is_reclaim)
 
-#define ob_index_delete_slices(bs_key, sn, dec_alloc) \
-    ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc)
+#define ob_index_delete_slices(bs_key, sn, dec_alloc, is_reclaim) \
+    ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc, is_reclaim)
 
-#define ob_index_delete_block(bkey, sn, dec_alloc) \
-    ob_index_delete_block_ex(&g_ob_hashtable, bkey, sn, dec_alloc)
+#define ob_index_delete_block(bkey, sn, dec_alloc, is_reclaim) \
+    ob_index_delete_block_ex(&g_ob_hashtable, bkey, sn, dec_alloc, is_reclaim)
 
-#define ob_index_get_slices(bs_key, sarray) \
-    ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray)
+#define ob_index_get_slices(bs_key, sarray, is_reclaim) \
+    ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray, is_reclaim)
 
 #define ob_index_get_ob_entry(bkey) \
     ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey)
@@ -55,15 +55,15 @@ extern "C" {
     void ob_index_destroy_htable(OBHashtable *htable);
 
     int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
-            uint64_t *sn, int *inc_alloc);
+            uint64_t *sn, int *inc_alloc, const bool is_reclaim);
 
     int ob_index_delete_slices_ex(OBHashtable *htable,
-            const FSBlockSliceKeyInfo *bs_key,
-            uint64_t *sn, int *dec_alloc);
+            const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
+            int *dec_alloc, const bool is_reclaim);
 
     int ob_index_delete_block_ex(OBHashtable *htable,
-            const FSBlockKey *bkey,
-            uint64_t *sn, int *dec_alloc);
+            const FSBlockKey *bkey, uint64_t *sn,
+            int *dec_alloc, const bool is_reclaim);
 
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey);
@@ -75,7 +75,7 @@ extern "C" {
 
     int ob_index_get_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key,
-            OBSlicePtrArray *sarray);
+            OBSlicePtrArray *sarray, const bool is_reclaim);
 
     static inline void ob_index_init_slice_ptr_array(OBSlicePtrArray *sarray)
     {
@@ -97,15 +97,17 @@ extern "C" {
     static inline int ob_index_delete_slices_by_binlog(
             const FSBlockSliceKeyInfo *bs_key)
     {
+        const bool is_reclaim = false;
         int dec_alloc;
-        return ob_index_delete_slices(bs_key, NULL, &dec_alloc);
+        return ob_index_delete_slices(bs_key, NULL, &dec_alloc, is_reclaim);
     }
 
     static inline int ob_index_delete_block_by_binlog(
             const FSBlockKey *bkey)
     {
+        const bool is_reclaim = false;
         int dec_alloc;
-        return ob_index_delete_block(bkey, NULL, &dec_alloc);
+        return ob_index_delete_block(bkey, NULL, &dec_alloc, is_reclaim);
     }
 
     static inline void ob_index_enable_modify_used_space()

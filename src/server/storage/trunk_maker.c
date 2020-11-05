@@ -358,6 +358,10 @@ int trunk_maker_init()
             return result;
         }
 
+        if ((result=trunk_reclaim_init_ctx(&thread->reclaim_ctx)) != 0) {
+            return result;
+        }
+
         if ((result=fc_create_thread(&thread->tid, trunk_maker_thread_func,
                         thread, SF_G_THREAD_STACK_SIZE)) != 0)
         {

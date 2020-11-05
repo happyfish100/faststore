@@ -155,8 +155,8 @@ OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
 OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
 {
     OBEntry *ob;
-    OB_INDEX_SET_BUCKET_AND_CTX(&g_ob_hashtable, *bkey);
 
+    OB_INDEX_SET_BUCKET_AND_CTX(&g_ob_hashtable, *bkey);
     OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
     ob = get_ob_entry(ctx, bucket, bkey, false);
     if (ob != NULL) {
@@ -170,7 +170,6 @@ OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
 void ob_index_reclaim_unlock(OBEntry *ob)
 {
     OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, ob->bkey);
-
     OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
     if (--(ob->reclaiming_count) == 0) {
         pthread_cond_broadcast(&ctx->lcp.cond);
@@ -185,7 +184,6 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
-
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
     ob = get_ob_entry(ctx, bucket, bkey, true);
     OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
@@ -588,8 +586,17 @@ static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
     return do_add_slice(htable, ob, slice);
 }
 
+#define CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob) \
+    do {  \
+        if (!is_reclaim) {  \
+            while (ob->reclaiming_count > 0) {  \
+                pthread_cond_wait(&ctx->lcp.cond, &ctx->lcp.lock); \
+            } \
+        } \
+    } while (0)
+
 int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
-        uint64_t *sn, int *inc_alloc)
+        uint64_t *sn, int *inc_alloc, const bool is_reclaim)
 {
     int result;
 
@@ -602,6 +609,8 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
 
     OB_INDEX_SET_HASHTABLE_CTX(htable, slice->ob->bkey);
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+
+    CHECK_AND_WAIT_RECLAIM_DONE(ctx, slice->ob);
     result = add_slice(htable, ctx, slice->ob, slice, inc_alloc);
     if (result == 0) {
         __sync_add_and_fetch(&slice->ref_count, 1);
@@ -736,8 +745,8 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
 }
 
 int ob_index_delete_slices_ex(OBHashtable *htable,
-        const FSBlockSliceKeyInfo *bs_key,
-        uint64_t *sn, int *dec_alloc)
+        const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
+        int *dec_alloc, const bool is_reclaim)
 {
     OBEntry *ob;
     int result;
@@ -750,6 +759,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
         *dec_alloc = 0;
         result = ENOENT;
     } else {
+        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
         result = delete_slices(htable, ctx, ob, bs_key, &count, dec_alloc);
         if (result == 0 && sn != NULL) {
             *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
@@ -760,8 +770,9 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     return result;
 }
 
-int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
-        uint64_t *sn, int *dec_alloc)
+int ob_index_delete_block_ex(OBHashtable *htable,
+        const FSBlockKey *bkey, uint64_t *sn,
+        int *dec_alloc, const bool is_reclaim)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -775,6 +786,7 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
+        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
@@ -1008,7 +1020,7 @@ static void free_slices(OBSlicePtrArray *sarray)
 
 int ob_index_get_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key,
-        OBSlicePtrArray *sarray)
+        OBSlicePtrArray *sarray, const bool is_reclaim)
 {
     OBEntry *ob;
     int result;
@@ -1027,6 +1039,7 @@ int ob_index_get_slices_ex(OBHashtable *htable,
     if (ob == NULL) {
         result = ENOENT;
     } else {
+        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
         result = get_slices(ctx, ob, bs_key, sarray);
     }
     OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);

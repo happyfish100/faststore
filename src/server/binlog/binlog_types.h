@@ -43,6 +43,7 @@
 #define BINLOG_OP_TYPE_DEL_BLOCK    'D'
 #define BINLOG_OP_TYPE_NO_OP        'N'
 
+#define BINLOG_SOURCE_RECLAIM       'M'  //by trunk reclaim
 #define BINLOG_SOURCE_RPC           'C'  //by user call
 #define BINLOG_SOURCE_REPLAY        'R'  //by binlog replay
 

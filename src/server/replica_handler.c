@@ -831,6 +831,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     }
 
     sf_hold_task(task);
+    OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
     OP_CTX_INFO.buff = REQUEST.body;
     if (direct_read) {
         SLICE_OP_CTX.rw_done_callback = (fs_rw_done_callback_func)
