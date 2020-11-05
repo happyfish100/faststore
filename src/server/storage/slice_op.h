@@ -45,13 +45,7 @@ extern "C" {
         }
     }
 
-    int fs_slice_write_ex(FSSliceOpContext *op_ctx, const bool reclaim_alloc);
-
-    static inline int fs_slice_write(FSSliceOpContext *op_ctx)
-    {
-        const bool reclaim_alloc = false;
-        return fs_slice_write_ex(op_ctx, reclaim_alloc);
-    }
+    int fs_slice_write(FSSliceOpContext *op_ctx);
 
     int fs_slice_allocate(FSSliceOpContext *op_ctx);
 

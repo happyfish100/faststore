@@ -62,12 +62,14 @@ typedef struct fs_trunk_allocator {
         UniqSkiplist *by_size; //order by used size and id
     } trunks;
     FSTrunkFreelistPair freelist; //trunk freelist pool
-    pthread_mutex_t lock;
     struct {
-        bool finished;
+        int waiting_count;
+        pthread_lock_cond_pair_t lcp;  //for lock and notify
+    } allocate; //for allacate space
+
+    struct {
         int result;  //deal result
         time_t last_deal_time;
-        pthread_lock_cond_pair_t lcp;  //for notify
         struct fc_queue queue;  //trunk event queue for nodify
         struct fs_trunk_allocator *next; //for event notify queue
     } reclaim; //for trunk reclaim
@@ -137,9 +139,9 @@ extern "C" {
             FSTrunkAllocator *allocator)
     {
         int count;
-        PTHREAD_MUTEX_LOCK(&allocator->lock);
+        PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
         count = allocator->freelist.normal.count;
-        PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+        PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
         return count;
     }
 

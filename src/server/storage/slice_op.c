@@ -289,7 +289,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-int fs_slice_write_ex(FSSliceOpContext *op_ctx, const bool reclaim_alloc)
+int fs_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
@@ -297,7 +297,8 @@ int fs_slice_write_ex(FSSliceOpContext *op_ctx, const bool reclaim_alloc)
 
     //TODO notify alloc fail
     if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
-                    reclaim_alloc, op_ctx->update.sarray.slice_sn_pairs,
+                    op_ctx->info.source == BINLOG_SOURCE_RECLAIM,
+                    op_ctx->update.sarray.slice_sn_pairs,
                     &op_ctx->update.sarray.count)) != 0)
     {
         return result;

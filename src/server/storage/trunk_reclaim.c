@@ -143,21 +143,21 @@ static int convert_to_rs_array(FSTrunkAllocator *allocator,
 
     result = 0;
     rs = rs_array->slices;
-    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
     fc_list_for_each_entry(slice, &trunk->used.slice_head, dlink) {
         if (rs_array->alloc <= rs - rs_array->slices) {
             rs_array->count = rs - rs_array->slices;
             if ((result=realloc_rs_array(rs_array)) != 0) {
                 break;
             }
-            rs = rs_array->slices +  rs_array->count;
+            rs = rs_array->slices + rs_array->count;
         }
 
         rs->bs_key.block = slice->ob->bkey;
         rs->bs_key.slice = slice->ssize;
         rs++;
     }
-    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+    PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
 
     if (result != 0) {
         return result;
