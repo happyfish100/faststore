@@ -34,9 +34,6 @@ int binlog_get_last_timestamp(const char *filename, time_t *timestamp);
 int binlog_unpack_common_fields(const string_t *line,
         BinlogCommonFields *fields, char *error_info);
 
-int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
-        uint64_t *data_version, char *error_info);
-
 int binlog_get_position_by_timestamp(const char *subdir_name,
         struct sf_binlog_writer_info *writer, const time_t from_timestamp,
         SFBinlogFilePosition *pos);

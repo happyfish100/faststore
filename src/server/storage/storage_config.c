@@ -632,7 +632,7 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
                 "reserved_space: %s MB",
                 (int)(p - parray->paths + 1), p->store.path.str,
                 p->store.index, p->write_thread_count,
-                p->read_thread_count, p->prealloc_space.ratio,
+                p->read_thread_count, p->prealloc_space.ratio * 100.00,
                 p->reserved_space.ratio * 100.00,
                 avail_space_buff, prealloc_space_buff,
                 reserved_space_buff);

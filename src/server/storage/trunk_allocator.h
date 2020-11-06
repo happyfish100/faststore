@@ -28,8 +28,9 @@
 #define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
 
 #define FS_TRUNK_STATUS_NONE        0
-#define FS_TRUNK_STATUS_ALLOCING    1
-#define FS_TRUNK_STATUS_RECLAIMING  2
+#define FS_TRUNK_STATUS_REPUSH      1  //intermediate state
+#define FS_TRUNK_STATUS_ALLOCING    2
+#define FS_TRUNK_STATUS_RECLAIMING  3
 
 #define FS_TRUNK_UTIL_EVENT_NONE      0
 #define FS_TRUNK_UTIL_EVENT_CREATE   'C'
@@ -123,7 +124,7 @@ extern "C" {
     int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);
 
-    int trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
+    void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFileInfo *trunk_info);
 
     void trunk_allocator_keep_water_mark(FSTrunkAllocator *allocator);
@@ -143,6 +144,22 @@ extern "C" {
         count = allocator->freelist.normal.count;
         PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
         return count;
+    }
+
+    static inline void fs_set_trunk_status(FSTrunkFileInfo *trunk,
+            const int new_status)
+    {
+        int old_status;
+
+        old_status = __sync_add_and_fetch(&trunk->status, 0);
+        while (new_status != old_status) {
+            if (__sync_bool_compare_and_swap(&trunk->status,
+                        old_status, new_status))
+            {
+                break;
+            }
+            old_status = __sync_add_and_fetch(&trunk->status, 0);
+        }
     }
 
 #ifdef __cplusplus

@@ -46,6 +46,7 @@ extern "C" {
     }
 
     int fs_slice_write(FSSliceOpContext *op_ctx);
+    void fs_write_finish(FSSliceOpContext *op_ctx);
 
     int fs_slice_allocate(FSSliceOpContext *op_ctx);
 

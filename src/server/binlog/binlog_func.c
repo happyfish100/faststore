@@ -50,7 +50,7 @@ int binlog_unpack_common_fields(const string_t *line,
     BINLOG_PARSE_INT_SILENCE(fields->timestamp, "timestamp",
             BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(fields->data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
+            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 0);
     fields->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
     fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
@@ -60,8 +60,8 @@ int binlog_unpack_common_fields(const string_t *line,
     return 0;
 }
 
-int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
-        uint64_t *data_version, char *error_info)
+static int binlog_unpack_timestamp(const string_t *line,
+        time_t *timestamp, char *error_info)
 {
     int count;
     char *endptr;
@@ -77,8 +77,6 @@ int binlog_unpack_ts_and_dv(const string_t *line, time_t *timestamp,
 
     BINLOG_PARSE_INT_SILENCE(*timestamp, "timestamp",
             BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
-    BINLOG_PARSE_INT_SILENCE(*data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     return 0;
 }
 
@@ -87,7 +85,6 @@ int binlog_get_first_timestamp(const char *filename, time_t *timestamp)
     char buff[FS_BINLOG_MAX_RECORD_SIZE];
     char error_info[256];
     string_t line;
-    uint64_t data_version;
     int result;
 
     if ((result=fc_get_first_line(filename, buff,
@@ -96,9 +93,7 @@ int binlog_get_first_timestamp(const char *filename, time_t *timestamp)
         return result;
     }
 
-    if ((result=binlog_unpack_ts_and_dv(&line, timestamp,
-                    &data_version, error_info)) != 0)
-    {
+    if ((result=binlog_unpack_timestamp(&line, timestamp, error_info)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "binlog file: %s, unpack last line fail, %s",
                 __LINE__, filename, error_info);
@@ -113,7 +108,6 @@ int binlog_get_last_timestamp(const char *filename, time_t *timestamp)
     char error_info[256];
     string_t line;
     int64_t file_size;
-    uint64_t data_version;
     int result;
 
     if ((result=fc_get_last_line(filename, buff,
@@ -122,9 +116,7 @@ int binlog_get_last_timestamp(const char *filename, time_t *timestamp)
         return result;
     }
 
-    if ((result=binlog_unpack_ts_and_dv(&line, timestamp,
-                    &data_version, error_info)) != 0)
-    {
+    if ((result=binlog_unpack_timestamp(&line, timestamp, error_info)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "binlog file: %s, unpack last line fail, %s",
                 __LINE__, filename, error_info);
@@ -171,7 +163,6 @@ static int find_timestamp(ServerBinlogReader *reader, const int length,
     char *buff_end;
     char *line_end;
     time_t timestamp;
-    uint64_t data_version;
     char error_info[256];
 
     result = 0;
@@ -188,8 +179,8 @@ static int find_timestamp(ServerBinlogReader *reader, const int length,
 
         line.str = line_start;
         line.len = line_end - line_start;
-        if ((result=binlog_unpack_ts_and_dv(&line, &timestamp,
-                        &data_version, error_info)) != 0)
+        if ((result=binlog_unpack_timestamp(&line,
+                        &timestamp, error_info)) != 0)
         {
             break;
         }

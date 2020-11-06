@@ -31,13 +31,6 @@ TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 #define G_ID_SKIPLIST_FACTORY   g_trunk_allocator_vars.skiplist_factories.by_id
 #define G_SIZE_SKIPLIST_FACTORY g_trunk_allocator_vars.skiplist_factories.by_size
 
-#define PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info, event) \
-    do {  \
-        if (g_trunk_allocator_vars.data_load_done) { \
-            push_trunk_util_change_event(allocator, trunk_info, event); \
-        } \
-    } while (0)
-
 static int compare_trunk_by_id(const FSTrunkFileInfo *t1,
         const FSTrunkFileInfo *t2)
 {
@@ -71,17 +64,36 @@ static void trunk_free_func(void *ptr, const int delay_seconds)
     }
 }
 
-static inline int push_trunk_util_change_event(FSTrunkAllocator *allocator,
+static inline void push_trunk_util_change_event(FSTrunkAllocator *allocator,
         FSTrunkFileInfo *trunk, const int event)
 {
-    if (!__sync_bool_compare_and_swap(&trunk->util.event,
+    if (__sync_bool_compare_and_swap(&trunk->util.event,
                 FS_TRUNK_UTIL_EVENT_NONE, event))
     {
-        return EEXIST;
+        fc_queue_push(&allocator->reclaim.queue, trunk);
     }
+}
 
-    fc_queue_push(&allocator->reclaim.queue, trunk);
-    return 0;
+static inline void push_trunk_util_event_force(FSTrunkAllocator *allocator,
+        FSTrunkFileInfo *trunk, const int event)
+{
+    int old_event;
+
+    while (1) {
+        old_event = __sync_add_and_fetch(&trunk->util.event, 0);
+        if (event == old_event) {
+            return;
+        }
+
+        if (__sync_bool_compare_and_swap(&trunk->util.event,
+                    old_event, event))
+        {
+            if (old_event == FS_TRUNK_UTIL_EVENT_NONE) {
+                fc_queue_push(&allocator->reclaim.queue, trunk);
+            }
+            return;
+        }
+    }
 }
 
 int trunk_allocator_init()
@@ -172,7 +184,7 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
-    trunk_info->status = FS_TRUNK_STATUS_NONE;
+    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
     trunk_info->id_info = *id_info;
     trunk_info->size = size;
     trunk_info->used.bytes = 0;
@@ -184,10 +196,7 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     result = uniq_skiplist_insert(allocator->trunks.by_id, trunk_info);
     PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
 
-    if (result == 0) {
-        PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
-                FS_TRUNK_UTIL_EVENT_CREATE);
-    } else {
+    if (result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "add trunk fail, trunk id: %"PRId64", "
                 "errno: %d, error info: %s", __LINE__,
@@ -231,15 +240,17 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     FSTrunkFileInfo *trunk_info;
 
     trunk_info = freelist->head;
-    trunk_info->status = FS_TRUNK_STATUS_NONE;
     freelist->head = freelist->head->alloc.next;
     if (freelist->head == NULL) {
         freelist->tail = NULL;
     }
     freelist->count--;
 
-    PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
+    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_REPUSH);
+    push_trunk_util_event_force(allocator, trunk_info,
             FS_TRUNK_UTIL_EVENT_CREATE);
+    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
+
     if (freelist->count < freelist->water_mark_trunks) {
         trunk_maker_allocate(allocator);
     }
@@ -287,7 +298,7 @@ static void add_to_freelist(FSTrunkAllocator *allocator,
     freelist->tail = trunk_info;
 
     freelist->count++;
-    trunk_info->status = FS_TRUNK_STATUS_ALLOCING;
+    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_ALLOCING);
 
     if (allocator->allocate.waiting_count > 0) {
         pthread_cond_broadcast(&allocator->allocate.lcp.cond);
@@ -298,23 +309,19 @@ static void add_to_freelist(FSTrunkAllocator *allocator,
         FS_TRUNK_AVAIL_SPACE(trunk_info));
 }
 
-int trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
+void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
         FSTrunkFileInfo *trunk_info)
 {
-    int result;
     FSTrunkFreelist *freelist;
 
     if (allocator->freelist.reclaim.count < allocator->freelist.
             reclaim.water_mark_trunks)
     {
         freelist = &allocator->freelist.reclaim;
-        result = EAGAIN;
     } else {
         freelist = &allocator->freelist.normal;
-        result = 0;
     }
     add_to_freelist(allocator, freelist, trunk_info);
-    return result;
 }
 
 static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
@@ -481,8 +488,10 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
         trunk_info->used.count--;
         fc_list_del_init(&slice->dlink);
 
-        PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
-                FS_TRUNK_UTIL_EVENT_UPDATE);
+        if (g_trunk_allocator_vars.data_load_done) {
+            push_trunk_util_change_event(allocator, trunk_info,
+                    FS_TRUNK_UTIL_EVENT_UPDATE);
+        }
         result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
@@ -496,16 +505,20 @@ static bool can_add_to_freelist(FSTrunkAllocator *allocator,
     int64_t remain_size;
     double ratio;
 
-    remain_size = FS_TRUNK_AVAIL_SPACE(trunk_info);
-    if (remain_size < FS_FILE_BLOCK_SIZE) {
-        return false;
-    }
+     logInfo("file: "__FILE__", line: %d, "
+             "trunk id: %"PRId64", used bytes: %"PRId64, __LINE__,
+             trunk_info->id_info.id, trunk_info->used.bytes);
 
     if (trunk_info->used.bytes == 0) {
         if (trunk_info->free_start != 0) {
             trunk_info->free_start = 0;
         }
         return true;
+    }
+
+    remain_size = FS_TRUNK_AVAIL_SPACE(trunk_info);
+    if (remain_size < FS_FILE_BLOCK_SIZE) {
+        return false;
     }
 
     if (allocator->path_info->space_stat.used_ratio <=
@@ -536,7 +549,8 @@ void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)
 
         if (can_add_to_freelist(allocator, trunk_info)) {
             if (trunk_info->free_start == 0 &&
-                    allocator->freelist.reclaim.count < 2)
+                    allocator->freelist.reclaim.count <
+                    allocator->freelist.reclaim.water_mark_trunks)
             {
                 freelist = &allocator->freelist.reclaim;
             } else {
@@ -545,7 +559,7 @@ void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)
 
             add_to_freelist(allocator, freelist, trunk_info);
         } else {
-            PUSH_TO_TRUNK_UTIL_CHANGE_QUEUE(allocator, trunk_info,
+            push_trunk_util_change_event(allocator, trunk_info,
                     FS_TRUNK_UTIL_EVENT_CREATE);
         }
     }

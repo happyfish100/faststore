@@ -139,7 +139,7 @@ int fs_log_slice_write(FSSliceOpContext *op_ctx)
     return 0;
 }
 
-static void slice_write_finish(FSSliceOpContext *op_ctx)
+void fs_write_finish(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
@@ -196,7 +196,6 @@ static void slice_write_done(struct trunk_io_buffer *record, const int result)
             */
 
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
-        slice_write_finish(op_ctx);
         op_ctx->rw_done_callback(op_ctx, op_ctx->arg);
     }
 }
@@ -603,6 +602,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             op_ctx->info.bs_key.slice.length);
             */
 
+    op_ctx->result = 0;
     op_ctx->done_bytes = 0;
     op_ctx->counter = op_ctx->slice_ptr_array.count;
     ps = op_ctx->info.buff;

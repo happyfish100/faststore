@@ -304,13 +304,20 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
             pthread_cond_wait(&rctx->notify.lcp.cond,
                     &rctx->notify.lcp.lock);
         }
-        result = rctx->notify.finished ? rctx->op_ctx.result : EINTR;
+        if (!rctx->notify.finished) {
+            rctx->op_ctx.result = EINTR;
+        }
+    } else {
+        rctx->op_ctx.result = result;
     }
     PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
 
-    if (result != 0) {
-        log_rw_error(&rctx->op_ctx, result, 0, "write");
-        return result;
+    if (result == 0) {
+        fs_write_finish(&rctx->op_ctx);  //for add slice index and cleanup
+    }
+    if (rctx->op_ctx.result != 0) {
+        log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
+        return rctx->op_ctx.result;
     }
 
     return fs_log_slice_write(&rctx->op_ctx);

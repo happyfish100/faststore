@@ -69,17 +69,36 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
+    int status;
     int event;
     int result;
 
     event = __sync_add_and_fetch(&trunk->util.event, 0);
-    do {
-        if (event == FS_TRUNK_UTIL_EVENT_CREATE) {
+    while (1) {
+        status = __sync_add_and_fetch(&trunk->status, 0);
+        if (status == FS_TRUNK_STATUS_NONE) {  //accept
+            break;
+        } else if (status == FS_TRUNK_STATUS_REPUSH) {
+            fc_queue_push(&allocator->reclaim.queue, trunk); //repush
+            return EAGAIN;
+        }
+
+        if (__sync_bool_compare_and_swap(&trunk->util.event,
+                    event, FS_TRUNK_UTIL_EVENT_NONE))
+        {
+            return EAGAIN;  //refuse
+        }
+        event = __sync_add_and_fetch(&trunk->util.event, 0);
+    }
+
+    switch (event) {
+        case FS_TRUNK_UTIL_EVENT_CREATE:
             trunk->util.last_used_bytes = __sync_fetch_and_add(
                     &trunk->used.bytes, 0);
             result = uniq_skiplist_insert(allocator->trunks.
                     by_size, trunk);
-        } else {
+            break;
+        case FS_TRUNK_UTIL_EVENT_UPDATE:
             if ((node=uniq_skiplist_find_node(allocator->trunks.
                             by_size, trunk)) == NULL)
             {
@@ -102,12 +121,15 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
                             by_size, trunk);
                 }
             }
-        }
-    } while (0);
+            break;
+        default:
+            result = 0;
+            break;
+    }
 
     logInfo("event: %c, id: %"PRId64", status: %d, last_used_bytes: %"PRId64", "
-            "current used: %"PRId64, event, trunk->id_info.id, trunk->status,
-            trunk->util.last_used_bytes, trunk->used.bytes);
+            "current used: %"PRId64", result: %d", event, trunk->id_info.id,
+            trunk->status, trunk->util.last_used_bytes, trunk->used.bytes, result);
 
     __sync_bool_compare_and_swap(&trunk->util.event,
             event, FS_TRUNK_UTIL_EVENT_NONE);
@@ -144,8 +166,7 @@ static void create_trunk_done(struct trunk_io_buffer *record,
                 record->space.store->index, &record->space.id_info,
                 record->space.size, &trunk_info);
         if (allocator->reclaim.result == 0) {
-            allocator->reclaim.result = trunk_allocator_add_to_freelist(
-                    allocator, trunk_info);
+            trunk_allocator_add_to_freelist(allocator, trunk_info);
         }
 
         //trigger avail space stat
@@ -202,6 +223,7 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
 {
     double ratio_thredhold;
     FSTrunkFileInfo *trunk;
+    int64_t used_bytes;
     int result;
 
     if (g_current_time - task->allocator->reclaim.last_deal_time > 10) {
@@ -215,28 +237,45 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         return ENOENT;
     }
 
+    used_bytes = __sync_fetch_and_add(&trunk->used.bytes, 0);
+    if (trunk->size - used_bytes < FS_FILE_BLOCK_SIZE) {
+        return ENOENT;
+    }
+
     ratio_thredhold = STORAGE_CFG.never_reclaim_on_trunk_usage *
         (task->allocator->path_info->space_stat.used_ratio -
          STORAGE_CFG.reclaim_trunks_on_path_usage) /
         (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage);
-    if ((double)__sync_fetch_and_add(&trunk->used.bytes, 0) /
-            (double)trunk->size >= ratio_thredhold)
-    {
+
+    logInfo("path index: %d, trunk id: %"PRId64", "
+            "usage ratio: %.2f%%, ratio_thredhold: %.2f%%",
+            task->allocator->path_info->store.index,
+            trunk->id_info.id, 100.00 * (double)used_bytes /
+            (double)trunk->size, 100.00 * ratio_thredhold);
+
+    if ((double)used_bytes / (double)trunk->size >= ratio_thredhold) {
         return ENOENT;
     }
 
-    if (trunk->used.bytes > 0) {
+    if (used_bytes > 0) {
+        fs_set_trunk_status(trunk, FS_TRUNK_STATUS_RECLAIMING);
         result = trunk_reclaim(task->allocator, trunk,
                 &thread->reclaim_ctx);
     } else {
         result = 0;
     }
 
-    logInfo("path index: %d, reclaiming trunk used bytes: %"PRId64,
-            task->allocator->path_info->store.index, trunk->used.bytes);
+    logInfo("path index: %d, reclaiming trunk id: %"PRId64", "
+            "last used bytes: %"PRId64", current used bytes: %"PRId64", "
+            "result: %d", task->allocator->path_info->store.index,
+            trunk->id_info.id, used_bytes, trunk->used.bytes, result);
+
     if (result == 0) {
-        result = trunk_allocator_add_to_freelist(task->allocator, trunk);
+        trunk->free_start = 0;
+        trunk_allocator_add_to_freelist(task->allocator, trunk);
         uniq_skiplist_delete(task->allocator->trunks.by_size, trunk);
+    } else {
+        fs_set_trunk_status(trunk, FS_TRUNK_STATUS_NONE); //rollback status
     }
     return result;
 }

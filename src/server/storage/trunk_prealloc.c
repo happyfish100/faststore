@@ -294,6 +294,9 @@ static int do_prealloc_trunks()
     if ((head=make_preallocator_chain(&prealloc_ctx.
                     preallocator_array)) == NULL)
     {
+        logInfo("file: "__FILE__", line: %d, "
+                "do NOT need prealloc trunks because "
+                "all freelists are enough", __LINE__);
         return 0;
     }
 

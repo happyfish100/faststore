@@ -146,7 +146,7 @@ typedef struct fs_slice_op_buffer_context {
 
 typedef struct fs_trunk_file_info {
     FSTrunkIdInfo id_info;
-    int status;
+    volatile int status;
     struct {
         int count;  //slice count
         volatile int64_t bytes;

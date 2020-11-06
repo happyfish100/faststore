@@ -217,10 +217,15 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
             PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
             thread_ctx->notify_done = false;
-            if ((op->ctx->result=fs_slice_write(op->ctx)) == 0) {
+            if ((result=fs_slice_write(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);
+            } else {
+                op->ctx->result = result;
             }
             PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
+            if (result == 0) {
+                fs_write_finish(op->ctx);  //for add slice index and cleanup
+            }
             break;
         case DATA_OPERATION_SLICE_ALLOCATE:
             is_update = true;
