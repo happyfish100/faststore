@@ -286,12 +286,13 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
 }
 
 static int do_allocate_trunk(TrunkMakerThreadInfo *thread,
-        TrunkMakerTask *task)
+        TrunkMakerTask *task, bool *is_new_trunk)
 {
     int result;
     bool avail_enough;
     bool need_reclaim;
 
+    *is_new_trunk = false;
     if ((result=storage_config_calc_path_avail_space(task->
                     allocator->path_info)) != 0)
     {
@@ -316,6 +317,7 @@ static int do_allocate_trunk(TrunkMakerThreadInfo *thread,
     }
 
     if (avail_enough) {
+        *is_new_trunk = true;
         return do_prealloc_trunk(thread, task);
     } else {
         return ENOSPC;
@@ -327,15 +329,16 @@ static void deal_allocate_request(TrunkMakerThreadInfo *thread,
 {
     TrunkMakerTask *task;
     int result;
+    bool is_new_trunk;
 
     while (head != NULL && SF_G_CONTINUE_FLAG) {
         task = head;
         head = head->next;
 
-        result = do_allocate_trunk(thread, task);
+        result = do_allocate_trunk(thread, task, &is_new_trunk);
         if (task->notify.callback != NULL) {
             task->notify.callback(task->allocator,
-                    result, task->notify.arg);
+                    result, is_new_trunk, task->notify.arg);
         }
         fast_mblock_free_object(&thread->task_allocator, task);
     }
@@ -424,7 +427,9 @@ int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
 
     thread = tmaker_ctx.thread_array.threads + allocator->path_info->
         store.index % tmaker_ctx.thread_array.count;
-    if ((task=fast_mblock_alloc_object(&thread->task_allocator)) == NULL) {
+    if ((task=(TrunkMakerTask *)fast_mblock_alloc_object(
+                    &thread->task_allocator)) == NULL)
+    {
         return ENOMEM;
     }
 

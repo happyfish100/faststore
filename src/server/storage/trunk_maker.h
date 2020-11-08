@@ -24,7 +24,7 @@
 #include "trunk_allocator.h"
 
 typedef void (*trunk_allocate_done_callback)(FSTrunkAllocator *allocator,
-        const int result, void *arg);
+        const int result, const bool is_new_trunk, void *arg);
 
 #ifdef __cplusplus
 extern "C" {

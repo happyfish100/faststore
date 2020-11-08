@@ -114,7 +114,7 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         }
     }
 
-    ob = fast_mblock_alloc_object(&ctx->ob_allocator);
+    ob = (OBEntry *)fast_mblock_alloc_object(&ctx->ob_allocator);
     if (ob == NULL) {
         return NULL;
     }
@@ -191,7 +191,8 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     if (ob == NULL) {
         slice = NULL;
     } else {
-        slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+        slice = (OBSliceEntry *)fast_mblock_alloc_object(
+                &ctx->slice_allocator);
         if (slice != NULL) {
             slice->ob = ob;
             if (init_refer > 0) {
@@ -399,7 +400,7 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
 {
     OBSliceEntry *slice;
 
-    slice = fast_mblock_alloc_object(&ctx->slice_allocator);
+    slice = (OBSliceEntry *)fast_mblock_alloc_object(&ctx->slice_allocator);
     if (slice == NULL) {
         return NULL;
     }
