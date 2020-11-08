@@ -395,8 +395,9 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             {
                 replication->connection_info.last_errno = result;
                 logError("file: "__FILE__", line: %d, "
-                        "%dth connect to %s:%u fail, time used: %ds, "
-                        "errno: %d, error info: %s", __LINE__,
+                        "%dth connect to replication peer: %d, %s:%u fail, "
+                        "time used: %ds, errno: %d, error info: %s",
+                        __LINE__, replication->peer->server->id,
                         replication->connection_info.fail_count + 1,
                         replication->connection_info.conn.ip_addr,
                         replication->connection_info.conn.port, (int)
@@ -417,7 +418,8 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
             *prompt = '\0';
         }
         logInfo("file: "__FILE__", line: %d, "
-                "connect to server %s:%u successfully%s.", __LINE__,
+                "connect to replication peer id: %d, %s:%u successfully%s",
+                __LINE__, replication->peer->server->id,
                 replication->connection_info.conn.ip_addr,
                 replication->connection_info.conn.port, prompt);
 

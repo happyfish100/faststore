@@ -418,9 +418,9 @@ int cluster_topology_offline_slave_data_servers(
             continue;
         }
 
-        if (master->cs == CLUSTER_MYSELF_PTR) {
+        if (master->cs == CLUSTER_MYSELF_PTR) { //i am master
             ds = *pp;
-        } else if (master->cs == peer) {
+        } else if (master->cs == peer) {  //peer is master
             ds = (*pp)->dg->myself;
             if (ds == NULL) {
                 continue;

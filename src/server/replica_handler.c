@@ -114,12 +114,21 @@ static void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
+    FSReplication *replication;
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION:
-            if (REPLICA_REPLICATION != NULL) {
-                replication_processor_unbind(REPLICA_REPLICATION);
-                replica_offline_slave_data_servers(REPLICA_REPLICATION->peer);
+            replication = REPLICA_REPLICATION;
+            if (replication != NULL) {
+                replication_processor_unbind(replication);
+                replica_offline_slave_data_servers(replication->peer);
 
+                logInfo("file: "__FILE__", line: %d, "
+                        "replication peer id: %d, %s:%u disconnected",
+                        __LINE__, replication->peer->server->id,
+                        REPLICA_GROUP_ADDRESS_FIRST_IP(
+                            replication->peer->server),
+                        CLUSTER_GROUP_ADDRESS_FIRST_PORT(
+                            replication->peer->server));
                 REPLICA_REPLICATION = NULL;
             } else {
                 logError("file: "__FILE__", line: %d, "
@@ -518,6 +527,12 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
 
     replication_processor_bind_task(replication, task);
     RESPONSE.header.cmd = FS_REPLICA_PROTO_JOIN_SERVER_RESP;
+
+    logInfo("file: "__FILE__", line: %d, "
+            "replication peer id: %d, %s:%u join in",
+            __LINE__, replication->peer->server->id,
+            REPLICA_GROUP_ADDRESS_FIRST_IP(replication->peer->server),
+            CLUSTER_GROUP_ADDRESS_FIRST_PORT(replication->peer->server));
     return 0;
 }
 

@@ -368,15 +368,8 @@ static int trunk_prealloc_setup_schedule()
     ScheduleArray scheduleArray;
     ScheduleEntry scheduleEntry;
 
-    //TODO
-            /*
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
             STORAGE_CFG.prealloc_space.start_time, 86400,
-            */
-
-    INIT_SCHEDULE_ENTRY1(scheduleEntry, sched_generate_next_id(),
-            TIME_NONE, TIME_NONE, TIME_NONE, 60,
-
             prealloc_trunks_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;

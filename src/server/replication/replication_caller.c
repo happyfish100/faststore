@@ -133,6 +133,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
             continue;
         }
 
+        //TODO
         replication = (*ds)->cs->repl_ptr_array.replications[hash_code %
             (*ds)->cs->repl_ptr_array.count];
         if (replication->task == NULL) {
@@ -177,8 +178,8 @@ int replication_caller_push_to_slave_queues(struct fast_task_info *task)
     rpc->task = task;
     rpc->body_offset = OP_CTX_INFO.body - task->data;
     rpc->body_length = OP_CTX_INFO.body_len;
-    if ((result=push_to_slave_queues(group, OP_CTX_INFO.bs_key.block.hash_code,
-                    rpc)) != TASK_STATUS_CONTINUE)
+    if ((result=push_to_slave_queues(group, OP_CTX_INFO.bs_key.
+                    block.hash_code, rpc)) != TASK_STATUS_CONTINUE)
     {
         fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
     }
