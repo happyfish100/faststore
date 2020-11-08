@@ -69,7 +69,6 @@ typedef struct fs_trunk_allocator {
     } allocate; //for allacate space
 
     struct {
-        int result;  //deal result
         time_t last_deal_time;
         struct fc_queue queue;  //trunk event queue for nodify
         struct fs_trunk_allocator *next; //for event notify queue

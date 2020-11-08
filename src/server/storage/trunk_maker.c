@@ -42,7 +42,7 @@ typedef struct trunk_maker_task {
 
 typedef struct trunk_maker_thread_info {
     struct {
-        bool finished;
+        int result;
         pthread_lock_cond_pair_t lcp; //for notify
     } allocate;
     TrunkReclaimContext reclaim_ctx;
@@ -150,38 +150,37 @@ static void deal_trunk_util_change_events(FSTrunkAllocator *allocator)
 static void create_trunk_done(struct trunk_io_buffer *record,
         const int result)
 {
-    TrunkMakerTask *task;
-    FSTrunkAllocator *allocator;
+    TrunkMakerThreadInfo *thread;
 
-    task = (TrunkMakerTask *)record->notify.arg;
-    allocator = task->allocator;
+    thread = (TrunkMakerThreadInfo *)record->notify.arg;
+    PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
+    thread->allocate.result = result;
+    pthread_cond_signal(&thread->allocate.lcp.cond);
+    PTHREAD_MUTEX_UNLOCK(&thread->allocate.lcp.lock);
+}
+
+static int prealloc_trunk_finish(FSTrunkAllocator *allocator,
+        FSTrunkSpaceInfo *space)
+{
+    int result;
+    time_t last_stat_time;
+    FSTrunkFileInfo *trunk_info;
+
+    result = storage_allocator_add_trunk_ex(space->store->index,
+            &space->id_info, space->size, &trunk_info);
     if (result == 0) {
-        FSTrunkFileInfo *trunk_info;
-        time_t last_stat_time;
-
-        __sync_add_and_fetch(&allocator->path_info->
-                trunk_stat.total, record->space.size);
-
-        allocator->reclaim.result = storage_allocator_add_trunk_ex(
-                record->space.store->index, &record->space.id_info,
-                record->space.size, &trunk_info);
-        if (allocator->reclaim.result == 0) {
-            trunk_allocator_add_to_freelist(allocator, trunk_info);
-        }
-
-        //trigger avail space stat
-        last_stat_time = __sync_add_and_fetch(&allocator->path_info->
-                space_stat.last_stat_time, 0);
-        __sync_bool_compare_and_swap(&allocator->path_info->space_stat.
-                last_stat_time, last_stat_time, 0);
-    } else {
-        allocator->reclaim.result = result;
+        trunk_allocator_add_to_freelist(allocator, trunk_info);
     }
 
-    PTHREAD_MUTEX_LOCK(&task->thread->allocate.lcp.lock);
-    task->thread->allocate.finished = true;
-    pthread_cond_signal(&task->thread->allocate.lcp.cond);
-    PTHREAD_MUTEX_UNLOCK(&task->thread->allocate.lcp.lock);
+    __sync_add_and_fetch(&allocator->path_info->
+            trunk_stat.total, space->size);
+
+    //trigger avail space stat
+    last_stat_time = __sync_add_and_fetch(&allocator->path_info->
+            space_stat.last_stat_time, 0);
+    __sync_bool_compare_and_swap(&allocator->path_info->space_stat.
+            last_stat_time, last_stat_time, 0);
+    return result;
 }
 
 static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
@@ -200,22 +199,28 @@ static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
     space.size = STORAGE_CFG.trunk_file_size;
 
     PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
-    thread->allocate.finished = false;
+    thread->allocate.result = -1;
     if ((result=io_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK,
                     &space, create_trunk_done, thread)) == 0)
     {
-        while (!thread->allocate.finished && SF_G_CONTINUE_FLAG) {
+        while (thread->allocate.result == -1 && SF_G_CONTINUE_FLAG) {
             pthread_cond_wait(&thread->allocate.lcp.cond,
                     &thread->allocate.lcp.lock);
         }
 
-        if (!thread->allocate.finished) {
+        if (thread->allocate.result == -1) {
             result = EINTR;
+        } else {
+            result = thread->allocate.result;
         }
     }
     PTHREAD_MUTEX_UNLOCK(&thread->allocate.lcp.lock);
 
-    return result;
+    if (result != 0) {
+        return result;
+    }
+
+    return prealloc_trunk_finish(task->allocator, &space);
 }
 
 static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,

@@ -863,16 +863,8 @@ static int server_group_info_write_to_file(const uint64_t current_version)
     }
 
     get_server_group_filename(full_filename, sizeof(full_filename));
-    if ((result=safeWriteToFile(full_filename, file_buffer.data,
-                    file_buffer.length)) != 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "write to file \"%s\" fail, "
-                "errno: %d, error info: %s",
-                __LINE__, full_filename,
-                result, STRERROR(result));
-    }
-    return result;
+    return safeWriteToFile(full_filename, file_buffer.data,
+                    file_buffer.length);
 }
 
 time_t fs_get_last_shutdown_time()
