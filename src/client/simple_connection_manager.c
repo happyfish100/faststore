@@ -278,14 +278,9 @@ static ConnectionInfo *get_leader_connection(FSClientContext *client_ctx,
 {
     ConnectionInfo *conn;
     FSClientServerEntry leader;
-    SFNetRetryIntervalContext net_retry_ctx;
     int i;
 
-    sf_init_net_retry_interval_context(&net_retry_ctx,
-            &client_ctx->net_retry_cfg.interval_mm,
-            &client_ctx->net_retry_cfg.connect);
-    i = 0;
-    while (1) {
+    for (i=0; i<2; i++) {
         do {
             if ((conn=get_server_connection(client_ctx, server,
                             err_no)) == NULL)
@@ -313,14 +308,17 @@ static ConnectionInfo *get_leader_connection(FSClientContext *client_ctx,
             return conn;
         } while (0);
 
-        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx,
-                client_ctx->net_retry_cfg.
-                connect.times, ++i, *err_no);
+        if (!SF_IS_RETRIABLE_ERROR(*err_no)) {
+            break;
+        }
     }
 
-    logError("file: "__FILE__", line: %d, "
-            "get_leader_connection fail, errno: %d",
-            __LINE__, *err_no);
+    logWarning("file: "__FILE__", line: %d, "
+            "get_leader_connection fail, server id: %d, %s:%u, errno: %d",
+            __LINE__, server->id, FS_CFG_SERVICE_ADDRESS_ARRAY(
+                client_ctx, server).addrs[0]->conn.ip_addr,
+            FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server).
+            addrs[0]->conn.port, *err_no);
     return NULL;
 }
 

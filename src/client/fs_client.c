@@ -490,10 +490,12 @@ static int cluster_space_stat(FSClientContext *client_ctx,
 
             target.id = cur->server_id;
             if ((result=skiplist_set_delete(sl, &target)) != 0) {
-                logError("file: "__FILE__", line: %d, "
-                        "remove server id: %d fail, result: %d",
-                        __LINE__, cur->server_id, result);
-                return result;
+                if (cur->server_id == server->id) {
+                    logError("file: "__FILE__", line: %d, "
+                            "remove server id: %d fail, result: %d",
+                            __LINE__, cur->server_id, result);
+                    return result;
+                }
             }
         }
 
@@ -515,7 +517,7 @@ static int cluster_space_stat(FSClientContext *client_ctx,
 
 static int compare_server(const void *p1, const void *p2)
 {
-    return ((FCServerInfo *)p1)->id - ((FCServerInfo *)p2)->id;
+    return (int)((FCServerInfo *)p1)->id - (int)((FCServerInfo *)p2)->id;
 }
 
 int fs_client_cluster_space_stat(FSClientContext *client_ctx,
