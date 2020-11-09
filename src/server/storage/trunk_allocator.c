@@ -284,16 +284,12 @@ void trunk_allocator_keep_water_mark(FSTrunkAllocator *allocator)
 static void add_to_freelist(FSTrunkAllocator *allocator,
         FSTrunkFreelist *freelist, FSTrunkFileInfo *trunk_info)
 {
-    bool notify;
-
     PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
     trunk_info->alloc.next = NULL;
     if (freelist->head == NULL) {
         freelist->head = trunk_info;
-        notify = true;
     } else {
         freelist->tail->alloc.next = trunk_info;
-        notify = false;
     }
     freelist->tail = trunk_info;
 

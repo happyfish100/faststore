@@ -161,6 +161,7 @@ int replication_caller_push_to_slave_queues(struct fast_task_info *task)
 {
     FSClusterDataGroupInfo *group;
     ReplicationRPCEntry *rpc;
+    uint32_t hash_code;
     int result;
 
     if ((group=fs_get_data_group(OP_CTX_INFO.data_group_id)) == NULL) {
@@ -178,9 +179,10 @@ int replication_caller_push_to_slave_queues(struct fast_task_info *task)
     rpc->task = task;
     rpc->body_offset = OP_CTX_INFO.body - task->data;
     rpc->body_length = OP_CTX_INFO.body_len;
-    if ((result=push_to_slave_queues(group, OP_CTX_INFO.bs_key.
-                    block.hash_code, rpc)) != TASK_STATUS_CONTINUE)
-    {
+    /* hash_code = FS_BLOCK_HASH_CODE(OP_CTX_INFO.bs_key.block); */
+    hash_code = OP_CTX_INFO.data_group_id;
+    result = push_to_slave_queues(group, hash_code, rpc);
+    if (result != TASK_STATUS_CONTINUE) {
         fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
     }
     return result;

@@ -75,15 +75,16 @@ extern "C" {
     {
         FSDataThreadContext *context;
         FSDataOperation *op;
+        uint32_t hash_code;
 
+        /* hash_code = FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block); */
+        hash_code = op_ctx->info.data_group_id;
         if (__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
             context = g_data_thread_vars.thread_arrays.master.contexts +
-                FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
-                g_data_thread_vars.thread_arrays.master.count;
+                 hash_code % g_data_thread_vars.thread_arrays.master.count;
         } else {
             context = g_data_thread_vars.thread_arrays.slave.contexts +
-                FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block) %
-                g_data_thread_vars.thread_arrays.slave.count;
+                hash_code % g_data_thread_vars.thread_arrays.slave.count;
         }
 
         op = (FSDataOperation *)fast_mblock_alloc_object(&context->allocator);
