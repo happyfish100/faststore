@@ -200,30 +200,45 @@ void du_handler_slice_read_done_notify(FSDataOperation *op)
     du_handler_slice_read_done_callback(op->ctx, op->arg);
 }
 
+static void log_data_operation_error(struct fast_task_info *task,
+        FSDataOperation *op)
+{
+    const char *caption;
+    char buff[512];
+    int len;
+
+    caption = fs_get_data_operation_caption(op->operation);
+    len = sprintf(buff, "file: "__FILE__", line: %d, "
+            "client ip: %s, %s fail, "
+            "oid: %"PRId64", block offset: %"PRId64,
+            __LINE__, task->client_ip, caption,
+            op->ctx->info.bs_key.block.oid,
+            op->ctx->info.bs_key.block.offset
+            );
+
+    if (op->operation != DATA_OPERATION_BLOCK_DELETE) {
+        len += sprintf(buff, ", slice offset: %d, length: %d",
+                op->ctx->info.bs_key.slice.offset,
+                op->ctx->info.bs_key.slice.length);
+    }
+
+    len += snprintf(buff + len, sizeof(buff) - len,
+            ", errno: %d, error info: %s",
+            op->ctx->result, STRERROR(op->ctx->result));
+    log_it1(LOG_ERR, buff, len);
+}
+
 static void master_data_update_done_notify(FSDataOperation *op)
 {
     struct fast_task_info *task;
-    const char *caption;
 
     task = (struct fast_task_info *)op->arg;
     if (op->ctx->result != 0) {
-
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
                 "%s", STRERROR(op->ctx->result));
 
-        caption = fs_get_data_operation_caption(op->operation);
-        logError("file: "__FILE__", line: %d, "
-                "client ip: %s, %s fail, "
-                "oid: %"PRId64", block offset: %"PRId64", "
-                "slice offset: %d, length: %d, "
-                "errno: %d, error info: %s",
-                __LINE__, task->client_ip, caption,
-                op->ctx->info.bs_key.block.oid,
-                op->ctx->info.bs_key.block.offset,
-                op->ctx->info.bs_key.slice.offset,
-                op->ctx->info.bs_key.slice.length,
-                op->ctx->result, STRERROR(op->ctx->result));
+        log_data_operation_error(task, op);
         TASK_ARG->context.log_level = LOG_NOTHING;
     } else {
         switch (op->operation) {
@@ -266,15 +281,7 @@ static void slave_data_update_done_notify(FSDataOperation *op)
 
     task = (struct fast_task_info *)op->arg;
     if (op->ctx->result != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "client ip: %s, write slice fail, "
-                "oid: %"PRId64", block offset: %"PRId64", "
-                "slice offset: %d, length: %d, "
-                "errno: %d, error info: %s",
-                __LINE__, task->client_ip,
-                op->ctx->info.bs_key.block.oid, op->ctx->info.bs_key.block.offset,
-                op->ctx->info.bs_key.slice.offset, op->ctx->info.bs_key.slice.length,
-                op->ctx->result, STRERROR(op->ctx->result));
+        log_data_operation_error(task, op);
     } else {
         /*
            logInfo("file: "__FILE__", line: %d, "
@@ -399,7 +406,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
     {
         return result;
     }
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
@@ -418,28 +424,8 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return EINVAL;
     }
 
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
     op_ctx->info.buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
-    /*
-    {
-        int64_t offset = op_ctx->info.bs_key.block.offset + op_ctx->info.bs_key.slice.offset;
-        int size = op_ctx->info.bs_key.slice.length;
-        if (lseek(write_fd, 0, SEEK_CUR) != offset) {
-            logError("file: "__FILE__", line: %d, func: %s, "
-                    "lseek file offset: %"PRId64" != %"PRId64,
-                    __LINE__, __FUNCTION__, (int64_t)lseek(write_fd, 0, SEEK_CUR),
-                    (int64_t)offset);
-            return EIO;
-        }
-        if (write(write_fd, buff, size) != size) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, func: %s, "
-                    "write to file fail, errno: %d, error info: %s",
-                    __LINE__, __FUNCTION__, errno, strerror(errno));
-            return result;
-        }
-    }
-    */
-
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_WRITE);
 }
 
@@ -461,8 +447,8 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
     {
         return result;
     }
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_ALLOCATE);
 }
 
@@ -484,8 +470,8 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
     {
         return result;
     }
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_DELETE);
 }
 
@@ -507,8 +493,8 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     {
         return result;
     }
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
 
+    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_BLOCK_DELETE);
 }
 

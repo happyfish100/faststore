@@ -173,6 +173,7 @@ int handler_deal_task_done(struct fast_task_info *task)
         default:
             //log_level = LOG_INFO;
             log_level = LOG_DEBUG;
+            //log_level = RESPONSE_STATUS == 0 ? LOG_DEBUG : LOG_WARNING;
             break;
     }
 
