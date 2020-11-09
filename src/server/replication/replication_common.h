@@ -31,7 +31,8 @@ void replication_common_terminate();
 int replication_common_start();
 
 int fs_get_replication_count();
-FSReplication *fs_get_idle_replication_by_peer(const int peer_id);
+FSReplication *fs_server_alloc_replication(const int peer_id);
+void fs_server_release_replication(FSReplication *replication);
 
 #ifdef __cplusplus
 }

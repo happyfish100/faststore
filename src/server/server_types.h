@@ -283,7 +283,9 @@ typedef struct fs_replication {
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
     short stage;
+    bool is_free;
     bool is_client;
+    volatile char reverse_hb; //if server send active test immediately
     int thread_index; //for nio thread
     int conn_index;
     int last_net_comm_time;  //last network communication time

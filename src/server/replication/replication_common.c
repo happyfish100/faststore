@@ -104,7 +104,6 @@ static int init_replication_context(FSReplication *replication)
         return result;
     }
 
-
     logDebug("file: "__FILE__", line: %d, "
             "replication: %d, thread_index: %d", __LINE__,
             (int)(replication - repl_ctx.repl_array.replications),
@@ -214,6 +213,8 @@ int replication_common_start()
     FSReplication *replication;
     FSReplication *end;
 
+    result = 0;
+    PTHREAD_MUTEX_LOCK(&repl_ctx.lock);
     end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
     for (replication=repl_ctx.repl_array.replications; replication<end;
             replication++)
@@ -221,12 +222,15 @@ int replication_common_start()
         if (CLUSTER_MYSELF_PTR->server->id < replication->peer->server->id) {
             replication->is_client = true;
             if ((result=replication_processor_bind_thread(replication)) != 0) {
-                return result;
+                break;
             }
+        } else {
+            replication->is_free = true;
         }
     }
+    PTHREAD_MUTEX_UNLOCK(&repl_ctx.lock);
 
-    return 0;
+    return result;
 }
 
 void replication_common_destroy()
@@ -266,25 +270,47 @@ int fs_get_replication_count()
     return repl_ctx.repl_array.count;
 }
 
-FSReplication *fs_get_idle_replication_by_peer(const int peer_id)
+FSReplication *fs_server_alloc_replication(const int peer_id)
 {
     FSReplication *replication;
     FSReplication *end;
+    bool found;
 
+    found = false;
     PTHREAD_MUTEX_LOCK(&repl_ctx.lock);
     end = repl_ctx.repl_array.replications + repl_ctx.repl_array.count;
-    for (replication=repl_ctx.repl_array.replications; replication<end;
-            replication++)
+    for (replication=repl_ctx.repl_array.replications;
+            replication<end; replication++)
     {
         if (peer_id == replication->peer->server->id &&
-                replication->stage == FS_REPLICATION_STAGE_NONE)
+                replication->is_free)
         {
-            replication->stage = FS_REPLICATION_STAGE_INITED;
+            replication->is_free = false;
+            found = true;
             break;
+        }
+    }
+
+    if (!found) {
+        for (replication=repl_ctx.repl_array.replications;
+                replication<end; replication++)
+        {
+            if (peer_id == replication->peer->server->id &&
+                    !replication->is_client)
+            {
+                /* notify the server to send active test */
+                __sync_bool_compare_and_swap(&replication->reverse_hb, 0, 1);
+            }
         }
     }
     PTHREAD_MUTEX_UNLOCK(&repl_ctx.lock);
 
-    return (replication < end) ? replication : NULL;
+    return found ? replication : NULL;
 }
 
+void fs_server_release_replication(FSReplication *replication)
+{
+    PTHREAD_MUTEX_LOCK(&repl_ctx.lock);
+    replication->is_free = true;
+    PTHREAD_MUTEX_UNLOCK(&repl_ctx.lock);
+}

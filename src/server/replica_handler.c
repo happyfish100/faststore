@@ -471,7 +471,6 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     int replica_channels_between_two_servers;
     FSProtoJoinServerReq *req;
     FSClusterServerInfo *peer;
-    //FSProtoJoinServerResp *resp;
     FSReplication *replication;
 
     if ((result=server_expect_body_length(task,
@@ -519,7 +518,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
         return EEXIST;
     }
 
-    if ((replication=fs_get_idle_replication_by_peer(server_id)) == NULL) {
+    if ((replication=fs_server_alloc_replication(server_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d, NO replication slot", server_id);
         return ENOENT;

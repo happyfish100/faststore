@@ -168,7 +168,7 @@ int replication_processor_unbind(FSReplication *replication)
         if (replication->is_client) {
             result = replication_processor_bind_thread(replication);
         } else {
-            set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
+            fs_server_release_replication(replication);
         }
     }
 
@@ -583,6 +583,7 @@ static int deal_replication_connected(FSServerContext *server_ctx)
     FSReplication *replication;
     int result;
     int i;
+    bool send_hb;
 
     /*
     static int count = 0;
@@ -601,17 +602,31 @@ static int deal_replication_connected(FSServerContext *server_ctx)
         if ((result=deal_connected_replication(replication)) == 0) {
             result = replication_callee_deal_rpc_result_queue(replication);
         }
-        if (result == 0 && replication->is_client) {
-            if (g_current_time - replication->last_net_comm_time >=
-                    g_server_global_vars.replica.active_test_interval)
-            {
-                replication->last_net_comm_time = g_current_time;
-                send_active_test_package(replication);
+        if (result != 0) {
+            ioevent_add_to_deleted_list(replication->task);
+            continue;
+        }
+
+        if (replication->is_client) {
+            send_hb = g_current_time - replication->last_net_comm_time >=
+                g_server_global_vars.replica.active_test_interval;
+        } else {
+            send_hb = __sync_add_and_fetch(&replication->reverse_hb, 0) == 1;
+            if (send_hb) {
+                __sync_bool_compare_and_swap(&replication->reverse_hb, 1, 0);
+                logInfo("file: "__FILE__", line: %d, "
+                        "reverse send active test to peer: %d, %s:%u",
+                        __LINE__, replication->peer->server->id,
+                        REPLICA_GROUP_ADDRESS_FIRST_IP(
+                            replication->peer->server),
+                        REPLICA_GROUP_ADDRESS_FIRST_PORT(
+                            replication->peer->server));
             }
         }
 
-        if (result != 0) {
-            ioevent_add_to_deleted_list(replication->task);
+        if (send_hb) {
+            replication->last_net_comm_time = g_current_time;
+            send_active_test_package(replication);
         }
     }
 
