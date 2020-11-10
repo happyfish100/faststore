@@ -104,7 +104,7 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
         thread_arg->is_new_trunk = false;
         thread_arg->result = -1;
         if ((result=trunk_maker_allocate_ex(task->preallocator->allocator,
-                        allocate_done_callback, thread_arg)) == 0)
+                        false, true, allocate_done_callback, thread_arg)) == 0)
         {
             while (thread_arg->result == -1 && SF_G_CONTINUE_FLAG) {
                 pthread_cond_wait(&thread_arg->lcp.cond,
@@ -295,10 +295,6 @@ static int do_prealloc_trunks()
     tm_end.tm_hour = STORAGE_CFG.prealloc_space.end_time.hour;
     tm_end.tm_min = STORAGE_CFG.prealloc_space.end_time.minute;
     prealloc_ctx.prealloc_end_time = mktime(&tm_end);
-
-    //TODO
-    prealloc_ctx.prealloc_end_time = g_current_time + 60;
-
     if (g_current_time > prealloc_ctx.prealloc_end_time) {
         logWarning("file: "__FILE__", line: %d, "
                 "current time: %ld > end time: %ld, skip prealloc trunks!",

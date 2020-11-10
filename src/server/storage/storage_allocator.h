@@ -27,8 +27,8 @@ typedef struct {
 } FSTrunkAllocatorArray;
 
 typedef struct {
-    FSTrunkAllocator **allocators;
     int count;
+    FSTrunkAllocator **allocators;
 } FSTrunkAllocatorPtrArray;
 
 typedef struct {
@@ -89,7 +89,7 @@ extern "C" {
         FSTrunkAllocator **allocator;
 
         if (g_allocator_mgr->current->avail.count == 0) {
-            return ENOENT;
+            return ENOSPC;
         }
 
         allocator = g_allocator_mgr->current->avail.allocators +
@@ -104,7 +104,7 @@ extern "C" {
         FSTrunkAllocator **allocator;
 
         if (g_allocator_mgr->current->avail.count == 0) {
-            return ENOENT;
+            return ENOSPC;
         }
 
         allocator = g_allocator_mgr->current->avail.allocators +

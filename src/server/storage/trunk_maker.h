@@ -33,10 +33,11 @@ extern "C" {
     int trunk_maker_init();
 
     int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
+            const bool urgent, const bool need_lock,
             trunk_allocate_done_callback callback, void *arg);
 
 #define trunk_maker_allocate(allocator) \
-    trunk_maker_allocate_ex(allocator, NULL, NULL)
+    trunk_maker_allocate_ex(allocator, false, true, NULL, NULL)
 
 #ifdef __cplusplus
 }

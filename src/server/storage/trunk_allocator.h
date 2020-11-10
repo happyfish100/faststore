@@ -63,10 +63,13 @@ typedef struct fs_trunk_allocator {
         UniqSkiplist *by_size; //order by used size and id
     } trunks;
     FSTrunkFreelistPair freelist; //trunk freelist pool
+
     struct {
-        int waiting_count;
+        time_t last_trigger_time; //caller trigger create trunk
+        int creating_trunks;  //counter for creating (prealloc or reclaim) trunk
+        int waiting_callers;  //caller count for waiting available trunk
         pthread_lock_cond_pair_t lcp;  //for lock and notify
-    } allocate; //for allacate space
+    } allocate; //for allocate space
 
     struct {
         time_t last_deal_time;
@@ -159,6 +162,29 @@ extern "C" {
             }
             old_status = __sync_add_and_fetch(&trunk->status, 0);
         }
+    }
+
+    static inline void trunk_allocator_before_make_trunk(
+            FSTrunkAllocator *allocator, const bool need_lock)
+    {
+        if (need_lock) {
+            PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
+        }
+        allocator->allocate.creating_trunks++;
+        if (need_lock) {
+            PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
+        }
+    }
+
+    static inline void trunk_allocator_after_make_trunk(
+            FSTrunkAllocator *allocator)
+    {
+        PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
+        allocator->allocate.creating_trunks--;
+        if (allocator->allocate.waiting_callers > 0) {
+            pthread_cond_broadcast(&allocator->allocate.lcp.cond);
+        }
+        PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
     }
 
 #ifdef __cplusplus

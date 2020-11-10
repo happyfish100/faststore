@@ -262,7 +262,9 @@ static void keep_freelist_water_mark(FSTrunkAllocator *allocator,
     int count;
     int i;
 
-    logInfo("%s freelist count: %d, water_mark count: %d",
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "%s freelist count: %d, water_mark count: %d",
+            __LINE__, __FUNCTION__,
             allocator->path_info->store.path.str,
             freelist->count, freelist->water_mark_trunks);
     if (freelist->count >= freelist->water_mark_trunks) {
@@ -295,10 +297,6 @@ static void add_to_freelist(FSTrunkAllocator *allocator,
 
     freelist->count++;
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_ALLOCING);
-
-    if (allocator->allocate.waiting_count > 0) {
-        pthread_cond_broadcast(&allocator->allocate.lcp.cond);
-    }
     PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
 
     __sync_add_and_fetch(&allocator->path_info->trunk_stat.avail,
@@ -369,16 +367,29 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
                 break;
             }
 
-            allocator->allocate.waiting_count++;
-            while (freelist->head == NULL && SF_G_CONTINUE_FLAG) {
+            if (allocator->allocate.creating_trunks == 0 &&
+                    g_current_time - allocator->allocate.last_trigger_time > 0)
+            {
+                allocator->allocate.last_trigger_time = g_current_time;
+                if ((result=trunk_maker_allocate_ex(allocator,
+                                true, false, NULL, NULL)) != 0)
+                {
+                    break;
+                }
+            }
+
+            allocator->allocate.waiting_callers++;
+            while (allocator->allocate.creating_trunks > 0 &&
+                    freelist->head == NULL && SF_G_CONTINUE_FLAG)
+            {
                 pthread_cond_wait(&allocator->allocate.lcp.cond,
                         &allocator->allocate.lcp.lock);
             }
-            allocator->allocate.waiting_count--;
+            allocator->allocate.waiting_callers--;
         }
 
         if (freelist->head == NULL) {
-            result = EINTR;
+            result = SF_G_CONTINUE_FLAG ? ENOSPC : EINTR;
             break;
         }
 

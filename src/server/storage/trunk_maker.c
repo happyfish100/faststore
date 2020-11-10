@@ -31,6 +31,7 @@
 
 struct trunk_maker_thread_info;
 typedef struct trunk_maker_task {
+    bool urgent;
     FSTrunkAllocator *allocator;
     struct {
         trunk_allocate_done_callback callback;
@@ -231,7 +232,9 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     int64_t used_bytes;
     int result;
 
-    if (g_current_time - task->allocator->reclaim.last_deal_time > 10) {
+    if (task->urgent || g_current_time - task->allocator->
+            reclaim.last_deal_time > 10)
+    {
         task->allocator->reclaim.last_deal_time = g_current_time;
         deal_trunk_util_change_events(task->allocator);
     }
@@ -336,6 +339,7 @@ static void deal_allocate_request(TrunkMakerThreadInfo *thread,
         head = head->next;
 
         result = do_allocate_trunk(thread, task, &is_new_trunk);
+        trunk_allocator_after_make_trunk(task->allocator);
         if (task->notify.callback != NULL) {
             task->notify.callback(task->allocator,
                     result, is_new_trunk, task->notify.arg);
@@ -419,8 +423,8 @@ int trunk_maker_init()
     return 0;
 }
 
-int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
-        trunk_allocate_done_callback callback, void *arg)
+int trunk_maker_allocate_ex(FSTrunkAllocator *allocator, const bool urgent,
+        const bool need_lock, trunk_allocate_done_callback callback, void *arg)
 {
     TrunkMakerThreadInfo *thread;
     TrunkMakerTask *task;
@@ -433,9 +437,11 @@ int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
         return ENOMEM;
     }
 
+    task->urgent = urgent;
     task->allocator = allocator;
     task->notify.callback = callback;
     task->notify.arg = arg;
+    trunk_allocator_before_make_trunk(allocator, need_lock);
     fc_queue_push(&thread->queue, task);
     return 0;
 }
