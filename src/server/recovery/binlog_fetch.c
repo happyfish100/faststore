@@ -290,7 +290,8 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     if ((result=sf_send_and_check_response_header(conn, out_buff,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        sf_log_network_error_ex(&response, conn, result,
+                result == EAGAIN ? LOG_WARNING : LOG_ERR);
         return result;
     }
 
@@ -402,7 +403,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     int binlog_length;
     int buffer_size;
     int pkg_len;
-    bool trigger_report;
+    int sleep_ms;
     FSProtoReplicaFetchBinlogFirstReqHeader *rheader;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaFetchBinlogFirstReqHeader) +
@@ -436,9 +437,9 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     pkg_len += binlog_length;
     int2buff(binlog_length, rheader->binlog_length);
 
-    trigger_report = false;
-    for (i=0; i<30; i++) {
-        fc_sleep_ms(100);  //waiting for ds status ready on the master
+    sleep_ms = 100;
+    for (i=0; i<10; i++) {
+        fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
                 my_status == FS_SERVER_STATUS_RECOVERING))
@@ -469,17 +470,20 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
             break;
         }
 
-        if ((i + 1) % 6 == 0) {
-            //some thing goes wrong, trigger report to the leader again
-            ctx->ds->last_report_version = -1;
-            trigger_report = true;
+        //some thing goes wrong, trigger report to the leader again
+        cluster_relationship_trigger_report_ds_status(ctx->ds);
+
+        if (sleep_ms < 1000) {
+            sleep_ms *= 2;
+            if (sleep_ms > 1000) {
+                sleep_ms = 1000;
+            }
         }
     }
 
     logDebug("file: "__FILE__", line: %d, "
-            "data group id: %d, waiting count: %d, result: %d, "
-            "trigger_report: %d", __LINE__, ctx->ds->dg->id,
-            i + 1, result, trigger_report);
+            "data group id: %d, waiting count: %d, result: %d",
+             __LINE__, ctx->ds->dg->id, i + 1, result);
     return result == 0 ? 0 : EINVAL;
 }
 

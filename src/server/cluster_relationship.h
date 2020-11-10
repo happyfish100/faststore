@@ -56,6 +56,8 @@ int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
 bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status, const int source);
 
+void cluster_relationship_trigger_report_ds_status(FSClusterDataServerInfo *ds);
+
 int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master);
 
