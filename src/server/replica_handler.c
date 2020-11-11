@@ -205,7 +205,7 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
                 status, fs_get_server_status_caption(status),
                 FS_SERVER_STATUS_REBUILDING,
                 FS_SERVER_STATUS_RECOVERING);
-        TASK_ARG->context.log_level = LOG_WARNING;
+        TASK_ARG->context.log_level = LOG_DEBUG;
         return EAGAIN;
     }
 
@@ -467,7 +467,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, peer id: %d, the replica connection "
                 "NOT established!", data_group_id, server_id);
-        TASK_ARG->context.log_level = LOG_WARNING;
+        TASK_ARG->context.log_level = LOG_DEBUG;
         return EAGAIN;
     }
 

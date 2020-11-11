@@ -204,7 +204,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
     } else if (last_data_version < fetch_ctx->until_version) {
         *is_last = false;
         if (binlog->len == 0) {
-            if (++(fetch_ctx->wait_count) >= 10) {
+            if (++(fetch_ctx->wait_count) >= 5) {
                 logError("file: "__FILE__", line: %d, "
                         "data group id: %d, waiting replica binlog timeout, "
                         "current data version: %"PRId64", waiting/until data "
@@ -219,7 +219,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
                     "version: %"PRId64, __LINE__, ctx->ds->dg->id,
                     fetch_ctx->wait_count, last_data_version,
                     fetch_ctx->until_version);
-            fc_sleep_ms(200);
+            fc_sleep_ms(400);
         } else {
             fetch_ctx->wait_count = 0;
         }
@@ -267,7 +267,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
 static int fetch_binlog_to_local(ConnectionInfo *conn,
         DataRecoveryContext *ctx, const unsigned char req_cmd,
         const unsigned char resp_cmd, char *out_buff,
-        const int out_bytes, bool *is_last)
+        const int out_bytes, const bool last_retry, bool *is_last)
 {
     int result;
     int bheader_size;
@@ -290,8 +290,13 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     if ((result=sf_send_and_check_response_header(conn, out_buff,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
-        sf_log_network_error_ex(&response, conn, result,
-                result == EAGAIN ? LOG_WARNING : LOG_ERR);
+        int log_level;
+        if (result == EAGAIN) {
+            log_level = last_retry ? LOG_WARNING : LOG_DEBUG;
+        } else {
+            log_level = LOG_ERR;
+        }
+        sf_log_network_error_ex(&response, conn, result, log_level);
         return result;
     }
 
@@ -371,9 +376,6 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         if ((result=find_binlog_length(ctx, &binlog, is_last)) != 0) {
             return result;
         }
-
-        ctx->ds->replica.rpc_start_version =
-            fetch_ctx->until_version + 1;
     }
 
     if (binlog.len == 0) {
@@ -396,6 +398,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         DataRecoveryContext *ctx, bool *is_last)
 {
+#define FETCH_BINLOG_RETRY_TIMES  10
     int result;
     int my_status;
     int i;
@@ -438,7 +441,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     int2buff(binlog_length, rheader->binlog_length);
 
     sleep_ms = 100;
-    for (i=0; i<10; i++) {
+    for (i=1; i<=FETCH_BINLOG_RETRY_TIMES; i++) {
         fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
@@ -455,8 +458,8 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
 
         result = fetch_binlog_to_local(conn, ctx,
                 FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
-                FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP,
-                out_buff, pkg_len, is_last);
+                FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP, out_buff,
+                pkg_len, i == FETCH_BINLOG_RETRY_TIMES, is_last);
         if (result != EAGAIN) {
             if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
                 logCrit("file: "__FILE__", line: %d, "
@@ -483,7 +486,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
 
     logDebug("file: "__FILE__", line: %d, "
             "data group id: %d, waiting count: %d, result: %d",
-             __LINE__, ctx->ds->dg->id, i + 1, result);
+             __LINE__, ctx->ds->dg->id, i, result);
     return result == 0 ? 0 : EINVAL;
 }
 
@@ -494,7 +497,7 @@ static int fetch_binlog_next_to_local(ConnectionInfo *conn,
     return fetch_binlog_to_local(conn, ctx,
             FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_REQ,
             FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP,
-            out_buff, sizeof(out_buff), is_last);
+            out_buff, sizeof(out_buff), true, is_last);
 }
 
 static int proto_fetch_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx)

@@ -377,7 +377,7 @@ static int replica_binlog_log_padding(DataRecoveryContext *ctx)
 }
 
 static int proto_active_confirm(ConnectionInfo *conn,
-        DataRecoveryContext *ctx)
+        DataRecoveryContext *ctx, const bool last_retry)
 {
     int result;
     SFResponseInfo response;
@@ -398,7 +398,13 @@ static int proto_active_confirm(ConnectionInfo *conn,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP)) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        int log_level;
+        if (result == EAGAIN) {
+            log_level = last_retry ? LOG_WARNING : LOG_DEBUG;
+        } else {
+            log_level = LOG_ERR;
+        }
+        sf_log_network_error_ex(&response, conn, result, log_level);
     }
 
     return result;
@@ -406,8 +412,8 @@ static int proto_active_confirm(ConnectionInfo *conn,
 
 static int active_confirm(DataRecoveryContext *ctx)
 {
+#define ACTIVE_CONFIRM_RETRY_TIMES  3
     int result;
-    int sleep_ms;
     int i;
     ConnectionInfo conn;
 
@@ -419,14 +425,14 @@ static int active_confirm(DataRecoveryContext *ctx)
     }
 
     i = 0;
-    sleep_ms = 100;
-    while ((result=proto_active_confirm(&conn, ctx)) == EAGAIN) {
-        if (++i == 5) {
+    while ((result=proto_active_confirm(&conn, ctx, i ==
+                    ACTIVE_CONFIRM_RETRY_TIMES)) == EAGAIN)
+    {
+        if (i++ == ACTIVE_CONFIRM_RETRY_TIMES) {
             break;
         }
 
-        sleep_ms *= 2;
-        fc_sleep_ms(sleep_ms);
+        sleep(1);
     }
 
     conn_pool_disconnect_server(&conn);
