@@ -424,6 +424,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
     FSProtoReplicaActiveConfirmReq *req;
     FSClusterDataServerInfo *myself;
     FSClusterDataServerInfo *peer;
+    FSReplication *replication;
     int data_group_id;
     int server_id;
     int status;
@@ -452,12 +453,22 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
     status = __sync_add_and_fetch(&peer->status, 0);
     if (status != FS_SERVER_STATUS_ONLINE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "data group id: %d, server id: %d, "
+                "data group id: %d, peer id: %d, "
                 "unexpect data server status: %d (%s), "
                 "expect status: %d", data_group_id, server_id,
                 status, fs_get_server_status_caption(status),
                 FS_SERVER_STATUS_ONLINE);
         return EINVAL;
+    }
+
+    replication = peer->cs->repl_ptr_array.replications[data_group_id %
+        peer->cs->repl_ptr_array.count];
+    if (!replication_channel_is_ready(replication)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, peer id: %d, the replica connection "
+                "NOT established!", data_group_id, server_id);
+        TASK_ARG->context.log_level = LOG_WARNING;
+        return EAGAIN;
     }
 
     return 0;

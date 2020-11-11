@@ -33,6 +33,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../cluster_relationship.h"
 #include "replication_processor.h"
 #include "rpc_result_ring.h"
 #include "replication_caller.h"
@@ -133,10 +134,23 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
             continue;
         }
 
-        //TODO
         replication = (*ds)->cs->repl_ptr_array.replications[hash_code %
             (*ds)->cs->repl_ptr_array.count];
-        if (replication->task == NULL) {
+        if (!replication_channel_is_ready(replication)) {
+            int64_t data_version;
+
+            cluster_relationship_swap_report_ds_status(*ds,
+                    FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE,
+                    FS_EVENT_SOURCE_MASTER_REPORT);
+            data_version = ((FSServerTaskArg *)rpc->task->arg)->
+                context.slice_op_ctx.info.data_version;
+            logWarning("file: "__FILE__", line: %d, "
+                    "the replica connection for peer id %d %s:%u "
+                    "NOT established, skip the RPC call: %"PRId64, __LINE__,
+                    (*ds)->cs->server->id, REPLICA_GROUP_ADDRESS_FIRST_IP(
+                        (*ds)->cs->server), REPLICA_GROUP_ADDRESS_FIRST_PORT(
+                            (*ds)->cs->server), data_version);
+
             inactive_count++;
             continue;
         }

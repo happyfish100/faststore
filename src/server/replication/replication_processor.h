@@ -45,17 +45,38 @@ static inline int replication_processors_deal_rpc_response(
         FSReplication *replication, const int data_group_id,
         const uint64_t data_version)
 {
-    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
+    if (__sync_add_and_fetch(&replication->stage, 0) ==
+            FS_REPLICATION_STAGE_SYNCING)
+    {
         return rpc_result_ring_remove(&replication->context.caller.
                 rpc_result_ctx, data_group_id, data_version);
     }
     return 0;
 }
 
-static inline void set_replication_stage(FSReplication *
-        replication, const int stage)
+
+static inline bool replication_channel_is_ready(FSReplication *replication)
 {
-    replication->stage = stage;
+    return __sync_add_and_fetch(&replication->stage, 0) ==
+        FS_REPLICATION_STAGE_SYNCING;
+}
+
+static inline void set_replication_stage(FSReplication *
+        replication, const int new_stage)
+{
+    int old_stage;
+
+    while (1) {
+        old_stage = __sync_add_and_fetch(&replication->stage, 0);
+        if (new_stage == old_stage) {
+            break;
+        }
+        if (__sync_bool_compare_and_swap(&replication->stage,
+                    old_stage, new_stage))
+        {
+            break;
+        }
+    }
 }
 
 #ifdef __cplusplus

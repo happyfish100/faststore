@@ -168,6 +168,7 @@ int replication_processor_unbind(FSReplication *replication)
         if (replication->is_client) {
             result = replication_processor_bind_thread(replication);
         } else {
+            set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
             fs_server_release_replication(replication);
         }
     }
@@ -552,17 +553,19 @@ static inline void send_active_test_package(FSReplication *replication)
 
 static int deal_connected_replication(FSReplication *replication)
 {
+    int stage;
+
+    stage = __sync_add_and_fetch(&replication->stage, 0);
     /*
     logInfo("replication stage: %d, task offset: %d, length: %d",
-            replication->stage, replication->task->offset,
-            replication->task->length);
+            stage, replication->task->offset, replication->task->length);
             */
 
-    if (replication->stage != FS_REPLICATION_STAGE_SYNCING) {
+    if (stage != FS_REPLICATION_STAGE_SYNCING) {
         replication_queue_discard_all(replication);
     }
 
-    if (replication->stage == FS_REPLICATION_STAGE_WAITING_JOIN_RESP) {
+    if (stage == FS_REPLICATION_STAGE_WAITING_JOIN_RESP) {
         return 0;
     }
 
@@ -570,7 +573,7 @@ static int deal_connected_replication(FSReplication *replication)
         return 0;
     }
 
-    if (replication->stage == FS_REPLICATION_STAGE_SYNCING) {
+    if (stage == FS_REPLICATION_STAGE_SYNCING) {
         rpc_result_ring_clear_timeouts(&replication->context.caller.rpc_result_ctx);
         return replication_rpc_from_queue(replication);
     }

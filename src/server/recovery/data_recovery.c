@@ -407,6 +407,8 @@ static int proto_active_confirm(ConnectionInfo *conn,
 static int active_confirm(DataRecoveryContext *ctx)
 {
     int result;
+    int sleep_ms;
+    int i;
     ConnectionInfo conn;
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
@@ -416,7 +418,17 @@ static int active_confirm(DataRecoveryContext *ctx)
         return result;
     }
 
-    result = proto_active_confirm(&conn, ctx);
+    i = 0;
+    sleep_ms = 100;
+    while ((result=proto_active_confirm(&conn, ctx)) == EAGAIN) {
+        if (++i == 5) {
+            break;
+        }
+
+        sleep_ms *= 2;
+        fc_sleep_ms(sleep_ms);
+    }
+
     conn_pool_disconnect_server(&conn);
     return result;
 }

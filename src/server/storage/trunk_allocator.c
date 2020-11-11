@@ -252,7 +252,7 @@ static void remove_trunk_from_freelist(FSTrunkAllocator *allocator,
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
 
     if (freelist->count < freelist->water_mark_trunks) {
-        trunk_maker_allocate(allocator);
+        trunk_maker_allocate_ex(allocator, true, false, NULL, NULL);
     }
 }
 
