@@ -322,50 +322,65 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
             op_ctx->info.bs_key.block.offset);
 }
 
-#define SLAVE_CHECK_DATA_VERSION(op_ctx) \
-    do {  \
-        uint64_t rpc_last_version; \
-        if (TASK_CTX.which_side == FS_WHICH_SIDE_SLAVE) { \
-            if (op_ctx->info.data_version < op_ctx->info. \
-                    myself->replica.rpc_start_version)    \
-            {  \
-                logWarning("file: "__FILE__", line: %d, "  \
-                        "data group id: %d, current data version: %"PRId64 \
-                        " < rpc start version: %"PRId64", skip it!", \
-                        __LINE__, op_ctx->info.data_group_id, \
-                        op_ctx->info.data_version, op_ctx->info. \
-                        myself->replica.rpc_start_version); \
-                return 0;  \
-            }  \
-            rpc_last_version = __sync_fetch_and_add(&op_ctx->info. \
-                    myself->replica.rpc_last_version, 0);  \
-            while (op_ctx->info.data_version > rpc_last_version) { \
-                if (__sync_bool_compare_and_swap(&op_ctx->info.myself-> \
-                            replica.rpc_last_version, \
-                            rpc_last_version, \
-                            op_ctx->info.data_version))  \
-                {  \
-                    break; \
-                }  \
-                rpc_last_version = __sync_fetch_and_add(&op_ctx->info. \
-                        myself->replica.rpc_last_version, 0); \
-            } \
-        }  \
-    } while (0)
+static inline int du_slave_check_data_version(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx, bool *skipped)
+{
+    uint64_t data_version;
+    uint64_t rpc_last_version;
 
+    *skipped = false;
+    data_version = __sync_add_and_fetch(&op_ctx->info.
+            myself->data.version, 0);
+    if (op_ctx->info.data_version != data_version + 1) {
+        if (op_ctx->info.data_version <= data_version) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "data group id: %d, rpc data version: %"PRId64
+                    " <= current data version: %"PRId64", skip it!",
+                    __LINE__, op_ctx->info.data_group_id,
+                    op_ctx->info.data_version, data_version);
+            *skipped = true;
+            return 0;
+        }  else {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "rpc data version: %"PRId64" is too large, expect: %"
+                    PRId64, op_ctx->info.data_version, data_version);
+            return EINVAL;
+        }
+    }
+
+    rpc_last_version = __sync_fetch_and_add(&op_ctx->info.
+            myself->replica.rpc_last_version, 0);
+    while (op_ctx->info.data_version > rpc_last_version) {
+        if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
+                    replica.rpc_last_version, rpc_last_version,
+                    op_ctx->info.data_version))
+        {
+            break;
+        }
+        rpc_last_version = __sync_fetch_and_add(&op_ctx->info.
+                myself->replica.rpc_last_version, 0);
+    }
+
+    return 0;
+}
 
 static inline int du_push_to_data_queue(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const int operation)
 {
     int result;
+    bool skipped;
 
-    sf_hold_task(task);
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
+        result = du_slave_check_data_version(task, op_ctx, &skipped);
+        if (result != 0 || skipped) {
+            return result;
+        }
         op_ctx->notify_func = slave_data_update_done_notify;
     }
 
+    sf_hold_task(task);
     op_ctx->info.write_binlog.log_replica = true;
     if ((result=push_to_data_thread_queue(operation,
                    TASK_CTX.which_side == FS_WHICH_SIDE_MASTER ?
@@ -424,7 +439,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return EINVAL;
     }
 
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
     op_ctx->info.buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_WRITE);
 }
@@ -448,7 +462,6 @@ int du_handler_deal_slice_allocate(struct fast_task_info *task,
         return result;
     }
 
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_ALLOCATE);
 }
 
@@ -471,7 +484,6 @@ int du_handler_deal_slice_delete(struct fast_task_info *task,
         return result;
     }
 
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_DELETE);
 }
 
@@ -494,7 +506,6 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
         return result;
     }
 
-    SLAVE_CHECK_DATA_VERSION(op_ctx);
     return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_BLOCK_DELETE);
 }
 
