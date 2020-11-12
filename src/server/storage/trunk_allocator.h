@@ -133,6 +133,12 @@ extern "C" {
 
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
+    static inline bool trunk_allocator_is_available(FSTrunkAllocator *allocator)
+    {
+        return allocator->freelist.normal.count >=
+            allocator->freelist.normal.water_mark_trunks;
+    }
+
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
 
     int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,

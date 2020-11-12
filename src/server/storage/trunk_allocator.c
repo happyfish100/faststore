@@ -24,6 +24,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "trunk_maker.h"
+#include "storage_allocator.h"
 #include "trunk_allocator.h"
 
 TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
@@ -394,6 +395,11 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
         }
 
         trunk_info = freelist->head;
+        if (aligned_size > FS_TRUNK_AVAIL_SPACE(trunk_info)) {
+            result = EAGAIN;
+            break;
+        }
+
         TRUNK_ALLOC_SPACE(allocator, trunk_info, space_info, aligned_size);
         space_info++;
         if (FS_TRUNK_AVAIL_SPACE(trunk_info) <
@@ -407,7 +413,13 @@ static int alloc_space(FSTrunkAllocator *allocator, FSTrunkFreelist *freelist,
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
 
-    *count = space_info - spaces;
+    if (result == 0) {
+        *count = space_info - spaces;
+    } else if (result == ENOSPC) {
+        fs_remove_from_avail_aptr_array(&g_allocator_mgr->
+                store_path, allocator);
+    }
+
     return result;
 }
 

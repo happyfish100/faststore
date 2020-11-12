@@ -22,25 +22,28 @@
 #include "trunk_allocator.h"
 
 typedef struct {
-    FSTrunkAllocator *allocators;
     int count;
+    FSTrunkAllocator *allocators;
 } FSTrunkAllocatorArray;
 
 typedef struct {
     int count;
+    int alloc;
     FSTrunkAllocator **allocators;
 } FSTrunkAllocatorPtrArray;
 
 typedef struct {
     FSTrunkAllocatorArray all;
-    FSTrunkAllocatorPtrArray avail;
+    volatile FSTrunkAllocatorPtrArray *full;
+    volatile FSTrunkAllocatorPtrArray *avail;
 } FSStorageAllocatorContext;
 
 typedef struct {
     FSStorageAllocatorContext write_cache;
     FSStorageAllocatorContext store_path;
-    FSStorageAllocatorContext *current;
     FSTrunkAllocatorPtrArray allocator_ptr_array; //by store path index
+    struct fast_mblock_man aptr_array_allocator;
+    pthread_mutex_t lock;
     int64_t current_trunk_id;
 } FSStorageAllocatorManager;
 
@@ -59,9 +62,11 @@ extern "C" {
             FSTrunkFileInfo **pp_trunk)
     {
         int result;
+
         if ((result=trunk_id_info_add(path_index, id_info)) != 0) {
             return result;
         }
+
         return trunk_allocator_add(g_allocator_mgr->allocator_ptr_array.
                 allocators[path_index], id_info, size, pp_trunk);
     }
@@ -87,15 +92,23 @@ extern "C" {
             const int size, FSTrunkSpaceInfo *space_info, int *count)
     {
         FSTrunkAllocator **allocator;
+        int result;
 
-        if (g_allocator_mgr->current->avail.count == 0) {
-            return ENOSPC;
-        }
+        do {
+            if (g_allocator_mgr->store_path.avail == NULL ||
+                    g_allocator_mgr->store_path.avail->count == 0)
+            {
+                result = ENOSPC;
+                break;
+            }
 
-        allocator = g_allocator_mgr->current->avail.allocators +
-            blk_hc % g_allocator_mgr->current->avail.count;
-        return trunk_allocator_normal_alloc(*allocator, blk_hc,
-                size, space_info, count);
+            allocator = g_allocator_mgr->store_path.avail->allocators +
+                blk_hc % g_allocator_mgr->store_path.avail->count;
+            result = trunk_allocator_normal_alloc(*allocator, blk_hc,
+                    size, space_info, count);
+        } while (result == ENOSPC || result == EAGAIN);
+
+        return result;
     }
 
     static inline int storage_allocator_reclaim_alloc(const uint32_t blk_hc,
@@ -103,12 +116,14 @@ extern "C" {
     {
         FSTrunkAllocator **allocator;
 
-        if (g_allocator_mgr->current->avail.count == 0) {
+        if (g_allocator_mgr->store_path.avail == NULL ||
+                g_allocator_mgr->store_path.avail->count == 0)
+        {
             return ENOSPC;
         }
 
-        allocator = g_allocator_mgr->current->avail.allocators +
-            blk_hc % g_allocator_mgr->current->avail.count;
+        allocator = g_allocator_mgr->store_path.avail->allocators +
+            blk_hc % g_allocator_mgr->store_path.avail->count;
         return trunk_allocator_reclaim_alloc(*allocator, blk_hc,
                 size, space_info, count);
     }
@@ -141,6 +156,52 @@ extern "C" {
         return trunk_allocator_delete_slice(allocator, slice);
     }
 
+    int fs_move_allocator_ptr_array(FSTrunkAllocatorPtrArray **src_array,
+            FSTrunkAllocatorPtrArray **dest_array, FSTrunkAllocator *allocator);
+
+    static inline int fs_add_to_avail_aptr_array(FSStorageAllocatorContext
+            *allocator_ctx, FSTrunkAllocator *allocator)
+    {
+        int result;
+        if ((result=fs_move_allocator_ptr_array((FSTrunkAllocatorPtrArray **)
+                        &allocator_ctx->full, (FSTrunkAllocatorPtrArray **)
+                        &allocator_ctx->avail, allocator)) == 0)
+        {
+            logInfo("file: "__FILE__", line: %d, "
+                    "path: %s is available", __LINE__,
+                    allocator->path_info->store.path.str);
+        } else {
+            logWarning("file: "__FILE__", line: %d, "
+                    "path: %s set available fail, errno: %d, "
+                    "error info: %s", __LINE__, allocator->path_info->
+                    store.path.str,  result, STRERROR(result));
+        }
+
+        return result;
+    }
+
+    static inline int fs_remove_from_avail_aptr_array(FSStorageAllocatorContext
+            *allocator_ctx, FSTrunkAllocator *allocator)
+    {
+        int result;
+        if ((result=fs_move_allocator_ptr_array((FSTrunkAllocatorPtrArray **)
+                        &allocator_ctx->avail, (FSTrunkAllocatorPtrArray **)
+                        &allocator_ctx->full, allocator)) == 0)
+        {
+            allocator->path_info->trunk_stat.last_used = __sync_add_and_fetch(
+                    &allocator->path_info->trunk_stat.used, 0);
+            logWarning("file: "__FILE__", line: %d, "
+                    "path: %s is full", __LINE__,
+                    allocator->path_info->store.path.str);
+        } else {
+            logWarning("file: "__FILE__", line: %d, "
+                    "path: %s set full fail, errno: %d, "
+                    "error info: %s", __LINE__, allocator->path_info->
+                    store.path.str,  result, STRERROR(result));
+        }
+
+        return result;
+    }
 
 #ifdef __cplusplus
 }
