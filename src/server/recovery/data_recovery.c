@@ -565,7 +565,7 @@ static int data_recovery_waiting_rpc_done(FSClusterDataServerInfo *ds)
 
     count = 0;
     while ((current_version=__sync_fetch_and_add(&ds->data.version, 0)) <
-            rpc_last_version && ++count < MAX_WAITING_COUNT)
+            rpc_last_version && count++ < MAX_WAITING_COUNT)
     {
         fc_sleep_ms(100);
     }
@@ -600,9 +600,7 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
     DataRecoveryContext ctx;
     int result;
 
-    if ((result=data_recovery_waiting_rpc_done(ds)) != 0) {
-        return result;
-    }
+    data_recovery_waiting_rpc_done(ds);
 
     memset(&ctx, 0, sizeof(ctx));
     if ((result=init_data_recovery_ctx(&ctx, ds)) != 0) {
