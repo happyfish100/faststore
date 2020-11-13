@@ -250,10 +250,8 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         return ENOENT;
     }
 
-    ratio_thredhold = STORAGE_CFG.never_reclaim_on_trunk_usage *
-        (task->allocator->path_info->space_stat.used_ratio -
-         STORAGE_CFG.reclaim_trunks_on_path_usage) /
-        (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage);
+    ratio_thredhold = trunk_allocator_calc_reclaim_ratio_thredhold(
+            task->allocator);
 
     logInfo("path index: %d, trunk id: %"PRId64", "
             "usage ratio: %.2f%%, ratio_thredhold: %.2f%%",

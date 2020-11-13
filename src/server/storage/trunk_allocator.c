@@ -291,11 +291,11 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
 static bool can_add_to_freelist(FSTrunkFileInfo *trunk_info)
 {
     int64_t remain_size;
-    double ratio;
+    double ratio_thredhold;
 
-     logInfo("file: "__FILE__", line: %d, "
-             "trunk id: %"PRId64", used bytes: %"PRId64, __LINE__,
-             trunk_info->id_info.id, trunk_info->used.bytes);
+    logInfo("file: "__FILE__", line: %d, "
+            "trunk id: %"PRId64", used bytes: %"PRId64, __LINE__,
+            trunk_info->id_info.id, trunk_info->used.bytes);
 
     if (trunk_info->used.bytes == 0) {
         if (trunk_info->free_start != 0) {
@@ -316,12 +316,10 @@ static bool can_add_to_freelist(FSTrunkFileInfo *trunk_info)
                 <= (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage));
     }
 
-    ratio = STORAGE_CFG.never_reclaim_on_trunk_usage *
-        (trunk_info->allocator->path_info->space_stat.used_ratio -
-         STORAGE_CFG.reclaim_trunks_on_path_usage) /
-        (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage);
-    return ((double)trunk_info->used.bytes /
-            (double)trunk_info->free_start > ratio);
+    ratio_thredhold = trunk_allocator_calc_reclaim_ratio_thredhold(
+            trunk_info->allocator);
+    return ((double)trunk_info->used.bytes / (double)
+            trunk_info->free_start > ratio_thredhold);
 }
 
 void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)

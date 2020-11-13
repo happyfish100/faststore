@@ -19,6 +19,7 @@
 
 #include "fastcommon/uniq_skiplist.h"
 #include "fastcommon/fc_list.h"
+#include "../server_global.h"
 #include "trunk_freelist.h"
 #include "storage_config.h"
 #include "object_block_index.h"
@@ -177,6 +178,21 @@ extern "C" {
             pthread_cond_broadcast(&allocator->freelist.lcp.cond);
         }
         PTHREAD_MUTEX_UNLOCK(&allocator->freelist.lcp.lock);
+    }
+
+    static inline double trunk_allocator_calc_reclaim_ratio_thredhold(
+            FSTrunkAllocator *allocator)
+    {
+        double used_ratio;
+        used_ratio = allocator->path_info->space_stat.used_ratio
+            + allocator->path_info->reserved_space.ratio;
+        if (used_ratio >= 1.00) {
+            return STORAGE_CFG.never_reclaim_on_trunk_usage;
+        } else {
+            return STORAGE_CFG.never_reclaim_on_trunk_usage *
+                (used_ratio - STORAGE_CFG.reclaim_trunks_on_path_usage) /
+                (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage);
+        }
     }
 
 #ifdef __cplusplus
