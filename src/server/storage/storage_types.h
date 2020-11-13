@@ -28,6 +28,7 @@
 struct ob_slice_entry;
 struct fs_data_operation;
 struct fs_slice_op_context;
+struct fs_trunk_allocator;
 
 typedef void (*fs_data_op_notify_func)(struct fs_data_operation *op);
 typedef void (*fs_rw_done_callback_func)(
@@ -145,6 +146,7 @@ typedef struct fs_slice_op_buffer_context {
 } FSSliceOpBufferContext;
 
 typedef struct fs_trunk_file_info {
+    struct fs_trunk_allocator *allocator;
     FSTrunkIdInfo id_info;
     volatile int status;
     struct {

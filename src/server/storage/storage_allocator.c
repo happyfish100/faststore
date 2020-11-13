@@ -89,7 +89,13 @@ int storage_allocator_init()
     memset(g_allocator_mgr->allocator_ptr_array.allocators, 0, bytes);
     g_allocator_mgr->allocator_ptr_array.count = count;
 
-    if ((result=init_pthread_lock(&(g_allocator_mgr->lock))) != 0) {
+    if ((result=init_pthread_lock(&g_allocator_mgr->lock)) != 0) {
+        return result;
+    }
+
+    if ((result=trunk_freelist_init(&g_allocator_mgr->
+                    reclaim_freelist)) != 0)
+    {
         return result;
     }
 
@@ -130,7 +136,7 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
     end = allocator_ctx->all.allocators + allocator_ctx->all.count;
     for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
         trunk_allocator_deal_on_ready(allocator);
-        trunk_allocator_keep_water_mark(allocator);
+        trunk_freelist_keep_water_mark(allocator);
 
         /*
         logInfo("path index: %d, total: %"PRId64" MB, used: %"PRId64" MB, "

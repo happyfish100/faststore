@@ -17,8 +17,8 @@
 #ifndef _STORAGE_ALLOCATOR_H
 #define _STORAGE_ALLOCATOR_H
 
-#include "../../common/fs_types.h"
 #include "trunk_id_info.h"
+#include "trunk_freelist.h"
 #include "trunk_allocator.h"
 
 typedef struct {
@@ -41,6 +41,7 @@ typedef struct {
 typedef struct {
     FSStorageAllocatorContext write_cache;
     FSStorageAllocatorContext store_path;
+    FSTrunkFreelist reclaim_freelist;  //special purpose for reclaiming
     FSTrunkAllocatorPtrArray allocator_ptr_array; //by store path index
     struct fast_mblock_man aptr_array_allocator;
     pthread_mutex_t lock;
@@ -88,45 +89,50 @@ extern "C" {
                 allocators[path_index], id_info->id);
     }
 
-    static inline int storage_allocator_normal_alloc(const uint32_t blk_hc,
-            const int size, FSTrunkSpaceInfo *space_info, int *count)
+    static inline int storage_allocator_normal_alloc_ex(
+            const uint32_t blk_hc, const int size,
+            FSTrunkSpaceInfo *spaces, int *count, const bool is_normal)
     {
+        FSTrunkAllocatorPtrArray *avail_array;
         FSTrunkAllocator **allocator;
         int result;
 
         do {
-            if (g_allocator_mgr->store_path.avail == NULL ||
-                    g_allocator_mgr->store_path.avail->count == 0)
-            {
+            avail_array = (FSTrunkAllocatorPtrArray *)
+                g_allocator_mgr->store_path.avail;
+            if (avail_array->count == 0) {
                 result = ENOSPC;
                 break;
             }
 
-            allocator = g_allocator_mgr->store_path.avail->allocators +
-                blk_hc % g_allocator_mgr->store_path.avail->count;
-            result = trunk_allocator_normal_alloc(*allocator, blk_hc,
-                    size, space_info, count);
-        } while (result == ENOSPC || result == EAGAIN);
+            allocator = avail_array->allocators +
+                blk_hc % avail_array->count;
+            result = trunk_freelist_alloc_space(&(*allocator)->freelist,
+                    blk_hc, size, spaces, count, is_normal);
+        } while ((result == ENOSPC || result == EAGAIN) && is_normal);
 
         return result;
     }
 
     static inline int storage_allocator_reclaim_alloc(const uint32_t blk_hc,
-            const int size, FSTrunkSpaceInfo *space_info, int *count)
+            const int size, FSTrunkSpaceInfo *spaces, int *count)
     {
-        FSTrunkAllocator **allocator;
+        const bool is_normal = false;
+        int result;
 
-        if (g_allocator_mgr->store_path.avail == NULL ||
-                g_allocator_mgr->store_path.avail->count == 0)
+        if ((result=storage_allocator_normal_alloc_ex(blk_hc,
+                        size, spaces, count, is_normal)) == 0)
         {
-            return ENOSPC;
+            return result;
         }
 
-        allocator = g_allocator_mgr->store_path.avail->allocators +
-            blk_hc % g_allocator_mgr->store_path.avail->count;
-        return trunk_allocator_reclaim_alloc(*allocator, blk_hc,
-                size, space_info, count);
+        return trunk_freelist_alloc_space(
+                &g_allocator_mgr->reclaim_freelist, blk_hc,
+                size, spaces, count, is_normal);
     }
+
+#define storage_allocator_normal_alloc(blk_hc, size, spaces, count) \
+    storage_allocator_normal_alloc_ex(blk_hc, size, spaces, count, true)
 
     static inline int storage_allocator_add_slice(OBSliceEntry *slice,
             const bool modify_used_space)

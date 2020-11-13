@@ -19,7 +19,7 @@
 
 #include "fastcommon/uniq_skiplist.h"
 #include "fastcommon/fc_list.h"
-#include "../../common/fs_types.h"
+#include "trunk_freelist.h"
 #include "storage_config.h"
 #include "object_block_index.h"
 
@@ -39,18 +39,6 @@
 #define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
 
 typedef struct {
-    int count;
-    int water_mark_trunks;
-    FSTrunkFileInfo *head;  //allocate from head
-    FSTrunkFileInfo *tail;  //push to tail
-} FSTrunkFreelist;
-
-typedef struct {
-    FSTrunkFreelist normal;   //general purpose
-    FSTrunkFreelist reclaim;  //special purpose for reclaiming
-} FSTrunkFreelistPair;
-
-typedef struct {
     int alloc;
     int count;
     FSTrunkFileInfo **trunks;
@@ -61,14 +49,14 @@ typedef struct fs_trunk_allocator {
     struct {
         UniqSkiplist *by_id;   //order by id
         UniqSkiplist *by_size; //order by used size and id
+        pthread_mutex_t lock;
     } trunks;
-    FSTrunkFreelistPair freelist; //trunk freelist pool
+    FSTrunkFreelist freelist; //trunk freelist pool
 
     struct {
         time_t last_trigger_time; //caller trigger create trunk
         int creating_trunks;  //counter for creating (prealloc or reclaim) trunk
         int waiting_callers;  //caller count for waiting available trunk
-        pthread_lock_cond_pair_t lcp;  //for lock and notify
     } allocate; //for allocate space
 
     struct {
@@ -129,14 +117,12 @@ extern "C" {
     void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
             FSTrunkFileInfo *trunk_info);
 
-    void trunk_allocator_keep_water_mark(FSTrunkAllocator *allocator);
-
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
     static inline bool trunk_allocator_is_available(FSTrunkAllocator *allocator)
     {
-        return allocator->freelist.normal.count >=
-            allocator->freelist.normal.water_mark_trunks;
+        return allocator->freelist.count >=
+            allocator->freelist.water_mark_trunks;
     }
 
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
@@ -148,9 +134,9 @@ extern "C" {
             FSTrunkAllocator *allocator)
     {
         int count;
-        PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
-        count = allocator->freelist.normal.count;
-        PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
+        PTHREAD_MUTEX_LOCK(&allocator->freelist.lcp.lock);
+        count = allocator->freelist.count;
+        PTHREAD_MUTEX_UNLOCK(&allocator->freelist.lcp.lock);
         return count;
     }
 
@@ -174,23 +160,23 @@ extern "C" {
             FSTrunkAllocator *allocator, const bool need_lock)
     {
         if (need_lock) {
-            PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
+            PTHREAD_MUTEX_LOCK(&allocator->freelist.lcp.lock);
         }
         allocator->allocate.creating_trunks++;
         if (need_lock) {
-            PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
+            PTHREAD_MUTEX_UNLOCK(&allocator->freelist.lcp.lock);
         }
     }
 
     static inline void trunk_allocator_after_make_trunk(
             FSTrunkAllocator *allocator)
     {
-        PTHREAD_MUTEX_LOCK(&allocator->allocate.lcp.lock);
+        PTHREAD_MUTEX_LOCK(&allocator->freelist.lcp.lock);
         allocator->allocate.creating_trunks--;
         if (allocator->allocate.waiting_callers > 0) {
-            pthread_cond_broadcast(&allocator->allocate.lcp.cond);
+            pthread_cond_broadcast(&allocator->freelist.lcp.cond);
         }
-        PTHREAD_MUTEX_UNLOCK(&allocator->allocate.lcp.lock);
+        PTHREAD_MUTEX_UNLOCK(&allocator->freelist.lcp.lock);
     }
 
 #ifdef __cplusplus
