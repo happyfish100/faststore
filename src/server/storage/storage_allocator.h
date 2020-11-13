@@ -107,8 +107,9 @@ extern "C" {
 
             allocator = avail_array->allocators +
                 blk_hc % avail_array->count;
-            result = trunk_freelist_alloc_space(&(*allocator)->freelist,
-                    blk_hc, size, spaces, count, is_normal);
+            result = trunk_freelist_alloc_space(*allocator,
+                    &(*allocator)->freelist, blk_hc, size,
+                    spaces, count, is_normal);
         } while ((result == ENOSPC || result == EAGAIN) && is_normal);
 
         return result;
@@ -126,7 +127,7 @@ extern "C" {
             return result;
         }
 
-        return trunk_freelist_alloc_space(
+        return trunk_freelist_alloc_space(NULL,
                 &g_allocator_mgr->reclaim_freelist, blk_hc,
                 size, spaces, count, is_normal);
     }

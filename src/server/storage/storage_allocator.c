@@ -26,6 +26,7 @@
 
 static FSStorageAllocatorManager allocator_mgr;
 FSStorageAllocatorManager *g_allocator_mgr = &allocator_mgr;
+static int check_trunk_avail_func(void *args);
 
 static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
         FSStoragePathArray *parray)
@@ -148,6 +149,47 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
     }
 
     return 0;
+}
+
+static void wait_allocator_available()
+{
+    FSTrunkAllocatorPtrArray *avail_array;
+    int count;
+    int i;
+
+    i = 0;
+    while (g_allocator_mgr->store_path.full->count > 0 && i < 10) {
+        fc_sleep_ms(100);
+        if (i % 5 == 0) {
+            check_trunk_avail_func(NULL);
+        }
+        ++i;
+    }
+
+    i = 0;
+    while (g_allocator_mgr->store_path.avail->count == 0 && i++ < 10) {
+        fc_sleep_ms(100);
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "waiting count: %d, path stat {avail count: %d, "
+            "full count: %d}, reclaim freelist count: %d", __LINE__,
+            i, g_allocator_mgr->store_path.avail->count,
+            g_allocator_mgr->store_path.full->count,
+            g_allocator_mgr->reclaim_freelist.count);
+
+    count = g_allocator_mgr->reclaim_freelist.water_mark_trunks -
+        g_allocator_mgr->reclaim_freelist.count;
+    if (count <= 0) {
+        return;
+    }
+
+    avail_array = (FSTrunkAllocatorPtrArray *)
+        g_allocator_mgr->store_path.avail;
+    for (i=0; i<avail_array->count; i++) {
+        trunk_maker_allocate_ex(avail_array->allocators[i],
+                true, true, NULL, NULL);
+    }
 }
 
 #define CMP_APTR_BY_PINDEX(a1, a2) \
@@ -353,7 +395,11 @@ int storage_allocator_prealloc_trunk_freelists()
         return result;
     }
 
-    return setup_check_trunk_avail_schedule();
+    if ((result=setup_check_trunk_avail_schedule()) != 0) {
+        return result;
+    }
+    wait_allocator_available();
+    return 0;
 }
 
 static inline FSTrunkAllocatorPtrArray *duplicate_aptr_array(

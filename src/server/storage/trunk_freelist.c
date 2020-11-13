@@ -14,6 +14,7 @@
  */
 
 #include <limits.h>
+#include <assert.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
@@ -126,7 +127,8 @@ static void trunk_freelist_remove(FSTrunkAllocator *allocator,
     }
 }
 
-int trunk_freelist_alloc_space(FSTrunkFreelist *freelist,
+int trunk_freelist_alloc_space(struct fs_trunk_allocator
+            *allocator, FSTrunkFreelist *freelist,
         const uint32_t blk_hc, const int size,
         FSTrunkSpaceInfo *spaces, int *count, const bool is_normal)
 {
@@ -150,15 +152,14 @@ int trunk_freelist_alloc_space(FSTrunkFreelist *freelist,
                     break;
                 }
                 
-                /*
                 if (remain_bytes <= 0) {
                     logInfo("allocator: %p, trunk_info: %p, "
                             "trunk size: %"PRId64", free start: %"PRId64
                             ", remain_bytes: %d", trunk_info->allocator,
                             trunk_info, trunk_info->size,
                             trunk_info->free_start, remain_bytes);
+                    abort();
                 }
-                */
 
                 TRUNK_ALLOC_SPACE(trunk_info, space_info, remain_bytes);
                 space_info++;
@@ -174,26 +175,26 @@ int trunk_freelist_alloc_space(FSTrunkFreelist *freelist,
                 break;
             }
 
-            if (trunk_info->allocator->allocate.creating_trunks == 0 &&
-                    g_current_time - trunk_info->allocator->allocate.
+            if (allocator->allocate.creating_trunks == 0 &&
+                    g_current_time - allocator->allocate.
                     last_trigger_time > 0)
             {
-                trunk_info->allocator->allocate.last_trigger_time = g_current_time;
-                if ((result=trunk_maker_allocate_ex(trunk_info->allocator,
+                allocator->allocate.last_trigger_time = g_current_time;
+                if ((result=trunk_maker_allocate_ex(allocator,
                                 true, false, NULL, NULL)) != 0)
                 {
                     break;
                 }
             }
 
-            trunk_info->allocator->allocate.waiting_callers++;
-            while (trunk_info->allocator->allocate.creating_trunks > 0 &&
+            allocator->allocate.waiting_callers++;
+            while (allocator->allocate.creating_trunks > 0 &&
                     freelist->head == NULL && SF_G_CONTINUE_FLAG)
             {
                 pthread_cond_wait(&freelist->lcp.cond,
                         &freelist->lcp.lock);
             }
-            trunk_info->allocator->allocate.waiting_callers--;
+            allocator->allocate.waiting_callers--;
         }
 
         if (freelist->head == NULL) {
@@ -212,8 +213,8 @@ int trunk_freelist_alloc_space(FSTrunkFreelist *freelist,
         if (FS_TRUNK_AVAIL_SPACE(trunk_info) <
                 STORAGE_CFG.discard_remain_space_size)
         {
-            trunk_freelist_remove(trunk_info->allocator, freelist);
-            __sync_sub_and_fetch(&trunk_info->allocator->path_info->
+            trunk_freelist_remove(allocator, freelist);
+            __sync_sub_and_fetch(&allocator->path_info->
                     trunk_stat.avail, FS_TRUNK_AVAIL_SPACE(trunk_info));
         }
         result = 0;
@@ -224,7 +225,7 @@ int trunk_freelist_alloc_space(FSTrunkFreelist *freelist,
         *count = space_info - spaces;
     } else if (result == ENOSPC && is_normal) {
         fs_remove_from_avail_aptr_array(&g_allocator_mgr->
-                store_path, trunk_info->allocator);
+                store_path, allocator);
     }
 
     return result;
