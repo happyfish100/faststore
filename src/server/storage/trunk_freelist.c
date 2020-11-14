@@ -88,6 +88,8 @@ void trunk_freelist_keep_water_mark(struct fs_trunk_allocator
 void trunk_freelist_add(FSTrunkFreelist *freelist,
         FSTrunkFileInfo *trunk_info)
 {
+    int64_t avail_bytes;
+
     PTHREAD_MUTEX_LOCK(&freelist->lcp.lock);
     trunk_info->alloc.next = NULL;
     if (freelist->head == NULL) {
@@ -99,10 +101,11 @@ void trunk_freelist_add(FSTrunkFreelist *freelist,
 
     freelist->count++;
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_ALLOCING);
+    avail_bytes = FS_TRUNK_AVAIL_SPACE(trunk_info);
     PTHREAD_MUTEX_UNLOCK(&freelist->lcp.lock);
 
     __sync_add_and_fetch(&trunk_info->allocator->path_info->
-            trunk_stat.avail, FS_TRUNK_AVAIL_SPACE(trunk_info));
+            trunk_stat.avail, avail_bytes);
 }
 
 static void trunk_freelist_remove(FSTrunkAllocator *allocator,

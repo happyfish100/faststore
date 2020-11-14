@@ -166,15 +166,18 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
     }
 
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
+
+    PTHREAD_MUTEX_LOCK(&allocator->freelist.lcp.lock);
     trunk_info->allocator = allocator;
     trunk_info->id_info = *id_info;
     trunk_info->size = size;
     trunk_info->used.bytes = 0;
     trunk_info->used.count = 0;
     trunk_info->free_start = 0;
-    FC_INIT_LIST_HEAD(&trunk_info->used.slice_head);
+    PTHREAD_MUTEX_UNLOCK(&allocator->freelist.lcp.lock);
 
     PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
+    FC_INIT_LIST_HEAD(&trunk_info->used.slice_head);
     result = uniq_skiplist_insert(allocator->trunks.by_id, trunk_info);
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
 
@@ -241,7 +244,10 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
         result = ENOENT;
     } else {
         /* for loading slice binlog */
-        if (slice->space.offset + slice->space.size > trunk_info->free_start) {
+        if (!g_trunk_allocator_vars.data_load_done &&
+                slice->space.offset + slice->space.size >
+                trunk_info->free_start)
+        {
             trunk_info->free_start = slice->space.offset + slice->space.size;
         }
 
@@ -301,6 +307,8 @@ static bool can_add_to_freelist(FSTrunkFileInfo *trunk_info)
         if (trunk_info->free_start != 0) {
             trunk_info->free_start = 0;
         }
+        return true;
+    } else if (trunk_info->free_start == 0) {
         return true;
     }
 

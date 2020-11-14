@@ -277,7 +277,9 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
             trunk->id_info.id, used_bytes, trunk->used.bytes, result);
 
     if (result == 0) {
+        PTHREAD_MUTEX_LOCK(&task->allocator->freelist.lcp.lock);
         trunk->free_start = 0;
+        PTHREAD_MUTEX_UNLOCK(&task->allocator->freelist.lcp.lock);
         trunk_allocator_add_to_freelist(task->allocator, trunk);
         uniq_skiplist_delete(task->allocator->trunks.by_size, trunk);
     } else {
