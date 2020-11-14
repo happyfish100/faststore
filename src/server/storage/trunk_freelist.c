@@ -220,16 +220,16 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator
             __sync_sub_and_fetch(&allocator->path_info->
                     trunk_stat.avail, FS_TRUNK_AVAIL_SPACE(trunk_info));
         }
-        result = 0;
-    } while (0);
-    PTHREAD_MUTEX_UNLOCK(&freelist->lcp.lock);
 
-    if (result == 0) {
+        result = 0;
         *count = space_info - spaces;
-    } else if (result == ENOSPC && is_normal) {
+    } while (0);
+
+    if (result == ENOSPC && is_normal) {
         fs_remove_from_avail_aptr_array(&g_allocator_mgr->
                 store_path, allocator);
     }
+    PTHREAD_MUTEX_UNLOCK(&freelist->lcp.lock);
 
     return result;
 }
