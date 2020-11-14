@@ -14,6 +14,7 @@
  */
 
 #include <limits.h>
+#include <assert.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
 #include "fastcommon/shared_func.h"
@@ -23,6 +24,7 @@
 #include "fastcommon/common_blocked_queue.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/binlog_types.h"
 #include "../dio/trunk_io_thread.h"
@@ -63,13 +65,17 @@ int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
     return fs_init_slice_op_ctx(&rctx->op_ctx.update.sarray);
 }
 
-static int realloc_rb_array(TrunkReclaimBlockArray *array)
+static int realloc_rb_array(TrunkReclaimBlockArray *array,
+        const int target_count)
 {
     TrunkReclaimBlockInfo *blocks;
     int new_alloc;
     int bytes;
 
     new_alloc = (array->alloc > 0) ? 2 * array->alloc : 1024;
+    while (new_alloc < target_count) {
+        new_alloc *= 2;
+    }
     bytes = sizeof(TrunkReclaimBlockInfo) * new_alloc;
     blocks = (TrunkReclaimBlockInfo *)fc_malloc(bytes);
     if (blocks == NULL) {
@@ -184,7 +190,7 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
     TrunkReclaimBlockInfo *block;
 
     if (barray->alloc < sarray->count) {
-        if ((result=realloc_rb_array(barray)) != 0) {
+        if ((result=realloc_rb_array(barray, sarray->count)) != 0) {
             return result;
         }
     }
@@ -203,8 +209,8 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
             }
             return ENOENT;
         }
-        block->head = tail = slice;
 
+        block->head = tail = slice;
         slice++;
         while (slice < send && ob_index_compare_block_key(
                     &block->ob->bkey, &slice->bs_key.block) == 0)
