@@ -285,7 +285,8 @@ int init_allocator_ptr_array(FSStorageAllocatorContext *allocator_ctx)
             aptr_array = (FSTrunkAllocatorPtrArray *)allocator_ctx->avail;
         } else {
             allocator->path_info->trunk_stat.last_used = __sync_add_and_fetch(
-                    &allocator->path_info->trunk_stat.used, 0);
+                    &allocator->path_info->trunk_stat.used, 0) +
+                STORAGE_CFG.trunk_file_size;  //for trigger check trunk avail
             aptr_array = (FSTrunkAllocatorPtrArray *)allocator_ctx->full;
         }
         add_to_aptr_array(aptr_array, allocator);

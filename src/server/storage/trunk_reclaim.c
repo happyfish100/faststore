@@ -45,6 +45,7 @@ int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
 {
     int result;
 
+    ob_index_init_slice_ptr_array(&rctx->op_ctx.slice_ptr_array);
     rctx->op_ctx.info.source = BINLOG_SOURCE_RECLAIM;
     rctx->op_ctx.info.write_binlog.log_replica = false;
     rctx->op_ctx.info.data_version = 0;
@@ -52,6 +53,11 @@ int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
     rctx->buffer_size = 256 * 1024;
     rctx->op_ctx.info.buff = (char *)fc_malloc(rctx->buffer_size);
     if (rctx->op_ctx.info.buff == NULL) {
+        return ENOMEM;
+    }
+
+    rctx->origin_buffer = (char *)fc_malloc(FS_FILE_BLOCK_SIZE);
+    if (rctx->origin_buffer == NULL) {
         return ENOMEM;
     }
 
@@ -161,6 +167,7 @@ static int convert_to_rs_array(FSTrunkAllocator *allocator,
 
         rs->bs_key.block = slice->ob->bkey;
         rs->bs_key.slice = slice->ssize;
+        rs->origin.bs_key = rs->bs_key;
         rs++;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
@@ -211,6 +218,7 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
         }
 
         block->head = tail = slice;
+        tail->origin.slice_count = 1;
         slice++;
         while (slice < send && ob_index_compare_block_key(
                     &block->ob->bkey, &slice->bs_key.block) == 0)
@@ -219,9 +227,11 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
                     slice->bs_key.slice.offset)
             {  //combine slices
                 tail->bs_key.slice.length += slice->bs_key.slice.length;
+                tail->origin.slice_count++;
             } else {
                 tail->next = slice;
                 tail = slice;
+                tail->origin.slice_count = 1;
             }
             slice++;
         }
@@ -277,12 +287,92 @@ static inline void log_rw_error(FSSliceOpContext *op_ctx,
             result, STRERROR(result));
 }
 
+static int read_one_slice(TrunkReclaimContext *rctx,
+        FSBlockSliceKeyInfo *bs_key, char *buff, int *length)
+{
+    int result;
+    FSSliceOpContext op_ctx;
+
+    ob_index_init_slice_ptr_array(&op_ctx.slice_ptr_array);
+    op_ctx.info.source = BINLOG_SOURCE_RECLAIM;
+    op_ctx.info.write_binlog.log_replica = false;
+    op_ctx.info.data_version = 0;
+    op_ctx.info.myself = NULL;
+    op_ctx.info.bs_key = *bs_key;
+    op_ctx.info.data_group_id = rctx->op_ctx.info.data_group_id;
+    op_ctx.info.buff = buff;
+    op_ctx.rw_done_callback = (fs_rw_done_callback_func)
+        reclaim_slice_rw_done_callback;
+    op_ctx.arg = rctx;
+
+    PTHREAD_MUTEX_LOCK(&rctx->notify.lcp.lock);
+    rctx->notify.finished = false;
+    PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
+    if ((result=fs_slice_read(&op_ctx)) == 0) {
+        PTHREAD_MUTEX_LOCK(&rctx->notify.lcp.lock);
+        while (!rctx->notify.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&rctx->notify.lcp.cond,
+                    &rctx->notify.lcp.lock);
+        }
+        PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
+
+        result = rctx->notify.finished ? op_ctx.result : EINTR;
+    }
+
+    if (result != 0) {
+        log_rw_error(&op_ctx, result, ENOENT, "read");
+        return result == ENOENT ? 0 : result;
+    }
+
+    ob_index_free_slice_ptr_array(&op_ctx.slice_ptr_array);
+    *length = op_ctx.done_bytes;
+    return 0;
+}
+
+static int read_slices(TrunkReclaimContext *rctx,
+        TrunkReclaimSliceInfo *slice, int *length)
+{
+    TrunkReclaimSliceInfo *rs;
+    TrunkReclaimSliceInfo *end;
+    char *buff;
+    int result;
+    int bytes;
+
+    buff = rctx->origin_buffer;
+    end = slice + slice->origin.slice_count;
+    for (rs=slice; rs<end; rs++) {
+        if ((buff - rctx->origin_buffer) +
+                rs->origin.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
+        {
+            logError("slice_count: %d, exceeds buffer size: %d!",
+                    slice->origin.slice_count, FS_FILE_BLOCK_SIZE);
+            break;
+        }
+
+        if ((result=read_one_slice(rctx, &rs->origin.bs_key,
+                        buff, &bytes)) != 0)
+        {
+            return result;
+        }
+
+        if (bytes != rs->origin.bs_key.slice.length) {
+            logError("slice_count: %d, read bytes: %d = %d!",
+                    slice->origin.slice_count, bytes,
+                    rs->origin.bs_key.slice.length);
+        }
+        buff += rs->origin.bs_key.slice.length;
+    }
+    *length = buff - rctx->origin_buffer;
+
+    return 0;
+}
+
 static int migrate_one_slice(TrunkReclaimContext *rctx,
-        FSBlockSliceKeyInfo *bs_key)
+    TrunkReclaimSliceInfo *slice)
 {
     int result;
 
-    if ((result=migrate_prepare(rctx, bs_key)) != 0) {
+    if ((result=migrate_prepare(rctx, &slice->bs_key)) != 0) {
         return result;
     }
 
@@ -300,6 +390,26 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
     if (result != 0) {
         log_rw_error(&rctx->op_ctx, result, ENOENT, "read");
         return result == ENOENT ? 0 : result;
+    }
+
+    if (slice->origin.slice_count > 1) {
+        int length;
+        if ((result=read_slices(rctx, slice, &length)) != 0) {
+            return result;
+        }
+
+        logInfo("before slice_count: %d", slice->origin.slice_count);
+        if (length == rctx->op_ctx.done_bytes) {
+            if (memcmp(rctx->op_ctx.info.buff, rctx->origin_buffer, length) == 0) {
+                logInfo("slice_count: %d, OK", slice->origin.slice_count);
+            } else {
+                logError("slice_count: %d, length: %d, memcmp fail!",
+                        slice->origin.slice_count, length);
+            }
+        } else {
+            logError("slice_count: %d, length: %d != %d",
+                    slice->origin.slice_count, length, rctx->op_ctx.done_bytes);
+        }
     }
 
     rctx->op_ctx.info.bs_key.slice.length = rctx->op_ctx.done_bytes;
@@ -324,7 +434,18 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
     if (rctx->op_ctx.result != 0) {
         log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
         return rctx->op_ctx.result;
+    } else {
+        int bytes;
+        if ((result=read_one_slice(rctx, &rctx->op_ctx.info.bs_key,
+                        rctx->origin_buffer, &bytes)) != 0)
+        {
+            return result;
+        }
+
+        assert(bytes == rctx->op_ctx.info.bs_key.slice.length);
+        assert(memcmp(rctx->op_ctx.info.buff, rctx->origin_buffer, bytes) == 0);
     }
+
 
     return fs_log_slice_write(&rctx->op_ctx);
 }
@@ -337,7 +458,7 @@ static int migrate_one_block(TrunkReclaimContext *rctx,
 
     slice = block->head;
     while (slice != NULL) {
-        if ((result=migrate_one_slice(rctx, &slice->bs_key)) != 0) {
+        if ((result=migrate_one_slice(rctx, slice)) != 0) {
             return result;
         }
         slice = slice->next;

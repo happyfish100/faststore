@@ -150,10 +150,8 @@ static void slice_write_done_notify(FSDataOperation *op)
 
     thread_ctx = ((ReplayTaskInfo *)op->arg)->thread_ctx;
     PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lcp.lock);
-    if (!thread_ctx->notify.done) {
-        thread_ctx->notify.done = true;
-        pthread_cond_signal(&thread_ctx->notify.lcp.cond);
-    }
+    thread_ctx->notify.done = true;
+    pthread_cond_signal(&thread_ctx->notify.lcp.cond);
     PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lcp.lock);
 }
 
@@ -234,19 +232,19 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
     }
 
     if (operation != DATA_OPERATION_NONE) {
-        PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
-        task->thread_ctx->notify.done = false;
         if ((result=push_to_data_thread_queue(operation,
                         DATA_SOURCE_SLAVE_RECOVERY, task,
                         &task->op_ctx)) == 0)
         {
+            PTHREAD_MUTEX_LOCK(&task->thread_ctx->notify.lcp.lock);
             while (!task->thread_ctx->notify.done) {
                 pthread_cond_wait(&task->thread_ctx->notify.lcp.cond,
                         &task->thread_ctx->notify.lcp.lock);
             }
+            task->thread_ctx->notify.done = false;  /* reset for next */
+            PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
             result = task->op_ctx.result;
         }
-        PTHREAD_MUTEX_UNLOCK(&task->thread_ctx->notify.lcp.lock);
 
         if (result == 0) {
             (*success_ptr)++;

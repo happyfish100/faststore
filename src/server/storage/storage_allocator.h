@@ -210,6 +210,11 @@ extern "C" {
         return result;
     }
 
+    static inline int storage_allocator_avail_count()
+    {
+        return g_allocator_mgr->store_path.avail->count;
+    }
+
 #ifdef __cplusplus
 }
 #endif

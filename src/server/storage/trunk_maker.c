@@ -155,7 +155,7 @@ static void create_trunk_done(struct trunk_io_buffer *record,
 
     thread = (TrunkMakerThreadInfo *)record->notify.arg;
     PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
-    thread->allocate.result = result;
+    thread->allocate.result = result >= 0 ? result : -1 * result;
     pthread_cond_signal(&thread->allocate.lcp.cond);
     PTHREAD_MUTEX_UNLOCK(&thread->allocate.lcp.lock);
 }
@@ -199,23 +199,22 @@ static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
     space.offset = 0;
     space.size = STORAGE_CFG.trunk_file_size;
 
-    PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
-    thread->allocate.result = -1;
     if ((result=io_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK,
                     &space, create_trunk_done, thread)) == 0)
     {
+        PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);
         while (thread->allocate.result == -1 && SF_G_CONTINUE_FLAG) {
             pthread_cond_wait(&thread->allocate.lcp.cond,
                     &thread->allocate.lcp.lock);
         }
+        result = thread->allocate.result;
+        thread->allocate.result = -1;  /* reset for next */
+        PTHREAD_MUTEX_UNLOCK(&thread->allocate.lcp.lock);
 
-        if (thread->allocate.result == -1) {
-            result = EINTR;
-        } else {
-            result = thread->allocate.result;
+        if (result == -1) {
+            return EINTR;
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&thread->allocate.lcp.lock);
 
     if (result != 0) {
         return result;
@@ -253,9 +252,10 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     ratio_thredhold = trunk_allocator_calc_reclaim_ratio_thredhold(
             task->allocator);
 
-    logInfo("path index: %d, trunk id: %"PRId64", "
+    logInfo("file: "__FILE__", line: %d, "
+            "path index: %d, trunk id: %"PRId64", "
             "usage ratio: %.2f%%, ratio_thredhold: %.2f%%",
-            task->allocator->path_info->store.index,
+            __LINE__, task->allocator->path_info->store.index,
             trunk->id_info.id, 100.00 * (double)used_bytes /
             (double)trunk->size, 100.00 * ratio_thredhold);
 
@@ -271,9 +271,10 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         result = 0;
     }
 
-    logInfo("path index: %d, reclaiming trunk id: %"PRId64", "
+    logInfo("file: "__FILE__", line: %d, "
+            "path index: %d, reclaiming trunk id: %"PRId64", "
             "last used bytes: %"PRId64", current used bytes: %"PRId64", "
-            "result: %d", task->allocator->path_info->store.index,
+            "result: %d", __LINE__, task->allocator->path_info->store.index,
             trunk->id_info.id, used_bytes, trunk->used.bytes, result);
 
     if (result == 0) {
@@ -393,6 +394,7 @@ int trunk_maker_init()
     end = tmaker_ctx.thread_array.threads +
         tmaker_ctx.thread_array.count;
     for (thread=tmaker_ctx.thread_array.threads; thread<end; thread++) {
+        thread->allocate.result = -1;
         if ((result=init_pthread_lock_cond_pair(&thread->allocate.lcp)) != 0) {
             return result;
         }

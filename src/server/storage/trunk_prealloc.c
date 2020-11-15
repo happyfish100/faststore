@@ -77,7 +77,7 @@ static void allocate_done_callback(FSTrunkAllocator *allocator,
 
     thread_arg = (TrunkPreallocThreadArg *)arg;
     PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
-    thread_arg->result = result;
+    thread_arg->result = result >= 0 ? result : -1 * result;
     thread_arg->is_new_trunk = is_new_trunk;
     pthread_cond_signal(&thread_arg->lcp.cond);
     PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
@@ -100,20 +100,24 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
         logInfo("prealloc task: %p, store path: %s", task,
                 task->preallocator->allocator->path_info->store.path.str);
 
-        PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
         thread_arg->is_new_trunk = false;
-        thread_arg->result = -1;
         if ((result=trunk_maker_allocate_ex(task->preallocator->allocator,
                         false, true, allocate_done_callback, thread_arg)) == 0)
         {
+            PTHREAD_MUTEX_LOCK(&thread_arg->lcp.lock);
             while (thread_arg->result == -1 && SF_G_CONTINUE_FLAG) {
                 pthread_cond_wait(&thread_arg->lcp.cond,
                         &thread_arg->lcp.lock);
             }
 
-            result = thread_arg->result >= 0 ? thread_arg->result : EINTR;
+            if (thread_arg->result >= 0) {
+                result = thread_arg->result;
+                thread_arg->result = -1;
+            } else {
+                result = EINTR;
+            }
+            PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
         }
-        PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
 
         logInfo("task: %p, store path: %s, prealloc result: %d", task,
                 task->preallocator->allocator->path_info->store.path.str, result);
@@ -387,6 +391,7 @@ static int init_thread_args()
 
     end = prealloc_ctx.thread_args + STORAGE_CFG.trunk_prealloc_threads;
     for (p=prealloc_ctx.thread_args; p<end; p++) {
+        p->result = -1;
         if ((result=init_pthread_lock_cond_pair(&p->lcp)) != 0) {
             return result;
         }

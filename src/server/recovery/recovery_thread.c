@@ -35,6 +35,7 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../cluster_relationship.h"
+#include "../server_storage.h"
 #include "data_recovery.h"
 #include "recovery_thread.h"
 
@@ -54,18 +55,26 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     FSClusterDataServerInfo *ds;
 
     ds = (FSClusterDataServerInfo *)arg;
-    old_status = __sync_fetch_and_add(&ds->status, 0);
-    if (old_status == FS_SERVER_STATUS_INIT) {
-        new_status = FS_SERVER_STATUS_REBUILDING;
-    } else if (old_status == FS_SERVER_STATUS_OFFLINE) {
-        new_status = FS_SERVER_STATUS_RECOVERING;
-    } else {
-        logInfo("file: "__FILE__", line: %d, "
-                "data group id: %d, my status: %d (%s), "
-                "skip data recovery", __LINE__,
-                ds->dg->id, old_status,
-                fs_get_server_status_caption(old_status));
-        return;
+
+    while (1) {
+        old_status = __sync_fetch_and_add(&ds->status, 0);
+        if (old_status == FS_SERVER_STATUS_INIT) {
+            new_status = FS_SERVER_STATUS_REBUILDING;
+        } else if (old_status == FS_SERVER_STATUS_OFFLINE) {
+            new_status = FS_SERVER_STATUS_RECOVERING;
+        } else {
+            logInfo("file: "__FILE__", line: %d, "
+                    "data group id: %d, my status: %d (%s), "
+                    "skip data recovery", __LINE__,
+                    ds->dg->id, old_status,
+                    fs_get_server_status_caption(old_status));
+            return;
+        }
+
+        if (storage_allocator_avail_count() > 0) {
+            break;
+        }
+        fc_sleep_ms(500);
     }
 
     if (!__sync_bool_compare_and_swap(&ds->recovery.in_progress, 0, 1)) {

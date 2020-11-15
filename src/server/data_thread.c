@@ -177,13 +177,15 @@ void data_thread_terminate()
 
 #define DATA_THREAD_COND_WAIT(thread_ctx) \
     do { \
-        do {  \
+        PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);   \
+        while (!thread_ctx->notify_done && SF_G_CONTINUE_FLAG) { \
             pthread_cond_wait(&thread_ctx->lc_pair.cond,  \
                     &thread_ctx->lc_pair.lock);  \
-        } while (!thread_ctx->notify_done && SF_G_CONTINUE_FLAG); \
+        } \
+        thread_ctx->notify_done = false; /* reset for next */ \
+        PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock); \
         \
         if (!SF_G_CONTINUE_FLAG) {  \
-            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock); \
             return;  \
         }  \
     } while (0)
@@ -205,24 +207,18 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
         case DATA_OPERATION_SLICE_READ:
             is_update = false;
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
-            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
-            thread_ctx->notify_done = false;
             if ((op->ctx->result=fs_slice_read(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
-            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
             break;
         case DATA_OPERATION_SLICE_WRITE:
             is_update = true;
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
-            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
-            thread_ctx->notify_done = false;
             if ((result=fs_slice_write(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             } else {
                 op->ctx->result = result;
             }
-            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
             if (result == 0) {
                 fs_write_finish(op->ctx);  //for add slice index and cleanup
             }
@@ -249,15 +245,12 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
 
     if (op->ctx->result == 0 && is_update) {
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
-            PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
-            thread_ctx->notify_done = false;
             if ((result=replication_caller_push_to_slave_queues(
                             (struct fast_task_info *)op->arg)) ==
                     TASK_STATUS_CONTINUE)
             {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
-            PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
         }
 
         log_data_update(op->operation, op->ctx);
