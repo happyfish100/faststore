@@ -32,10 +32,6 @@ typedef struct trunk_reclaim_block_info {
 
 typedef struct trunk_reclaim_slice_info {
     FSBlockSliceKeyInfo bs_key;
-    struct {
-        FSBlockSliceKeyInfo bs_key;
-        int slice_count;
-    } origin;
     struct trunk_reclaim_slice_info *next;
 } TrunkReclaimSliceInfo;
 
@@ -56,7 +52,6 @@ typedef struct trunk_reclaim_context {
     TrunkReclaimSliceArray sarray;
     FSSliceOpContext op_ctx;
     int buffer_size;
-    char *origin_buffer;
     struct {
         bool finished;
         pthread_lock_cond_pair_t lcp; //for notify
