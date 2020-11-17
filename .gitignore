@@ -3,9 +3,8 @@ src/server/Makefile
 src/client/Makefile
 src/client/tools/Makefile
 src/client/tests/Makefile
-src/fsapi/Makefile
-src/fsapi/tests/Makefile
-src/fuse/Makefile
+src/api/Makefile
+src/api/tests/Makefile
 
 # Prerequisites
 *.d
@@ -40,8 +39,6 @@ src/client/tools/fs_write
 src/client/tools/fs_read
 src/client/tools/fs_delete
 src/client/tests/test_slice_rw
-src/fsapi/tests/test_file_op
-src/fuse/fs_fused
 
 # other
 logs
