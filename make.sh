@@ -152,19 +152,9 @@ make $1 $2
 cd ..
 
 
-cd ../fsapi
+cd ../api
 replace_makefile
 make $1 $2
-
-cd tests || exit
-replace_makefile
-make $1 $2
-cd ..
-
-cd ../fuse
-replace_makefile
-make $1 $2
-
 
 if [ "$1" = "install" ]; then
   cd ..
