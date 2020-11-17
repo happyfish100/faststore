@@ -5,11 +5,11 @@ INC_PATH = -I../common -I../include
 LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-FAST_SHARED_OBJS = fs_api.lo
+FAST_SHARED_OBJS = fs_api.lo opid_htable.lo
 
-FAST_STATIC_OBJS = fs_api.o
+FAST_STATIC_OBJS = fs_api.o opid_htable.o
 
-HEADER_FILES = fs_api.h fs_api_types.h
+HEADER_FILES = fs_api.h fs_api_types.h opid_htable.h
 
 ALL_OBJS = $(FAST_STATIC_OBJS) $(FAST_SHARED_OBJS)
 

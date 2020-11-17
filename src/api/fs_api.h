@@ -23,13 +23,10 @@
 extern "C" {
 #endif
 
-#define fs_api_unlink_file(api_ctx, oid, file_size)  \
-    fs_unlink_file(api_ctx->fs, oid, file_size)
+int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
+        const int64_t file_size);
 
-#define fs_api_cluster_stat(api_ctx, data_group_id, stats, size, count) \
-    fs_cluster_stat(api_ctx->fs, data_group_id, stats, size, count)
-
-int fs_api_slice_write(FSAPIContext *api_ctx,
+int fs_api_slice_write(FSAPIContext *api_ctx, const pid_t pid,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc);
 
@@ -56,6 +53,9 @@ int fs_api_block_delete_ex(FSAPIContext *api_ctx, const FSBlockKey *bkey,
 
 #define fs_api_block_delete(api_ctx, bkey, dec_alloc) \
     fs_api_block_delete_ex(api_ctx, bkey, LOG_DEBUG, dec_alloc)
+
+#define fs_api_cluster_stat(api_ctx, data_group_id, stats, size, count) \
+    fs_cluster_stat(api_ctx->fs, data_group_id, stats, size, count)
 
 #define fs_api_server_group_space_stat(api_ctx, server, stats, size, count) \
     fs_server_group_space_stat(api_ctx->fs, server, stats, size, count)
