@@ -1303,7 +1303,7 @@ static inline int cluster_ping_leader(ConnectionInfo *conn)
     }
 }
 
-static void *cluster_thread_entrance(void* arg)
+static void *cluster_thread_entrance(void *arg)
 {
 #define MAX_SLEEP_SECONDS  10
 

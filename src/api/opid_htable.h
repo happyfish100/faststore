@@ -20,15 +20,17 @@
 #include "fs_api_types.h"
 
 typedef struct fs_api_opid_entry {
-    uint64_t oid;
+    uint64_t oid;  //object id such as inode
     pid_t pid;
     int successive_count;
     struct {
         int64_t offset;
         int64_t time_ms;
     } last_write;
-    struct fs_api_opid_entry *ht_next;  //for hashtable
-    struct fc_list_head lru_dlink;      //for LRU chain
+    struct {
+        struct fc_list_head htable;  //for hashtable
+        struct fc_list_head lru;     //for LRU chain
+    } dlinks;
 } FSAPIOPIDEntry;
 
 #ifdef __cplusplus
@@ -40,7 +42,7 @@ extern "C" {
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
     int opid_htable_insert(const pid_t pid, const uint64_t oid,
-            const int64_t offset, int *successive_count);
+            const int64_t offset, const int length, int *successive_count);
 
 #ifdef __cplusplus
 }

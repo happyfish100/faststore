@@ -14,10 +14,11 @@
  */
 
 #include <stdlib.h>
+#include "time_handler.h"
 #include "opid_htable.h"
 
 typedef struct fs_api_opid_hashtable {
-    FSAPIOPIDEntry **buckets;
+    struct fc_list_head *buckets;
     int64_t capacity;
 } FSAPIOPIDHashtable;
 
@@ -38,12 +39,17 @@ typedef struct fs_api_opid_sharding_array {
 
 typedef struct fs_api_opid_context {
     struct {
+        int64_t min_ttl_ms;
+        int64_t max_ttl_ms;
+        double elt_ttl_ms;
+        int elt_water_mark;  //trigger reclaim when elements exceeds water mark
+    } sharding_reclaim;
+
+    struct {
         int count;
         struct fast_mblock_man *els;
     } allocators;
 
-    int64_t min_ttl_ms;
-    int64_t max_ttl_ms;
     FSAPIOPIDShardingArray opid_shardings;
 } FSAPIOPIDContext;
 
@@ -91,17 +97,22 @@ static int init_sharding(FSAPIOPIDSharding *sharding,
 {
     int result;
     int bytes;
+    struct fc_list_head *ph;
+    struct fc_list_head *end;
 
     if ((result=init_pthread_lock(&sharding->lock)) != 0) {
         return result;
     }
 
-    bytes = sizeof(FSAPIOPIDEntry *) * per_capacity;
-    sharding->hashtable.buckets = (FSAPIOPIDEntry **)fc_malloc(bytes);
+    bytes = sizeof(struct fc_list_head) * per_capacity;
+    sharding->hashtable.buckets = (struct fc_list_head *)fc_malloc(bytes);
     if (sharding->hashtable.buckets == NULL) {
         return ENOMEM;
     }
-    memset(sharding->hashtable.buckets, 0, bytes);
+    end = sharding->hashtable.buckets + per_capacity;
+    for (ph=sharding->hashtable.buckets; ph<end; ph++) {
+        FC_INIT_LIST_HEAD(ph);
+    }
 
     sharding->hashtable.capacity = per_capacity;
     sharding->element_count = 0;
@@ -111,12 +122,10 @@ static int init_sharding(FSAPIOPIDSharding *sharding,
 }
 
 static int init_opid_shardings(const int sharding_count,
-        const int64_t element_limit, const int64_t htable_capacity)
+        const int64_t per_elt_limit, const int64_t per_capacity)
 {
     int result;
     int bytes;
-    int64_t per_capacity;
-    int64_t per_elt_limit;
     FSAPIOPIDSharding *ps;
     FSAPIOPIDSharding *end;
 
@@ -126,8 +135,6 @@ static int init_opid_shardings(const int sharding_count,
         return ENOMEM;
     }
 
-    per_elt_limit = (element_limit + sharding_count - 1) / sharding_count;
-    per_capacity = fc_ceil_prime(htable_capacity / sharding_count);
     end = opid_ctx.opid_shardings.entries + sharding_count;
     for (ps=opid_ctx.opid_shardings.entries; ps<end; ps++) {
         ps->allocator = opid_ctx.allocators.els +
@@ -148,6 +155,8 @@ int opid_htable_init(const int allocator_count, int64_t element_limit,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms)
 {
     int result;
+    int64_t per_elt_limit;
+    int64_t per_capacity;
 
     if (element_limit <= 0) {
         element_limit = 1000 * 1000;
@@ -156,19 +165,179 @@ int opid_htable_init(const int allocator_count, int64_t element_limit,
         return result;
     }
 
-    if ((result=init_opid_shardings(sharding_count, element_limit,
-                    htable_capacity)) != 0)
+    per_elt_limit = (element_limit + sharding_count - 1) / sharding_count;
+    per_capacity = fc_ceil_prime(htable_capacity / sharding_count);
+    if ((result=init_opid_shardings(sharding_count, per_elt_limit,
+                    per_capacity)) != 0)
     {
         return result;
     }
 
-    opid_ctx.min_ttl_ms = min_ttl_ms;
-    opid_ctx.max_ttl_ms = max_ttl_ms;
+    opid_ctx.sharding_reclaim.elt_water_mark = per_elt_limit * 0.01;
+    opid_ctx.sharding_reclaim.min_ttl_ms = min_ttl_ms;
+    opid_ctx.sharding_reclaim.max_ttl_ms = max_ttl_ms;
+    opid_ctx.sharding_reclaim.elt_ttl_ms = (double)(opid_ctx.
+            sharding_reclaim.max_ttl_ms - opid_ctx.
+            sharding_reclaim.min_ttl_ms) / per_elt_limit;
     return 0;
 }
 
-int opid_htable_insert(const pid_t pid, const uint64_t oid,
-        const int64_t offset, int *successive_count)
+static inline int compare_opid(const pid_t pid,
+        const uint64_t oid, const FSAPIOPIDEntry *opid)
 {
-    return 0;
+    int sub;
+    if ((sub=fc_compare_int64(oid, opid->oid)) != 0) {
+        return sub;
+    }
+
+    return (int)pid - (int)opid->pid;
+}
+
+static inline FSAPIOPIDEntry *htable_find(const pid_t pid,
+        const uint64_t oid, struct fc_list_head *bucket)
+{
+    int r;
+    FSAPIOPIDEntry *current;
+
+    fc_list_for_each_entry(current, bucket, dlinks.htable) {
+        r = compare_opid(pid, oid, current);
+        if (r < 0) {
+            return NULL;
+        } else if (r == 0) {
+            return current;
+        }
+    }
+
+    return NULL;
+}
+
+static inline void htable_insert(FSAPIOPIDEntry *entry,
+        struct fc_list_head *bucket)
+{
+    struct fc_list_head *previous;
+    struct fc_list_head *current;
+    FSAPIOPIDEntry *pe;
+
+    previous = bucket;
+    fc_list_for_each(current, bucket) {
+        pe = fc_list_entry(current, FSAPIOPIDEntry, dlinks.htable);
+        if (compare_opid(entry->pid, entry->oid, pe) < 0) {
+            break;
+        }
+
+        previous = current;
+    }
+
+    fc_list_add_internal(&entry->dlinks.htable, previous, previous->next);
+}
+
+static FSAPIOPIDEntry *opid_entry_reclaim(FSAPIOPIDSharding *sharding)
+{
+    int64_t current_ttl_ms;
+    int64_t delta;
+    int reclaim_count;
+    FSAPIOPIDEntry *first;
+    FSAPIOPIDEntry *entry;
+    FSAPIOPIDEntry *tmp;
+
+    if (sharding->element_count < sharding->element_limit) {
+        delta = sharding->element_limit - sharding->element_count;
+    } else {
+        delta = 0;
+    }
+
+    first = NULL;
+    reclaim_count = 0;
+    current_ttl_ms = opid_ctx.sharding_reclaim.max_ttl_ms -
+        opid_ctx.sharding_reclaim.elt_ttl_ms * delta;
+    fc_list_for_each_entry_safe(entry, tmp, &sharding->lru, dlinks.lru) {
+        if (g_current_time_ms - entry->last_write.time_ms <= current_ttl_ms) {
+            break;
+        }
+
+        fc_list_del_init(&entry->dlinks.htable);
+        fc_list_del_init(&entry->dlinks.lru);
+        if (first == NULL) {
+            first = entry;  //keep the first
+        } else {
+            fast_mblock_free_object(sharding->allocator, entry);
+        }
+
+        if (++reclaim_count > opid_ctx.sharding_reclaim.elt_water_mark) {
+            break;
+        }
+    }
+
+    return first;
+}
+
+static inline FSAPIOPIDEntry *opid_entry_alloc(FSAPIOPIDSharding *sharding,
+        const pid_t pid, const uint64_t oid)
+{
+    FSAPIOPIDEntry *entry;
+
+    do {
+        if (sharding->element_count > opid_ctx.sharding_reclaim.
+                elt_water_mark && g_current_time_ms - sharding->
+                last_reclaim_time_ms > 1000)
+        {
+            sharding->last_reclaim_time_ms = g_current_time_ms;
+            if ((entry=opid_entry_reclaim(sharding)) != NULL) {
+                break;
+            }
+        }
+
+        entry = (FSAPIOPIDEntry *)fast_mblock_alloc_object(
+                sharding->allocator);
+        if (entry == NULL) {
+            return NULL;
+        }
+    } while (0);
+
+    entry->pid = pid;
+    entry->oid = oid;
+    return entry;
+}
+
+int opid_htable_insert(const pid_t pid, const uint64_t oid,
+        const int64_t offset, const int length, int *successive_count)
+{
+    FSAPIOPIDSharding *sharding;
+    struct fc_list_head *bucket;
+    FSAPIOPIDEntry *entry;
+    int result;
+
+    sharding = opid_ctx.opid_shardings.entries +
+        oid % opid_ctx.opid_shardings.count;
+    bucket = sharding->hashtable.buckets +
+        oid % sharding->hashtable.capacity;
+
+    PTHREAD_MUTEX_LOCK(&sharding->lock);
+    do {
+        if ((entry=htable_find(pid, oid, bucket)) == NULL) {
+            if ((entry=opid_entry_alloc(sharding, pid, oid)) == NULL) {
+                *successive_count = 0;
+                result = ENOMEM;
+                break;
+            }
+            entry->successive_count = 0;
+            htable_insert(entry, bucket);
+            fc_list_add_tail(&entry->dlinks.lru, &sharding->lru);
+        } else {
+            if (offset == entry->last_write.offset) {
+                entry->successive_count++;
+            } else {
+                entry->successive_count = 0;
+            }
+            fc_list_move_tail(&entry->dlinks.lru, &sharding->lru);
+        }
+
+        *successive_count = entry->successive_count;
+        entry->last_write.offset = offset + length;
+        entry->last_write.time_ms = g_current_time_ms;
+        result = 0;
+    } while (0);
+    PTHREAD_MUTEX_UNLOCK(&sharding->lock);
+
+    return result;
 }
