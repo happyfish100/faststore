@@ -2,14 +2,14 @@
 
 COMPILE = $(CC) $(CFLAGS)
 INC_PATH = -I../common -I../include
-LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon
+LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon -lserverframe
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-FAST_SHARED_OBJS = fs_api.lo opid_htable.lo
+FAST_SHARED_OBJS = fs_api.lo opid_htable.lo time_handler.lo
 
-FAST_STATIC_OBJS = fs_api.o opid_htable.o
+FAST_STATIC_OBJS = fs_api.o opid_htable.o time_handler.o
 
-HEADER_FILES = fs_api.h fs_api_types.h opid_htable.h
+HEADER_FILES = fs_api.h fs_api_types.h opid_htable.h time_handler.h
 
 ALL_OBJS = $(FAST_STATIC_OBJS) $(FAST_SHARED_OBJS)
 
