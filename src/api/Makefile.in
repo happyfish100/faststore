@@ -5,28 +5,28 @@ INC_PATH = -I../common -I../include
 LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon -lserverframe
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-FAST_SHARED_OBJS = fs_api.lo opid_htable.lo time_handler.lo
+API_SHARED_OBJS = fs_api.lo opid_htable.lo time_handler.lo
 
-FAST_STATIC_OBJS = fs_api.o opid_htable.o time_handler.o
+API_STATIC_OBJS = fs_api.o opid_htable.o time_handler.o
 
 HEADER_FILES = fs_api.h fs_api_types.h opid_htable.h time_handler.h
 
-ALL_OBJS = $(FAST_STATIC_OBJS) $(FAST_SHARED_OBJS)
+ALL_OBJS = $(API_STATIC_OBJS) $(API_SHARED_OBJS)
 
-ALL_PRGS = 
+ALL_PRGS = test_opid_htable
 SHARED_LIBS = libfsapi.so
 STATIC_LIBS = libfsapi.a
 ALL_LIBS = $(SHARED_LIBS) $(STATIC_LIBS)
 
 all: $(ALL_OBJS) $(ALL_PRGS) $(ALL_LIBS)
-libfsapi.so: $(FAST_SHARED_OBJS)
-	$(COMPILE) -o $@ -shared $(FAST_SHARED_OBJS) $(LIB_PATH)
-libfsapi.a: $(FAST_STATIC_OBJS)
-	ar rcs $@ $(FAST_STATIC_OBJS)
+libfsapi.so: $(API_SHARED_OBJS)
+	$(COMPILE) -o $@ -shared $(API_SHARED_OBJS) $(LIB_PATH)
+libfsapi.a: $(API_STATIC_OBJS)
+	ar rcs $@ $(API_STATIC_OBJS)
 .o:
-	$(COMPILE) -o $@ $<  $(FAST_STATIC_OBJS) $(LIB_PATH) $(INC_PATH)
+	$(COMPILE) -o $@ $<  $(API_STATIC_OBJS) $(LIB_PATH) $(INC_PATH)
 .c:
-	$(COMPILE) -o $@ $<  $(FAST_STATIC_OBJS) $(LIB_PATH) $(INC_PATH)
+	$(COMPILE) -o $@ $<  $(API_STATIC_OBJS) $(LIB_PATH) $(INC_PATH)
 .c.o:
 	$(COMPILE) -c -o $@ $<  $(INC_PATH)
 .c.lo:
