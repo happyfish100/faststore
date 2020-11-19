@@ -16,18 +16,19 @@
 #ifndef _OPID_HTABLE_H
 #define _OPID_HTABLE_H
 
-#include "fastcommon/fc_list.h"
 #include "fs_api_types.h"
+#include "sharding_htable.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int opid_htable_init(const int allocator_count, int64_t element_limit,
-            const int sharding_count, const int64_t htable_capacity,
+    int opid_htable_init(const int sharding_count,
+            const int64_t htable_capacity,
+            const int allocator_count, int64_t element_limit,
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
-    int opid_htable_insert(const pid_t pid, const uint64_t oid,
+    int opid_htable_insert(const FSAPITwoIdsHashKey *key,
             const int64_t offset, const int length, int *successive_count);
 
 #ifdef __cplusplus

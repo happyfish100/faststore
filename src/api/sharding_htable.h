@@ -97,8 +97,8 @@ extern "C" {
             int64_t element_limit, const int64_t min_ttl_ms,
             const int64_t max_ttl_ms);
 
-    int sharding_htable_insert(FSAPIHtableShardingContext *sharding_ctx,
-            const FSAPITwoIdsHashKey *key, void *arg);
+    FSAPIHashEntry *sharding_htable_insert(FSAPIHtableShardingContext
+            *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg);
 
 #ifdef __cplusplus
 }

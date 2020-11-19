@@ -14,8 +14,7 @@
 volatile int thread_count = 0;
 void *thread_run(void *arg)
 {
-    uint64_t oid = 123456;
-    pid_t pid;
+    FSAPITwoIdsHashKey key;
     int64_t offset;
     int length;
     int successive_count;
@@ -23,18 +22,19 @@ void *thread_run(void *arg)
     int result;
 
     __sync_add_and_fetch(&thread_count, 1);
-    pid = getpid();
     offset = 0;
     length = 8192;
+
+    key.oid = 123456;
+    key.pid = getpid();
     for (i=0; i<50 * 1000 * 1000; i++) {
-        if (i % 10 == 0) {
-            oid++;
+        if (i % 1000 == 0) {
+            key.oid++;
             offset += length / 2;
         } else {
             offset += length;
         }
-        result = opid_htable_insert(pid, oid,
-                offset, length, &successive_count);
+        result = opid_htable_insert(&key, offset, length, &successive_count);
         /*
         printf("g_current_time_ms: %"PRId64", result: %d, "
                 "successive_count: %d\n", g_current_time_ms,
@@ -71,8 +71,9 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=opid_htable_init(allocator_count, element_limit,
-            sharding_count, htable_capacity, min_ttl_ms, max_ttl_ms)) != 0)
+    if ((result=opid_htable_init(sharding_count, htable_capacity,
+                    allocator_count, element_limit,
+                    min_ttl_ms, max_ttl_ms)) != 0)
     {
         return result;
     }

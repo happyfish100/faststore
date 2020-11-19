@@ -284,14 +284,13 @@ static inline FSAPIHashEntry *htable_entry_alloc(
     return entry;
 }
 
-int sharding_htable_insert(FSAPIHtableShardingContext *sharding_ctx,
-        const FSAPITwoIdsHashKey *key, void *arg)
+FSAPIHashEntry *sharding_htable_insert(FSAPIHtableShardingContext
+        *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg)
 {
     FSAPIHtableSharding *sharding;
     struct fc_list_head *bucket;
     FSAPIHashEntry *entry;
     uint64_t hash_code;
-    int result;
     bool new_create;
 
     hash_code = key->id1 + key->id2;
@@ -304,7 +303,6 @@ int sharding_htable_insert(FSAPIHtableShardingContext *sharding_ctx,
     do {
         if ((entry=htable_find(key, bucket)) == NULL) {
             if ((entry=htable_entry_alloc(sharding)) == NULL) {
-                result = ENOMEM;
                 break;
             }
 
@@ -317,10 +315,10 @@ int sharding_htable_insert(FSAPIHtableShardingContext *sharding_ctx,
             fc_list_move_tail(&entry->dlinks.lru, &sharding->lru);
         }
 
+        entry->last_update_time_ms = g_current_time_ms;
         sharding_ctx->set_entry_callback(entry, arg, new_create);
-        result = 0;
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&sharding->lock);
 
-    return result;
+    return entry;
 }
