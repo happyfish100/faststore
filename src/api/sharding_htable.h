@@ -16,7 +16,6 @@
 #ifndef _SHARDING_HTABLE_H
 #define _SHARDING_HTABLE_H
 
-#include "fastcommon/fc_list.h"
 #include "fs_api_types.h"
 
 struct fs_api_hash_entry;

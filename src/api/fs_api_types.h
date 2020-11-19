@@ -19,7 +19,39 @@
 #include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "fastcommon/fc_list.h"
+#include "fastcommon/pthread_func.h"
 #include "faststore/client/fs_client.h"
+
+struct fs_api_waiting_task;
+struct fs_api_combined_writer;
+
+typedef struct fs_api_waiting_task_writer_pair {
+    struct fs_api_waiting_task *task;
+    struct fs_api_combined_writer *writer;
+    struct fc_list_head dlink;
+} FSAPIWaitingTaskWriterPair;
+
+typedef struct fs_api_waiting_task {
+    pthread_lock_cond_pair_t lcp;  //for notify
+    struct {
+        FSAPIWaitingTaskWriterPair fixed_node; //for only one writer
+        struct fc_list_head head;   //element: FSAPIWaitingTaskWriterPair
+    } waitings;
+    struct fs_api_waiting_task *next; //for waiting list in FSAPICombinedWriter
+} FSAPIWaitingTask;
+
+typedef struct fs_api_combined_writer {
+    int64_t oid;    //object id
+    int64_t offset;
+    int length;    //data length
+    int size;      //allocate size
+    char *buff;
+    pthread_mutex_t lock;
+    struct {
+        FSAPIWaitingTaskWriterPair *head;
+    } waitings;
+} FSAPICombinedWriter;
 
 typedef struct fs_api_context {
     FSClientContext *fs;
