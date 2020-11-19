@@ -17,6 +17,20 @@
 #include "time_handler.h"
 #include "opid_htable.h"
 
+typedef struct fs_api_opid_entry {
+    uint64_t oid;  //object id such as inode
+    pid_t pid;
+    int successive_count;
+    struct {
+        int64_t offset;
+        int64_t time_ms;
+    } last_write;
+    struct {
+        struct fc_list_head htable;  //for hashtable
+        struct fc_list_head lru;     //for LRU chain
+    } dlinks;
+} FSAPIOPIDEntry;
+
 typedef struct fs_api_opid_hashtable {
     struct fc_list_head *buckets;
     int64_t capacity;
@@ -173,7 +187,7 @@ int opid_htable_init(const int allocator_count, int64_t element_limit,
         return result;
     }
 
-    opid_ctx.sharding_reclaim.elt_water_mark = per_elt_limit * 0.01;
+    opid_ctx.sharding_reclaim.elt_water_mark = per_elt_limit * 0.10;
     opid_ctx.sharding_reclaim.min_ttl_ms = min_ttl_ms;
     opid_ctx.sharding_reclaim.max_ttl_ms = max_ttl_ms;
     opid_ctx.sharding_reclaim.elt_ttl_ms = (double)(opid_ctx.

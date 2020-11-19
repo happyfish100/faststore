@@ -19,20 +19,6 @@
 #include "fastcommon/fc_list.h"
 #include "fs_api_types.h"
 
-typedef struct fs_api_opid_entry {
-    uint64_t oid;  //object id such as inode
-    pid_t pid;
-    int successive_count;
-    struct {
-        int64_t offset;
-        int64_t time_ms;
-    } last_write;
-    struct {
-        struct fc_list_head htable;  //for hashtable
-        struct fc_list_head lru;     //for LRU chain
-    } dlinks;
-} FSAPIOPIDEntry;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
