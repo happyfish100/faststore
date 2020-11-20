@@ -29,6 +29,7 @@ struct fs_api_combined_writer;
 typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_waiting_task *task;
     struct fs_api_combined_writer *writer;
+    struct fast_mblock_man *allocator;   //for free
     struct fc_list_head dlink;
 } FSAPIWaitingTaskWriterPair;
 
@@ -38,6 +39,7 @@ typedef struct fs_api_waiting_task {
         FSAPIWaitingTaskWriterPair fixed_pair; //for only one writer
         struct fc_list_head head;   //element: FSAPIWaitingTaskWriterPair
     } waitings;
+    struct fast_mblock_man *allocator;   //for free
     struct fs_api_waiting_task *next; //for waiting list in FSAPICombinedWriter
 } FSAPIWaitingTask;
 
@@ -51,6 +53,7 @@ typedef struct fs_api_combined_writer {
     struct {
         FSAPIWaitingTaskWriterPair *head;
     } waitings;
+    struct fast_mblock_man *allocator;   //for free
 } FSAPICombinedWriter;
 
 typedef struct fs_api_context {
