@@ -35,7 +35,7 @@ typedef struct fs_api_waiting_task_writer_pair {
 typedef struct fs_api_waiting_task {
     pthread_lock_cond_pair_t lcp;  //for notify
     struct {
-        FSAPIWaitingTaskWriterPair fixed_node; //for only one writer
+        FSAPIWaitingTaskWriterPair fixed_pair; //for only one writer
         struct fc_list_head head;   //element: FSAPIWaitingTaskWriterPair
     } waitings;
     struct fs_api_waiting_task *next; //for waiting list in FSAPICombinedWriter

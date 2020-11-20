@@ -20,6 +20,7 @@ typedef struct fs_api_opid_entry {
     FSAPIHashEntry hentry;  //must be the first
     int successive_count;
     int64_t last_write_offset;
+    FSAPICombinedWriter *writer;
 } FSAPIOPIDEntry;
 
 typedef struct fs_api_set_entry_callback_arg {
@@ -30,7 +31,7 @@ typedef struct fs_api_set_entry_callback_arg {
 
 static FSAPIHtableShardingContext opid_ctx;
 
-static void opid_htable_set_entry(struct fs_api_hash_entry *he,
+static void *opid_htable_set_entry(struct fs_api_hash_entry *he,
         void *arg, const bool new_create)
 {
     FSAPIOPIDEntry *entry;
@@ -49,6 +50,7 @@ static void opid_htable_set_entry(struct fs_api_hash_entry *he,
     }
     *callback_arg->successive_count = entry->successive_count;
     entry->last_write_offset = callback_arg->offset + callback_arg->length;
+    return entry;
 }
 
 int opid_htable_init(const int sharding_count,
@@ -57,7 +59,7 @@ int opid_htable_init(const int sharding_count,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms)
 {
     return sharding_htable_init(&opid_ctx, opid_htable_set_entry,
-            sharding_count, htable_capacity, allocator_count,
+            NULL, sharding_count, htable_capacity, allocator_count,
             sizeof(FSAPIOPIDEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 

@@ -116,6 +116,7 @@ static int init_sharding_array(FSAPIHtableShardingContext *sharding_ctx,
 
 int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
         fs_api_sharding_htable_set_entry_callback set_entry_callback,
+        fs_api_sharding_htable_find_callback find_callback,
         const int sharding_count, const int64_t htable_capacity,
         const int allocator_count, const int element_size,
         int64_t element_limit, const int64_t min_ttl_ms,
@@ -143,6 +144,7 @@ int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
     }
 
     sharding_ctx->set_entry_callback = set_entry_callback;
+    sharding_ctx->find_callback = find_callback;
     sharding_ctx->sharding_reclaim.elt_water_mark = per_elt_limit * 0.10;
     sharding_ctx->sharding_reclaim.min_ttl_ms = min_ttl_ms;
     sharding_ctx->sharding_reclaim.max_ttl_ms = max_ttl_ms;
@@ -284,25 +286,49 @@ static inline FSAPIHashEntry *htable_entry_alloc(
     return entry;
 }
 
-FSAPIHashEntry *sharding_htable_insert(FSAPIHtableShardingContext
+#define SET_SHARDING_AND_BUCKET(sharding_ctx, key) \
+    FSAPIHtableSharding *sharding; \
+    struct fc_list_head *bucket;   \
+    FSAPIHashEntry *entry; \
+    uint64_t hash_code;    \
+    \
+    hash_code = key->id1 + key->id2;  \
+    sharding = sharding_ctx->sharding_array.entries +   \
+        hash_code % sharding_ctx->sharding_array.count; \
+    bucket = sharding->hashtable.buckets +   \
+        key->id1 % sharding->hashtable.capacity
+
+
+void *sharding_htable_find(FSAPIHtableShardingContext
         *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg)
 {
-    FSAPIHtableSharding *sharding;
-    struct fc_list_head *bucket;
-    FSAPIHashEntry *entry;
-    uint64_t hash_code;
-    bool new_create;
+    void *data;
+    SET_SHARDING_AND_BUCKET(sharding_ctx, key);
 
-    hash_code = key->id1 + key->id2;
-    sharding = sharding_ctx->sharding_array.entries +
-        hash_code % sharding_ctx->sharding_array.count;
-    bucket = sharding->hashtable.buckets +
-        key->id1 % sharding->hashtable.capacity;
+    PTHREAD_MUTEX_LOCK(&sharding->lock);
+    entry = htable_find(key, bucket);
+    if (entry != NULL && sharding_ctx->find_callback != NULL) {
+        data = sharding_ctx->find_callback(entry, arg);
+    } else {
+        data = entry;
+    }
+    PTHREAD_MUTEX_UNLOCK(&sharding->lock);
+
+    return data;
+}
+
+void *sharding_htable_insert(FSAPIHtableShardingContext
+        *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg)
+{
+    bool new_create;
+    void *data;
+    SET_SHARDING_AND_BUCKET(sharding_ctx, key);
 
     PTHREAD_MUTEX_LOCK(&sharding->lock);
     do {
         if ((entry=htable_find(key, bucket)) == NULL) {
             if ((entry=htable_entry_alloc(sharding)) == NULL) {
+                data = NULL;
                 break;
             }
 
@@ -316,9 +342,9 @@ FSAPIHashEntry *sharding_htable_insert(FSAPIHtableShardingContext
         }
 
         entry->last_update_time_ms = g_current_time_ms;
-        sharding_ctx->set_entry_callback(entry, arg, new_create);
+        data = sharding_ctx->set_entry_callback(entry, arg, new_create);
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&sharding->lock);
 
-    return entry;
+    return data;
 }

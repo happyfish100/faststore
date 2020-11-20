@@ -5,12 +5,14 @@ INC_PATH = -I../common -I../include
 LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon -lserverframe
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-API_SHARED_OBJS = fs_api.lo sharding_htable.lo opid_htable.lo time_handler.lo
+API_SHARED_OBJS = fs_api.lo sharding_htable.lo opid_htable.lo obid_htable.lo \
+                  time_handler.lo
 
-API_STATIC_OBJS = fs_api.o sharding_htable.o opid_htable.o time_handler.o
+API_STATIC_OBJS = fs_api.o sharding_htable.o opid_htable.o obid_htable.o \
+                  time_handler.o
 
 HEADER_FILES = fs_api.h fs_api_types.h sharding_htable.h opid_htable.h \
-               time_handler.h
+               obid_htable.h time_handler.h
 
 ALL_OBJS = $(API_STATIC_OBJS) $(API_SHARED_OBJS)
 

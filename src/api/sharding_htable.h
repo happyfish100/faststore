@@ -19,9 +19,12 @@
 #include "fs_api_types.h"
 
 struct fs_api_hash_entry;
-typedef void (*fs_api_sharding_htable_set_entry_callback)
+typedef void *(*fs_api_sharding_htable_set_entry_callback)
     (struct fs_api_hash_entry *entry, void *arg,
      const bool new_create);
+
+typedef void *(*fs_api_sharding_htable_find_callback)
+    (struct fs_api_hash_entry *entry, void *arg);
 
 typedef struct fs_api_two_ids_hash_key {
     union {
@@ -81,6 +84,7 @@ typedef struct fs_api_htable_sharding_context {
     } allocators;
 
     fs_api_sharding_htable_set_entry_callback set_entry_callback;
+    fs_api_sharding_htable_find_callback find_callback;
     FSAPIHtableShardingArray sharding_array;
 } FSAPIHtableShardingContext;
 
@@ -91,12 +95,16 @@ extern "C" {
 
     int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
             fs_api_sharding_htable_set_entry_callback set_entry_callback,
+            fs_api_sharding_htable_find_callback find_callback,
             const int sharding_count, const int64_t htable_capacity,
             const int allocator_count, const int element_size,
             int64_t element_limit, const int64_t min_ttl_ms,
             const int64_t max_ttl_ms);
 
-    FSAPIHashEntry *sharding_htable_insert(FSAPIHtableShardingContext
+    void *sharding_htable_insert(FSAPIHtableShardingContext
+            *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg);
+
+    void *sharding_htable_find(FSAPIHtableShardingContext
             *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg);
 
 #ifdef __cplusplus
