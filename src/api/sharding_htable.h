@@ -19,8 +19,11 @@
 #include "fs_api_types.h"
 
 struct fs_api_hash_entry;
-typedef void *(*fs_api_sharding_htable_set_entry_callback)
+struct fs_api_htable_sharding;
+
+typedef void *(*fs_api_sharding_htable_insert_callback)
     (struct fs_api_hash_entry *entry, void *arg,
+     struct fs_api_htable_sharding *sharding,
      const bool new_create);
 
 typedef void *(*fs_api_sharding_htable_find_callback)
@@ -34,7 +37,7 @@ typedef struct fs_api_two_ids_hash_key {
 
     union {
         uint64_t id2;
-        pid_t pid;
+        uint64_t tid;  //thread id
         uint64_t bid;  //file block id
     };
 } FSAPITwoIdsHashKey;
@@ -83,7 +86,7 @@ typedef struct fs_api_htable_sharding_context {
         struct fast_mblock_man *elts;
     } allocators;
 
-    fs_api_sharding_htable_set_entry_callback set_entry_callback;
+    fs_api_sharding_htable_insert_callback insert_callback;
     fs_api_sharding_htable_find_callback find_callback;
     FSAPIHtableShardingArray sharding_array;
 } FSAPIHtableShardingContext;
@@ -94,7 +97,7 @@ extern "C" {
 #endif
 
     int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
-            fs_api_sharding_htable_set_entry_callback set_entry_callback,
+            fs_api_sharding_htable_insert_callback insert_callback,
             fs_api_sharding_htable_find_callback find_callback,
             const int sharding_count, const int64_t htable_capacity,
             const int allocator_count, const int element_size,

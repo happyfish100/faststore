@@ -40,6 +40,13 @@ static int combined_writer_alloc_init(void *element, void *arg)
     return 0;
 }
 
+static int slice_entry_alloc_init(void *element, void *arg)
+{
+    ((FSAPISliceEntry *)element)->allocator =
+        (struct fast_mblock_man *)arg;
+    return 0;
+}
+
 static int init_allocator_context(FSAPIAllocatorContext *ctx)
 {
     int result;
@@ -64,6 +71,14 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
                     "combined_writer", sizeof(FSAPICombinedWriter),
                     1024, 0, combined_writer_alloc_init,
                     &ctx->combined_writer, true)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&ctx->slice_entry,
+                    "slice_entry", sizeof(FSAPISliceEntry),
+                    8192, 0, slice_entry_alloc_init,
+                    &ctx->slice_entry, true)) != 0)
     {
         return result;
     }

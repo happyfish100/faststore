@@ -26,9 +26,8 @@ extern "C" {
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         const int64_t file_size);
 
-int fs_api_slice_write(FSAPIContext *api_ctx, const pid_t pid,
-        const FSBlockSliceKeyInfo *bs_key, const char *data,
-        int *write_bytes, int *inc_alloc);
+int fs_api_slice_write(FSAPIContext *api_ctx, FSAPIOperationContext *op_ctx,
+        const char *data, int *write_bytes, int *inc_alloc);
 
 int fs_api_slice_read(FSAPIContext *api_ctx,
         const FSBlockSliceKeyInfo *bs_key,

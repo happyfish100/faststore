@@ -14,9 +14,9 @@
  */
 
 #include <stdlib.h>
-#include "opid_htable.h"
+#include "otid_htable.h"
 
-typedef struct fs_api_opid_entry {
+typedef struct fs_api_otid_entry {
     FSAPIHashEntry hentry;  //must be the first
     int successive_count;
     int64_t last_write_offset;
@@ -29,10 +29,10 @@ typedef struct fs_api_set_entry_callback_arg {
     int *successive_count;
 } FSAPIOPIDSetEntryCallbackArg;
 
-static FSAPIHtableShardingContext opid_ctx;
+static FSAPIHtableShardingContext otid_ctx;
 
-static void *opid_htable_set_entry(struct fs_api_hash_entry *he,
-        void *arg, const bool new_create)
+static void *otid_htable_insert_callback(struct fs_api_hash_entry *he,
+        void *arg, FSAPIHtableSharding *sharding, const bool new_create)
 {
     FSAPIOPIDEntry *entry;
     FSAPIOPIDSetEntryCallbackArg *callback_arg;
@@ -53,17 +53,17 @@ static void *opid_htable_set_entry(struct fs_api_hash_entry *he,
     return entry;
 }
 
-int opid_htable_init(const int sharding_count,
+int otid_htable_init(const int sharding_count,
         const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms)
 {
-    return sharding_htable_init(&opid_ctx, opid_htable_set_entry,
+    return sharding_htable_init(&otid_ctx, otid_htable_insert_callback,
             NULL, sharding_count, htable_capacity, allocator_count,
             sizeof(FSAPIOPIDEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 
-int opid_htable_insert(const FSAPITwoIdsHashKey *key,
+int otid_htable_insert(const FSAPITwoIdsHashKey *key,
         const int64_t offset, const int length, int *successive_count)
 {
     FSAPIOPIDSetEntryCallbackArg callback_arg;
@@ -73,7 +73,7 @@ int opid_htable_insert(const FSAPITwoIdsHashKey *key,
     callback_arg.length = length;
     callback_arg.successive_count = successive_count;
     if ((entry=(FSAPIOPIDEntry *)sharding_htable_insert(
-                    &opid_ctx, key, &callback_arg)) != NULL)
+                    &otid_ctx, key, &callback_arg)) != NULL)
     {
         return 0;
     } else {

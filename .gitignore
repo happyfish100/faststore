@@ -39,7 +39,7 @@ src/client/tools/fs_write
 src/client/tools/fs_read
 src/client/tools/fs_delete
 src/client/tests/test_slice_rw
-src/api/test_opid_htable
+src/api/test_otid_htable
 
 # other
 logs

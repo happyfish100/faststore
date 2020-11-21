@@ -9,7 +9,7 @@
 #include "fastcommon/shared_func.h"
 #include "sf/sf_global.h"
 #include "time_handler.h"
-#include "opid_htable.h"
+#include "otid_htable.h"
 
 volatile int thread_count = 0;
 void *thread_run(void *arg)
@@ -26,7 +26,7 @@ void *thread_run(void *arg)
     length = 8192;
 
     key.oid = 123456;
-    key.pid = getpid();
+    key.tid = getpid();
     for (i=0; i<50 * 1000 * 1000; i++) {
         if (i % 1000 == 0) {
             key.oid++;
@@ -34,7 +34,7 @@ void *thread_run(void *arg)
         } else {
             offset += length;
         }
-        result = opid_htable_insert(&key, offset, length, &successive_count);
+        result = otid_htable_insert(&key, offset, length, &successive_count);
         /*
         printf("g_current_time_ms: %"PRId64", result: %d, "
                 "successive_count: %d\n", g_current_time_ms,
@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=opid_htable_init(sharding_count, htable_capacity,
+    if ((result=otid_htable_init(sharding_count, htable_capacity,
                     allocator_count, element_limit,
                     min_ttl_ms, max_ttl_ms)) != 0)
     {

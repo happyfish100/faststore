@@ -115,7 +115,7 @@ static int init_sharding_array(FSAPIHtableShardingContext *sharding_ctx,
 }
 
 int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
-        fs_api_sharding_htable_set_entry_callback set_entry_callback,
+        fs_api_sharding_htable_insert_callback insert_callback,
         fs_api_sharding_htable_find_callback find_callback,
         const int sharding_count, const int64_t htable_capacity,
         const int allocator_count, const int element_size,
@@ -143,7 +143,7 @@ int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
         return result;
     }
 
-    sharding_ctx->set_entry_callback = set_entry_callback;
+    sharding_ctx->insert_callback = insert_callback;
     sharding_ctx->find_callback = find_callback;
     sharding_ctx->sharding_reclaim.elt_water_mark = per_elt_limit * 0.10;
     sharding_ctx->sharding_reclaim.min_ttl_ms = min_ttl_ms;
@@ -210,7 +210,7 @@ static inline void htable_insert(FSAPIHashEntry *entry,
     fc_list_add_internal(&entry->dlinks.htable, previous, previous->next);
 }
 
-static FSAPIHashEntry *opid_entry_reclaim(FSAPIHtableSharding *sharding)
+static FSAPIHashEntry *otid_entry_reclaim(FSAPIHtableSharding *sharding)
 {
     int64_t reclaim_ttl_ms;
     int64_t delta;
@@ -272,7 +272,7 @@ static inline FSAPIHashEntry *htable_entry_alloc(
             last_reclaim_time_ms > 1000)
     {
         sharding->last_reclaim_time_ms = g_current_time_ms;
-        if ((entry=opid_entry_reclaim(sharding)) != NULL) {
+        if ((entry=otid_entry_reclaim(sharding)) != NULL) {
             return entry;
         }
     }
@@ -342,7 +342,8 @@ void *sharding_htable_insert(FSAPIHtableShardingContext
         }
 
         entry->last_update_time_ms = g_current_time_ms;
-        data = sharding_ctx->set_entry_callback(entry, arg, new_create);
+        data = sharding_ctx->insert_callback(
+                entry, arg, sharding, new_create);
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&sharding->lock);
 

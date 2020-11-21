@@ -23,12 +23,12 @@
 extern "C" {
 #endif
 
-    int opid_htable_init(const int sharding_count,
+    int otid_htable_init(const int sharding_count,
             const int64_t htable_capacity,
             const int allocator_count, int64_t element_limit,
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
-    int opid_htable_insert(const FSAPITwoIdsHashKey *key,
+    int otid_htable_insert(const FSAPITwoIdsHashKey *key,
             const int64_t offset, const int length, int *successive_count);
 
 #ifdef __cplusplus

@@ -23,8 +23,18 @@
 #include "fastcommon/pthread_func.h"
 #include "faststore/client/fs_client.h"
 
+struct fs_api_block_entry;
 struct fs_api_waiting_task;
 struct fs_api_combined_writer;
+struct fs_api_allocator_context;
+
+typedef struct fs_api_slice_entry {
+    struct fs_api_block_entry *block;
+    FSSliceSize ssize;
+    struct fs_api_combined_writer *writer;
+    struct fast_mblock_man *allocator;   //for free, set by fast_mblock
+    struct fc_list_head dlink;   //for block
+} FSAPISliceEntry;
 
 typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_waiting_task *task;
@@ -55,6 +65,13 @@ typedef struct fs_api_combined_writer {
     } waitings;
     struct fast_mblock_man *allocator;   //for free
 } FSAPICombinedWriter;
+
+typedef struct fs_api_operation_context {
+    uint64_t tid;  //thread id
+    uint64_t bid;  //file block id
+    FSBlockSliceKeyInfo bs_key;
+    struct fs_api_allocator_context *allocator_ctx;
+} FSAPIOperationContext;
 
 typedef struct fs_api_context {
     FSClientContext *fs;

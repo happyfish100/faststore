@@ -24,6 +24,7 @@ typedef struct fs_api_allocator_context {
     struct fast_mblock_man task_writer_pair; //element: FSAPIWaitingTaskWriterPair
     struct fast_mblock_man waiting_task;     //element: FSAPIWaitingTask
     struct fast_mblock_man combined_writer;  //element: FSAPICombinedWriter
+    struct fast_mblock_man slice_entry;      //element: FSAPISliceEntry
 } FSAPIAllocatorContext;
 
 typedef struct fs_api_allocator_ctx_array {

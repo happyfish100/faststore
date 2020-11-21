@@ -19,19 +19,12 @@
 #include "fs_api_types.h"
 #include "sharding_htable.h"
 
-struct fs_api_block_entry;
-
-typedef struct fs_api_slice_entry {
-    struct fs_api_block_entry *block;
-    FSSliceSize ssize;
-    FSAPICombinedWriter *writer;
-} FSAPISliceEntry;
-
 typedef struct fs_api_block_entry {
     FSAPIHashEntry hentry; //must be the first
     struct {
-        struct fc_list_head head;
+        struct fc_list_head head;  //element: FSAPISliceEntry
     } slices;
+    FSAPIHtableSharding *sharding;
 } FSAPIBlockEntry;
 
 #ifdef __cplusplus

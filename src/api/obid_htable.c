@@ -23,20 +23,33 @@ typedef struct fs_api_set_entry_callback_arg {
     FSAPICombinedWriter *writer;
 } FSAPISetEntryCallbackArg;
 
-static void *obid_htable_set_entry_callback(struct fs_api_hash_entry *he,
-        void *arg, const bool new_create)
+static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
+        void *arg, FSAPIHtableSharding *sharding, const bool new_create)
 {
-    FSAPIBlockEntry *entry;
+    FSAPIBlockEntry *block;
+    FSAPISliceEntry *slice;
+    bool empty;
     FSAPISetEntryCallbackArg *callback_arg;
 
-    entry = (FSAPIBlockEntry *)he;
+    block = (FSAPIBlockEntry *)he;
     callback_arg = (FSAPISetEntryCallbackArg *)arg;
     if (new_create) {
+        block->sharding = sharding;
+        FC_INIT_LIST_HEAD(&block->slices.head);
+        empty = true;
     } else {
+        empty = fc_list_empty(&block->slices.head);
+        if (!empty) {
+            fc_list_for_each_entry(slice, &block->slices.head, dlink) {
+            }
+        }
     }
 
     //TODO
-    return entry;
+    slice = NULL;
+    fc_list_add(&slice->dlink, &block->slices.head);
+
+    return slice;
 }
 
 static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
@@ -57,7 +70,7 @@ int obid_htable_init(const int sharding_count,
         const int allocator_count, int64_t element_limit,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms)
 {
-    return sharding_htable_init(&obid_ctx, obid_htable_set_entry_callback,
+    return sharding_htable_init(&obid_ctx, obid_htable_insert_callback,
             obid_htable_find_callback, sharding_count, htable_capacity,
             allocator_count, sizeof(FSAPIBlockEntry), element_limit,
             min_ttl_ms, max_ttl_ms);
