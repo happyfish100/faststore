@@ -19,31 +19,46 @@
 
 FSAPIAllocatorCtxArray g_allocator_array;
 
-static int task_writer_pair_alloc_init(void *element, void *arg)
+static int task_writer_pair_alloc_init(FSAPIWaitingTaskWriterPair
+        *task_writer_pair, void *arg)
 {
-    ((FSAPIWaitingTaskWriterPair *)element)->allocator =
-        (struct fast_mblock_man *)arg;
+    task_writer_pair->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
 
-static int waiting_task_alloc_init(void *element, void *arg)
+static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
 {
-    ((FSAPIWaitingTask *)element)->allocator =
-        (struct fast_mblock_man *)arg;
+    int result;
+
+    if ((result=init_pthread_lock_cond_pair(&task->lcp)) != 0) {
+        return result;
+    }
+
+    FC_INIT_LIST_HEAD(&task->waitings.head);
+    task->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
 
-static int combined_writer_alloc_init(void *element, void *arg)
+static int combined_writer_alloc_init(FSAPICombinedWriter *writer, void *arg)
 {
-    ((FSAPICombinedWriter *)element)->allocator =
-        (struct fast_mblock_man *)arg;
+    int result;
+
+    if ((result=init_pthread_lock(&writer->lock)) != 0) {
+        return result;
+    }
+
+    writer->buff = (char *)malloc(FS_FILE_BLOCK_SIZE);
+    if (writer->buff == NULL) {
+        return ENOMEM;
+    }
+
+    writer->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
 
-static int slice_entry_alloc_init(void *element, void *arg)
+static int slice_entry_alloc_init(FSAPISliceEntry *slice, void *arg)
 {
-    ((FSAPISliceEntry *)element)->allocator =
-        (struct fast_mblock_man *)arg;
+    slice->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
 
@@ -53,31 +68,32 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
 
     if ((result=fast_mblock_init_ex1(&ctx->task_writer_pair,
                     "task_writer_pair", sizeof(FSAPIWaitingTaskWriterPair),
-                    4096, 0, task_writer_pair_alloc_init,
+                    4096, 0, (fast_mblock_alloc_init_func)
+                    task_writer_pair_alloc_init,
                     &ctx->task_writer_pair, true)) != 0)
     {
         return result;
     }
 
     if ((result=fast_mblock_init_ex1(&ctx->waiting_task,
-                    "waiting_task", sizeof(FSAPIWaitingTask),
-                    2048, 0, waiting_task_alloc_init,
+                    "waiting_task", sizeof(FSAPIWaitingTask), 1024, 0,
+                    (fast_mblock_alloc_init_func)waiting_task_alloc_init,
                     &ctx->waiting_task, true)) != 0)
     {
         return result;
     }
 
     if ((result=fast_mblock_init_ex1(&ctx->combined_writer,
-                    "combined_writer", sizeof(FSAPICombinedWriter),
-                    1024, 0, combined_writer_alloc_init,
+                    "combined_writer", sizeof(FSAPICombinedWriter), 4, 0,
+                    (fast_mblock_alloc_init_func)combined_writer_alloc_init,
                     &ctx->combined_writer, true)) != 0)
     {
         return result;
     }
 
     if ((result=fast_mblock_init_ex1(&ctx->slice_entry,
-                    "slice_entry", sizeof(FSAPISliceEntry),
-                    8192, 0, slice_entry_alloc_init,
+                    "slice_entry", sizeof(FSAPISliceEntry), 4096, 0,
+                    (fast_mblock_alloc_init_func)slice_entry_alloc_init,
                     &ctx->slice_entry, true)) != 0)
     {
         return result;

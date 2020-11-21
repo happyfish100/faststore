@@ -14,10 +14,10 @@
 volatile int thread_count = 0;
 void *thread_run(void *arg)
 {
-    FSAPITwoIdsHashKey key;
+    FSAPIOperationContext op_ctx;
+    int successive_count;
     int64_t offset;
     int length;
-    int successive_count;
     int i;
     int result;
 
@@ -25,21 +25,26 @@ void *thread_run(void *arg)
     offset = 0;
     length = 8192;
 
-    key.oid = 123456;
-    key.tid = getpid();
-    for (i=0; i<50 * 1000 * 1000; i++) {
-        if (i % 1000 == 0) {
-            key.oid++;
+    offset = 0;
+    op_ctx.bs_key.block.oid = 123456;
+    op_ctx.bs_key.slice.length = length;
+    op_ctx.tid = getpid();
+    for (i=0; i<5 * 1000 * 1000; i++) {
+        if (i % 10000 == 0) {
+            op_ctx.bs_key.block.oid++;
             offset += length / 2;
         } else {
             offset += length;
         }
-        result = otid_htable_insert(&key, offset, length, &successive_count);
+
+        op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
+        op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
+        result = otid_htable_insert(&op_ctx, &successive_count);
         /*
         printf("g_current_time_ms: %"PRId64", result: %d, "
                 "successive_count: %d\n", g_current_time_ms,
                 result, successive_count);
-        */
+                */
 
         if (i % 10000 == 0) {
             fc_sleep_ms(10);

@@ -21,35 +21,38 @@ typedef struct fs_api_otid_entry {
     int successive_count;
     int64_t last_write_offset;
     FSAPICombinedWriter *writer;
-} FSAPIOPIDEntry;
+} FSAPIOTIDEntry;
 
-typedef struct fs_api_set_entry_callback_arg {
-    int64_t offset;
-    int length;
+typedef struct fs_api_opid_insert_callback_arg {
+    FSAPIOperationContext *op_ctx;
     int *successive_count;
-} FSAPIOPIDSetEntryCallbackArg;
+} FSAPIOTIDInsertCallbackArg;
 
 static FSAPIHtableShardingContext otid_ctx;
 
 static void *otid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, FSAPIHtableSharding *sharding, const bool new_create)
 {
-    FSAPIOPIDEntry *entry;
-    FSAPIOPIDSetEntryCallbackArg *callback_arg;
+    FSAPIOTIDEntry *entry;
+    FSAPIOTIDInsertCallbackArg *callback_arg;
+    int64_t offset;
 
-    entry = (FSAPIOPIDEntry *)he;
-    callback_arg = (FSAPIOPIDSetEntryCallbackArg *)arg;
+    entry = (FSAPIOTIDEntry *)he;
+    callback_arg = (FSAPIOTIDInsertCallbackArg *)arg;
+    offset = callback_arg->op_ctx->bs_key.block.offset +
+        callback_arg->op_ctx->bs_key.slice.offset;
     if (new_create) {
         entry->successive_count = 0;
     } else {
-        if (callback_arg->offset == entry->last_write_offset) {
+        if (offset == entry->last_write_offset) {
             entry->successive_count++;
         } else {
             entry->successive_count = 0;
         }
     }
     *callback_arg->successive_count = entry->successive_count;
-    entry->last_write_offset = callback_arg->offset + callback_arg->length;
+    entry->last_write_offset = offset + callback_arg->
+        op_ctx->bs_key.slice.length;
     return entry;
 }
 
@@ -60,20 +63,21 @@ int otid_htable_init(const int sharding_count,
 {
     return sharding_htable_init(&otid_ctx, otid_htable_insert_callback,
             NULL, sharding_count, htable_capacity, allocator_count,
-            sizeof(FSAPIOPIDEntry), element_limit, min_ttl_ms, max_ttl_ms);
+            sizeof(FSAPIOTIDEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 
-int otid_htable_insert(const FSAPITwoIdsHashKey *key,
-        const int64_t offset, const int length, int *successive_count)
+int otid_htable_insert(FSAPIOperationContext *op_ctx, int *successive_count)
 {
-    FSAPIOPIDSetEntryCallbackArg callback_arg;
-    FSAPIOPIDEntry *entry;
+    FSAPITwoIdsHashKey key;
+    FSAPIOTIDInsertCallbackArg callback_arg;
+    FSAPIOTIDEntry *entry;
 
-    callback_arg.offset = offset;
-    callback_arg.length = length;
+    key.oid = op_ctx->bs_key.block.oid;
+    key.tid = op_ctx->tid;
+    callback_arg.op_ctx = op_ctx;
     callback_arg.successive_count = successive_count;
-    if ((entry=(FSAPIOPIDEntry *)sharding_htable_insert(
-                    &otid_ctx, key, &callback_arg)) != NULL)
+    if ((entry=(FSAPIOTIDEntry *)sharding_htable_insert(
+                    &otid_ctx, &key, &callback_arg)) != NULL)
     {
         return 0;
     } else {

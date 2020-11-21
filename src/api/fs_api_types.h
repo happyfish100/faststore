@@ -23,6 +23,11 @@
 #include "fastcommon/pthread_func.h"
 #include "faststore/client/fs_client.h"
 
+#define FS_API_COMBINED_WRITER_STAGE_NONE      0
+#define FS_API_COMBINED_WRITER_STAGE_MERGING   1
+#define FS_API_COMBINED_WRITER_STAGE_SENDING   2
+#define FS_API_COMBINED_WRITER_STAGE_FINISHED  3
+
 struct fs_api_block_entry;
 struct fs_api_waiting_task;
 struct fs_api_combined_writer;
@@ -33,14 +38,15 @@ typedef struct fs_api_slice_entry {
     FSSliceSize ssize;
     struct fs_api_combined_writer *writer;
     struct fast_mblock_man *allocator;   //for free, set by fast_mblock
-    struct fc_list_head dlink;   //for block
+    struct fc_list_head dlink;           //for block
 } FSAPISliceEntry;
 
 typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_waiting_task *task;
     struct fs_api_combined_writer *writer;
-    struct fast_mblock_man *allocator;   //for free
-    struct fc_list_head dlink;
+    struct fast_mblock_man *allocator; //for free
+    struct fc_list_head dlink;         //for waiting task
+    struct fs_api_waiting_task_writer_pair *next; //for combined writer
 } FSAPIWaitingTaskWriterPair;
 
 typedef struct fs_api_waiting_task {
@@ -49,21 +55,18 @@ typedef struct fs_api_waiting_task {
         FSAPIWaitingTaskWriterPair fixed_pair; //for only one writer
         struct fc_list_head head;   //element: FSAPIWaitingTaskWriterPair
     } waitings;
-    struct fast_mblock_man *allocator;   //for free
-    struct fs_api_waiting_task *next; //for waiting list in FSAPICombinedWriter
+    struct fast_mblock_man *allocator;  //for free
 } FSAPIWaitingTask;
 
 typedef struct fs_api_combined_writer {
-    int64_t oid;    //object id
-    int64_t offset;
-    int length;    //data length
-    int size;      //allocate size
+    int stage;
+    FSBlockSliceKeyInfo bs_key;
     char *buff;
     pthread_mutex_t lock;
     struct {
         FSAPIWaitingTaskWriterPair *head;
     } waitings;
-    struct fast_mblock_man *allocator;   //for free
+    struct fast_mblock_man *allocator;  //for free
 } FSAPICombinedWriter;
 
 typedef struct fs_api_operation_context {

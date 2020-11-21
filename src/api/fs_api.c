@@ -21,7 +21,33 @@ FSAPIContext g_fs_api_ctx;
 int fs_api_slice_write(FSAPIContext *api_ctx, FSAPIOperationContext *op_ctx,
         const char *data, int *write_bytes, int *inc_alloc)
 {
-    //TODO
+    int result;
+    int conflict_count;
+    int successive_count;
+
+    op_ctx->bid = op_ctx->bs_key.block.offset / FS_FILE_BLOCK_SIZE;
+    op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid);
+    if ((result=obid_htable_check_conflict_and_wait(
+                    op_ctx, &conflict_count)) != 0)
+    {
+        return result;
+    }
+
+    if (conflict_count > 0) {
+        return fs_client_slice_write(api_ctx->fs, &op_ctx->bs_key,
+                data, write_bytes, inc_alloc);
+    }
+
+    if ((result=otid_htable_insert(op_ctx, &successive_count)) != 0) {
+        return result;
+    }
+
+    if (successive_count > 0) {  //already trigger write combine
+        *write_bytes = op_ctx->bs_key.slice.length;
+        *inc_alloc = 0;  //TODO
+        return 0;
+    }
+
     return fs_client_slice_write(api_ctx->fs, &op_ctx->bs_key,
             data, write_bytes, inc_alloc);
 }
