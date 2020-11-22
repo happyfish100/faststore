@@ -22,7 +22,7 @@ static FSAPIHtableShardingContext obid_ctx;
 typedef struct fs_api_insert_callback_arg {
     int *rp;
     FSAPIOperationContext *op_ctx;
-    FSAPICombinedWriter *writer;
+    FSAPISliceEntry *slice;
 } FSAPIInsertCallbackArg;
 
 static inline bool slice_is_overlap(const FSSliceSize *s1,
@@ -39,7 +39,6 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, FSAPIHtableSharding *sharding, const bool new_create)
 {
     FSAPIBlockEntry *block;
-    FSAPISliceEntry *slice;
     struct fc_list_head *previous;
     FSAPIInsertCallbackArg *callback_arg;
 
@@ -51,19 +50,22 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
         FC_INIT_LIST_HEAD(&block->slices.head);
     } else {
         struct fc_list_head *current;
+        FSAPISliceEntry *slice;
         int end_offset;
         if (!fc_list_empty(&block->slices.head)) {
             end_offset = callback_arg->op_ctx->bs_key.slice.offset +
                 callback_arg->op_ctx->bs_key.slice.length;
             fc_list_for_each(current, &block->slices.head) {
                 slice = fc_list_entry(current, FSAPISliceEntry, dlink);
-                if (end_offset <= slice->ssize.offset) {
+                if (end_offset <= slice->bs_key.slice.offset) {
                     break;
                 }
 
                 if (slice_is_overlap(&callback_arg->op_ctx->
-                            bs_key.slice, &slice->ssize))
+                            bs_key.slice, &slice->bs_key.slice))
                 {
+                    fast_mblock_free_object(callback_arg->slice->
+                            allocator, callback_arg->slice);
                     *callback_arg->rp = EEXIST;
                     return NULL;
                 }
@@ -73,23 +75,16 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
         }
     }
 
-    slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
-            &callback_arg->op_ctx->allocator_ctx->slice_entry);
-    if (slice == NULL) {
-        *callback_arg->rp = ENOMEM;
-        return NULL;
-    }
-
-    slice->block = block;
-    slice->writer = callback_arg->writer;
-    slice->ssize = callback_arg->op_ctx->bs_key.slice;
+    callback_arg->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
+    callback_arg->slice->block = block;
     if (previous == NULL) {
-        fc_list_add(&slice->dlink, &block->slices.head);
+        fc_list_add(&callback_arg->slice->dlink, &block->slices.head);
     } else {
-        fc_list_add_internal(&slice->dlink, previous, previous->next);
+        fc_list_add_internal(&callback_arg->slice->dlink,
+                previous, previous->next);
     }
     *callback_arg->rp = 0;
-    return slice;
+    return callback_arg->slice;
 }
 
 static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
@@ -109,11 +104,11 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
     end_offset = callback_arg->op_ctx->bs_key.slice.offset +
         callback_arg->op_ctx->bs_key.slice.length;
     fc_list_for_each_entry(slice, &block->slices.head, dlink) {
-        if (end_offset <= slice->ssize.offset) {
+        if (end_offset <= slice->bs_key.slice.offset) {
             break;
         }
         if (slice_is_overlap(&callback_arg->op_ctx->bs_key.slice,
-                    &slice->ssize))
+                    &slice->bs_key.slice))
         {
             //TODO
         }
@@ -134,7 +129,7 @@ int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
 }
 
 FSAPISliceEntry *obid_htable_insert(FSAPIOperationContext *op_ctx,
-        FSAPICombinedWriter *writer, int *err_no)
+        FSAPISliceEntry *slice, int *err_no)
 {
     FSAPITwoIdsHashKey key;
     FSAPIInsertCallbackArg callback_arg;
@@ -142,7 +137,7 @@ FSAPISliceEntry *obid_htable_insert(FSAPIOperationContext *op_ctx,
     key.oid = op_ctx->bs_key.block.oid;
     key.bid = op_ctx->bid;
     callback_arg.op_ctx = op_ctx;
-    callback_arg.writer = writer;
+    callback_arg.slice = slice;
     callback_arg.rp = err_no;
     return (FSAPISliceEntry *)sharding_htable_insert(
             &obid_ctx, &key, &callback_arg);

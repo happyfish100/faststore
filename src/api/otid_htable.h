@@ -28,7 +28,8 @@ extern "C" {
             const int allocator_count, int64_t element_limit,
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
-    int otid_htable_insert(FSAPIOperationContext *op_ctx, int *successive_count);
+    int otid_htable_insert(FSAPIOperationContext *op_ctx,
+            const char *buff, int *successive_count);
 
 #ifdef __cplusplus
 }

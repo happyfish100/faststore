@@ -17,6 +17,7 @@ void *thread_run(void *arg)
     FSAPIOperationContext op_ctx;
     int successive_count;
     int64_t offset;
+    char *buff;
     int length;
     int i;
     int result;
@@ -24,6 +25,8 @@ void *thread_run(void *arg)
     __sync_add_and_fetch(&thread_count, 1);
     offset = 0;
     length = 8192;
+    buff = (char *)malloc(length);
+    memset(buff, 0, length);
 
     offset = 0;
     op_ctx.bs_key.block.oid = 123456;
@@ -39,7 +42,7 @@ void *thread_run(void *arg)
 
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
-        result = otid_htable_insert(&op_ctx, &successive_count);
+        result = otid_htable_insert(&op_ctx, buff, &successive_count);
         /*
         printf("g_current_time_ms: %"PRId64", result: %d, "
                 "successive_count: %d\n", g_current_time_ms,

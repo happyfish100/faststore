@@ -19,7 +19,7 @@
 FSAPIContext g_fs_api_ctx;
 
 int fs_api_slice_write(FSAPIContext *api_ctx, FSAPIOperationContext *op_ctx,
-        const char *data, int *write_bytes, int *inc_alloc)
+        const char *buff, int *write_bytes, int *inc_alloc)
 {
     int result;
     int conflict_count;
@@ -35,10 +35,10 @@ int fs_api_slice_write(FSAPIContext *api_ctx, FSAPIOperationContext *op_ctx,
 
     if (conflict_count > 0) {
         return fs_client_slice_write(api_ctx->fs, &op_ctx->bs_key,
-                data, write_bytes, inc_alloc);
+                buff, write_bytes, inc_alloc);
     }
 
-    if ((result=otid_htable_insert(op_ctx, &successive_count)) != 0) {
+    if ((result=otid_htable_insert(op_ctx, buff, &successive_count)) != 0) {
         return result;
     }
 
@@ -49,5 +49,5 @@ int fs_api_slice_write(FSAPIContext *api_ctx, FSAPIOperationContext *op_ctx,
     }
 
     return fs_client_slice_write(api_ctx->fs, &op_ctx->bs_key,
-            data, write_bytes, inc_alloc);
+            buff, write_bytes, inc_alloc);
 }

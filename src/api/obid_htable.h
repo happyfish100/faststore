@@ -37,7 +37,7 @@ extern "C" {
             const int64_t max_ttl_ms);
 
     FSAPISliceEntry *obid_htable_insert(FSAPIOperationContext *op_ctx,
-            FSAPICombinedWriter *writer, int *err_no);
+            FSAPISliceEntry *slice, int *err_no);
 
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);

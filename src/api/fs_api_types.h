@@ -23,23 +23,15 @@
 #include "fastcommon/pthread_func.h"
 #include "faststore/client/fs_client.h"
 
-#define FS_API_COMBINED_WRITER_STAGE_NONE      0
-#define FS_API_COMBINED_WRITER_STAGE_MERGING   1
-#define FS_API_COMBINED_WRITER_STAGE_SENDING   2
-#define FS_API_COMBINED_WRITER_STAGE_FINISHED  3
+#define FS_API_COMBINED_WRITER_STAGE_NONE        0
+#define FS_API_COMBINED_WRITER_STAGE_MERGING     1
+#define FS_API_COMBINED_WRITER_STAGE_PROCESSING  2
+#define FS_API_COMBINED_WRITER_STAGE_FINISHED    3
 
 struct fs_api_block_entry;
 struct fs_api_waiting_task;
 struct fs_api_combined_writer;
 struct fs_api_allocator_context;
-
-typedef struct fs_api_slice_entry {
-    struct fs_api_block_entry *block;
-    FSSliceSize ssize;
-    struct fs_api_combined_writer *writer;
-    struct fast_mblock_man *allocator;   //for free, set by fast_mblock
-    struct fc_list_head dlink;           //for block
-} FSAPISliceEntry;
 
 typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_waiting_task *task;
@@ -58,16 +50,19 @@ typedef struct fs_api_waiting_task {
     struct fast_mblock_man *allocator;  //for free
 } FSAPIWaitingTask;
 
-typedef struct fs_api_combined_writer {
+typedef struct fs_api_slice_entry {
+    struct fs_api_block_entry *block;
     int stage;
+    int merged_slices;
+    int64_t start_time;
     FSBlockSliceKeyInfo bs_key;
     char *buff;
-    pthread_mutex_t lock;
     struct {
         FSAPIWaitingTaskWriterPair *head;
     } waitings;
-    struct fast_mblock_man *allocator;  //for free
-} FSAPICombinedWriter;
+    struct fast_mblock_man *allocator;   //for free, set by fast_mblock
+    struct fc_list_head dlink;           //for block
+} FSAPISliceEntry;
 
 typedef struct fs_api_operation_context {
     uint64_t tid;  //thread id
@@ -77,6 +72,13 @@ typedef struct fs_api_operation_context {
 } FSAPIOperationContext;
 
 typedef struct fs_api_context {
+    struct {
+        bool enabled;
+        int min_wait_time_ms;
+        int max_wait_time_ms;
+        int skip_combine_on_slice_size;
+        int skip_combine_on_last_merged_slices;
+    } write_combine;
     FSClientContext *fs;
 } FSAPIContext;
 

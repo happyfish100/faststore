@@ -39,25 +39,13 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
     return 0;
 }
 
-static int combined_writer_alloc_init(FSAPICombinedWriter *writer, void *arg)
+static int slice_entry_alloc_init(FSAPISliceEntry *slice, void *arg)
 {
-    int result;
-
-    if ((result=init_pthread_lock(&writer->lock)) != 0) {
-        return result;
-    }
-
-    writer->buff = (char *)malloc(FS_FILE_BLOCK_SIZE);
-    if (writer->buff == NULL) {
+    slice->buff = (char *)malloc(FS_FILE_BLOCK_SIZE);
+    if (slice->buff == NULL) {
         return ENOMEM;
     }
 
-    writer->allocator = (struct fast_mblock_man *)arg;
-    return 0;
-}
-
-static int slice_entry_alloc_init(FSAPISliceEntry *slice, void *arg)
-{
     slice->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
@@ -83,16 +71,8 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
         return result;
     }
 
-    if ((result=fast_mblock_init_ex1(&ctx->combined_writer,
-                    "combined_writer", sizeof(FSAPICombinedWriter), 4, 0,
-                    (fast_mblock_alloc_init_func)combined_writer_alloc_init,
-                    &ctx->combined_writer, true)) != 0)
-    {
-        return result;
-    }
-
     if ((result=fast_mblock_init_ex1(&ctx->slice_entry,
-                    "slice_entry", sizeof(FSAPISliceEntry), 4096, 0,
+                    "slice_entry", sizeof(FSAPISliceEntry), 8, 0,
                     (fast_mblock_alloc_init_func)slice_entry_alloc_init,
                     &ctx->slice_entry, true)) != 0)
     {
