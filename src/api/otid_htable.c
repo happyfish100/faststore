@@ -15,7 +15,7 @@
 
 #include <stdlib.h>
 #include "fs_api_allocator.h"
-#include "time_handler.h"
+#include "timeout_handler.h"
 #include "obid_htable.h"
 #include "otid_htable.h"
 
@@ -82,7 +82,7 @@ static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
             return ENOMEM;
         }
         slice->merged_slices = 1;
-        slice->start_time = g_current_time_ms;
+        slice->start_time = g_timer_ms_ctx.current_time_ms;
         slice->bs_key = callback_arg->op_ctx->bs_key;
         memcpy(slice->buff, callback_arg->buff, callback_arg->
                 op_ctx->bs_key.slice.length);

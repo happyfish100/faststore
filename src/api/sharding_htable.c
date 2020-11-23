@@ -14,7 +14,7 @@
  */
 
 #include <stdlib.h>
-#include "time_handler.h"
+#include "timeout_handler.h"
 #include "sharding_htable.h"
 
 static int init_allocators(FSAPIHtableShardingContext *sharding_ctx,
@@ -78,7 +78,7 @@ static int init_sharding(FSAPIHtableSharding *sharding,
 
     sharding->hashtable.capacity = per_capacity;
     sharding->element_count = 0;
-    sharding->last_reclaim_time_ms = g_current_time_ms;
+    sharding->last_reclaim_time_ms = g_timer_ms_ctx.current_time_ms;
     FC_INIT_LIST_HEAD(&sharding->lru);
     return 0;
 }
@@ -234,7 +234,7 @@ static FSAPIHashEntry *otid_entry_reclaim(FSAPIHtableSharding *sharding)
     reclaim_ttl_ms = (int64_t)(sharding->ctx->sharding_reclaim.max_ttl_ms -
         sharding->ctx->sharding_reclaim.elt_ttl_ms * delta);
     fc_list_for_each_entry_safe(entry, tmp, &sharding->lru, dlinks.lru) {
-        if (g_current_time_ms - entry->last_update_time_ms <= reclaim_ttl_ms) {
+        if (g_timer_ms_ctx.current_time_ms - entry->last_update_time_ms <= reclaim_ttl_ms) {
             break;
         }
 
@@ -268,10 +268,10 @@ static inline FSAPIHashEntry *htable_entry_alloc(
     FSAPIHashEntry *entry;
 
     if (sharding->element_count > sharding->ctx->sharding_reclaim.
-            elt_water_mark && g_current_time_ms - sharding->
+            elt_water_mark && g_timer_ms_ctx.current_time_ms - sharding->
             last_reclaim_time_ms > 1000)
     {
-        sharding->last_reclaim_time_ms = g_current_time_ms;
+        sharding->last_reclaim_time_ms = g_timer_ms_ctx.current_time_ms;
         if ((entry=otid_entry_reclaim(sharding)) != NULL) {
             return entry;
         }
@@ -341,7 +341,7 @@ void *sharding_htable_insert(FSAPIHtableShardingContext
             fc_list_move_tail(&entry->dlinks.lru, &sharding->lru);
         }
 
-        entry->last_update_time_ms = g_current_time_ms;
+        entry->last_update_time_ms = g_timer_ms_ctx.current_time_ms;
         data = sharding_ctx->insert_callback(
                 entry, arg, sharding, new_create);
     } while (0);

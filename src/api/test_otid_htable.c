@@ -8,8 +8,10 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/shared_func.h"
 #include "sf/sf_global.h"
-#include "time_handler.h"
+#include "fs_api_allocator.h"
+#include "timeout_handler.h"
 #include "otid_htable.h"
+#include "obid_htable.h"
 
 volatile int thread_count = 0;
 void *thread_run(void *arg)
@@ -32,7 +34,9 @@ void *thread_run(void *arg)
     op_ctx.bs_key.block.oid = 123456;
     op_ctx.bs_key.slice.length = length;
     op_ctx.tid = getpid();
-    for (i=0; i<5 * 1000 * 1000; i++) {
+    op_ctx.bid = 0;
+    op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
+    for (i=0; i<5 /* 1000 * 1000 */; i++) {
         if (i % 10000 == 0) {
             op_ctx.bs_key.block.oid++;
             offset += length / 2;
@@ -40,14 +44,14 @@ void *thread_run(void *arg)
             offset += length;
         }
 
+        op_ctx.bid = offset / FS_FILE_BLOCK_SIZE;
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
         result = otid_htable_insert(&op_ctx, buff, &successive_count);
-        /*
-        printf("g_current_time_ms: %"PRId64", result: %d, "
-                "successive_count: %d\n", g_current_time_ms,
+
+        printf("g_timer_ms_ctx.current_time_ms: %"PRId64", result: %d, "
+                "successive_count: %d\n", g_timer_ms_ctx.current_time_ms,
                 result, successive_count);
-                */
 
         if (i % 10000 == 0) {
             fc_sleep_ms(10);
@@ -60,12 +64,12 @@ void *thread_run(void *arg)
 
 int main(int argc, char *argv[])
 {
-#define THREAD_COUNT 4
+#define THREAD_COUNT 1
     int result;
     int i;
     pthread_t tids[THREAD_COUNT];
     const int precision_ms = 10;
-    const int slot_count = 10240;
+    const int max_timeout_ms = 10000;
     const int allocator_count = 16;
     int64_t element_limit = 0;
     const int sharding_count = 163;
@@ -74,12 +78,24 @@ int main(int argc, char *argv[])
     const int64_t max_ttl_ms = 86400 * 1000;
 
     log_init();
-    g_current_time_ms = get_current_time_ms();
-    if ((result=time_handler_init(precision_ms, slot_count)) != 0) {
+    g_timer_ms_ctx.current_time_ms = get_current_time_ms();
+
+    if ((result=fs_api_allocator_init()) != 0) {
+        return result;
+    }
+
+    if ((result=timeout_handler_init(precision_ms, max_timeout_ms)) != 0) {
         return result;
     }
 
     if ((result=otid_htable_init(sharding_count, htable_capacity,
+                    allocator_count, element_limit,
+                    min_ttl_ms, max_ttl_ms)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=obid_htable_init(sharding_count, htable_capacity,
                     allocator_count, element_limit,
                     min_ttl_ms, max_ttl_ms)) != 0)
     {
@@ -92,7 +108,7 @@ int main(int argc, char *argv[])
     }
 
     do {
-        fc_sleep_ms(20);
+        fc_sleep_ms(100);
     } while (__sync_add_and_fetch(&thread_count, 0) > 0);
     return 0;
 }

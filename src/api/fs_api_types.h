@@ -19,8 +19,10 @@
 #include <limits.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include "fastcommon/common_define.h"
 #include "fastcommon/fc_list.h"
 #include "fastcommon/pthread_func.h"
+#include "fastcommon/fast_timer.h"
 #include "faststore/client/fs_client.h"
 
 #define FS_API_COMBINED_WRITER_STAGE_NONE        0
@@ -51,6 +53,7 @@ typedef struct fs_api_waiting_task {
 } FSAPIWaitingTask;
 
 typedef struct fs_api_slice_entry {
+    FastTimerEntry timer;  //must be the first
     struct fs_api_block_entry *block;
     int stage;
     int merged_slices;
