@@ -40,7 +40,7 @@ typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_combined_writer *writer;
     struct fast_mblock_man *allocator; //for free
     struct fc_list_head dlink;         //for waiting task
-    struct fs_api_waiting_task_writer_pair *next; //for combined writer
+    struct fs_api_waiting_task_writer_pair *next; //for slice entry
 } FSAPIWaitingTaskWriterPair;
 
 typedef struct fs_api_waiting_task {
@@ -55,7 +55,8 @@ typedef struct fs_api_waiting_task {
 typedef struct fs_api_slice_entry {
     FastTimerEntry timer;  //must be the first
     struct fs_api_block_entry *block;
-    int stage;
+    volatile char in_queue;  //if in combine handler queue
+    char stage;
     int merged_slices;
     int64_t start_time;
     FSBlockSliceKeyInfo bs_key;
@@ -63,8 +64,9 @@ typedef struct fs_api_slice_entry {
     struct {
         FSAPIWaitingTaskWriterPair *head;
     } waitings;
-    struct fast_mblock_man *allocator;   //for free, set by fast_mblock
-    struct fc_list_head dlink;           //for block
+    struct fast_mblock_man *allocator;  //for free, set by fast_mblock
+    struct fc_list_head dlink;          //for block entry
+    struct fs_api_slice_entry *next;    //for combine handler queue
 } FSAPISliceEntry;
 
 typedef struct fs_api_operation_context {

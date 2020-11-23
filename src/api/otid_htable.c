@@ -35,6 +35,9 @@ typedef struct fs_api_opid_insert_callback_arg {
 
 static FSAPIHtableShardingContext otid_ctx;
 
+#define WAIT_TIME_CACL_BY_SUCCESSIVE(entry)  \
+    (entry->successive_count * g_fs_api_ctx.write_combine.min_wait_time_ms)
+
 static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
         FSAPIOTIDEntry *entry)
 {
@@ -57,7 +60,13 @@ static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
                         op_ctx->bs_key.slice.length);
                 slice->bs_key.slice.length = merged_length;
                 slice->merged_slices++;
-                //TODO modify to timer
+
+                timeout_handler_modify(&slice->timer, FC_MIN(
+                            WAIT_TIME_CACL_BY_SUCCESSIVE(entry),
+                            slice->start_time + g_fs_api_ctx.
+                            write_combine.max_wait_time_ms -
+                            g_timer_ms_ctx.current_time_ms));
+
                 new_slice = false;
                 result = 0;
             } else {
@@ -81,6 +90,7 @@ static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
         if (slice == NULL) {
             return ENOMEM;
         }
+        __sync_bool_compare_and_swap(&slice->in_queue, 1, 0);
         slice->merged_slices = 1;
         slice->start_time = g_timer_ms_ctx.current_time_ms;
         slice->bs_key = callback_arg->op_ctx->bs_key;
@@ -91,7 +101,10 @@ static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
         {
             entry->slice = slice;
         }
-        //TODO add to timer
+
+        timeout_handler_add(&slice->timer, FC_MIN(
+                    WAIT_TIME_CACL_BY_SUCCESSIVE(entry),
+                    g_fs_api_ctx.write_combine.max_wait_time_ms));
     }
 
     return result;
