@@ -81,10 +81,10 @@ typedef struct fs_api_operation_context {
 
 typedef struct fs_api_context {
     struct {
-        bool enabled;
+        volatile bool enabled;
         int min_wait_time_ms;
         int max_wait_time_ms;
-        volatile int skip_combine_on_slice_size;
+        int skip_combine_on_slice_size;
         int skip_combine_on_last_merged_slices;
     } write_combine;
     FSClientContext *fs;

@@ -34,7 +34,7 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
 
 void fs_api_terminate_ex(FSAPIContext *api_ctx)
 {
-    api_ctx->write_combine.skip_combine_on_slice_size = 0;
+    api_ctx->write_combine.enabled = false;
     timeout_handler_terminate();
     combine_handler_terminate();
 }

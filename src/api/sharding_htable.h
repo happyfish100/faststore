@@ -27,6 +27,9 @@ typedef int (*fs_api_sharding_htable_insert_callback)
 typedef void *(*fs_api_sharding_htable_find_callback)
     (struct fs_api_hash_entry *entry, void *arg);
 
+typedef bool (*fs_api_sharding_htable_accept_reclaim_callback)
+    (struct fs_api_hash_entry *entry);
+
 typedef struct fs_api_two_ids_hash_key {
     union {
         uint64_t id1;
@@ -87,9 +90,9 @@ typedef struct fs_api_htable_sharding_context {
 
     fs_api_sharding_htable_insert_callback insert_callback;
     fs_api_sharding_htable_find_callback find_callback;
+    fs_api_sharding_htable_accept_reclaim_callback accept_reclaim_callback;
     FSAPIHtableShardingArray sharding_array;
 } FSAPIHtableShardingContext;
-
 
 #ifdef __cplusplus
 extern "C" {
@@ -98,6 +101,7 @@ extern "C" {
     int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
             fs_api_sharding_htable_insert_callback insert_callback,
             fs_api_sharding_htable_find_callback find_callback,
+            fs_api_sharding_htable_accept_reclaim_callback reclaim_callback,
             const int sharding_count, const int64_t htable_capacity,
             const int allocator_count, const int element_size,
             int64_t element_limit, const int64_t min_ttl_ms,

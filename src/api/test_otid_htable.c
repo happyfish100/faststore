@@ -18,6 +18,7 @@
 volatile int thread_count = 0;
 void *thread_run(void *arg)
 {
+    long thread_index;
     FSAPIOperationContext op_ctx;
     bool combined;
     int64_t offset;
@@ -26,35 +27,51 @@ void *thread_run(void *arg)
     int i;
     int result;
 
+    thread_index = (long)arg;
+
     __sync_add_and_fetch(&thread_count, 1);
     offset = 0;
-    length = 8192;
+    length = 8 * 1024;
     buff = (char *)malloc(length);
     memset(buff, 0, length);
 
     offset = 0;
     op_ctx.api_ctx = &g_fs_api_ctx;
-    op_ctx.bs_key.block.oid = 123456;
-    op_ctx.bs_key.slice.length = length;
+    op_ctx.bs_key.block.oid = 10000000 * thread_index;
+    //op_ctx.tid = (long)pthread_self();
     op_ctx.tid = getpid();
     op_ctx.bid = 0;
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
-    for (i=0; i<50 /* 1000 * 1000 */; i++) {
+    printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
+    for (i=0; i< 1000 * 1000; i++) {
+        /*
         if (i % 10000 == 0) {
             op_ctx.bs_key.block.oid++;
             offset += length / 2;
         } else {
             offset += length;
         }
+        */
+
+        offset += length;
 
         op_ctx.bid = offset / FS_FILE_BLOCK_SIZE;
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
+        if (op_ctx.bs_key.slice.offset + length <= FS_FILE_BLOCK_SIZE) {
+            op_ctx.bs_key.slice.length = length;
+        } else {
+            op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE -
+                op_ctx.bs_key.slice.offset;
+        }
         result = otid_htable_insert(&op_ctx, buff, &combined);
 
-        printf("g_timer_ms_ctx.current_time_ms: %"PRId64", result: %d, "
-                "combined: %d\n", g_timer_ms_ctx.current_time_ms,
-                result, combined);
+        /*
+        printf("g_timer_ms_ctx.current_time_ms: %"PRId64", slice offset: %d, "
+                "length: %d, result: %d, combined: %d\n",
+                g_timer_ms_ctx.current_time_ms, op_ctx.bs_key.slice.offset,
+                op_ctx.bs_key.slice.length, result, combined);
+                */
 
         if (i % 10000 == 0) {
             fc_sleep_ms(10);
@@ -67,7 +84,7 @@ void *thread_run(void *arg)
 
 int main(int argc, char *argv[])
 {
-#define THREAD_COUNT 1
+#define THREAD_COUNT 2
     int result;
     int i;
     pthread_t tids[THREAD_COUNT];
@@ -119,7 +136,7 @@ int main(int argc, char *argv[])
     }
 
     for (i=0; i<THREAD_COUNT; i++) {
-        fc_create_thread(tids + i, thread_run, NULL,
+        fc_create_thread(tids + i, thread_run, (void *)((long)i),
                 SF_G_THREAD_STACK_SIZE);
     }
 

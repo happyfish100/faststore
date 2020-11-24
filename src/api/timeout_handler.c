@@ -50,9 +50,7 @@ void timeout_handler_terminate()
     FastTimerEntry head;
 
     i = 0;
-    while (g_fs_api_ctx.write_combine.skip_combine_on_slice_size > 0 &&
-            i++ < 100)
-    {
+    while (g_fs_api_ctx.write_combine.enabled && i++ < 100) {
         fc_sleep_ms(10);
     }
 

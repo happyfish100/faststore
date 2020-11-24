@@ -42,11 +42,13 @@ static void combine_handler_run(void *arg, void *thread_data)
     */
 
     slice = (FSAPISliceEntry *)arg;
+    /*
     logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice {offset: %d, length: %d}, merged slices: %d",
             slice->bs_key.block.oid, slice->bs_key.block.offset,
             slice->bs_key.slice.offset, slice->bs_key.slice.length,
             slice->merged_slices);
+            */
 
     //TODO notify finish and cleanup
     otid_htable_release_slice(slice);

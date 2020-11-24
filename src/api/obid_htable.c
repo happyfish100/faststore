@@ -131,14 +131,19 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
     return block;
 }
 
+static bool obid_htable_accept_reclaim_callback(struct fs_api_hash_entry *he)
+{
+    return fc_list_empty(&((FSAPIBlockEntry *)he)->slices.head);
+}
+
 int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms)
 {
     return sharding_htable_init(&obid_ctx, obid_htable_insert_callback,
-            obid_htable_find_callback, sharding_count, htable_capacity,
-            allocator_count, sizeof(FSAPIBlockEntry), element_limit,
-            min_ttl_ms, max_ttl_ms);
+            obid_htable_find_callback, obid_htable_accept_reclaim_callback,
+            sharding_count, htable_capacity, allocator_count,
+            sizeof(FSAPIBlockEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 
 int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
