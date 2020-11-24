@@ -33,12 +33,13 @@ void *thread_run(void *arg)
     memset(buff, 0, length);
 
     offset = 0;
+    op_ctx.api_ctx = &g_fs_api_ctx;
     op_ctx.bs_key.block.oid = 123456;
     op_ctx.bs_key.slice.length = length;
     op_ctx.tid = getpid();
     op_ctx.bid = 0;
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
-    for (i=0; i<5 /* 1000 * 1000 */; i++) {
+    for (i=0; i<50 /* 1000 * 1000 */; i++) {
         if (i % 10000 == 0) {
             op_ctx.bs_key.block.oid++;
             offset += length / 2;
@@ -125,5 +126,6 @@ int main(int argc, char *argv[])
     do {
         fc_sleep_ms(100);
     } while (__sync_add_and_fetch(&thread_count, 0) > 0);
+    fs_api_terminate();
     return 0;
 }

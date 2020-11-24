@@ -24,6 +24,7 @@
 typedef struct {
     struct fc_queue queue;
     FCThreadPool thread_pool;
+    volatile bool continue_flag;
 } CombineHandlerContext;
 
 #ifdef __cplusplus
@@ -34,6 +35,8 @@ extern "C" {
 
     int combine_handler_init(const int thread_limit,
             const int min_idle_count, const int max_idle_time);
+
+    void combine_handler_terminate();
 
     static inline int combine_handler_push(FSAPISliceEntry *slice)
     {

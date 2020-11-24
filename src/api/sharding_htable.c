@@ -318,18 +318,18 @@ void *sharding_htable_find(FSAPIHtableShardingContext
     return data;
 }
 
-void *sharding_htable_insert(FSAPIHtableShardingContext
+int sharding_htable_insert(FSAPIHtableShardingContext
         *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg)
 {
     bool new_create;
-    void *data;
+    int result;
     SET_SHARDING_AND_BUCKET(sharding_ctx, key);
 
     PTHREAD_MUTEX_LOCK(&sharding->lock);
     do {
         if ((entry=htable_find(key, bucket)) == NULL) {
             if ((entry=htable_entry_alloc(sharding)) == NULL) {
-                data = NULL;
+                result = ENOMEM;
                 break;
             }
 
@@ -343,10 +343,10 @@ void *sharding_htable_insert(FSAPIHtableShardingContext
         }
 
         entry->last_update_time_ms = g_timer_ms_ctx.current_time_ms;
-        data = sharding_ctx->insert_callback(
+        result = sharding_ctx->insert_callback(
                 entry, arg, new_create);
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&sharding->lock);
 
-    return data;
+    return result;
 }

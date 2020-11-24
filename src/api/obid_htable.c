@@ -20,7 +20,6 @@
 static FSAPIHtableShardingContext obid_ctx;
 
 typedef struct fs_api_insert_callback_arg {
-    int *rp;
     FSAPIOperationContext *op_ctx;
     FSAPISliceEntry *slice;
 } FSAPIInsertCallbackArg;
@@ -35,12 +34,46 @@ static inline bool slice_is_overlap(const FSSliceSize *s1,
     }
 }
 
-static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
+static int obid_htable_find_position(FSAPIBlockEntry *block,
+        FSAPIInsertCallbackArg *callback_arg, struct fc_list_head **previous)
+{
+    struct fc_list_head *current;
+    FSAPISliceEntry *slice;
+    int end_offset;
+
+    if (fc_list_empty(&block->slices.head)) {
+        return 0;
+    }
+
+    end_offset = callback_arg->op_ctx->bs_key.slice.offset +
+        callback_arg->op_ctx->bs_key.slice.length;
+    fc_list_for_each(current, &block->slices.head) {
+        slice = fc_list_entry(current, FSAPISliceEntry, dlink);
+        if (end_offset <= slice->bs_key.slice.offset) {
+            break;
+        }
+
+        if (slice_is_overlap(&callback_arg->op_ctx->
+                    bs_key.slice, &slice->bs_key.slice))
+        {
+            fast_mblock_free_object(callback_arg->slice->
+                    allocator, callback_arg->slice);
+            return EEXIST;
+        }
+
+        *previous = current;
+    }
+
+    return 0;
+}
+
+static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
     struct fc_list_head *previous;
     FSAPIInsertCallbackArg *callback_arg;
+    int result;
 
     block = (FSAPIBlockEntry *)he;
     callback_arg = (FSAPIInsertCallbackArg *)arg;
@@ -48,29 +81,10 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
     if (new_create) {
         FC_INIT_LIST_HEAD(&block->slices.head);
     } else {
-        struct fc_list_head *current;
-        FSAPISliceEntry *slice;
-        int end_offset;
-        if (!fc_list_empty(&block->slices.head)) {
-            end_offset = callback_arg->op_ctx->bs_key.slice.offset +
-                callback_arg->op_ctx->bs_key.slice.length;
-            fc_list_for_each(current, &block->slices.head) {
-                slice = fc_list_entry(current, FSAPISliceEntry, dlink);
-                if (end_offset <= slice->bs_key.slice.offset) {
-                    break;
-                }
-
-                if (slice_is_overlap(&callback_arg->op_ctx->
-                            bs_key.slice, &slice->bs_key.slice))
-                {
-                    fast_mblock_free_object(callback_arg->slice->
-                            allocator, callback_arg->slice);
-                    *callback_arg->rp = EEXIST;
-                    return NULL;
-                }
-
-                previous = current;
-            }
+        if ((result=obid_htable_find_position(block,
+                        callback_arg, &previous)) != 0)
+        {
+            return result;
         }
     }
 
@@ -82,8 +96,8 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
         fc_list_add_internal(&callback_arg->slice->dlink,
                 previous, previous->next);
     }
-    *callback_arg->rp = 0;
-    return callback_arg->slice;
+
+    return 0;
 }
 
 static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
@@ -127,8 +141,7 @@ int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
             min_ttl_ms, max_ttl_ms);
 }
 
-FSAPISliceEntry *obid_htable_insert(FSAPIOperationContext *op_ctx,
-        FSAPISliceEntry *slice, int *err_no)
+int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
 {
     FSAPITwoIdsHashKey key;
     FSAPIInsertCallbackArg callback_arg;
@@ -137,9 +150,7 @@ FSAPISliceEntry *obid_htable_insert(FSAPIOperationContext *op_ctx,
     key.bid = op_ctx->bid;
     callback_arg.op_ctx = op_ctx;
     callback_arg.slice = slice;
-    callback_arg.rp = err_no;
-    return (FSAPISliceEntry *)sharding_htable_insert(
-            &obid_ctx, &key, &callback_arg);
+    return sharding_htable_insert(&obid_ctx, &key, &callback_arg);
 }
 
 int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,

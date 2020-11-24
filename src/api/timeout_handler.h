@@ -33,6 +33,8 @@ extern "C" {
 
     int timeout_handler_init(const int precision_ms, const int max_timeout_ms);
 
+    void timeout_handler_terminate();
+
 #define TIMEOUT_TO_EXPIRES(timeout)  \
     (g_timer_ms_ctx.current_time_ticks + timeout / g_timer_ms_ctx.precision_ms)
 

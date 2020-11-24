@@ -35,6 +35,7 @@ struct fs_api_otid_entry;
 struct fs_api_waiting_task;
 struct fs_api_combined_writer;
 struct fs_api_allocator_context;
+struct fs_api_context;
 
 typedef struct fs_api_waiting_task_writer_pair {
     struct fs_api_waiting_task *task;
@@ -75,6 +76,7 @@ typedef struct fs_api_operation_context {
     uint64_t bid;  //file block id
     FSBlockSliceKeyInfo bs_key;
     struct fs_api_allocator_context *allocator_ctx;
+    struct fs_api_context *api_ctx;
 } FSAPIOperationContext;
 
 typedef struct fs_api_context {
@@ -82,7 +84,7 @@ typedef struct fs_api_context {
         bool enabled;
         int min_wait_time_ms;
         int max_wait_time_ms;
-        int skip_combine_on_slice_size;
+        volatile int skip_combine_on_slice_size;
         int skip_combine_on_last_merged_slices;
     } write_combine;
     FSClientContext *fs;

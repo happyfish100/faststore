@@ -24,116 +24,155 @@ typedef struct fs_api_opid_insert_callback_arg {
     FSAPIOperationContext *op_ctx;
     const char *buff;
     bool *combined;
-    int result;
 } FSAPIOTIDInsertCallbackArg;
 
 static FSAPIHtableShardingContext otid_ctx;
 
-#define WAIT_TIME_CACL_BY_SUCCESSIVE(entry)  \
-    (entry->successive_count * g_fs_api_ctx.write_combine.min_wait_time_ms)
+#define CALC_TIMEOUT_BY_SUCCESSIVE(op_ctx, entry)  \
+    (entry->successive_count * op_ctx->api_ctx-> \
+     write_combine.min_wait_time_ms)
 
-#define IF_COMBINE_BY_SLICE_SIZE(bs_key)  \
-    (bs_key.slice.length < g_fs_api_ctx.write_combine. \
+#define IF_COMBINE_BY_SLICE_SIZE(op_ctx)  \
+    (op_ctx->bs_key.slice.length < op_ctx->api_ctx->write_combine. \
      skip_combine_on_slice_size)
 
-static int combine_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
-        FSAPIOTIDEntry *entry)
+
+static int combine_slice(FSAPISliceEntry *slice,
+        FSAPIOTIDInsertCallbackArg *callback_arg,
+        FSAPIOTIDEntry *entry, bool *new_slice)
 {
-    FSAPISliceEntry *slice;
     int result;
-    bool new_slice;
+    int merged_length;
 
-    if (entry->slice == NULL) {
-        *callback_arg->combined = IF_COMBINE_BY_SLICE_SIZE(
-                callback_arg->op_ctx->bs_key);
-        new_slice = true;
-    } else {
-        slice = entry->slice;
-        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
-        if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
-            int merged_length;
-            merged_length = slice->bs_key.slice.length + callback_arg->
-                op_ctx->bs_key.slice.length;
-            if (merged_length <= FS_FILE_BLOCK_SIZE) {
-                if (IF_COMBINE_BY_SLICE_SIZE(callback_arg->op_ctx->bs_key)) {
-                    memcpy(slice->buff + slice->bs_key.slice.length,
-                            callback_arg->buff, callback_arg->
-                            op_ctx->bs_key.slice.length);
-                    slice->bs_key.slice.length = merged_length;
-                    slice->merged_slices++;
-                    *callback_arg->combined = true;
+    PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+    if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
+        merged_length = slice->bs_key.slice.length + callback_arg->
+            op_ctx->bs_key.slice.length;
+        if (merged_length <= FS_FILE_BLOCK_SIZE) {
+            if (IF_COMBINE_BY_SLICE_SIZE(callback_arg->op_ctx)) {
+                memcpy(slice->buff + slice->bs_key.slice.length,
+                        callback_arg->buff, callback_arg->
+                        op_ctx->bs_key.slice.length);
+                slice->bs_key.slice.length = merged_length;
+                slice->merged_slices++;
+                *callback_arg->combined = true;
 
-                    if (FS_FILE_BLOCK_SIZE - (slice->bs_key.slice.offset +
+                if (FS_FILE_BLOCK_SIZE - (slice->bs_key.slice.offset +
                             slice->bs_key.slice.length) >= 4096)
-                    {
-                        timeout_handler_modify(&slice->timer, FC_MIN(
-                                    WAIT_TIME_CACL_BY_SUCCESSIVE(entry),
-                                    slice->start_time + g_fs_api_ctx.
-                                    write_combine.max_wait_time_ms -
-                                    g_timer_ms_ctx.current_time_ms));
-                    } else {
-                        combine_handler_push_within_lock(slice);
-                    }
+                {
+                    int current_timeout;
+                    int remain_timeout;
+                    int timeout;
+
+                    current_timeout = CALC_TIMEOUT_BY_SUCCESSIVE(
+                            callback_arg->op_ctx, entry);
+                    remain_timeout = (slice->start_time +
+                            callback_arg->op_ctx->api_ctx->
+                            write_combine.max_wait_time_ms) -
+                            g_timer_ms_ctx.current_time_ms;
+                    timeout = FC_MIN(current_timeout, remain_timeout);
+                    timeout_handler_modify(&slice->timer, timeout);
                 } else {
+                    timeout_handler_remove(&slice->timer);
                     combine_handler_push_within_lock(slice);
                 }
-                result = 0;
             } else {
-                result = EOVERFLOW;
+                timeout_handler_remove(&slice->timer);
+                combine_handler_push_within_lock(slice);
             }
-            new_slice = false;
+            result = 0;
         } else {
-            *callback_arg->combined = slice->merged_slices > g_fs_api_ctx.
-                write_combine.skip_combine_on_last_merged_slices;
-            new_slice = true;
+            result = EOVERFLOW;
         }
-        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+        *new_slice = false;
+    } else {
+        *callback_arg->combined = slice->merged_slices > callback_arg->op_ctx->api_ctx->
+            write_combine.skip_combine_on_last_merged_slices;
+        *new_slice = true;
+        result = 0;
+    }
+    PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+
+    return result;
+}
+
+static int create_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
+        FSAPIOTIDEntry *entry)
+{
+    int result;
+    FSAPISliceEntry *slice;
+
+    if (FS_FILE_BLOCK_SIZE - (callback_arg->op_ctx->bs_key.slice.offset +
+                callback_arg->op_ctx->bs_key.slice.length) < 4096)
+    {
+        *callback_arg->combined = false;
+        return 0;
     }
 
-    if (new_slice && *callback_arg->combined) {
-        if (FS_FILE_BLOCK_SIZE - (callback_arg->op_ctx->bs_key.slice.offset +
-                    callback_arg->op_ctx->bs_key.slice.length) < 4096)
-        {
-            *callback_arg->combined = false;
-            return 0;
-        }
+    if (callback_arg->op_ctx->bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
+        *callback_arg->combined = false;
+        return EOVERFLOW;
+    }
 
-        if (callback_arg->op_ctx->bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
-            *callback_arg->combined = false;
-            return EOVERFLOW;
-        }
+    slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
+            &callback_arg->op_ctx->allocator_ctx->slice_entry);
+    if (slice == NULL) {
+        *callback_arg->combined = false;
+        return ENOMEM;
+    }
 
-        slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
-                &callback_arg->op_ctx->allocator_ctx->slice_entry);
-        if (slice == NULL) {
-            *callback_arg->combined = false;
-            return ENOMEM;
-        }
-        slice->otid = entry;
-        slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
-        slice->merged_slices = 1;
-        slice->start_time = g_timer_ms_ctx.current_time_ms;
-        slice->bs_key = callback_arg->op_ctx->bs_key;
-        memcpy(slice->buff, callback_arg->buff, callback_arg->
-                op_ctx->bs_key.slice.length);
-        if (obid_htable_insert(callback_arg->op_ctx,
-                    slice, &result) != NULL)
-        {
-            entry->slice = slice;
-            timeout_handler_add(&slice->timer, FC_MIN(
-                        WAIT_TIME_CACL_BY_SUCCESSIVE(entry),
-                        g_fs_api_ctx.write_combine.max_wait_time_ms));
-        } else {
-            *callback_arg->combined = false;
-        }
+    slice->otid = entry;
+    slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
+    slice->merged_slices = 1;
+    slice->start_time = g_timer_ms_ctx.current_time_ms;
+    slice->bs_key = callback_arg->op_ctx->bs_key;
+    memcpy(slice->buff, callback_arg->buff, callback_arg->
+            op_ctx->bs_key.slice.length);
+    if ((result=obid_htable_insert(callback_arg->op_ctx, slice)) == 0) {
+        int current_timeout;
+        int timeout;
+
+        entry->slice = slice;
+        current_timeout = CALC_TIMEOUT_BY_SUCCESSIVE(
+                callback_arg->op_ctx, entry);
+        timeout = FC_MIN(current_timeout, callback_arg->op_ctx->
+                api_ctx->write_combine.max_wait_time_ms);
+        timeout_handler_add(&slice->timer, timeout);
+    } else {
+        *callback_arg->combined = false;
     }
 
     return result;
 }
 
-static void *otid_htable_insert_callback(struct fs_api_hash_entry *he,
+static int check_combine_slice(FSAPIOTIDInsertCallbackArg
+        *callback_arg, FSAPIOTIDEntry *entry)
+{
+    int result;
+    bool new_slice;
+
+    if (entry->slice == NULL) {
+        *callback_arg->combined = IF_COMBINE_BY_SLICE_SIZE(
+                callback_arg->op_ctx);
+        new_slice = true;
+    } else {
+        if ((result=combine_slice(entry->slice, callback_arg,
+                        entry, &new_slice)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if (new_slice && *callback_arg->combined) {
+        return create_slice(callback_arg, entry);
+    }
+    return 0;
+}
+
+static int otid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, const bool new_create)
 {
+    int result;
     FSAPIOTIDEntry *entry;
     FSAPIOTIDInsertCallbackArg *callback_arg;
     int64_t offset;
@@ -144,20 +183,19 @@ static void *otid_htable_insert_callback(struct fs_api_hash_entry *he,
         callback_arg->op_ctx->bs_key.slice.offset;
     if (new_create) {
         entry->successive_count = 0;
-        callback_arg->result = 0;
+        result = 0;
     } else {
         if (offset == entry->last_write_offset) {
             entry->successive_count++;
-            callback_arg->result = combine_slice(
-                    callback_arg, entry);
+            result = check_combine_slice(callback_arg, entry);
         } else {
             entry->successive_count = 0;
-            callback_arg->result = 0;
+            result = 0;
         }
     }
     entry->last_write_offset = offset + callback_arg->
         op_ctx->bs_key.slice.length;
-    return entry;
+    return result;
 }
 
 int otid_htable_init(const int sharding_count,
@@ -175,7 +213,6 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
 {
     FSAPITwoIdsHashKey key;
     FSAPIOTIDInsertCallbackArg callback_arg;
-    FSAPIOTIDEntry *entry;
 
     *combined = false;
     key.oid = op_ctx->bs_key.block.oid;
@@ -183,11 +220,5 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     callback_arg.op_ctx = op_ctx;
     callback_arg.buff = buff;
     callback_arg.combined = combined;
-    if ((entry=(FSAPIOTIDEntry *)sharding_htable_insert(
-                    &otid_ctx, &key, &callback_arg)) != NULL)
-    {
-        return callback_arg.result;
-    } else {
-        return ENOMEM;
-    }
+    return sharding_htable_insert(&otid_ctx, &key, &callback_arg);
 }

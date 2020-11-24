@@ -42,6 +42,31 @@ static void deal_timeouts(FastTimerEntry *head)
     }
 }
 
+void timeout_handler_terminate()
+{
+    int i;
+    int count;
+    int64_t time_ticks;
+    FastTimerEntry head;
+
+    i = 0;
+    while (g_fs_api_ctx.write_combine.skip_combine_on_slice_size > 0 &&
+            i++ < 100)
+    {
+        fc_sleep_ms(10);
+    }
+
+    time_ticks = g_timer_ms_ctx.current_time_ticks +
+        g_fs_api_ctx.write_combine.max_wait_time_ms /
+        g_timer_ms_ctx.precision_ms + 1;
+    count = fast_timer_timeouts_get(&g_timer_ms_ctx.timer, time_ticks, &head);
+    if (count > 0) {
+        logInfo("on terminate, current_time_ms: %"PRId64", timeout count: %d",
+                g_timer_ms_ctx.current_time_ms, count);
+        deal_timeouts(&head);
+    }
+}
+
 static void *timeout_handler_thread_func(void *arg)
 {
     int64_t last_time_ticks;

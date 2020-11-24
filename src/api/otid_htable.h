@@ -40,13 +40,13 @@ extern "C" {
 
     static inline void otid_htable_release_slice(FSAPISliceEntry *slice)
     {
-        PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
-        slice->otid->slice = NULL;
-        PTHREAD_MUTEX_UNLOCK(&slice->otid->hentry.sharding->lock);
-
         PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
         fc_list_del_init(&slice->dlink);
         PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+
+        PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
+        slice->otid->slice = NULL;
+        PTHREAD_MUTEX_UNLOCK(&slice->otid->hentry.sharding->lock);
 
         fast_mblock_free_object(slice->allocator, slice);
     }

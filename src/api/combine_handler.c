@@ -52,29 +52,63 @@ static void combine_handler_run(void *arg, void *thread_data)
     otid_htable_release_slice(slice);
 }
 
-static void *combine_handler_thread_func(void *arg)
+static inline void deal_slices(FSAPISliceEntry *head)
 {
-    FSAPISliceEntry *slice;
     FSAPISliceEntry *current;
-    int result;
+    do {
+        current = head;
+        head = head->next;
 
-    while (SF_G_CONTINUE_FLAG) {
-        slice = (FSAPISliceEntry *)fc_queue_pop_all(
-                &g_combine_handler_ctx.queue);
-        if (slice == NULL) {
-            continue;
-        }
+        fc_thread_pool_run(&g_combine_handler_ctx.thread_pool,
+                combine_handler_run, current);
+    } while (head != NULL);
+}
 
-        do {
-            current = slice;
-            slice = slice->next;
+void combine_handler_terminate()
+{
+    FSAPISliceEntry *head;
+    int i;
 
-            if ((result=fc_thread_pool_run(&g_combine_handler_ctx.thread_pool,
-                            combine_handler_run, current)) != 0)
+    head = (FSAPISliceEntry *)fc_queue_try_pop_all(
+            &g_combine_handler_ctx.queue);
+    if (head != NULL) {
+        deal_slices(head);
+        for (i=0; i<=10; i++) {
+            if (fc_thread_pool_dealing_count(
+                        &g_combine_handler_ctx.thread_pool) > 0)
             {
                 break;
             }
-        } while (slice != NULL);
+            fc_sleep_ms(10);
+        }
+    } else {
+        fc_sleep_ms(30);
+    }
+
+    //waiting for thread finish
+    g_combine_handler_ctx.continue_flag = false;
+    while (fc_thread_pool_dealing_count(
+                &g_combine_handler_ctx.thread_pool) > 0)
+    {
+        fc_sleep_ms(10);
+    }
+
+    fc_sleep_ms(100);
+    logInfo("combine_handler_terminate, running: %d",
+            fc_thread_pool_running_count(
+                &g_combine_handler_ctx.thread_pool));
+}
+
+static void *combine_handler_thread_func(void *arg)
+{
+    FSAPISliceEntry *head;
+
+    while (SF_G_CONTINUE_FLAG) {
+        head = (FSAPISliceEntry *)fc_queue_pop_all(
+                &g_combine_handler_ctx.queue);
+        if (head != NULL) {
+            deal_slices(head);
+        }
     }
 
     return NULL;
@@ -92,10 +126,12 @@ int combine_handler_init(const int thread_limit,
         return result;
     }
 
-    if ((result=fc_thread_pool_init(&g_combine_handler_ctx.thread_pool,
-                    "merged slice dealer", thread_limit,
-                    SF_G_THREAD_STACK_SIZE, max_idle_time,
-                    min_idle_count, (bool *)&SF_G_CONTINUE_FLAG)) != 0)
+    g_combine_handler_ctx.continue_flag = true;
+    if ((result=fc_thread_pool_init(&g_combine_handler_ctx.
+                    thread_pool, "merged slice dealer",
+                    thread_limit, SF_G_THREAD_STACK_SIZE,
+                    max_idle_time, min_idle_count, (bool *)
+                    &g_combine_handler_ctx.continue_flag)) != 0)
     {
         return result;
     }

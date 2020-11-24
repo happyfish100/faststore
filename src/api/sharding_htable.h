@@ -21,7 +21,7 @@
 struct fs_api_hash_entry;
 struct fs_api_htable_sharding;
 
-typedef void *(*fs_api_sharding_htable_insert_callback)
+typedef int (*fs_api_sharding_htable_insert_callback)
     (struct fs_api_hash_entry *entry, void *arg, const bool new_create);
 
 typedef void *(*fs_api_sharding_htable_find_callback)
@@ -103,7 +103,7 @@ extern "C" {
             int64_t element_limit, const int64_t min_ttl_ms,
             const int64_t max_ttl_ms);
 
-    void *sharding_htable_insert(FSAPIHtableShardingContext
+    int sharding_htable_insert(FSAPIHtableShardingContext
             *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg);
 
     void *sharding_htable_find(FSAPIHtableShardingContext
