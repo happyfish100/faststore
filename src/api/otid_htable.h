@@ -19,6 +19,13 @@
 #include "fs_api_types.h"
 #include "sharding_htable.h"
 
+typedef struct fs_api_otid_entry {
+    FSAPIHashEntry hentry;  //must be the first
+    int successive_count;
+    int64_t last_write_offset;
+    FSAPISliceEntry *slice;         //current combined slice
+} FSAPIOTIDEntry;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -29,7 +36,20 @@ extern "C" {
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
     int otid_htable_insert(FSAPIOperationContext *op_ctx,
-            const char *buff, int *successive_count);
+            const char *buff, bool *combined);
+
+    static inline void otid_htable_release_slice(FSAPISliceEntry *slice)
+    {
+        PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
+        slice->otid->slice = NULL;
+        PTHREAD_MUTEX_UNLOCK(&slice->otid->hentry.sharding->lock);
+
+        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+        fc_list_del_init(&slice->dlink);
+        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+
+        fast_mblock_free_object(slice->allocator, slice);
+    }
 
 #ifdef __cplusplus
 }

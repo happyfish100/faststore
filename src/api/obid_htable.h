@@ -24,7 +24,6 @@ typedef struct fs_api_block_entry {
     struct {
         struct fc_list_head head;  //element: FSAPISliceEntry
     } slices;
-    FSAPIHtableSharding *sharding;
 } FSAPIBlockEntry;
 
 #ifdef __cplusplus
@@ -41,6 +40,30 @@ extern "C" {
 
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
+
+    static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
+            const int stage)
+    {
+        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+        slice->stage = stage;
+        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+    }
+
+    static inline int fs_api_swap_slice_stage(FSAPISliceEntry *slice,
+            const int old_stage, const int new_stage)
+    {
+        int result;
+        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+        if (slice->stage == old_stage) {
+            slice->stage = new_stage;
+            result = 0;
+        } else {
+            result = EEXIST;
+        }
+        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+
+        return result;
+    }
 
 #ifdef __cplusplus
 }

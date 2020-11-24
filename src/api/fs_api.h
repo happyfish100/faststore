@@ -26,6 +26,10 @@
 extern "C" {
 #endif
 
+#define fs_api_init(ini_ctx) fs_api_init_ex(&g_fs_api_ctx, ini_ctx)
+
+int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
+
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         const int64_t file_size);
 

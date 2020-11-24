@@ -19,6 +19,7 @@
 #include "fastcommon/fc_queue.h"
 #include "fastcommon/thread_pool.h"
 #include "fs_api_types.h"
+#include "obid_htable.h"
 
 typedef struct {
     struct fc_queue queue;
@@ -36,12 +37,20 @@ extern "C" {
 
     static inline int combine_handler_push(FSAPISliceEntry *slice)
     {
-        if (__sync_bool_compare_and_swap(&slice->in_queue, 0, 1)) {
+        int result;
+        if ((result=fs_api_swap_slice_stage(slice,
+                        FS_API_COMBINED_WRITER_STAGE_MERGING,
+                        FS_API_COMBINED_WRITER_STAGE_PROCESSING)) == 0)
+        {
             fc_queue_push(&g_combine_handler_ctx.queue, slice);
-            return 0;
-        } else {
-            return EINPROGRESS;
         }
+        return result;
+    }
+
+    static inline void combine_handler_push_within_lock(FSAPISliceEntry *slice)
+    {
+        slice->stage = FS_API_COMBINED_WRITER_STAGE_PROCESSING;
+        fc_queue_push(&g_combine_handler_ctx.queue, slice);
     }
 
 #ifdef __cplusplus

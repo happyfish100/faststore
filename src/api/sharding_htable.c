@@ -281,6 +281,7 @@ static inline FSAPIHashEntry *htable_entry_alloc(
             sharding->allocator);
     if (entry != NULL) {
         sharding->element_count++;
+        entry->sharding = sharding;
     }
 
     return entry;
@@ -343,7 +344,7 @@ void *sharding_htable_insert(FSAPIHtableShardingContext
 
         entry->last_update_time_ms = g_timer_ms_ctx.current_time_ms;
         data = sharding_ctx->insert_callback(
-                entry, arg, sharding, new_create);
+                entry, arg, new_create);
     } while (0);
     PTHREAD_MUTEX_UNLOCK(&sharding->lock);
 

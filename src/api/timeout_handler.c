@@ -56,9 +56,9 @@ static void *timeout_handler_thread_func(void *arg)
         if (g_timer_ms_ctx.current_time_ticks != last_time_ticks) {
             last_time_ticks = g_timer_ms_ctx.current_time_ticks;
             count = timeout_handler_timeouts_get(&head);
-            printf("current_time_ms: %"PRId64", timeout count: %d\n",
-                    g_timer_ms_ctx.current_time_ms, count);
             if (count > 0) {
+                logInfo("current_time_ms: %"PRId64", timeout count: %d",
+                        g_timer_ms_ctx.current_time_ms, count);
                 deal_timeouts(&head);
             }
         }

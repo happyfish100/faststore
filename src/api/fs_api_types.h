@@ -31,6 +31,7 @@
 #define FS_API_COMBINED_WRITER_STAGE_FINISHED    3
 
 struct fs_api_block_entry;
+struct fs_api_otid_entry;
 struct fs_api_waiting_task;
 struct fs_api_combined_writer;
 struct fs_api_allocator_context;
@@ -54,9 +55,9 @@ typedef struct fs_api_waiting_task {
 
 typedef struct fs_api_slice_entry {
     FastTimerEntry timer;  //must be the first
+    struct fs_api_otid_entry *otid;
     struct fs_api_block_entry *block;
-    volatile char in_queue;  //if in combine handler queue
-    char stage;
+    int stage;
     int merged_slices;
     int64_t start_time;
     FSBlockSliceKeyInfo bs_key;

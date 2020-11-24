@@ -10,14 +10,16 @@
 #include "sf/sf_global.h"
 #include "fs_api_allocator.h"
 #include "timeout_handler.h"
+#include "combine_handler.h"
 #include "otid_htable.h"
 #include "obid_htable.h"
+#include "fs_api.h"
 
 volatile int thread_count = 0;
 void *thread_run(void *arg)
 {
     FSAPIOperationContext op_ctx;
-    int successive_count;
+    bool combined;
     int64_t offset;
     char *buff;
     int length;
@@ -47,11 +49,11 @@ void *thread_run(void *arg)
         op_ctx.bid = offset / FS_FILE_BLOCK_SIZE;
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
-        result = otid_htable_insert(&op_ctx, buff, &successive_count);
+        result = otid_htable_insert(&op_ctx, buff, &combined);
 
         printf("g_timer_ms_ctx.current_time_ms: %"PRId64", result: %d, "
-                "successive_count: %d\n", g_timer_ms_ctx.current_time_ms,
-                result, successive_count);
+                "combined: %d\n", g_timer_ms_ctx.current_time_ms,
+                result, combined);
 
         if (i % 10000 == 0) {
             fc_sleep_ms(10);
@@ -76,10 +78,17 @@ int main(int argc, char *argv[])
     const int64_t htable_capacity = 1403641;
     const int64_t min_ttl_ms = 100;
     const int64_t max_ttl_ms = 86400 * 1000;
+    const int thread_limit = 16;
+    const int min_idle_count = 4;
+    const int max_idle_time = 300;
+    IniFullContext ini_ctx;
 
     log_init();
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
 
+    if ((result=fs_api_init(&ini_ctx)) != 0) {
+        return result;
+    }
     if ((result=fs_api_allocator_init()) != 0) {
         return result;
     }
@@ -98,6 +107,12 @@ int main(int argc, char *argv[])
     if ((result=obid_htable_init(sharding_count, htable_capacity,
                     allocator_count, element_limit,
                     min_ttl_ms, max_ttl_ms)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=combine_handler_init(thread_limit, min_idle_count,
+                    max_idle_time)) != 0)
     {
         return result;
     }

@@ -22,9 +22,7 @@ struct fs_api_hash_entry;
 struct fs_api_htable_sharding;
 
 typedef void *(*fs_api_sharding_htable_insert_callback)
-    (struct fs_api_hash_entry *entry, void *arg,
-     struct fs_api_htable_sharding *sharding,
-     const bool new_create);
+    (struct fs_api_hash_entry *entry, void *arg, const bool new_create);
 
 typedef void *(*fs_api_sharding_htable_find_callback)
     (struct fs_api_hash_entry *entry, void *arg);
@@ -49,6 +47,7 @@ typedef struct fs_api_hash_entry {
         struct fc_list_head lru;     //for LRU chain
     } dlinks;
     int64_t last_update_time_ms;
+    struct fs_api_htable_sharding *sharding;  //hold for lock
 } FSAPIHashEntry;
 
 typedef struct fs_api_hashtable {

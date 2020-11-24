@@ -18,6 +18,8 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "obid_htable.h"
+#include "otid_htable.h"
 #include "combine_handler.h"
 
 CombineHandlerContext g_combine_handler_ctx;
@@ -25,6 +27,7 @@ CombineHandlerContext g_combine_handler_ctx;
 static void combine_handler_run(void *arg, void *thread_data)
 {
     FSAPISliceEntry *slice;
+    /*
     int write_bytes;
     int inc_alloc;
     int result;
@@ -36,8 +39,17 @@ static void combine_handler_run(void *arg, void *thread_data)
         sf_terminate_myself();
         return;
     }
+    */
+
+    slice = (FSAPISliceEntry *)arg;
+    logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
+            "slice {offset: %d, length: %d}, merged slices: %d",
+            slice->bs_key.block.oid, slice->bs_key.block.offset,
+            slice->bs_key.slice.offset, slice->bs_key.slice.length,
+            slice->merged_slices);
 
     //TODO notify finish and cleanup
+    otid_htable_release_slice(slice);
 }
 
 static void *combine_handler_thread_func(void *arg)

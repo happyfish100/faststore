@@ -36,7 +36,7 @@ static inline bool slice_is_overlap(const FSSliceSize *s1,
 }
 
 static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
-        void *arg, FSAPIHtableSharding *sharding, const bool new_create)
+        void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
     struct fc_list_head *previous;
@@ -46,7 +46,6 @@ static void *obid_htable_insert_callback(struct fs_api_hash_entry *he,
     callback_arg = (FSAPIInsertCallbackArg *)arg;
     previous = NULL;
     if (new_create) {
-        block->sharding = sharding;
         FC_INIT_LIST_HEAD(&block->slices.head);
     } else {
         struct fc_list_head *current;
