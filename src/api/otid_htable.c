@@ -79,11 +79,9 @@ static int combine_slice(FSAPISliceEntry *slice,
                             */
                     timeout_handler_modify(&slice->timer, timeout);
                 } else {
-                    timeout_handler_remove(&slice->timer);
                     combine_handler_push_within_lock(slice);
                 }
             } else {
-                timeout_handler_remove(&slice->timer);
                 combine_handler_push_within_lock(slice);
             }
             result = 0;

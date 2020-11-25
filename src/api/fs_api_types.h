@@ -28,28 +28,28 @@
 #define FS_API_COMBINED_WRITER_STAGE_NONE        0
 #define FS_API_COMBINED_WRITER_STAGE_MERGING     1
 #define FS_API_COMBINED_WRITER_STAGE_PROCESSING  2
-#define FS_API_COMBINED_WRITER_STAGE_FINISHED    3
+#define FS_API_COMBINED_WRITER_STAGE_CLEANUP     3
 
 struct fs_api_block_entry;
 struct fs_api_otid_entry;
 struct fs_api_waiting_task;
-struct fs_api_combined_writer;
+struct fs_api_slice_entry;
 struct fs_api_allocator_context;
 struct fs_api_context;
 
-typedef struct fs_api_waiting_task_writer_pair {
+typedef struct fs_api_waiting_task_slice_pair {
     struct fs_api_waiting_task *task;
-    struct fs_api_combined_writer *writer;
+    struct fs_api_slice_entry *slice;
     struct fast_mblock_man *allocator; //for free
     struct fc_list_head dlink;         //for waiting task
-    struct fs_api_waiting_task_writer_pair *next; //for slice entry
-} FSAPIWaitingTaskWriterPair;
+    struct fs_api_waiting_task_slice_pair *next; //for slice entry
+} FSAPIWaitingTaskSlicePair;
 
 typedef struct fs_api_waiting_task {
     pthread_lock_cond_pair_t lcp;  //for notify
     struct {
-        FSAPIWaitingTaskWriterPair fixed_pair; //for only one writer
-        struct fc_list_head head;   //element: FSAPIWaitingTaskWriterPair
+        FSAPIWaitingTaskSlicePair fixed_pair; //for only one writer
+        struct fc_list_head head;   //element: FSAPIWaitingTaskSlicePair
     } waitings;
     struct fast_mblock_man *allocator;  //for free
 } FSAPIWaitingTask;
@@ -64,7 +64,7 @@ typedef struct fs_api_slice_entry {
     FSBlockSliceKeyInfo bs_key;
     char *buff;
     struct {
-        FSAPIWaitingTaskWriterPair *head;
+        FSAPIWaitingTaskSlicePair *head; //use lock of block sharding
     } waitings;
     struct fast_mblock_man *allocator;  //for free, set by fast_mblock
     struct fc_list_head dlink;          //for block entry

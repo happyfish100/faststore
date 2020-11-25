@@ -19,6 +19,7 @@
 #include "fastcommon/fc_queue.h"
 #include "fastcommon/thread_pool.h"
 #include "fs_api_types.h"
+#include "timeout_handler.h"
 #include "obid_htable.h"
 
 typedef struct {
@@ -53,6 +54,7 @@ extern "C" {
     static inline void combine_handler_push_within_lock(FSAPISliceEntry *slice)
     {
         slice->stage = FS_API_COMBINED_WRITER_STAGE_PROCESSING;
+        timeout_handler_remove(&slice->timer);
         fc_queue_push(&g_combine_handler_ctx.queue, slice);
     }
 

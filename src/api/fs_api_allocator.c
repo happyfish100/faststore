@@ -19,10 +19,10 @@
 
 FSAPIAllocatorCtxArray g_allocator_array;
 
-static int task_writer_pair_alloc_init(FSAPIWaitingTaskWriterPair
-        *task_writer_pair, void *arg)
+static int task_slice_pair_alloc_init(FSAPIWaitingTaskSlicePair
+        *task_slice_pair, void *arg)
 {
-    task_writer_pair->allocator = (struct fast_mblock_man *)arg;
+    task_slice_pair->allocator = (struct fast_mblock_man *)arg;
     return 0;
 }
 
@@ -54,11 +54,11 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
 {
     int result;
 
-    if ((result=fast_mblock_init_ex1(&ctx->task_writer_pair,
-                    "task_writer_pair", sizeof(FSAPIWaitingTaskWriterPair),
+    if ((result=fast_mblock_init_ex1(&ctx->task_slice_pair,
+                    "task_slice_pair", sizeof(FSAPIWaitingTaskSlicePair),
                     4096, 0, (fast_mblock_alloc_init_func)
-                    task_writer_pair_alloc_init,
-                    &ctx->task_writer_pair, true)) != 0)
+                    task_slice_pair_alloc_init,
+                    &ctx->task_slice_pair, true)) != 0)
     {
         return result;
     }

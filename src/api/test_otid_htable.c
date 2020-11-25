@@ -26,6 +26,8 @@ void *thread_run(void *arg)
     int length;
     int i;
     int result;
+    int conflict_count;
+    int total_conflict_count;
 
     thread_index = (long)arg;
 
@@ -35,9 +37,11 @@ void *thread_run(void *arg)
     buff = (char *)malloc(length);
     memset(buff, 0, length);
 
+    total_conflict_count = 0;
     offset = 0;
     op_ctx.api_ctx = &g_fs_api_ctx;
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
+    op_ctx.bs_key.block.oid = 123456;
     //op_ctx.tid = (long)pthread_self();
     op_ctx.tid = getpid();
     op_ctx.bid = 0;
@@ -64,6 +68,13 @@ void *thread_run(void *arg)
             op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE -
                 op_ctx.bs_key.slice.offset;
         }
+
+        if (obid_htable_check_conflict_and_wait(&op_ctx, &conflict_count) == 0) {
+            if (conflict_count > 0) {
+                total_conflict_count += conflict_count;
+            }
+        }
+
         result = otid_htable_insert(&op_ctx, buff, &combined);
 
         /*
@@ -77,6 +88,9 @@ void *thread_run(void *arg)
             fc_sleep_ms(10);
         }
     }
+
+    printf("thread: %ld, total_conflict_count: %d\n",
+            thread_index, total_conflict_count);
 
     __sync_sub_and_fetch(&thread_count, 1);
     return NULL;

@@ -24,6 +24,26 @@
 
 CombineHandlerContext g_combine_handler_ctx;
 
+static inline void notify_and_release_slice(FSAPISliceEntry *slice)
+{
+    PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+    slice->stage = FS_API_COMBINED_WRITER_STAGE_CLEANUP;
+    if (slice->waitings.head != NULL) {
+        obid_htable_notify_waiting_tasks(slice);
+    }
+
+    fc_list_del_init(&slice->dlink);
+    PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+
+    PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
+    if (slice == slice->otid->slice) {
+        slice->otid->slice = NULL;
+    }
+    PTHREAD_MUTEX_UNLOCK(&slice->otid->hentry.sharding->lock);
+
+    fast_mblock_free_object(slice->allocator, slice);
+}
+
 static void combine_handler_run(void *arg, void *thread_data)
 {
     FSAPISliceEntry *slice;
@@ -51,7 +71,7 @@ static void combine_handler_run(void *arg, void *thread_data)
             */
 
     //TODO notify finish and cleanup
-    otid_htable_release_slice(slice);
+    notify_and_release_slice(slice);
 }
 
 static inline void deal_slices(FSAPISliceEntry *head)

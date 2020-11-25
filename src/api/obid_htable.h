@@ -41,6 +41,8 @@ extern "C" {
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
 
+    void obid_htable_notify_waiting_tasks(FSAPISliceEntry *slice);
+
     static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
             const int stage)
     {
