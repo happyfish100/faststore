@@ -23,6 +23,7 @@ static FSAPIHtableShardingContext obid_ctx;
 typedef struct fs_api_insert_callback_arg {
     FSAPIOperationContext *op_ctx;
     FSAPISliceEntry *slice;
+    int successive_count;
 } FSAPIInsertCallbackArg;
 
 typedef struct fs_api_find_callback_arg {
@@ -78,13 +79,17 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
+    FSAPIBlockEntry *old;
     struct fc_list_head *previous;
     FSAPIInsertCallbackArg *callback_arg;
     int result;
+    int current_timeout;
+    int timeout;
 
     block = (FSAPIBlockEntry *)he;
     callback_arg = (FSAPIInsertCallbackArg *)arg;
     previous = NULL;
+
     if (new_create) {
         FC_INIT_LIST_HEAD(&block->slices.head);
     } else {
@@ -95,8 +100,13 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         }
     }
 
+    callback_arg->slice->bs_key = callback_arg->op_ctx->bs_key;
+    callback_arg->slice->merged_slices = 1;
+    callback_arg->slice->start_time = g_timer_ms_ctx.current_time_ms;
     callback_arg->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
-    callback_arg->slice->block = block;
+    old = FS_API_FETCH_SLICE_BLOCK(callback_arg->slice);
+    __sync_bool_compare_and_swap(&callback_arg->slice->block, old, block);
+    //callback_arg->slice->block = block;
     if (previous == NULL) {
         fc_list_add(&callback_arg->slice->dlink, &block->slices.head);
     } else {
@@ -104,6 +114,11 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
                 previous, previous->next);
     }
 
+    current_timeout = FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(
+            callback_arg->op_ctx, callback_arg->successive_count);
+    timeout = FC_MIN(current_timeout, callback_arg->op_ctx->
+            api_ctx->write_combine.max_wait_time_ms);
+    timeout_handler_add(&callback_arg->slice->timer, timeout);
     return 0;
 }
 
@@ -166,10 +181,10 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
 
             (*callback_arg->conflict_count)++;
             /*
-            if (deal_confilct_slice(callback_arg, slice) != 0) {
-                break;
-            }
-            */
+               if (deal_confilct_slice(callback_arg, slice) != 0) {
+               break;
+               }
+             */
         }
     }
 
@@ -211,7 +226,8 @@ void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
     }
 }
 
-int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
+int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice,
+        const int successive_count)
 {
     FSAPITwoIdsHashKey key;
     FSAPIInsertCallbackArg callback_arg;
@@ -220,6 +236,7 @@ int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
     key.bid = op_ctx->bid;
     callback_arg.op_ctx = op_ctx;
     callback_arg.slice = slice;
+    callback_arg.successive_count = successive_count;
     return sharding_htable_insert(&obid_ctx, &key, &callback_arg);
 }
 

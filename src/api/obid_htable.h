@@ -36,7 +36,7 @@ extern "C" {
             const int64_t max_ttl_ms);
 
     int obid_htable_insert(FSAPIOperationContext *op_ctx,
-            FSAPISliceEntry *slice);
+            FSAPISliceEntry *slice, const int successive_count);
 
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
@@ -44,23 +44,27 @@ extern "C" {
     static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
             const int stage)
     {
-        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+        FSAPIBlockEntry *block;
+        block = FS_API_FETCH_SLICE_BLOCK(slice);
+        PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
         slice->stage = stage;
-        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+        PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
     }
 
     static inline int fs_api_swap_slice_stage(FSAPISliceEntry *slice,
             const int old_stage, const int new_stage)
     {
         int result;
-        PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+        FSAPIBlockEntry *block;
+        block = FS_API_FETCH_SLICE_BLOCK(slice);
+        PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
         if (slice->stage == old_stage) {
             slice->stage = new_stage;
             result = 0;
         } else {
             result = EEXIST;
         }
-        PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+        PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
 
         return result;
     }

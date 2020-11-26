@@ -20,24 +20,23 @@
 #include "combine_handler.h"
 #include "timeout_handler.h"
 
-TimeHandlerContext g_timer_ms_ctx;
+TimeHandlerContext g_timer_ms_ctx = {10, 0};
 
 #define SET_CURRENT_TIME_TICKS()  \
     g_timer_ms_ctx.current_time_ms = get_current_time_ms(); \
     g_timer_ms_ctx.current_time_ticks = g_timer_ms_ctx.current_time_ms / \
         g_timer_ms_ctx.precision_ms
 
-static void deal_timeouts(FastTimerEntry *head)
+static void deal_timeouts(LockedTimerEntry *head)
 {
-    FastTimerEntry *entry;
-    FastTimerEntry *current;
+    LockedTimerEntry *entry;
+    LockedTimerEntry *current;
 
     entry = head->next;
     while (entry != NULL) {
         current = entry;
         entry = entry->next;
 
-        current->prev = current->next = NULL;
         combine_handler_push((FSAPISliceEntry *)current);
     }
 }
@@ -47,17 +46,24 @@ void timeout_handler_terminate()
     int i;
     int count;
     int64_t time_ticks;
-    FastTimerEntry head;
+    LockedTimerEntry head;
 
     i = 0;
     while (g_fs_api_ctx.write_combine.enabled && i++ < 100) {
         fc_sleep_ms(10);
     }
 
+    i = 0;
+    while (__sync_add_and_fetch(&g_timer_ms_ctx.
+                running_threads, 0) > 0 && i++ < 100)
+    {
+        fc_sleep_ms(10);
+    }
+
     time_ticks = g_timer_ms_ctx.current_time_ticks +
         g_fs_api_ctx.write_combine.max_wait_time_ms /
         g_timer_ms_ctx.precision_ms + 1;
-    count = fast_timer_timeouts_get(&g_timer_ms_ctx.timer, time_ticks, &head);
+    count = locked_timer_timeouts_get(&g_timer_ms_ctx.timer, time_ticks, &head);
     if (count > 0) {
         logInfo("on terminate, current_time_ms: %"PRId64", timeout count: %d",
                 g_timer_ms_ctx.current_time_ms, count);
@@ -68,9 +74,11 @@ void timeout_handler_terminate()
 static void *timeout_handler_thread_func(void *arg)
 {
     int64_t last_time_ticks;
-    FastTimerEntry head;
+    LockedTimerEntry head;
     int count;
     int half_precision_ms;
+
+    __sync_add_and_fetch(&g_timer_ms_ctx.running_threads, 1);
 
     last_time_ticks = 0;
     half_precision_ms = (g_timer_ms_ctx.precision_ms + 1) / 2;
@@ -89,10 +97,12 @@ static void *timeout_handler_thread_func(void *arg)
         fc_sleep_ms(1);
     }
 
+    __sync_sub_and_fetch(&g_timer_ms_ctx.running_threads, 1);
     return NULL;
 }
 
-int timeout_handler_init(const int precision_ms, const int max_timeout_ms)
+int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
+        const int shared_lock_count)
 {
     int result;
     int slot_count;
@@ -101,8 +111,9 @@ int timeout_handler_init(const int precision_ms, const int max_timeout_ms)
     g_timer_ms_ctx.precision_ms = precision_ms;
     SET_CURRENT_TIME_TICKS();
     slot_count = fc_ceil_prime(max_timeout_ms / precision_ms);
-    if ((result=fast_timer_init_ex(&g_timer_ms_ctx.timer, slot_count,
-                    g_timer_ms_ctx.current_time_ticks, true)) != 0)
+    if ((result=locked_timer_init(&g_timer_ms_ctx.timer,
+                    slot_count, g_timer_ms_ctx.current_time_ticks,
+                    shared_lock_count)) != 0)
     {
         return result;
     }

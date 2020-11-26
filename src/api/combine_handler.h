@@ -57,8 +57,14 @@ extern "C" {
 
     static inline void combine_handler_push_within_lock(FSAPISliceEntry *slice)
     {
+        int result;
+
         slice->stage = FS_API_COMBINED_WRITER_STAGE_PROCESSING;
-        timeout_handler_remove(&slice->timer);
+        if ((result=timeout_handler_remove(&slice->timer)) != 0) {
+            logWarning("timeout_handler_remove %p errno: %d, error info: %s, "
+                    "timer status: %d, slice stage: %d", slice, result,
+                    strerror(result), slice->timer.status, slice->stage);
+        }
         __sync_add_and_fetch(&g_combine_handler_ctx.waiting_slice_count, 1);
         fc_queue_push(&g_combine_handler_ctx.queue, slice);
     }

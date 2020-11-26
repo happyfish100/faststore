@@ -22,7 +22,7 @@
 #include "fastcommon/common_define.h"
 #include "fastcommon/fc_list.h"
 #include "fastcommon/pthread_func.h"
-#include "fastcommon/fast_timer.h"
+#include "fastcommon/locked_timer.h"
 #include "faststore/client/fs_client.h"
 
 #define FS_API_COMBINED_WRITER_STAGE_NONE        0
@@ -36,6 +36,15 @@ struct fs_api_waiting_task;
 struct fs_api_slice_entry;
 struct fs_api_allocator_context;
 struct fs_api_context;
+
+#define FS_API_FETCH_SLICE_OTID(slice) \
+    (FSAPIOTIDEntry *)__sync_add_and_fetch(&slice->otid, 0);
+
+#define FS_API_FETCH_SLICE_BLOCK(slice) \
+    (FSAPIBlockEntry *)__sync_add_and_fetch(&slice->block, 0);
+
+#define FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(op_ctx, successive_count)  \
+    (successive_count * op_ctx->api_ctx->write_combine.min_wait_time_ms)
 
 typedef struct fs_api_waiting_task_slice_pair {
     struct fs_api_waiting_task *task;
@@ -55,7 +64,7 @@ typedef struct fs_api_waiting_task {
 } FSAPIWaitingTask;
 
 typedef struct fs_api_slice_entry {
-    FastTimerEntry timer;  //must be the first
+    LockedTimerEntry timer;  //must be the first
     volatile struct fs_api_otid_entry *otid;
     volatile struct fs_api_block_entry *block;
     int stage;

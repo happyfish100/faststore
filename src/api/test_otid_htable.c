@@ -43,7 +43,8 @@ void *thread_run(void *arg)
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
     op_ctx.bs_key.block.oid = 123456;
     //op_ctx.tid = (long)pthread_self();
-    op_ctx.tid = getpid() + thread_index;
+    //op_ctx.tid = getpid() + thread_index;
+    op_ctx.tid = getpid();
     op_ctx.bid = 0;
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
     printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
@@ -113,6 +114,7 @@ int main(int argc, char *argv[])
     const int thread_limit = 16;
     const int min_idle_count = 4;
     const int max_idle_time = 300;
+    const int shared_lock_count = 163;
     IniFullContext ini_ctx;
 
     log_init();
@@ -125,7 +127,9 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if ((result=timeout_handler_init(precision_ms, max_timeout_ms)) != 0) {
+    if ((result=timeout_handler_init(precision_ms, max_timeout_ms,
+                    shared_lock_count)) != 0)
+    {
         return result;
     }
 

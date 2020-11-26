@@ -26,20 +26,25 @@ CombineHandlerContext g_combine_handler_ctx = {0};
 
 static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 {
-    PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+    FSAPIBlockEntry *block;
+    FSAPIOTIDEntry *otid;
+
+    block = FS_API_FETCH_SLICE_BLOCK(slice);
+    PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
     slice->stage = FS_API_COMBINED_WRITER_STAGE_CLEANUP;
     if (slice->waitings.head != NULL) {
         fs_api_notify_waiting_tasks(slice);
     }
 
     fc_list_del_init(&slice->dlink); //remove from block
-    PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+    PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
 
-    PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
-    if (slice == slice->otid->slice) {
-        slice->otid->slice = NULL;
+    otid = FS_API_FETCH_SLICE_OTID(slice);
+    PTHREAD_MUTEX_LOCK(&otid->hentry.sharding->lock);
+    if (slice == otid->slice) {
+        otid->slice = NULL;
     }
-    PTHREAD_MUTEX_UNLOCK(&slice->otid->hentry.sharding->lock);
+    PTHREAD_MUTEX_UNLOCK(&otid->hentry.sharding->lock);
 
     fast_mblock_free_object(slice->allocator, slice);
 }

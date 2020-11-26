@@ -29,10 +29,6 @@ typedef struct fs_api_opid_insert_callback_arg {
 
 static FSAPIHtableShardingContext otid_ctx;
 
-#define CALC_TIMEOUT_BY_SUCCESSIVE(op_ctx, entry)  \
-    (entry->successive_count * op_ctx->api_ctx-> \
-     write_combine.min_wait_time_ms)
-
 #define IF_COMBINE_BY_SLICE_SIZE(op_ctx)  \
     (op_ctx->bs_key.slice.length < op_ctx->api_ctx->write_combine. \
      skip_combine_on_slice_size)
@@ -58,8 +54,10 @@ static int combine_slice(FSAPISliceEntry *slice,
 {
     int result;
     int merged_length;
+    FSAPIBlockEntry *block;
 
-    PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
+    block = FS_API_FETCH_SLICE_BLOCK(slice);
+    PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
     if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
         merged_length = slice->bs_key.slice.length + callback_arg->
             op_ctx->bs_key.slice.length;
@@ -79,8 +77,8 @@ static int combine_slice(FSAPISliceEntry *slice,
                     int remain_timeout;
                     int timeout;
 
-                    current_timeout = CALC_TIMEOUT_BY_SUCCESSIVE(
-                            callback_arg->op_ctx, entry);
+                    current_timeout = FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(
+                            callback_arg->op_ctx, entry->successive_count);
                     remain_timeout = (slice->start_time +
                             callback_arg->op_ctx->api_ctx->
                             write_combine.max_wait_time_ms) -
@@ -121,7 +119,7 @@ static int combine_slice(FSAPISliceEntry *slice,
         }
         result = 0;
     }
-    PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
+    PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
 
     return result;
 }
@@ -130,6 +128,7 @@ static int create_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
         FSAPIOTIDEntry *entry)
 {
     int result;
+    FSAPIOTIDEntry *old;
     FSAPISliceEntry *slice;
 
     if (FS_FILE_BLOCK_SIZE - (callback_arg->op_ctx->bs_key.slice.offset +
@@ -151,23 +150,16 @@ static int create_slice(FSAPIOTIDInsertCallbackArg *callback_arg,
         return ENOMEM;
     }
 
-    slice->otid = entry;
-    slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
-    slice->merged_slices = 1;
-    slice->start_time = g_timer_ms_ctx.current_time_ms;
-    slice->bs_key = callback_arg->op_ctx->bs_key;
+    old = FS_API_FETCH_SLICE_OTID(slice);
+    __sync_bool_compare_and_swap(&slice->otid, old, entry);
+
+    //slice->otid = entry;
     memcpy(slice->buff, callback_arg->buff, callback_arg->
             op_ctx->bs_key.slice.length);
-    if ((result=obid_htable_insert(callback_arg->op_ctx, slice)) == 0) {
-        int current_timeout;
-        int timeout;
-
+    if ((result=obid_htable_insert(callback_arg->op_ctx, slice,
+                    entry->successive_count)) == 0)
+    {
         entry->slice = slice;
-        current_timeout = CALC_TIMEOUT_BY_SUCCESSIVE(
-                callback_arg->op_ctx, entry);
-        timeout = FC_MIN(current_timeout, callback_arg->op_ctx->
-                api_ctx->write_combine.max_wait_time_ms);
-        timeout_handler_add(&slice->timer, timeout);
     } else {
         *callback_arg->combined = false;
     }
