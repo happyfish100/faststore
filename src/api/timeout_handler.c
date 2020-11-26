@@ -37,7 +37,7 @@ static void deal_timeouts(FastTimerEntry *head)
         current = entry;
         entry = entry->next;
 
-        current->prev = current->next = NULL; //must set NULL because NOT in time wheel
+        current->prev = current->next = NULL;
         combine_handler_push((FSAPISliceEntry *)current);
     }
 }

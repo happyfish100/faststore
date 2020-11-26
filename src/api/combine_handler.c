@@ -22,17 +22,17 @@
 #include "otid_htable.h"
 #include "combine_handler.h"
 
-CombineHandlerContext g_combine_handler_ctx;
+CombineHandlerContext g_combine_handler_ctx = {0};
 
 static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 {
     PTHREAD_MUTEX_LOCK(&slice->block->hentry.sharding->lock);
     slice->stage = FS_API_COMBINED_WRITER_STAGE_CLEANUP;
     if (slice->waitings.head != NULL) {
-        obid_htable_notify_waiting_tasks(slice);
+        fs_api_notify_waiting_tasks(slice);
     }
 
-    fc_list_del_init(&slice->dlink);
+    fc_list_del_init(&slice->dlink); //remove from block
     PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
 
     PTHREAD_MUTEX_LOCK(&slice->otid->hentry.sharding->lock);
@@ -77,13 +77,19 @@ static void combine_handler_run(void *arg, void *thread_data)
 static inline void deal_slices(FSAPISliceEntry *head)
 {
     FSAPISliceEntry *current;
+    int count;
+
+    count = 0;
     do {
         current = head;
         head = head->next;
 
+        ++count;
         fc_thread_pool_run(&g_combine_handler_ctx.thread_pool,
                 combine_handler_run, current);
     } while (head != NULL);
+
+    __sync_sub_and_fetch(&g_combine_handler_ctx.waiting_slice_count, count);
 }
 
 void combine_handler_terminate()
@@ -116,9 +122,12 @@ void combine_handler_terminate()
     }
 
     fc_sleep_ms(100);
-    logInfo("combine_handler_terminate, running: %d",
+    logInfo("combine_handler_terminate, running: %d, "
+            "waiting_slice_count: %d",
             fc_thread_pool_running_count(
-                &g_combine_handler_ctx.thread_pool));
+                &g_combine_handler_ctx.thread_pool),
+            __sync_add_and_fetch(&g_combine_handler_ctx.
+                waiting_slice_count, 0));
 }
 
 static void *combine_handler_thread_func(void *arg)

@@ -129,15 +129,8 @@ static int deal_confilct_slice(FSAPIFindCallbackArg *callback_arg,
         }
     }
 
-    PTHREAD_MUTEX_LOCK(&callback_arg->waiting_task->lcp.lock);
-    ts_pair->task = callback_arg->waiting_task;
-    ts_pair->slice = slice;
-    ts_pair->next = slice->waitings.head;
-    slice->waitings.head = ts_pair;
-    fc_list_add_tail(&ts_pair->dlink, &callback_arg->
-            waiting_task->waitings.head);
-    PTHREAD_MUTEX_UNLOCK(&callback_arg->waiting_task->lcp.lock);
-
+    fs_api_add_to_slice_waiting_list(callback_arg->
+            waiting_task, slice, ts_pair);
     return 0;
 }
 
@@ -172,9 +165,11 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
             }
 
             (*callback_arg->conflict_count)++;
+            /*
             if (deal_confilct_slice(callback_arg, slice) != 0) {
                 break;
             }
+            */
         }
     }
 
@@ -196,19 +191,7 @@ int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
             sizeof(FSAPIBlockEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 
-int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
-{
-    FSAPITwoIdsHashKey key;
-    FSAPIInsertCallbackArg callback_arg;
-
-    key.oid = op_ctx->bs_key.block.oid;
-    key.bid = op_ctx->bid;
-    callback_arg.op_ctx = op_ctx;
-    callback_arg.slice = slice;
-    return sharding_htable_insert(&obid_ctx, &key, &callback_arg);
-}
-
-void obid_htable_notify_waiting_tasks(FSAPISliceEntry *slice)
+void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
 {
     FSAPIWaitingTaskSlicePair *ts_pair;
 
@@ -223,22 +206,21 @@ void obid_htable_notify_waiting_tasks(FSAPISliceEntry *slice)
         if (ts_pair != &ts_pair->task->waitings.fixed_pair) {
             fast_mblock_free_object(ts_pair->allocator, ts_pair);
         }
+
         slice->waitings.head = slice->waitings.head->next;
     }
 }
 
-static void wait_slice_write_done(FSAPIWaitingTask *waiting_task)
+int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice)
 {
-    FSAPIWaitingTaskSlicePair *ts_pair;
+    FSAPITwoIdsHashKey key;
+    FSAPIInsertCallbackArg callback_arg;
 
-    PTHREAD_MUTEX_LOCK(&waiting_task->lcp.lock);
-    while ((ts_pair=fc_list_first_entry(&waiting_task->waitings.head,
-                    FSAPIWaitingTaskSlicePair, dlink)) != NULL)
-    {
-        pthread_cond_wait(&waiting_task->lcp.cond,
-                &waiting_task->lcp.lock);
-    }
-    PTHREAD_MUTEX_UNLOCK(&waiting_task->lcp.lock);
+    key.oid = op_ctx->bs_key.block.oid;
+    key.bid = op_ctx->bid;
+    callback_arg.op_ctx = op_ctx;
+    callback_arg.slice = slice;
+    return sharding_htable_insert(&obid_ctx, &key, &callback_arg);
 }
 
 int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
@@ -258,9 +240,7 @@ int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
     }
 
     if (callback_arg.waiting_task != NULL) {
-        wait_slice_write_done(callback_arg.waiting_task);
-        fast_mblock_free_object(callback_arg.waiting_task->
-                allocator, callback_arg.waiting_task);
+        fs_api_wait_write_done_and_release(callback_arg.waiting_task);
     }
 
     return 0;

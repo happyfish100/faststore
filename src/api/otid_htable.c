@@ -24,6 +24,7 @@ typedef struct fs_api_opid_insert_callback_arg {
     FSAPIOperationContext *op_ctx;
     const char *buff;
     bool *combined;
+    FSAPIWaitingTask *waiting_task;
 } FSAPIOTIDInsertCallbackArg;
 
 static FSAPIHtableShardingContext otid_ctx;
@@ -36,6 +37,20 @@ static FSAPIHtableShardingContext otid_ctx;
     (op_ctx->bs_key.slice.length < op_ctx->api_ctx->write_combine. \
      skip_combine_on_slice_size)
 
+
+static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
+        FSAPIOTIDInsertCallbackArg *callback_arg)
+{
+    callback_arg->waiting_task = (FSAPIWaitingTask *)
+        fast_mblock_alloc_object(&callback_arg->
+                op_ctx->allocator_ctx->waiting_task);
+    if (callback_arg->waiting_task == NULL) {
+        return;
+    }
+
+    fs_api_add_to_slice_waiting_list(callback_arg->waiting_task, slice,
+            &callback_arg->waiting_task->waitings.fixed_pair);
+}
 
 static int combine_slice(FSAPISliceEntry *slice,
         FSAPIOTIDInsertCallbackArg *callback_arg,
@@ -93,7 +108,17 @@ static int combine_slice(FSAPISliceEntry *slice,
         *callback_arg->combined = slice->merged_slices >
             callback_arg->op_ctx->api_ctx->write_combine.
             skip_combine_on_last_merged_slices;
-        *new_slice = true;
+        if (*callback_arg->combined && slice->stage ==
+                FS_API_COMBINED_WRITER_STAGE_PROCESSING &&
+                __sync_add_and_fetch(&g_combine_handler_ctx.
+                    waiting_slice_count, 0) > 0)
+        {
+            //TODO
+            //add_to_slice_waiting_list(slice, callback_arg);  //for flow control
+            *new_slice = false;
+        } else {
+            *new_slice = true;
+        }
         result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
@@ -224,6 +249,7 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
 {
     FSAPITwoIdsHashKey key;
     FSAPIOTIDInsertCallbackArg callback_arg;
+    int result;
 
     *combined = false;
     key.oid = op_ctx->bs_key.block.oid;
@@ -231,5 +257,12 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     callback_arg.op_ctx = op_ctx;
     callback_arg.buff = buff;
     callback_arg.combined = combined;
-    return sharding_htable_insert(&otid_ctx, &key, &callback_arg);
+    callback_arg.waiting_task = NULL;
+
+    result = sharding_htable_insert(&otid_ctx, &key, &callback_arg);
+    if (callback_arg.waiting_task != NULL) {
+        fs_api_wait_write_done_and_release(callback_arg.waiting_task);
+    }
+
+    return result;
 }

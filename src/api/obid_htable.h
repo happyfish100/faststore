@@ -41,8 +41,6 @@ extern "C" {
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
 
-    void obid_htable_notify_waiting_tasks(FSAPISliceEntry *slice);
-
     static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
             const int stage)
     {
@@ -65,6 +63,37 @@ extern "C" {
         PTHREAD_MUTEX_UNLOCK(&slice->block->hentry.sharding->lock);
 
         return result;
+    }
+
+    void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice);
+
+    static inline void fs_api_add_to_slice_waiting_list(
+            FSAPIWaitingTask *task, FSAPISliceEntry *slice,
+            FSAPIWaitingTaskSlicePair *ts_pair)
+    {
+        PTHREAD_MUTEX_LOCK(&task->lcp.lock);
+        ts_pair->task = task;
+        ts_pair->slice = slice;
+        ts_pair->next = slice->waitings.head;
+        slice->waitings.head = ts_pair;
+        fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);
+        PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
+    }
+
+    static inline void fs_api_wait_write_done_and_release(
+            FSAPIWaitingTask *waiting_task)
+    {
+        FSAPIWaitingTaskSlicePair *ts_pair;
+
+        PTHREAD_MUTEX_LOCK(&waiting_task->lcp.lock);
+        while ((ts_pair=fc_list_first_entry(&waiting_task->waitings.head,
+                        FSAPIWaitingTaskSlicePair, dlink)) != NULL)
+        {
+            pthread_cond_wait(&waiting_task->lcp.cond,
+                    &waiting_task->lcp.lock);
+        }
+        PTHREAD_MUTEX_UNLOCK(&waiting_task->lcp.lock);
+        fast_mblock_free_object(waiting_task->allocator, waiting_task);
     }
 
 #ifdef __cplusplus

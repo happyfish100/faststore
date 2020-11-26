@@ -23,6 +23,7 @@
 #include "obid_htable.h"
 
 typedef struct {
+    volatile int waiting_slice_count;
     struct fc_queue queue;
     FCThreadPool thread_pool;
     volatile bool continue_flag;
@@ -46,8 +47,11 @@ extern "C" {
                         FS_API_COMBINED_WRITER_STAGE_MERGING,
                         FS_API_COMBINED_WRITER_STAGE_PROCESSING)) == 0)
         {
+            __sync_add_and_fetch(&g_combine_handler_ctx.waiting_slice_count, 1);
             fc_queue_push(&g_combine_handler_ctx.queue, slice);
         }
+
+        logInfo("combine_handler_push result: %d", result);
         return result;
     }
 
@@ -55,6 +59,7 @@ extern "C" {
     {
         slice->stage = FS_API_COMBINED_WRITER_STAGE_PROCESSING;
         timeout_handler_remove(&slice->timer);
+        __sync_add_and_fetch(&g_combine_handler_ctx.waiting_slice_count, 1);
         fc_queue_push(&g_combine_handler_ctx.queue, slice);
     }
 

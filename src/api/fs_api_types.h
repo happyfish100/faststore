@@ -56,8 +56,8 @@ typedef struct fs_api_waiting_task {
 
 typedef struct fs_api_slice_entry {
     FastTimerEntry timer;  //must be the first
-    struct fs_api_otid_entry *otid;
-    struct fs_api_block_entry *block;
+    volatile struct fs_api_otid_entry *otid;
+    volatile struct fs_api_block_entry *block;
     int stage;
     int merged_slices;
     int64_t start_time;

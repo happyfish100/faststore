@@ -43,7 +43,7 @@ void *thread_run(void *arg)
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
     op_ctx.bs_key.block.oid = 123456;
     //op_ctx.tid = (long)pthread_self();
-    op_ctx.tid = getpid();
+    op_ctx.tid = getpid() + thread_index;
     op_ctx.bid = 0;
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
     printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
@@ -98,7 +98,7 @@ void *thread_run(void *arg)
 
 int main(int argc, char *argv[])
 {
-#define THREAD_COUNT 2
+#define THREAD_COUNT 4
     int result;
     int i;
     pthread_t tids[THREAD_COUNT];
