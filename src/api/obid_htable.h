@@ -75,9 +75,11 @@ extern "C" {
             FSAPIWaitingTask *task, FSAPISliceEntry *slice,
             FSAPIWaitingTaskSlicePair *ts_pair)
     {
+        FSAPIWaitingTask *old_task;
+
+        old_task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
+        __sync_bool_compare_and_swap(&ts_pair->task, old_task, task);
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
-        ts_pair->task = task;
-        ts_pair->slice = slice;
         ts_pair->next = slice->waitings.head;
         slice->waitings.head = ts_pair;
         fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);

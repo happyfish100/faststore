@@ -29,6 +29,12 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
     FSAPIBlockEntry *block;
     FSAPIOTIDEntry *otid;
 
+    otid = FS_API_FETCH_SLICE_OTID(slice);
+    PTHREAD_MUTEX_LOCK(&otid->hentry.sharding->lock);
+    if (slice == otid->slice) {
+        otid->slice = NULL;
+    }
+
     block = FS_API_FETCH_SLICE_BLOCK(slice);
     PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
     slice->stage = FS_API_COMBINED_WRITER_STAGE_CLEANUP;
@@ -38,12 +44,6 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 
     fc_list_del_init(&slice->dlink); //remove from block
     PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
-
-    otid = FS_API_FETCH_SLICE_OTID(slice);
-    PTHREAD_MUTEX_LOCK(&otid->hentry.sharding->lock);
-    if (slice == otid->slice) {
-        otid->slice = NULL;
-    }
     PTHREAD_MUTEX_UNLOCK(&otid->hentry.sharding->lock);
 
     fast_mblock_free_object(slice->allocator, slice);
@@ -118,6 +118,13 @@ void combine_handler_terminate()
         fc_sleep_ms(30);
     }
 
+    logInfo("line: %d, combine_handler_terminate, running: %d, "
+            "waiting_slice_count: %d", __LINE__,
+            fc_thread_pool_running_count(
+                &g_combine_handler_ctx.thread_pool),
+            __sync_add_and_fetch(&g_combine_handler_ctx.
+                waiting_slice_count, 0));
+
     //waiting for thread finish
     g_combine_handler_ctx.continue_flag = false;
     while (fc_thread_pool_dealing_count(
@@ -127,8 +134,8 @@ void combine_handler_terminate()
     }
 
     fc_sleep_ms(100);
-    logInfo("combine_handler_terminate, running: %d, "
-            "waiting_slice_count: %d",
+    logInfo("line: %d, combine_handler_terminate, running: %d, "
+            "waiting_slice_count: %d", __LINE__,
             fc_thread_pool_running_count(
                 &g_combine_handler_ctx.thread_pool),
             __sync_add_and_fetch(&g_combine_handler_ctx.

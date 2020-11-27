@@ -106,7 +106,6 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
     callback_arg->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
     old = FS_API_FETCH_SLICE_BLOCK(callback_arg->slice);
     __sync_bool_compare_and_swap(&callback_arg->slice->block, old, block);
-    //callback_arg->slice->block = block;
     if (previous == NULL) {
         fc_list_add(&callback_arg->slice->dlink, &block->slices.head);
     } else {
@@ -180,11 +179,9 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
             }
 
             (*callback_arg->conflict_count)++;
-            /*
-               if (deal_confilct_slice(callback_arg, slice) != 0) {
-               break;
-               }
-             */
+            if (deal_confilct_slice(callback_arg, slice) != 0) {
+                break;
+            }
         }
     }
 
@@ -209,16 +206,18 @@ int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
 void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
 {
     FSAPIWaitingTaskSlicePair *ts_pair;
+    FSAPIWaitingTask *task;
 
     while (slice->waitings.head != NULL) {
         ts_pair = slice->waitings.head;
 
-        PTHREAD_MUTEX_LOCK(&ts_pair->task->lcp.lock);
+        task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
+        PTHREAD_MUTEX_LOCK(&task->lcp.lock);
         fc_list_del_init(&ts_pair->dlink);
-        pthread_cond_signal(&ts_pair->task->lcp.cond);
-        PTHREAD_MUTEX_UNLOCK(&ts_pair->task->lcp.lock);
+        pthread_cond_signal(&task->lcp.cond);
+        PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
 
-        if (ts_pair != &ts_pair->task->waitings.fixed_pair) {
+        if (ts_pair != &task->waitings.fixed_pair) {
             fast_mblock_free_object(ts_pair->allocator, ts_pair);
         }
 

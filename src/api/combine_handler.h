@@ -43,6 +43,7 @@ extern "C" {
     static inline int combine_handler_push(FSAPISliceEntry *slice)
     {
         int result;
+
         if ((result=fs_api_swap_slice_stage(slice,
                         FS_API_COMBINED_WRITER_STAGE_MERGING,
                         FS_API_COMBINED_WRITER_STAGE_PROCESSING)) == 0)
@@ -51,7 +52,8 @@ extern "C" {
             fc_queue_push(&g_combine_handler_ctx.queue, slice);
         }
 
-        logInfo("combine_handler_push result: %d", result);
+        logInfo("combine_handler_push result: %d, timer status: %d, "
+                "slice stage: %d", result, slice->timer.status, slice->stage);
         return result;
     }
 

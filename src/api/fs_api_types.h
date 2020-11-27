@@ -47,8 +47,7 @@ struct fs_api_context;
     (successive_count * op_ctx->api_ctx->write_combine.min_wait_time_ms)
 
 typedef struct fs_api_waiting_task_slice_pair {
-    struct fs_api_waiting_task *task;
-    struct fs_api_slice_entry *slice;
+    volatile struct fs_api_waiting_task *task;
     struct fast_mblock_man *allocator; //for free
     struct fc_list_head dlink;         //for waiting task
     struct fs_api_waiting_task_slice_pair *next; //for slice entry
