@@ -23,7 +23,11 @@
 typedef struct fs_api_allocator_context {
     struct fast_mblock_man task_slice_pair; //element: FSAPIWaitingTaskSlicePair
     struct fast_mblock_man waiting_task;     //element: FSAPIWaitingTask
-    struct fast_mblock_man slice_entry;      //element: FSAPISliceEntry
+    struct {
+        struct fast_mblock_man allocator;      //element: FSAPISliceEntry
+        int64_t version_mask;
+        volatile int64_t current_version;
+    } slice;
 } FSAPIAllocatorContext;
 
 typedef struct fs_api_allocator_ctx_array {
@@ -44,6 +48,12 @@ extern "C" {
     {
         return g_allocator_array.allocators +
             tid % g_allocator_array.count;
+    }
+
+    static inline int64_t fs_api_next_slice_version(FSAPIAllocatorContext *ctx)
+    {
+        return ctx->slice.version_mask | __sync_add_and_fetch(
+                &ctx->slice.current_version, 1);
     }
 
 #ifdef __cplusplus

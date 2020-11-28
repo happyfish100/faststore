@@ -39,14 +39,16 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
     return 0;
 }
 
-static int slice_entry_alloc_init(FSAPISliceEntry *slice, void *arg)
+static int slice_entry_alloc_init(FSAPISliceEntry *slice,
+        FSAPIAllocatorContext *ctx)
 {
     slice->buff = (char *)malloc(FS_FILE_BLOCK_SIZE);
     if (slice->buff == NULL) {
         return ENOMEM;
     }
 
-    slice->allocator = (struct fast_mblock_man *)arg;
+    slice->allocator_ctx = ctx;
+    slice->version = fs_api_next_slice_version(ctx);
     return 0;
 }
 
@@ -71,10 +73,10 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
         return result;
     }
 
-    if ((result=fast_mblock_init_ex1(&ctx->slice_entry,
+    if ((result=fast_mblock_init_ex1(&ctx->slice.allocator,
                     "slice_entry", sizeof(FSAPISliceEntry), 8, 0,
                     (fast_mblock_alloc_init_func)slice_entry_alloc_init,
-                    &ctx->slice_entry, true)) != 0)
+                    ctx, true)) != 0)
     {
         return result;
     }
@@ -98,6 +100,9 @@ int fs_api_allocator_init()
 
     end = g_allocator_array.allocators + g_allocator_array.count;
     for (ctx=g_allocator_array.allocators; ctx<end; ctx++) {
+        ctx->slice.current_version = 0;
+        ctx->slice.version_mask = ((int64_t)(ctx - g_allocator_array.
+                    allocators) + 1) << 48;
         if ((result=init_allocator_context(ctx)) != 0) {
             return result;
         }

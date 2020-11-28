@@ -48,6 +48,7 @@ struct fs_api_context;
 
 typedef struct fs_api_waiting_task_slice_pair {
     volatile struct fs_api_waiting_task *task;
+    struct fs_api_slice_entry *slice;
     struct fast_mblock_man *allocator; //for free
     struct fc_list_head dlink;         //for waiting task
     struct fs_api_waiting_task_slice_pair *next; //for slice entry
@@ -66,6 +67,7 @@ typedef struct fs_api_slice_entry {
     LockedTimerEntry timer;  //must be the first
     volatile struct fs_api_otid_entry *otid;
     volatile struct fs_api_block_entry *block;
+    volatile int64_t version;
     int stage;
     int merged_slices;
     int64_t start_time;
@@ -74,7 +76,7 @@ typedef struct fs_api_slice_entry {
     struct {
         FSAPIWaitingTaskSlicePair *head; //use lock of block sharding
     } waitings;
-    struct fast_mblock_man *allocator;  //for free, set by fast_mblock
+    struct fs_api_allocator_context *allocator_ctx; //for free, set by fast_mblock
     struct fc_list_head dlink;          //for block entry
     struct fs_api_slice_entry *next;    //for combine handler queue
 } FSAPISliceEntry;
@@ -86,6 +88,19 @@ typedef struct fs_api_operation_context {
     struct fs_api_allocator_context *allocator_ctx;
     struct fs_api_context *api_ctx;
 } FSAPIOperationContext;
+
+typedef struct fs_api_insert_slice_context {
+    FSAPIOperationContext *op_ctx;
+    const char *buff;
+    bool *combined;
+    struct {
+        int successive_count;
+        struct fs_api_otid_entry *entry;
+        FSAPISliceEntry *old_slice;
+    } otid;
+    FSAPISliceEntry *slice;   //new created slice
+    FSAPIWaitingTask *waiting_task;
+} FSAPIInsertSliceContext;
 
 typedef struct fs_api_context {
     struct {

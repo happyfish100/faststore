@@ -35,11 +35,10 @@ extern "C" {
             int64_t element_limit, const int64_t min_ttl_ms,
             const int64_t max_ttl_ms);
 
-    int obid_htable_insert(FSAPIOperationContext *op_ctx,
-            FSAPISliceEntry *slice, const int successive_count);
-
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
+
+    int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx);
 
     static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
             const int stage)
@@ -56,6 +55,7 @@ extern "C" {
     {
         int result;
         FSAPIBlockEntry *block;
+
         block = FS_API_FETCH_SLICE_BLOCK(slice);
         PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
         if (slice->stage == old_stage) {
@@ -79,7 +79,9 @@ extern "C" {
 
         old_task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
         __sync_bool_compare_and_swap(&ts_pair->task, old_task, task);
+
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
+        ts_pair->slice = slice;
         ts_pair->next = slice->waitings.head;
         slice->waitings.head = ts_pair;
         fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);

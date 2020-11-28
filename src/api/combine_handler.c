@@ -18,6 +18,7 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "fs_api_allocator.h"
 #include "obid_htable.h"
 #include "otid_htable.h"
 #include "combine_handler.h"
@@ -28,12 +29,14 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 {
     FSAPIBlockEntry *block;
     FSAPIOTIDEntry *otid;
+    int64_t old_version;
+    int64_t new_version;
 
     otid = FS_API_FETCH_SLICE_OTID(slice);
-    PTHREAD_MUTEX_LOCK(&otid->hentry.sharding->lock);
-    if (slice == otid->slice) {
-        otid->slice = NULL;
-    }
+    __sync_bool_compare_and_swap(&otid->slice, slice, NULL);
+
+    old_version = __sync_add_and_fetch(&slice->version, 0);
+    new_version = fs_api_next_slice_version(slice->allocator_ctx);
 
     block = FS_API_FETCH_SLICE_BLOCK(slice);
     PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
@@ -43,10 +46,10 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
     }
 
     fc_list_del_init(&slice->dlink); //remove from block
+    __sync_bool_compare_and_swap(&slice->version, old_version, new_version);
     PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
-    PTHREAD_MUTEX_UNLOCK(&otid->hentry.sharding->lock);
 
-    fast_mblock_free_object(slice->allocator, slice);
+    fast_mblock_free_object(&slice->allocator_ctx->slice.allocator, slice);
 }
 
 static void combine_handler_run(void *arg, void *thread_data)
@@ -67,14 +70,16 @@ static void combine_handler_run(void *arg, void *thread_data)
     */
 
     slice = (FSAPISliceEntry *)arg;
+
     /*
     logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
-            "slice {offset: %d, length: %d}, merged slices: %d",
+            "slice {offset: %d, length: %d}, merged slices: %d, stage: %d",
             slice->bs_key.block.oid, slice->bs_key.block.offset,
             slice->bs_key.slice.offset, slice->bs_key.slice.length,
-            slice->merged_slices);
+            slice->merged_slices, slice->stage);
             */
 
+    //fc_sleep_ms(10);
     //TODO notify finish and cleanup
     notify_and_release_slice(slice);
 }

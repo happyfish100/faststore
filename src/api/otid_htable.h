@@ -23,7 +23,7 @@ typedef struct fs_api_otid_entry {
     FSAPIHashEntry hentry;  //must be the first
     int successive_count;
     int64_t last_write_offset;
-    FSAPISliceEntry *slice;         //current combined slice
+    volatile FSAPISliceEntry *slice;    //current combined slice
 } FSAPIOTIDEntry;
 
 #ifdef __cplusplus

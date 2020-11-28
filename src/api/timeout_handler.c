@@ -88,8 +88,10 @@ static void *timeout_handler_thread_func(void *arg)
             last_time_ticks = g_timer_ms_ctx.current_time_ticks;
             count = timeout_handler_timeouts_get(&head);
             if (count > 0) {
+                /*
                 logInfo("current_time_ms: %"PRId64", timeout count: %d",
                         g_timer_ms_ctx.current_time_ms, count);
+                        */
                 deal_timeouts(&head);
             }
         }

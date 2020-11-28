@@ -16,21 +16,226 @@
 #include <stdlib.h>
 #include "fs_api_allocator.h"
 #include "combine_handler.h"
+#include "otid_htable.h"
 #include "obid_htable.h"
 
 static FSAPIHtableShardingContext obid_ctx;
-
-typedef struct fs_api_insert_callback_arg {
-    FSAPIOperationContext *op_ctx;
-    FSAPISliceEntry *slice;
-    int successive_count;
-} FSAPIInsertCallbackArg;
 
 typedef struct fs_api_find_callback_arg {
     FSAPIOperationContext *op_ctx;
     FSAPIWaitingTask *waiting_task;
     int *conflict_count;
 } FSAPIFindCallbackArg;
+
+#define IF_COMBINE_BY_SLICE_SIZE(op_ctx)  \
+    (op_ctx->bs_key.slice.length < op_ctx->api_ctx->write_combine. \
+     skip_combine_on_slice_size)
+
+#define IF_COMBINE_BY_SLICE_MERGED(slice, op_ctx)   \
+    (slice->merged_slices > op_ctx->api_ctx-> \
+     write_combine.skip_combine_on_last_merged_slices)
+
+static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
+        FSAPIInsertSliceContext *ictx)
+{
+    ictx->waiting_task = (FSAPIWaitingTask *)
+        fast_mblock_alloc_object(&ictx->
+                op_ctx->allocator_ctx->waiting_task);
+    if (ictx->waiting_task == NULL) {
+        return;
+    }
+
+    fs_api_add_to_slice_waiting_list(ictx->waiting_task, slice,
+            &ictx->waiting_task->waitings.fixed_pair);
+}
+
+static int do_combine_slice(FSAPISliceEntry *slice,
+        FSAPIInsertSliceContext *ictx)
+{
+    int merged_length;
+    int current_timeout;
+    int remain_timeout;
+    int timeout;
+
+    merged_length = slice->bs_key.slice.length +
+        ictx->op_ctx->bs_key.slice.length;
+    if (merged_length > FS_FILE_BLOCK_SIZE) {  //invalid slice
+        return EOVERFLOW;
+    }
+
+    if (!IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx)) {
+        combine_handler_push_within_lock(slice);
+        return 0;
+    }
+
+    memcpy(slice->buff + slice->bs_key.slice.length,
+            ictx->buff, ictx->op_ctx->bs_key.slice.length);
+    slice->bs_key.slice.length = merged_length;
+    slice->merged_slices++;
+    *ictx->combined = true;
+    if (FS_FILE_BLOCK_SIZE - (slice->bs_key.slice.offset +
+                slice->bs_key.slice.length) < 4096)
+    {
+        combine_handler_push_within_lock(slice);
+        return 0;
+    }
+
+    current_timeout = FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(
+            ictx->op_ctx, ictx->otid.successive_count);
+    remain_timeout = (slice->start_time +
+            ictx->op_ctx->api_ctx->
+            write_combine.max_wait_time_ms) -
+        g_timer_ms_ctx.current_time_ms;
+    timeout = FC_MIN(current_timeout, remain_timeout);
+    timeout_handler_modify(&slice->timer, timeout);
+
+    /*
+       logInfo("slice: %p === offset: %d, length: %d, timeout: %d",
+       slice, slice->bs_key.slice.offset, slice->bs_key.slice.length,
+       timeout);
+     */
+    return 0;
+}
+
+static int try_combine_slice(FSAPISliceEntry *slice,
+        FSAPIInsertSliceContext *ictx, bool *is_new_slice)
+{
+    if (ictx->op_ctx->bs_key.block.oid != slice->bs_key.block.oid) {
+        logError("op_ctx oid: %"PRId64" != slice oid: %"PRId64,
+                ictx->op_ctx->bs_key.block.oid, slice->bs_key.block.oid);
+        *is_new_slice = false;
+        return 0;
+    }
+
+        //TODO
+        /*
+    if (ictx->op_ctx->bs_key.block.offset == slice->bs_key.block.offset) {
+        if (ictx->op_ctx->bs_key.slice.offset != slice->bs_key.slice.offset +
+                    slice->bs_key.slice.length)
+        {
+            logInfo("block NOT equal! slice {stage: %d, oid: %"PRId64", "
+                    "offset: %"PRId64"}, input {oid: %"PRId64", offset: %"PRId64"}",
+                    slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
+                    ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset);
+            *is_new_slice = false;
+            return 0;
+        }
+    } else if (ictx->op_ctx->bs_key.slice.offset == 0 && ictx->op_ctx->
+            bs_key.block.offset == slice->bs_key.block.offset + slice->
+            bs_key.slice.offset + slice->bs_key.slice.length)
+    {
+        *ictx->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
+        *is_new_slice = true;
+        return 0;
+    } else {
+        *is_new_slice = false;
+        return 0;
+    }
+         */
+
+    if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
+        *is_new_slice = false;
+        return do_combine_slice(slice, ictx);
+    }
+
+    *ictx->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
+    if (*ictx->combined && (slice->stage ==
+                FS_API_COMBINED_WRITER_STAGE_PROCESSING) &&
+            (__sync_add_and_fetch(&g_combine_handler_ctx.
+                                  waiting_slice_count, 0) > 0))
+    {
+        add_to_slice_waiting_list(slice, ictx);  //for flow control
+        *is_new_slice = false;
+    } else {
+        *is_new_slice = true;
+    }
+
+    return 0;
+}
+
+static inline int obid_htable_insert(FSAPIInsertSliceContext *ictx)
+{
+    FSAPITwoIdsHashKey key;
+
+    key.oid = ictx->op_ctx->bs_key.block.oid;
+    key.bid = ictx->op_ctx->bid;
+    return sharding_htable_insert(&obid_ctx, &key, ictx);
+}
+
+static int create_slice(FSAPIInsertSliceContext *ictx)
+{
+    int result;
+    
+    if (FS_FILE_BLOCK_SIZE - (ictx->op_ctx->bs_key.slice.offset +
+                ictx->op_ctx->bs_key.slice.length) < 4096)
+    {
+        *ictx->combined = false;
+        return 0;
+    }
+
+    if (ictx->op_ctx->bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
+        *ictx->combined = false;
+        return EOVERFLOW;
+    }
+
+    ictx->slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
+            &ictx->op_ctx->allocator_ctx->slice.allocator);
+    if (ictx->slice == NULL) {
+        *ictx->combined = false;
+        return ENOMEM;
+    }
+
+    if ((result=obid_htable_insert(ictx)) != 0) {
+        *ictx->combined = false;
+        fast_mblock_free_object(&ictx->slice->allocator_ctx->
+                slice.allocator, ictx->slice);
+    }
+
+    return result;
+}
+
+static int check_combine_slice(FSAPIInsertSliceContext *ictx)
+{
+    int result;
+    bool is_new_slice;
+    int64_t old_version;
+    FSAPIBlockEntry *block;
+
+    while (1) {
+        ictx->otid.old_slice = (FSAPISliceEntry *)__sync_add_and_fetch(
+                &ictx->otid.entry->slice, 0);
+        if (ictx->otid.old_slice == NULL) {
+            *ictx->combined = IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx);
+            is_new_slice = true;
+            break;
+        } else {
+            old_version = __sync_add_and_fetch(&ictx->
+                    otid.old_slice->version, 0);
+            block = FS_API_FETCH_SLICE_BLOCK(ictx->otid.old_slice);
+            PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
+            if (__sync_add_and_fetch(&ictx->otid.old_slice->
+                        version, 0) == old_version)
+            {
+                result = try_combine_slice(ictx->otid.old_slice,
+                        ictx, &is_new_slice);
+            } else {
+                result = -EAGAIN;
+            }
+            PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
+
+            if (result == 0) {
+                break;
+            } else if (result != -EAGAIN) {
+                return result;
+            }
+        }
+    }
+
+    if (is_new_slice && *ictx->combined) {
+        return create_slice(ictx);
+    }
+    return 0;
+}
 
 static inline bool slice_is_overlap(const FSSliceSize *s1,
         const FSSliceSize *s2)
@@ -43,7 +248,7 @@ static inline bool slice_is_overlap(const FSSliceSize *s1,
 }
 
 static int obid_htable_find_position(FSAPIBlockEntry *block,
-        FSAPIInsertCallbackArg *callback_arg, struct fc_list_head **previous)
+        FSAPIInsertSliceContext *ictx, struct fc_list_head **previous)
 {
     struct fc_list_head *current;
     FSAPISliceEntry *slice;
@@ -53,19 +258,17 @@ static int obid_htable_find_position(FSAPIBlockEntry *block,
         return 0;
     }
 
-    end_offset = callback_arg->op_ctx->bs_key.slice.offset +
-        callback_arg->op_ctx->bs_key.slice.length;
+    end_offset = ictx->op_ctx->bs_key.slice.offset +
+        ictx->op_ctx->bs_key.slice.length;
     fc_list_for_each(current, &block->slices.head) {
         slice = fc_list_entry(current, FSAPISliceEntry, dlink);
         if (end_offset <= slice->bs_key.slice.offset) {
             break;
         }
 
-        if (slice_is_overlap(&callback_arg->op_ctx->
-                    bs_key.slice, &slice->bs_key.slice))
+        if (slice_is_overlap(&ictx->op_ctx->bs_key.slice,
+                    &slice->bs_key.slice))
         {
-            fast_mblock_free_object(callback_arg->slice->
-                    allocator, callback_arg->slice);
             return EEXIST;
         }
 
@@ -79,71 +282,81 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
-    FSAPIBlockEntry *old;
+    FSAPIOTIDEntry *old_otid;
+    FSAPIBlockEntry *old_block;
     struct fc_list_head *previous;
-    FSAPIInsertCallbackArg *callback_arg;
+    FSAPIInsertSliceContext *ictx;
     int result;
     int current_timeout;
     int timeout;
 
     block = (FSAPIBlockEntry *)he;
-    callback_arg = (FSAPIInsertCallbackArg *)arg;
+    ictx = (FSAPIInsertSliceContext *)arg;
     previous = NULL;
-
     if (new_create) {
         FC_INIT_LIST_HEAD(&block->slices.head);
     } else {
-        if ((result=obid_htable_find_position(block,
-                        callback_arg, &previous)) != 0)
-        {
+        if ((result=obid_htable_find_position(block, ictx, &previous)) != 0) {
             return result;
         }
     }
 
-    callback_arg->slice->bs_key = callback_arg->op_ctx->bs_key;
-    callback_arg->slice->merged_slices = 1;
-    callback_arg->slice->start_time = g_timer_ms_ctx.current_time_ms;
-    callback_arg->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
-    old = FS_API_FETCH_SLICE_BLOCK(callback_arg->slice);
-    __sync_bool_compare_and_swap(&callback_arg->slice->block, old, block);
+    old_otid = FS_API_FETCH_SLICE_OTID(ictx->slice);
+    __sync_bool_compare_and_swap(&ictx->slice->otid,
+            old_otid, ictx->otid.entry);
+
+    old_block = FS_API_FETCH_SLICE_BLOCK(ictx->slice);
+    __sync_bool_compare_and_swap(&ictx->slice->block, old_block, block);
+
+    memcpy(ictx->slice->buff, ictx->buff, ictx->op_ctx->bs_key.slice.length);
+    ictx->slice->bs_key = ictx->op_ctx->bs_key;
+    ictx->slice->merged_slices = 1;
+    ictx->slice->start_time = g_timer_ms_ctx.current_time_ms;
+    ictx->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
     if (previous == NULL) {
-        fc_list_add(&callback_arg->slice->dlink, &block->slices.head);
+        fc_list_add(&ictx->slice->dlink, &block->slices.head);
     } else {
-        fc_list_add_internal(&callback_arg->slice->dlink,
+        fc_list_add_internal(&ictx->slice->dlink,
                 previous, previous->next);
     }
 
     current_timeout = FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(
-            callback_arg->op_ctx, callback_arg->successive_count);
-    timeout = FC_MIN(current_timeout, callback_arg->op_ctx->
+            ictx->op_ctx, ictx->otid.successive_count);
+    timeout = FC_MIN(current_timeout, ictx->op_ctx->
             api_ctx->write_combine.max_wait_time_ms);
-    timeout_handler_add(&callback_arg->slice->timer, timeout);
+    timeout_handler_add(&ictx->slice->timer, timeout);
+
+    if (!__sync_bool_compare_and_swap(&ictx->otid.entry->slice,
+                ictx->otid.old_slice, ictx->slice))
+    {
+        combine_handler_push_within_lock(ictx->slice);
+    }
     return 0;
 }
 
-static int deal_confilct_slice(FSAPIFindCallbackArg *callback_arg,
+static int deal_confilct_slice(FSAPIFindCallbackArg *ictx,
         FSAPISliceEntry *slice)
 {
     FSAPIWaitingTaskSlicePair *ts_pair;
-    if (callback_arg->waiting_task == NULL) {
-        callback_arg->waiting_task = (FSAPIWaitingTask *)
-            fast_mblock_alloc_object(&callback_arg->
+    if (ictx->waiting_task == NULL) {
+        ictx->waiting_task = (FSAPIWaitingTask *)
+            fast_mblock_alloc_object(&ictx->
                     op_ctx->allocator_ctx->waiting_task);
-        if (callback_arg->waiting_task == NULL) {
+        if (ictx->waiting_task == NULL) {
             return ENOMEM;
         }
 
-        ts_pair = &callback_arg->waiting_task->waitings.fixed_pair;
+        ts_pair = &ictx->waiting_task->waitings.fixed_pair;
     } else {
         ts_pair = (FSAPIWaitingTaskSlicePair *)
-            fast_mblock_alloc_object(&callback_arg->
+            fast_mblock_alloc_object(&ictx->
                     op_ctx->allocator_ctx->task_slice_pair);
         if (ts_pair == NULL) {
             return ENOMEM;
         }
     }
 
-    fs_api_add_to_slice_waiting_list(callback_arg->
+    fs_api_add_to_slice_waiting_list(ictx->
             waiting_task, slice, ts_pair);
     return 0;
 }
@@ -225,20 +438,6 @@ void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
     }
 }
 
-int obid_htable_insert(FSAPIOperationContext *op_ctx, FSAPISliceEntry *slice,
-        const int successive_count)
-{
-    FSAPITwoIdsHashKey key;
-    FSAPIInsertCallbackArg callback_arg;
-
-    key.oid = op_ctx->bs_key.block.oid;
-    key.bid = op_ctx->bid;
-    callback_arg.op_ctx = op_ctx;
-    callback_arg.slice = slice;
-    callback_arg.successive_count = successive_count;
-    return sharding_htable_insert(&obid_ctx, &key, &callback_arg);
-}
-
 int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
         int *conflict_count)
 {
@@ -260,4 +459,22 @@ int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
     }
 
     return 0;
+}
+
+int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
+{
+    int result;
+    int count;
+
+    count = 0;
+    do {
+        ictx->waiting_task = NULL;
+        result = check_combine_slice(ictx);
+        if (ictx->waiting_task != NULL) {
+            *ictx->combined = false;
+            fs_api_wait_write_done_and_release(ictx->waiting_task);
+        }
+    } while (result == 0 && ictx->waiting_task != NULL && count++ < 0);
+
+    return result;
 }
