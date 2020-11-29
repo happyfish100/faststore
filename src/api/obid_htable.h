@@ -82,10 +82,11 @@ extern "C" {
 
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
         ts_pair->slice = slice;
-        ts_pair->next = slice->waitings.head;
-        slice->waitings.head = ts_pair;
         fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);
         PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
+
+        ts_pair->next = slice->waitings.head;
+        slice->waitings.head = ts_pair;
     }
 
     static inline void fs_api_wait_write_done_and_release(

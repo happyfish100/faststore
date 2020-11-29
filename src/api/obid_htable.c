@@ -334,30 +334,29 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
     return 0;
 }
 
-static int deal_confilct_slice(FSAPIFindCallbackArg *ictx,
+static int deal_confilct_slice(FSAPIFindCallbackArg *farg,
         FSAPISliceEntry *slice)
 {
     FSAPIWaitingTaskSlicePair *ts_pair;
-    if (ictx->waiting_task == NULL) {
-        ictx->waiting_task = (FSAPIWaitingTask *)
-            fast_mblock_alloc_object(&ictx->
-                    op_ctx->allocator_ctx->waiting_task);
-        if (ictx->waiting_task == NULL) {
+    if (farg->waiting_task == NULL) {
+        farg->waiting_task = (FSAPIWaitingTask *)
+            fast_mblock_alloc_object(&farg->op_ctx->
+                    allocator_ctx->waiting_task);
+        if (farg->waiting_task == NULL) {
             return ENOMEM;
         }
 
-        ts_pair = &ictx->waiting_task->waitings.fixed_pair;
+        ts_pair = &farg->waiting_task->waitings.fixed_pair;
     } else {
         ts_pair = (FSAPIWaitingTaskSlicePair *)
-            fast_mblock_alloc_object(&ictx->
-                    op_ctx->allocator_ctx->task_slice_pair);
+            fast_mblock_alloc_object(&farg->op_ctx->
+                    allocator_ctx->task_slice_pair);
         if (ts_pair == NULL) {
             return ENOMEM;
         }
     }
 
-    fs_api_add_to_slice_waiting_list(ictx->
-            waiting_task, slice, ts_pair);
+    fs_api_add_to_slice_waiting_list(farg->waiting_task, slice, ts_pair);
     return 0;
 }
 
@@ -367,32 +366,31 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
     FSAPIBlockEntry *block;
     FSAPISliceEntry *slice;
     int end_offset;
-    FSAPIFindCallbackArg *callback_arg;
+    FSAPIFindCallbackArg *farg;
 
     block = (FSAPIBlockEntry *)he;
     if (fc_list_empty(&block->slices.head)) {
         return NULL;
     }
 
-    callback_arg = (FSAPIFindCallbackArg *)arg;
-    end_offset = callback_arg->op_ctx->bs_key.slice.offset +
-        callback_arg->op_ctx->bs_key.slice.length;
+    farg = (FSAPIFindCallbackArg *)arg;
+    end_offset = farg->op_ctx->bs_key.slice.offset +
+        farg->op_ctx->bs_key.slice.length;
     fc_list_for_each_entry(slice, &block->slices.head, dlink) {
         if (end_offset <= slice->bs_key.slice.offset) {
             break;
         }
 
-        if (slice_is_overlap(&callback_arg->op_ctx->bs_key.slice,
-                    &slice->bs_key.slice) &&
-                (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING ||
-                 slice->stage == FS_API_COMBINED_WRITER_STAGE_PROCESSING))
+        if (slice_is_overlap(&farg->op_ctx->bs_key.slice, &slice->bs_key.slice)
+                && (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING ||
+                    slice->stage == FS_API_COMBINED_WRITER_STAGE_PROCESSING))
         {
             if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
                 combine_handler_push_within_lock(slice);
             }
 
-            (*callback_arg->conflict_count)++;
-            if (deal_confilct_slice(callback_arg, slice) != 0) {
+            (*farg->conflict_count)++;
+            if (deal_confilct_slice(farg, slice) != 0) {
                 break;
             }
         }
@@ -423,6 +421,7 @@ void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
 
     while (slice->waitings.head != NULL) {
         ts_pair = slice->waitings.head;
+        slice->waitings.head = slice->waitings.head->next;
 
         task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
@@ -433,8 +432,6 @@ void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
         if (ts_pair != &task->waitings.fixed_pair) {
             fast_mblock_free_object(ts_pair->allocator, ts_pair);
         }
-
-        slice->waitings.head = slice->waitings.head->next;
     }
 }
 
@@ -474,7 +471,7 @@ int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
             *ictx->combined = false;
             fs_api_wait_write_done_and_release(ictx->waiting_task);
         }
-    } while (result == 0 && ictx->waiting_task != NULL && count++ < 0);
+    } while (result == 0 && ictx->waiting_task != NULL && count++ < 3);
 
     return result;
 }

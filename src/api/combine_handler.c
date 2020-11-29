@@ -79,8 +79,6 @@ static void combine_handler_run(void *arg, void *thread_data)
             slice->merged_slices, slice->stage);
             */
 
-    //fc_sleep_ms(10);
-    //TODO notify finish and cleanup
     notify_and_release_slice(slice);
 }
 
