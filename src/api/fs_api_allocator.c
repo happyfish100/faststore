@@ -15,6 +15,7 @@
 
 #include <stdlib.h>
 #include "fastcommon/shared_func.h"
+#include "timeout_handler.h"
 #include "fs_api_allocator.h"
 
 FSAPIAllocatorCtxArray g_allocator_array;
@@ -49,6 +50,8 @@ static int slice_entry_alloc_init(FSAPISliceEntry *slice,
 
     slice->allocator_ctx = ctx;
     slice->version = fs_api_next_slice_version(ctx);
+    slice->timer.lock_index = slice->version %
+        g_timer_ms_ctx.timer.entry_shares.count;
     return 0;
 }
 

@@ -48,7 +48,6 @@ struct fs_api_context;
 
 typedef struct fs_api_waiting_task_slice_pair {
     volatile struct fs_api_waiting_task *task;
-    struct fs_api_slice_entry *slice;  //TODO remove me!
     struct fast_mblock_man *allocator; //for free
     struct fc_list_head dlink;         //for waiting task
     struct fs_api_waiting_task_slice_pair *next; //for slice entry

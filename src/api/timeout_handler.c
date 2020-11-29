@@ -106,6 +106,7 @@ static void *timeout_handler_thread_func(void *arg)
 int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
         const int shared_lock_count)
 {
+    const bool set_lock_index = false;
     int result;
     int slot_count;
     pthread_t tid;
@@ -113,9 +114,9 @@ int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
     g_timer_ms_ctx.precision_ms = precision_ms;
     SET_CURRENT_TIME_TICKS();
     slot_count = fc_ceil_prime(max_timeout_ms / precision_ms);
-    if ((result=locked_timer_init(&g_timer_ms_ctx.timer,
+    if ((result=locked_timer_init_ex(&g_timer_ms_ctx.timer,
                     slot_count, g_timer_ms_ctx.current_time_ticks,
-                    shared_lock_count)) != 0)
+                    shared_lock_count, set_lock_index)) != 0)
     {
         return result;
     }

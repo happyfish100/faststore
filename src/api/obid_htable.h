@@ -69,7 +69,26 @@ extern "C" {
         return result;
     }
 
-    void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice);
+    static inline void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
+    {
+        FSAPIWaitingTaskSlicePair *ts_pair;
+        FSAPIWaitingTask *task;
+
+        while (slice->waitings.head != NULL) {
+            ts_pair = slice->waitings.head;
+            slice->waitings.head = slice->waitings.head->next;
+
+            task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
+            PTHREAD_MUTEX_LOCK(&task->lcp.lock);
+            fc_list_del_init(&ts_pair->dlink);
+            pthread_cond_signal(&task->lcp.cond);
+            PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
+
+            if (ts_pair != &task->waitings.fixed_pair) {
+                fast_mblock_free_object(ts_pair->allocator, ts_pair);
+            }
+        }
+    }
 
     static inline void fs_api_add_to_slice_waiting_list(
             FSAPIWaitingTask *task, FSAPISliceEntry *slice,
@@ -81,7 +100,6 @@ extern "C" {
         __sync_bool_compare_and_swap(&ts_pair->task, old_task, task);
 
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
-        ts_pair->slice = slice;
         fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);
         PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
 

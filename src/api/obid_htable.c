@@ -414,27 +414,6 @@ int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
             sizeof(FSAPIBlockEntry), element_limit, min_ttl_ms, max_ttl_ms);
 }
 
-void fs_api_notify_waiting_tasks(FSAPISliceEntry *slice)
-{
-    FSAPIWaitingTaskSlicePair *ts_pair;
-    FSAPIWaitingTask *task;
-
-    while (slice->waitings.head != NULL) {
-        ts_pair = slice->waitings.head;
-        slice->waitings.head = slice->waitings.head->next;
-
-        task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
-        PTHREAD_MUTEX_LOCK(&task->lcp.lock);
-        fc_list_del_init(&ts_pair->dlink);
-        pthread_cond_signal(&task->lcp.cond);
-        PTHREAD_MUTEX_UNLOCK(&task->lcp.lock);
-
-        if (ts_pair != &task->waitings.fixed_pair) {
-            fast_mblock_free_object(ts_pair->allocator, ts_pair);
-        }
-    }
-}
-
 int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
         int *conflict_count)
 {

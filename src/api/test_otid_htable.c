@@ -104,6 +104,7 @@ int main(int argc, char *argv[])
     pthread_t tids[THREAD_COUNT];
     const int precision_ms = 10;
     const int max_timeout_ms = 10000;
+    const int shared_lock_count = 163;
     const int allocator_count = 16;
     int64_t element_limit = 0;
     const int sharding_count = 163;
@@ -113,7 +114,6 @@ int main(int argc, char *argv[])
     const int thread_limit = 16;
     const int min_idle_count = 4;
     const int max_idle_time = 300;
-    const int shared_lock_count = 163;
     IniFullContext ini_ctx;
 
     log_init();
@@ -122,13 +122,13 @@ int main(int argc, char *argv[])
     if ((result=fs_api_init(&ini_ctx)) != 0) {
         return result;
     }
-    if ((result=fs_api_allocator_init()) != 0) {
-        return result;
-    }
-
     if ((result=timeout_handler_init(precision_ms, max_timeout_ms,
                     shared_lock_count)) != 0)
     {
+        return result;
+    }
+
+    if ((result=fs_api_allocator_init()) != 0) {
         return result;
     }
 
