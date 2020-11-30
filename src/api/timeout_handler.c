@@ -76,12 +76,10 @@ static void *timeout_handler_thread_func(void *arg)
     int64_t last_time_ticks;
     LockedTimerEntry head;
     int count;
-    int half_precision_ms;
 
     __sync_add_and_fetch(&g_timer_ms_ctx.running_threads, 1);
 
     last_time_ticks = 0;
-    half_precision_ms = (g_timer_ms_ctx.precision_ms + 1) / 2;
     while (SF_G_CONTINUE_FLAG) {
         SET_CURRENT_TIME_TICKS();
         if (g_timer_ms_ctx.current_time_ticks != last_time_ticks) {

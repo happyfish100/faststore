@@ -31,10 +31,10 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
     const int64_t htable_capacity = 1403641;
     const int64_t min_ttl_ms = 600 * 1000;
     const int64_t max_ttl_ms = 86400 * 1000;
-    const int thread_limit = 16;
-    const int min_idle_count = 4;
-    const int max_idle_time = 300;
     int result;
+
+    //TODO
+    api_ctx->write_combine.enabled = true;
 
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
         if ((result=timeout_handler_init(precision_ms, max_timeout_ms,
@@ -61,19 +61,31 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
         return result;
     }
 
+
+    api_ctx->write_combine.min_wait_time_ms = 10;
+    api_ctx->write_combine.max_wait_time_ms = 1000;
+    api_ctx->write_combine.skip_combine_on_slice_size = 256 * 1024;
+    api_ctx->write_combine.skip_combine_on_last_merged_slices = 1;
+
+    return 0;
+}
+
+int fs_api_combine_thread_start_ex(FSAPIContext *api_ctx)
+{
+    int result;
+    const int thread_limit = 16;
+    const int min_idle_count = 4;
+    const int max_idle_time = 300;
+
+    if (!api_ctx->write_combine.enabled) {
+        return 0;
+    }
+
     if ((result=combine_handler_init(thread_limit, min_idle_count,
                     max_idle_time)) != 0)
     {
         return result;
     }
-
-
-    //TODO
-    api_ctx->write_combine.enabled = true;
-    api_ctx->write_combine.min_wait_time_ms = 10;
-    api_ctx->write_combine.max_wait_time_ms = 1000;
-    api_ctx->write_combine.skip_combine_on_slice_size = 256 * 1024;
-    api_ctx->write_combine.skip_combine_on_last_merged_slices = 1;
 
     return 0;
 }

@@ -35,11 +35,16 @@ extern "C" {
     FS_API_SET_TID_AND_ALLOCATOR_CTX_EX(op_ctx, &g_fs_api_ctx, thread_id)
 
 #define fs_api_init(ini_ctx) fs_api_init_ex(&g_fs_api_ctx, ini_ctx)
+
+#define fs_api_combine_thread_start() \
+    fs_api_combine_thread_start_ex(&g_fs_api_ctx)
+
 #define fs_api_terminate()   fs_api_terminate_ex(&g_fs_api_ctx);
 
 int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
 void fs_api_destroy_ex(FSAPIContext *api_ctx);
 
+int fs_api_combine_thread_start_ex(FSAPIContext *api_ctx);
 void fs_api_terminate_ex(FSAPIContext *api_ctx);
 
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,

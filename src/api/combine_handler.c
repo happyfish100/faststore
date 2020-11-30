@@ -55,7 +55,6 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 static void combine_handler_run(void *arg, void *thread_data)
 {
     FSAPISliceEntry *slice;
-    /*
     int write_bytes;
     int inc_alloc;
     int result;
@@ -67,11 +66,9 @@ static void combine_handler_run(void *arg, void *thread_data)
         sf_terminate_myself();
         return;
     }
-    */
-
-    slice = (FSAPISliceEntry *)arg;
 
     /*
+    slice = (FSAPISliceEntry *)arg;
     logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice {offset: %d, length: %d}, merged slices: %d, stage: %d",
             slice->bs_key.block.oid, slice->bs_key.block.offset,
