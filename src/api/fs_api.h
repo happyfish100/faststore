@@ -34,34 +34,31 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
 void fs_api_terminate_ex(FSAPIContext *api_ctx);
 
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
-        const int64_t file_size);
+        const int64_t file_size, const uint64_t tid);
 
-int fs_api_slice_write(FSAPIOperationContext *op_ctx,
-        const char *buff, int *write_bytes, int *inc_alloc);
+int fs_api_slice_write(FSAPIOperationContext *op_ctx, const char *buff,
+        bool *combined, int *write_bytes, int *inc_alloc);
 
-int fs_api_slice_read(FSAPIContext *api_ctx,
-        const FSBlockSliceKeyInfo *bs_key,
+int fs_api_slice_read(FSAPIOperationContext *op_ctx,
         char *buff, int *read_bytes);
 
-int fs_api_slice_allocate_ex(FSAPIContext *api_ctx,
-        const FSBlockSliceKeyInfo *bs_key,
+int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *inc_alloc);
 
-int fs_api_slice_delete_ex(FSAPIContext *api_ctx,
-        const FSBlockSliceKeyInfo *bs_key,
+int fs_api_slice_delete_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *dec_alloc);
 
-int fs_api_block_delete_ex(FSAPIContext *api_ctx, const FSBlockKey *bkey,
+int fs_api_block_delete_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *dec_alloc);
 
-#define fs_api_slice_allocate(api_ctx, bs_key, inc_alloc) \
-    fs_api_slice_allocate_ex(api_ctx, bs_key, LOG_DEBUG, inc_alloc)
+#define fs_api_slice_allocate(op_ctx, inc_alloc) \
+    fs_api_slice_allocate_ex(op_ctx, LOG_DEBUG, inc_alloc)
 
-#define fs_api_slice_delete(api_ctx, bs_key, dec_alloc) \
-    fs_api_slice_delete_ex(api_ctx, bs_key, LOG_DEBUG, dec_alloc)
+#define fs_api_slice_delete(op_ctx, dec_alloc) \
+    fs_api_slice_delete_ex(op_ctx, LOG_DEBUG, dec_alloc)
 
-#define fs_api_block_delete(api_ctx, bkey, dec_alloc) \
-    fs_api_block_delete_ex(api_ctx, bkey, LOG_DEBUG, dec_alloc)
+#define fs_api_block_delete(op_ctx, dec_alloc) \
+    fs_api_block_delete_ex(op_ctx, LOG_DEBUG, dec_alloc)
 
 #define fs_api_cluster_stat(api_ctx, data_group_id, stats, size, count) \
     fs_cluster_stat(api_ctx->fs, data_group_id, stats, size, count)
