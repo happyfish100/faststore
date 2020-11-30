@@ -40,16 +40,6 @@ extern "C" {
 
     int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx);
 
-    static inline void fs_api_set_slice_stage(FSAPISliceEntry *slice,
-            const int stage)
-    {
-        FSAPIBlockEntry *block;
-        block = FS_API_FETCH_SLICE_BLOCK(slice);
-        PTHREAD_MUTEX_LOCK(&block->hentry.sharding->lock);
-        slice->stage = stage;
-        PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
-    }
-
     static inline int fs_api_swap_slice_stage(FSAPISliceEntry *slice,
             const int old_stage, const int new_stage)
     {
@@ -96,8 +86,11 @@ extern "C" {
     {
         FSAPIWaitingTask *old_task;
 
-        old_task = (FSAPIWaitingTask *)__sync_add_and_fetch(&ts_pair->task, 0);
-        __sync_bool_compare_and_swap(&ts_pair->task, old_task, task);
+        old_task = (FSAPIWaitingTask *)ts_pair->task;
+        while (!__sync_bool_compare_and_swap(&ts_pair->task, old_task, task)) {
+            old_task = (FSAPIWaitingTask *)__sync_add_and_fetch(
+                    &ts_pair->task, 0);
+        }
 
         PTHREAD_MUTEX_LOCK(&task->lcp.lock);
         fc_list_add_tail(&ts_pair->dlink, &task->waitings.head);

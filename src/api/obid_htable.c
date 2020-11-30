@@ -100,42 +100,41 @@ static int do_combine_slice(FSAPISliceEntry *slice,
 static int try_combine_slice(FSAPISliceEntry *slice,
         FSAPIInsertSliceContext *ictx, bool *is_new_slice)
 {
+    int slice_end;
+
     if (ictx->op_ctx->bs_key.block.oid != slice->bs_key.block.oid) {
-        logError("op_ctx oid: %"PRId64" != slice oid: %"PRId64,
+        logWarning("file: "__FILE__", line: %d, "
+                "op_ctx oid: %"PRId64" != slice oid: %"PRId64, __LINE__,
                 ictx->op_ctx->bs_key.block.oid, slice->bs_key.block.oid);
         *is_new_slice = false;
         return 0;
     }
 
-        //TODO
-        /*
+    slice_end = slice->bs_key.slice.offset + slice->bs_key.slice.length;
     if (ictx->op_ctx->bs_key.block.offset == slice->bs_key.block.offset) {
-        if (ictx->op_ctx->bs_key.slice.offset != slice->bs_key.slice.offset +
-                    slice->bs_key.slice.length)
-        {
-            logInfo("block NOT equal! slice {stage: %d, oid: %"PRId64", "
-                    "offset: %"PRId64"}, input {oid: %"PRId64", offset: %"PRId64"}",
-                    slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
-                    ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset);
+        if (ictx->op_ctx->bs_key.slice.offset != slice_end) {
+            /*
+               logInfo("slice NOT successive! slice {stage: %d, oid: %"PRId64", "
+               "offset: %"PRId64"}, input {oid: %"PRId64", offset: %"PRId64"}",
+               slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
+               ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset);
+             */
+
             *is_new_slice = false;
             return 0;
         }
-    } else if (ictx->op_ctx->bs_key.slice.offset == 0 && ictx->op_ctx->
-            bs_key.block.offset == slice->bs_key.block.offset + slice->
-            bs_key.slice.offset + slice->bs_key.slice.length)
-    {
-        *ictx->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
-        *is_new_slice = true;
-        return 0;
-    } else {
-        *is_new_slice = false;
-        return 0;
-    }
-         */
 
-    if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
+        /* current slice is successive */
+        if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
+            *is_new_slice = false;
+            return do_combine_slice(slice, ictx);
+        }
+    } else if (!((ictx->op_ctx->bs_key.slice.offset == 0) &&
+                (ictx->op_ctx->bs_key.block.offset ==
+                 slice->bs_key.block.offset + slice_end)))
+    {
         *is_new_slice = false;
-        return do_combine_slice(slice, ictx);
+        return 0;
     }
 
     *ictx->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
@@ -168,25 +167,22 @@ static int create_slice(FSAPIInsertSliceContext *ictx)
     
     if (FS_FILE_BLOCK_SIZE - (ictx->op_ctx->bs_key.slice.offset +
                 ictx->op_ctx->bs_key.slice.length) < 4096)
-    {
+    {  /* remain buffer is too small */
         *ictx->combined = false;
         return 0;
     }
 
     if (ictx->op_ctx->bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
-        *ictx->combined = false;
         return EOVERFLOW;
     }
 
     ictx->slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
             &ictx->op_ctx->allocator_ctx->slice.allocator);
     if (ictx->slice == NULL) {
-        *ictx->combined = false;
         return ENOMEM;
     }
 
     if ((result=obid_htable_insert(ictx)) != 0) {
-        *ictx->combined = false;
         fast_mblock_free_object(&ictx->slice->allocator_ctx->
                 slice.allocator, ictx->slice);
     }
@@ -232,9 +228,13 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
     }
 
     if (is_new_slice && *ictx->combined) {
-        return create_slice(ictx);
+        if ((result=create_slice(ictx)) != 0) {
+            *ictx->combined = false;
+        }
+        return result;
+    } else {
+        return 0;
     }
-    return 0;
 }
 
 static inline bool slice_is_overlap(const FSSliceSize *s1,
@@ -301,12 +301,19 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         }
     }
 
-    old_otid = FS_API_FETCH_SLICE_OTID(ictx->slice);
-    __sync_bool_compare_and_swap(&ictx->slice->otid,
-            old_otid, ictx->otid.entry);
+    old_otid = (FSAPIOTIDEntry *)ictx->slice->otid;
+    while (!__sync_bool_compare_and_swap(&ictx->slice->otid,
+            old_otid, ictx->otid.entry))
+    {
+        old_otid = FS_API_FETCH_SLICE_OTID(ictx->slice);
+    }
 
-    old_block = FS_API_FETCH_SLICE_BLOCK(ictx->slice);
-    __sync_bool_compare_and_swap(&ictx->slice->block, old_block, block);
+    old_block = (FSAPIBlockEntry *)ictx->slice->block;
+    while (!__sync_bool_compare_and_swap(&ictx->slice->block,
+                old_block, block))
+    {
+        old_block = FS_API_FETCH_SLICE_BLOCK(ictx->slice);
+    }
 
     memcpy(ictx->slice->buff, ictx->buff, ictx->op_ctx->bs_key.slice.length);
     ictx->slice->bs_key = ictx->op_ctx->bs_key;

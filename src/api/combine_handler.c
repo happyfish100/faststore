@@ -121,13 +121,6 @@ void combine_handler_terminate()
         fc_sleep_ms(30);
     }
 
-    logInfo("line: %d, combine_handler_terminate, running: %d, "
-            "waiting_slice_count: %d", __LINE__,
-            fc_thread_pool_running_count(
-                &g_combine_handler_ctx.thread_pool),
-            __sync_add_and_fetch(&g_combine_handler_ctx.
-                waiting_slice_count, 0));
-
     //waiting for thread finish
     g_combine_handler_ctx.continue_flag = false;
     while (fc_thread_pool_dealing_count(
