@@ -26,10 +26,10 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
     const int max_timeout_ms = 10000;
     const int shared_lock_count = 163;
     const int allocator_count = 16;
-    int64_t element_limit = 0;
+    int64_t element_limit = 1000 * 1000;
     const int sharding_count = 163;
     const int64_t htable_capacity = 1403641;
-    const int64_t min_ttl_ms = 100 * 1000;
+    const int64_t min_ttl_ms = 600 * 1000;
     const int64_t max_ttl_ms = 86400 * 1000;
     const int thread_limit = 16;
     const int min_idle_count = 4;
@@ -76,6 +76,10 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
     api_ctx->write_combine.skip_combine_on_last_merged_slices = 1;
 
     return 0;
+}
+
+void fs_api_destroy_ex(FSAPIContext *api_ctx)
+{
 }
 
 void fs_api_terminate_ex(FSAPIContext *api_ctx)
@@ -181,8 +185,7 @@ int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         return 0;
     }
 
-    op_ctx.api_ctx = api_ctx;
-    op_ctx.tid = tid;
+    FS_API_SET_TID_AND_ALLOCATOR_CTX_EX(op_ctx, api_ctx, tid);
     op_ctx.bs_key.slice.offset = 0;
     op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
     fs_set_block_key(&op_ctx.bs_key.block, oid, 0);

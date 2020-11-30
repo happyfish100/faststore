@@ -34,6 +34,11 @@ static int otid_htable_insert_callback(struct fs_api_hash_entry *he,
     offset = ictx->op_ctx->bs_key.block.offset +
         ictx->op_ctx->bs_key.slice.offset;
     if (new_create) {
+        FSAPISliceEntry *old_slice;
+        old_slice = (FSAPISliceEntry *)__sync_add_and_fetch(&entry->slice, 0);
+        if (old_slice != NULL) {
+            __sync_bool_compare_and_swap(&entry->slice, old_slice, NULL);
+        }
         entry->successive_count = 0;
     } else {
         if (offset == entry->last_write_offset) {

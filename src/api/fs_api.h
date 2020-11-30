@@ -26,10 +26,19 @@
 extern "C" {
 #endif
 
+#define FS_API_SET_TID_AND_ALLOCATOR_CTX_EX(op_ctx, _api_ctx, thread_id) \
+    (op_ctx).api_ctx = _api_ctx; \
+    (op_ctx).tid = thread_id;    \
+    (op_ctx).allocator_ctx = fs_api_allocator_get(thread_id)
+
+#define FS_API_SET_TID_AND_ALLOCATOR_CTX(op_ctx, thread_id) \
+    FS_API_SET_TID_AND_ALLOCATOR_CTX_EX(op_ctx, &g_fs_api_ctx, thread_id)
+
 #define fs_api_init(ini_ctx) fs_api_init_ex(&g_fs_api_ctx, ini_ctx)
 #define fs_api_terminate()   fs_api_terminate_ex(&g_fs_api_ctx);
 
 int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
+void fs_api_destroy_ex(FSAPIContext *api_ctx);
 
 void fs_api_terminate_ex(FSAPIContext *api_ctx);
 
@@ -67,7 +76,7 @@ int fs_api_block_delete_ex(FSAPIOperationContext *op_ctx,
     fs_server_group_space_stat(api_ctx->fs, server, stats, size, count)
 
 #define fs_api_cluster_space_stat(api_ctx, stat) \
-    fs_cluster_space_stat(api_ctx->fs, stat)
+    fs_client_cluster_space_stat(api_ctx->fs, stat)
 
 #ifdef __cplusplus
 }

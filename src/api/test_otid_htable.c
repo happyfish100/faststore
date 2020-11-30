@@ -21,6 +21,7 @@ void *thread_run(void *arg)
     long thread_index;
     FSAPIOperationContext op_ctx;
     bool combined;
+    int64_t tid;
     int64_t offset;
     char *buff;
     int length;
@@ -39,13 +40,13 @@ void *thread_run(void *arg)
 
     total_conflict_count = 0;
     offset = 0;
-    op_ctx.api_ctx = &g_fs_api_ctx;
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
     op_ctx.bs_key.block.oid = 123456;
     //op_ctx.tid = (long)pthread_self();
-    op_ctx.tid = getpid() + thread_index;
-    op_ctx.tid = getpid();
-    op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
+    tid = getpid() + thread_index;
+    tid = getpid();
+    FS_API_SET_TID_AND_ALLOCATOR_CTX(op_ctx, tid);
+
     printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
     for (i=0; i< 1000 * 1000; i++) {
         /*
