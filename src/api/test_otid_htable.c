@@ -45,7 +45,8 @@ void *thread_run(void *arg)
     //op_ctx.tid = (long)pthread_self();
     tid = getpid() + thread_index;
     tid = getpid();
-    FS_API_SET_TID_AND_ALLOCATOR_CTX(op_ctx, tid);
+    FS_API_SET_CTX_AND_TID(op_ctx, tid);
+    op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
 
     printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
     for (i=0; i< 1000 * 1000; i++) {
@@ -76,7 +77,9 @@ void *thread_run(void *arg)
             }
         }
 
-        result = otid_htable_insert(&op_ctx, buff, &combined);
+        if ((result=otid_htable_insert(&op_ctx, buff, &combined)) != 0) {
+            break;
+        }
 
         /*
         printf("g_timer_ms_ctx.current_time_ms: %"PRId64", slice offset: %d, "
@@ -109,6 +112,9 @@ int main(int argc, char *argv[])
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
 
     if ((result=fs_api_init(&ini_ctx)) != 0) {
+        return result;
+    }
+    if ((result=fs_api_combine_thread_start()) != 0) {
         return result;
     }
     for (i=0; i<THREAD_COUNT; i++) {

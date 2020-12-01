@@ -103,7 +103,8 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
         char *buff, int *read_bytes)
 {
     const FSConnectionParameters *connection_params;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReplicaSliceReadReq)];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoServiceSliceReadReq)
+        + sizeof(FSProtoReplicaSliceReadReq)];
     FSProtoHeader *proto_header;
     SFResponseInfo response;
     FSProtoServiceSliceReadReq *sreq;
