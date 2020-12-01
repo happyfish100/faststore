@@ -276,7 +276,8 @@ int server_load_config(const char *filename)
 
     if ((result=sf_load_config("fs_serverd", filename, &ini_context,
                     "service", FS_SERVER_DEFAULT_SERVICE_PORT,
-                    FS_SERVER_DEFAULT_SERVICE_PORT)) != 0)
+                    FS_SERVER_DEFAULT_SERVICE_PORT,
+                    FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
     }

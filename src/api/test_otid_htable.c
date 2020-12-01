@@ -43,7 +43,7 @@ void *thread_run(void *arg)
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
     op_ctx.bs_key.block.oid = 123456;
     //op_ctx.tid = (long)pthread_self();
-    tid = getpid() + thread_index;
+    //tid = getpid() + thread_index;
     tid = getpid();
     FS_API_SET_CTX_AND_TID(op_ctx, tid);
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);

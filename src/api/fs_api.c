@@ -35,15 +35,20 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
 
     //TODO
     api_ctx->write_combine.enabled = true;
+    api_ctx->write_combine.buffer_size = 256 * 1024;
+    api_ctx->write_combine.min_wait_time_ms = 100;
+    api_ctx->write_combine.max_wait_time_ms = 1000;
+    api_ctx->write_combine.skip_combine_on_slice_size = 256 * 1024;
+    api_ctx->write_combine.skip_combine_on_last_merged_slices = 1;
 
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
-        if ((result=timeout_handler_init(precision_ms, max_timeout_ms,
+    if ((result=timeout_handler_init(precision_ms, max_timeout_ms,
                     shared_lock_count)) != 0)
     {
         return result;
     }
 
-    if ((result=fs_api_allocator_init()) != 0) {
+    if ((result=fs_api_allocator_init(api_ctx)) != 0) {
         return result;
     }
 
@@ -61,11 +66,6 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
         return result;
     }
 
-
-    api_ctx->write_combine.min_wait_time_ms = 10;
-    api_ctx->write_combine.max_wait_time_ms = 1000;
-    api_ctx->write_combine.skip_combine_on_slice_size = 256 * 1024;
-    api_ctx->write_combine.skip_combine_on_last_merged_slices = 1;
 
     return 0;
 }

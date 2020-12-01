@@ -35,6 +35,9 @@ typedef struct fs_api_find_callback_arg {
     (slice->merged_slices > op_ctx->api_ctx-> \
      write_combine.skip_combine_on_last_merged_slices)
 
+#define IF_COMBINE_BY_SLICE_POSITION(slice) \
+    (FS_FILE_BLOCK_SIZE - (slice.offset + slice.length) >= 4096)
+
 static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
         FSAPIInsertSliceContext *ictx)
 {
@@ -59,8 +62,12 @@ static int do_combine_slice(FSAPISliceEntry *slice,
 
     merged_length = slice->bs_key.slice.length +
         ictx->op_ctx->bs_key.slice.length;
-    if (merged_length > FS_FILE_BLOCK_SIZE) {  //invalid slice
-        return EOVERFLOW;
+    if (merged_length > ictx->op_ctx->api_ctx->
+            write_combine.buffer_size)
+    {
+        combine_handler_push_within_lock(slice);
+        add_to_slice_waiting_list(slice, ictx);
+        return 0;
     }
 
     if (!IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx)) {
@@ -73,8 +80,8 @@ static int do_combine_slice(FSAPISliceEntry *slice,
     slice->bs_key.slice.length = merged_length;
     slice->merged_slices++;
     *ictx->combined = true;
-    if (FS_FILE_BLOCK_SIZE - (slice->bs_key.slice.offset +
-                slice->bs_key.slice.length) < 4096)
+    if (ictx->op_ctx->api_ctx->write_combine.buffer_size -
+                slice->bs_key.slice.length < 4096)
     {
         combine_handler_push_within_lock(slice);
         return 0;
@@ -164,16 +171,18 @@ static inline int obid_htable_insert(FSAPIInsertSliceContext *ictx)
 static int create_slice(FSAPIInsertSliceContext *ictx)
 {
     int result;
-    
-    if (FS_FILE_BLOCK_SIZE - (ictx->op_ctx->bs_key.slice.offset +
-                ictx->op_ctx->bs_key.slice.length) < 4096)
-    {  /* remain buffer is too small */
+
+    if (ictx->op_ctx->bs_key.slice.length + 4096 >= ictx->op_ctx->
+            api_ctx->write_combine.buffer_size)
+    {
         *ictx->combined = false;
         return 0;
     }
 
-    if (ictx->op_ctx->bs_key.slice.length > FS_FILE_BLOCK_SIZE) {
-        return EOVERFLOW;
+    if (!IF_COMBINE_BY_SLICE_POSITION(ictx->op_ctx->bs_key.slice)) {
+        /* remain buffer is too small */
+        *ictx->combined = false;
+        return 0;
     }
 
     ictx->slice = (FSAPISliceEntry *)fast_mblock_alloc_object(

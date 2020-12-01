@@ -90,6 +90,10 @@
 #define FS_EVENT_SOURCE_MASTER_OFFLINE  'm'
 #define FS_EVENT_SOURCE_CS_LEADER       'L'
 
+#define FS_TASK_BUFFER_FRONT_PADDING_SIZE  (sizeof(FSProtoHeader) + \
+        4 * sizeof(FSProtoSliceWriteReqHeader) +  \
+        sizeof(FSProtoReplicaRPCReqBodyPart))
+
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.request

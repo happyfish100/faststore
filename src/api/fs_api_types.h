@@ -104,6 +104,7 @@ typedef struct fs_api_insert_slice_context {
 typedef struct fs_api_context {
     struct {
         volatile bool enabled;
+        int buffer_size;
         int min_wait_time_ms;
         int max_wait_time_ms;
         int skip_combine_on_slice_size;

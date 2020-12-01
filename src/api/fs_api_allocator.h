@@ -33,6 +33,7 @@ typedef struct fs_api_allocator_context {
 typedef struct fs_api_allocator_ctx_array {
     int count;
     FSAPIAllocatorContext *allocators;
+    FSAPIContext *api_ctx;
 } FSAPIAllocatorCtxArray;
 
 #ifdef __cplusplus
@@ -41,7 +42,7 @@ extern "C" {
 
     extern FSAPIAllocatorCtxArray g_allocator_array;
 
-    int fs_api_allocator_init();
+    int fs_api_allocator_init(FSAPIContext *api_ctx);
 
     static inline FSAPIAllocatorContext *fs_api_allocator_get(
             const uint64_t tid)

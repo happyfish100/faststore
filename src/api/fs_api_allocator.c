@@ -43,7 +43,8 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
 static int slice_entry_alloc_init(FSAPISliceEntry *slice,
         FSAPIAllocatorContext *ctx)
 {
-    slice->buff = (char *)malloc(FS_FILE_BLOCK_SIZE);
+    slice->buff = (char *)malloc(g_allocator_array.
+            api_ctx->write_combine.buffer_size);
     if (slice->buff == NULL) {
         return ENOMEM;
     }
@@ -87,7 +88,7 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
     return 0;
 }
 
-int fs_api_allocator_init()
+int fs_api_allocator_init(FSAPIContext *api_ctx)
 {
     int result;
     int bytes;
@@ -101,6 +102,7 @@ int fs_api_allocator_init()
         return ENOMEM;
     }
 
+    g_allocator_array.api_ctx = api_ctx;
     end = g_allocator_array.allocators + g_allocator_array.count;
     for (ctx=g_allocator_array.allocators; ctx<end; ctx++) {
         ctx->slice.current_version = 0;
