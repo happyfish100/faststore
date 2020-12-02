@@ -129,7 +129,7 @@ int main(int argc, char *argv[])
     printf("%s\n", config_str);
     return 1;
 
-    if ((result=fs_api_combine_thread_start()) != 0) {
+    if ((result=fs_api_start()) != 0) {
         return result;
     }
     for (i=0; i<THREAD_COUNT; i++) {

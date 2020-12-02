@@ -43,15 +43,15 @@ extern "C" {
 void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
         char *output, const int size);
 
-#define fs_api_combine_thread_start() \
-    fs_api_combine_thread_start_ex(&g_fs_api_ctx)
+#define fs_api_start() fs_api_start_ex(&g_fs_api_ctx)
 
 #define fs_api_terminate()   fs_api_terminate_ex(&g_fs_api_ctx);
 
 int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
 void fs_api_destroy_ex(FSAPIContext *api_ctx);
 
-int fs_api_combine_thread_start_ex(FSAPIContext *api_ctx);
+int fs_api_start_ex(FSAPIContext *api_ctx);
+
 void fs_api_terminate_ex(FSAPIContext *api_ctx);
 
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,

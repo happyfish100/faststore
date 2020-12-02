@@ -228,12 +228,16 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
     return 0;
 }
 
-int fs_api_combine_thread_start_ex(FSAPIContext *api_ctx)
+int fs_api_start_ex(FSAPIContext *api_ctx)
 {
     int result;
 
     if (!api_ctx->write_combine.enabled) {
         return 0;
+    }
+
+    if ((result=timeout_handler_start()) != 0) {
+        return result;
     }
 
     if ((result=combine_handler_init(api_ctx->write_combine.
