@@ -105,15 +105,30 @@ int main(int argc, char *argv[])
 #define THREAD_COUNT 4
     int result;
     int i;
+    char config_str[1024];
+    char *config_filename = "/etc/fcfs/fuse.conf";
     pthread_t tids[THREAD_COUNT];
+    IniContext iniContext;
     IniFullContext ini_ctx;
 
     log_init();
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
 
+    if ((result=iniLoadFromFile(config_filename, &iniContext)) != 0) {
+        return result;
+    }
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
+            "write_combine", &iniContext);
+
     if ((result=fs_api_init(&ini_ctx)) != 0) {
         return result;
     }
+    iniFreeContext(&iniContext);
+
+    fs_api_config_to_string(config_str, sizeof(config_str));
+    printf("%s\n", config_str);
+    return 1;
+
     if ((result=fs_api_combine_thread_start()) != 0) {
         return result;
     }

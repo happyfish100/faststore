@@ -95,7 +95,7 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
     FSAPIAllocatorContext *ctx;
     FSAPIAllocatorContext *end;
 
-    g_allocator_array.count = 17;
+    g_allocator_array.count = api_ctx->write_combine.shared_allocator_count;
     bytes = sizeof(FSAPIAllocatorContext) * g_allocator_array.count;
     g_allocator_array.allocators = (FSAPIAllocatorContext *)fc_malloc(bytes);
     if (g_allocator_array.allocators == NULL) {

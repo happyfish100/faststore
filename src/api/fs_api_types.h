@@ -109,6 +109,13 @@ typedef struct fs_api_context {
         int max_wait_time_ms;
         int skip_combine_on_slice_size;
         int skip_combine_on_last_merged_slices;
+        int timer_shared_lock_count;
+        int shared_allocator_count;
+        int hashtable_sharding_count;
+        int64_t hashtable_total_capacity;
+        int thread_pool_max_threads;
+        int thread_pool_min_idle_count;
+        int thread_pool_max_idle_time;
     } write_combine;
     FSClientContext *fs;
 } FSAPIContext;

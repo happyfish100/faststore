@@ -37,6 +37,12 @@ extern "C" {
 
 #define fs_api_init(ini_ctx) fs_api_init_ex(&g_fs_api_ctx, ini_ctx)
 
+#define fs_api_config_to_string(output, size) \
+    fs_api_config_to_string_ex(&g_fs_api_ctx, output, size)
+
+void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
+        char *output, const int size);
+
 #define fs_api_combine_thread_start() \
     fs_api_combine_thread_start_ex(&g_fs_api_ctx)
 
