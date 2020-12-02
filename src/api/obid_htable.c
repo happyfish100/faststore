@@ -93,8 +93,10 @@ static int do_combine_slice(FSAPISliceEntry *slice,
             ictx->op_ctx->api_ctx->
             write_combine.max_wait_time_ms) -
         g_timer_ms_ctx.current_time_ms;
-    timeout = FC_MIN(current_timeout, remain_timeout);
-    timeout_handler_modify(&slice->timer, timeout);
+    if (remain_timeout >= g_timer_ms_ctx.precision_ms) {
+        timeout = FC_MIN(current_timeout, remain_timeout);
+        timeout_handler_modify(&slice->timer, timeout);
+    }
 
     /*
        logInfo("slice: %p === offset: %d, length: %d, timeout: %d",

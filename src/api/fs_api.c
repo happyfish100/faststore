@@ -96,9 +96,11 @@ void fs_api_destroy_ex(FSAPIContext *api_ctx)
 
 void fs_api_terminate_ex(FSAPIContext *api_ctx)
 {
-    api_ctx->write_combine.enabled = false;
-    timeout_handler_terminate();
-    combine_handler_terminate();
+    if (api_ctx->write_combine.enabled) {
+        api_ctx->write_combine.enabled = false;
+        timeout_handler_terminate();
+        combine_handler_terminate();
+    }
 }
 
 #define FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx) \
@@ -197,10 +199,7 @@ int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         return 0;
     }
 
-    if (api_ctx->write_combine.enabled) {
-        FS_API_SET_CTX_AND_TID_EX(op_ctx, api_ctx, tid);
-    }
-
+    FS_API_SET_CTX_AND_TID_EX(op_ctx, api_ctx, tid);
     op_ctx.bs_key.slice.offset = 0;
     op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
     fs_set_block_key(&op_ctx.bs_key.block, oid, 0);
