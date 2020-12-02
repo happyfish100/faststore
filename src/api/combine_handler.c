@@ -82,19 +82,15 @@ static void combine_handler_run(void *arg, void *thread_data)
 static inline void deal_slices(FSAPISliceEntry *head)
 {
     FSAPISliceEntry *current;
-    int count;
 
-    count = 0;
     do {
         current = head;
         head = head->next;
 
-        ++count;
+        __sync_sub_and_fetch(&g_combine_handler_ctx.waiting_slice_count, 1);
         fc_thread_pool_run(&g_combine_handler_ctx.thread_pool,
                 combine_handler_run, current);
     } while (head != NULL);
-
-    __sync_sub_and_fetch(&g_combine_handler_ctx.waiting_slice_count, count);
 }
 
 void combine_handler_terminate()
