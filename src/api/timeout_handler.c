@@ -107,7 +107,6 @@ int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
     const bool set_lock_index = false;
     int result;
     int slot_count;
-    pthread_t tid;
 
     g_timer_ms_ctx.precision_ms = precision_ms;
     SET_CURRENT_TIME_TICKS();
@@ -119,6 +118,12 @@ int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
         return result;
     }
 
+    return 0;
+}
+
+int timeout_handler_start()
+{
+    pthread_t tid;
     return fc_create_thread(&tid, timeout_handler_thread_func, NULL,
             SF_G_THREAD_STACK_SIZE);
 }

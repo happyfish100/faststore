@@ -35,6 +35,8 @@ extern "C" {
     int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
             const int shared_lock_count);
 
+    int timeout_handler_start();
+
     void timeout_handler_terminate();
 
 #define TIMEOUT_TO_EXPIRES(timeout)  \
