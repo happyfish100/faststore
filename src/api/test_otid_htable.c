@@ -20,7 +20,7 @@ void *thread_run(void *arg)
 {
     long thread_index;
     FSAPIOperationContext op_ctx;
-    bool combined;
+    FSAPIWriteBuffer wbuffer;
     int64_t tid;
     int64_t offset;
     char *buff;
@@ -37,6 +37,9 @@ void *thread_run(void *arg)
     length = 8 * 1024;
     buff = (char *)malloc(length);
     memset(buff, 0, length);
+
+    wbuffer.buff = buff;
+    wbuffer.extra_data = NULL;
 
     total_conflict_count = 0;
     offset = 0;
@@ -77,7 +80,7 @@ void *thread_run(void *arg)
             }
         }
 
-        if ((result=otid_htable_insert(&op_ctx, buff, &combined)) != 0) {
+        if ((result=otid_htable_insert(&op_ctx, &wbuffer)) != 0) {
             break;
         }
 
@@ -85,7 +88,7 @@ void *thread_run(void *arg)
         printf("g_timer_ms_ctx.current_time_ms: %"PRId64", slice offset: %d, "
                 "length: %d, result: %d, combined: %d\n",
                 g_timer_ms_ctx.current_time_ms, op_ctx.bs_key.slice.offset,
-                op_ctx.bs_key.slice.length, result, combined);
+                op_ctx.bs_key.slice.length, result, wbuffer.combined);
                 */
 
         if (i % 10000 == 0) {
@@ -98,6 +101,12 @@ void *thread_run(void *arg)
 
     __sync_sub_and_fetch(&thread_count, 1);
     return NULL;
+}
+
+static void write_done_callback(struct fs_api_write_done_callback_arg
+    *callback_arg)
+{
+    /* DO NOTHING */
 }
 
 int main(int argc, char *argv[])
@@ -120,14 +129,13 @@ int main(int argc, char *argv[])
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
             "write_combine", &iniContext);
 
-    if ((result=fs_api_init(&ini_ctx)) != 0) {
+    if ((result=fs_api_init(&ini_ctx, write_done_callback, 0)) != 0) {
         return result;
     }
     iniFreeContext(&iniContext);
 
     fs_api_config_to_string(config_str, sizeof(config_str));
     printf("%s\n", config_str);
-    return 1;
 
     if ((result=fs_api_start()) != 0) {
         return result;

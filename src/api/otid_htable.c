@@ -70,21 +70,20 @@ int otid_htable_init(const int sharding_count,
 }
 
 int otid_htable_insert(FSAPIOperationContext *op_ctx,
-        const char *buff, bool *combined)
+        FSAPIWriteBuffer *wbuffer)
 {
     FSAPITwoIdsHashKey key;
     FSAPIInsertSliceContext ictx;
     int result;
 
-    *combined = false;
+    wbuffer->combined = false;
     key.oid = op_ctx->bs_key.block.oid;
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
-    ictx.buff = buff;
-    ictx.combined = combined;
+    ictx.wbuffer = wbuffer;
     if ((result=sharding_htable_insert(&otid_ctx, &key, &ictx)) != 0) {
         return result;
-    } 
+    }
     if (ictx.otid.successive_count > 0) {
         return obid_htable_check_combine_slice(&ictx);
     }

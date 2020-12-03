@@ -76,10 +76,10 @@ static int do_combine_slice(FSAPISliceEntry *slice,
     }
 
     memcpy(slice->buff + slice->bs_key.slice.length,
-            ictx->buff, ictx->op_ctx->bs_key.slice.length);
+            ictx->wbuffer->buff, ictx->op_ctx->bs_key.slice.length);
     slice->bs_key.slice.length = merged_length;
     slice->merged_slices++;
-    *ictx->combined = true;
+    ictx->wbuffer->combined = true;
     if (ictx->op_ctx->api_ctx->write_combine.buffer_size -
                 slice->bs_key.slice.length < 4096)
     {
@@ -146,8 +146,8 @@ static int try_combine_slice(FSAPISliceEntry *slice,
         return 0;
     }
 
-    *ictx->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
-    if (*ictx->combined && (slice->stage ==
+    ictx->wbuffer->combined = IF_COMBINE_BY_SLICE_MERGED(slice, ictx->op_ctx);
+    if (ictx->wbuffer->combined && (slice->stage ==
                 FS_API_COMBINED_WRITER_STAGE_PROCESSING) &&
             (__sync_add_and_fetch(&g_combine_handler_ctx.
                                   waiting_slice_count, 0) > 0))
@@ -177,13 +177,13 @@ static int create_slice(FSAPIInsertSliceContext *ictx)
     if (ictx->op_ctx->bs_key.slice.length + 4096 >= ictx->op_ctx->
             api_ctx->write_combine.buffer_size)
     {
-        *ictx->combined = false;
+        ictx->wbuffer->combined = false;
         return 0;
     }
 
     if (!IF_COMBINE_BY_SLICE_POSITION(ictx->op_ctx->bs_key.slice)) {
         /* remain buffer is too small */
-        *ictx->combined = false;
+        ictx->wbuffer->combined = false;
         return 0;
     }
 
@@ -212,7 +212,7 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
         ictx->otid.old_slice = (FSAPISliceEntry *)__sync_add_and_fetch(
                 &ictx->otid.entry->slice, 0);
         if (ictx->otid.old_slice == NULL) {
-            *ictx->combined = IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx);
+            ictx->wbuffer->combined = IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx);
             is_new_slice = true;
             break;
         } else {
@@ -238,9 +238,9 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
         }
     }
 
-    if (is_new_slice && *ictx->combined) {
+    if (is_new_slice && ictx->wbuffer->combined) {
         if ((result=create_slice(ictx)) != 0) {
-            *ictx->combined = false;
+            ictx->wbuffer->combined = false;
         }
         return result;
     } else {
@@ -312,6 +312,21 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         }
     }
 
+    ictx->slice->api_ctx = ictx->op_ctx->api_ctx;
+    ictx->slice->done_callback_arg = (FSAPIWriteDoneCallbackArg *)
+        fast_mblock_alloc_object(&ictx->op_ctx->allocator_ctx->callback_arg);
+    if (ictx->slice->done_callback_arg == NULL) {
+        return ENOMEM;
+    }
+    if (ictx->wbuffer->extra_data != NULL && ictx->op_ctx->api_ctx->
+                write_done_callback.arg_extra_size > 0)
+    {
+        memcpy(ictx->slice->done_callback_arg->extra_data,
+                ictx->wbuffer->extra_data, ictx->op_ctx->api_ctx->
+                write_done_callback.arg_extra_size);
+    }
+    ictx->slice->done_callback_arg->bs_key = &ictx->slice->bs_key;
+
     old_otid = (FSAPIOTIDEntry *)ictx->slice->otid;
     while (!__sync_bool_compare_and_swap(&ictx->slice->otid,
             old_otid, ictx->otid.entry))
@@ -326,7 +341,8 @@ static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
         old_block = FS_API_FETCH_SLICE_BLOCK(ictx->slice);
     }
 
-    memcpy(ictx->slice->buff, ictx->buff, ictx->op_ctx->bs_key.slice.length);
+    memcpy(ictx->slice->buff, ictx->wbuffer->buff,
+            ictx->op_ctx->bs_key.slice.length);
     ictx->slice->bs_key = ictx->op_ctx->bs_key;
     ictx->slice->merged_slices = 1;
     ictx->slice->start_time = g_timer_ms_ctx.current_time_ms;
@@ -465,7 +481,7 @@ int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
         ictx->waiting_task = NULL;
         result = check_combine_slice(ictx);
         if (ictx->waiting_task != NULL) {
-            *ictx->combined = false;
+            ictx->wbuffer->combined = false;
             fs_api_wait_write_done_and_release(ictx->waiting_task);
         }
     } while (result == 0 && ictx->waiting_task != NULL && count++ < 3);

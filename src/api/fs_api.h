@@ -35,7 +35,9 @@ extern "C" {
 #define FS_API_SET_CTX_AND_TID(op_ctx, thread_id) \
     FS_API_SET_CTX_AND_TID_EX(op_ctx, &g_fs_api_ctx, thread_id)
 
-#define fs_api_init(ini_ctx) fs_api_init_ex(&g_fs_api_ctx, ini_ctx)
+#define fs_api_init(ini_ctx, write_done_callback, write_done_arg_extra_size) \
+    fs_api_init_ex(&g_fs_api_ctx, ini_ctx, write_done_callback, \
+            write_done_arg_extra_size)
 
 #define fs_api_config_to_string(output, size) \
     fs_api_config_to_string_ex(&g_fs_api_ctx, output, size)
@@ -47,7 +49,10 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
 
 #define fs_api_terminate()   fs_api_terminate_ex(&g_fs_api_ctx);
 
-int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx);
+int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
+        fs_api_write_done_callback write_done_callback,
+        const int write_done_arg_extra_size);
+
 void fs_api_destroy_ex(FSAPIContext *api_ctx);
 
 int fs_api_start_ex(FSAPIContext *api_ctx);
@@ -57,8 +62,8 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx);
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         const int64_t file_size, const uint64_t tid);
 
-int fs_api_slice_write(FSAPIOperationContext *op_ctx, const char *buff,
-        bool *combined, int *write_bytes, int *inc_alloc);
+int fs_api_slice_write(FSAPIOperationContext *op_ctx,
+        FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc);
 
 int fs_api_slice_read(FSAPIOperationContext *op_ctx,
         char *buff, int *read_bytes);

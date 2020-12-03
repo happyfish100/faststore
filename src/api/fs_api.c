@@ -179,7 +179,9 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
             api_ctx->write_combine.thread_pool_max_idle_time);
 }
 
-int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
+int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
+        fs_api_write_done_callback write_done_callback,
+        const int write_done_arg_extra_size)
 {
     const int precision_ms = 10;
     int64_t element_limit = 1000 * 1000;
@@ -194,6 +196,8 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
         return 0;
     }
 
+    api_ctx->write_done_callback.func = write_done_callback;
+    api_ctx->write_done_callback.arg_extra_size = write_done_arg_extra_size;
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
     if ((result=timeout_handler_init(precision_ms, api_ctx->write_combine.
                     max_wait_time_ms, api_ctx->write_combine.
@@ -223,7 +227,6 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
     {
         return result;
     }
-
 
     return 0;
 }
@@ -277,15 +280,15 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx)
         } \
     } while (0)
 
-int fs_api_slice_write(FSAPIOperationContext *op_ctx, const char *buff,
-        bool *combined, int *write_bytes, int *inc_alloc)
+int fs_api_slice_write(FSAPIOperationContext *op_ctx,
+        FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc)
 {
     int result;
     int conflict_count;
 
     do {
         if (!op_ctx->api_ctx->write_combine.enabled) {
-            *combined = false;
+            wbuffer->combined = false;
             break;
         }
 
@@ -293,27 +296,27 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx, const char *buff,
         if ((result=obid_htable_check_conflict_and_wait(
                         op_ctx, &conflict_count)) != 0)
         {
-            *combined = false;
+            wbuffer->combined = false;
             break;
         }
         if (conflict_count > 0) {
-            *combined = false;
+            wbuffer->combined = false;
             break;
         }
 
-        if ((result=otid_htable_insert(op_ctx, buff, combined)) != 0) {
+        if ((result=otid_htable_insert(op_ctx, wbuffer)) != 0) {
             break;
         }
 
-        if (*combined) {  //already trigger write combine
+        if (wbuffer->combined) {  //already trigger write combine
             *write_bytes = op_ctx->bs_key.slice.length;
             *inc_alloc = 0;
             return 0;
         }
     } while (0);
 
-    return fs_client_slice_write(op_ctx->api_ctx->fs,
-            &op_ctx->bs_key, buff, write_bytes, inc_alloc);
+    return fs_client_slice_write(op_ctx->api_ctx->fs, &op_ctx->bs_key,
+            wbuffer->buff, write_bytes, inc_alloc);
 }
 
 int fs_api_slice_read(FSAPIOperationContext *op_ctx,

@@ -22,12 +22,13 @@
 
 typedef struct fs_api_allocator_context {
     struct fast_mblock_man task_slice_pair; //element: FSAPIWaitingTaskSlicePair
-    struct fast_mblock_man waiting_task;     //element: FSAPIWaitingTask
+    struct fast_mblock_man waiting_task;    //element: FSAPIWaitingTask
     struct {
-        struct fast_mblock_man allocator;      //element: FSAPISliceEntry
+        struct fast_mblock_man allocator;   //element: FSAPISliceEntry
         int64_t version_mask;
         volatile int64_t current_version;
     } slice;
+    struct fast_mblock_man callback_arg;    //element: FSAPIWriteDoneCallbackArg
 } FSAPIAllocatorContext;
 
 typedef struct fs_api_allocator_ctx_array {

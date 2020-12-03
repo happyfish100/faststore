@@ -36,7 +36,7 @@ extern "C" {
             const int64_t min_ttl_ms, const int64_t max_ttl_ms);
 
     int otid_htable_insert(FSAPIOperationContext *op_ctx,
-            const char *buff, bool *combined);
+            FSAPIWriteBuffer *wbuffer);
 
 #ifdef __cplusplus
 }

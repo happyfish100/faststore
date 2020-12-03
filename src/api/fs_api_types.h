@@ -35,6 +35,7 @@ struct fs_api_otid_entry;
 struct fs_api_waiting_task;
 struct fs_api_slice_entry;
 struct fs_api_allocator_context;
+struct fs_api_write_done_callback_arg;
 struct fs_api_context;
 
 #define FS_API_FETCH_SLICE_OTID(slice) \
@@ -45,6 +46,9 @@ struct fs_api_context;
 
 #define FS_API_CALC_TIMEOUT_BY_SUCCESSIVE(op_ctx, successive_count)  \
     (successive_count * op_ctx->api_ctx->write_combine.min_wait_time_ms)
+
+typedef void (*fs_api_write_done_callback)(struct
+        fs_api_write_done_callback_arg *callback_arg);
 
 typedef struct fs_api_waiting_task_slice_pair {
     volatile struct fs_api_waiting_task *task;
@@ -62,6 +66,14 @@ typedef struct fs_api_waiting_task {
     struct fast_mblock_man *allocator;  //for free
 } FSAPIWaitingTask;
 
+typedef struct fs_api_write_done_callback_arg {
+    const FSBlockSliceKeyInfo *bs_key;
+    struct fast_mblock_man *allocator;  //for free
+    int write_bytes;
+    int inc_alloc;
+    char extra_data[0];
+} FSAPIWriteDoneCallbackArg;
+
 typedef struct fs_api_slice_entry {
     LockedTimerEntry timer;  //must be the first
     volatile struct fs_api_otid_entry *otid;
@@ -75,6 +87,8 @@ typedef struct fs_api_slice_entry {
     struct {
         FSAPIWaitingTaskSlicePair *head; //use lock of block sharding
     } waitings;
+    struct fs_api_context *api_ctx;
+    FSAPIWriteDoneCallbackArg *done_callback_arg;  //write done callback arg
     struct fs_api_allocator_context *allocator_ctx; //for free, set by fast_mblock
     struct fc_list_head dlink;          //for block entry
     struct fs_api_slice_entry *next;    //for combine handler queue
@@ -88,10 +102,15 @@ typedef struct fs_api_operation_context {
     struct fs_api_context *api_ctx;
 } FSAPIOperationContext;
 
+typedef struct fs_api_write_buffer {
+    const char *buff;
+    void *extra_data;  //for write done callback
+    bool combined;
+} FSAPIWriteBuffer;
+
 typedef struct fs_api_insert_slice_context {
     FSAPIOperationContext *op_ctx;
-    const char *buff;
-    bool *combined;
+    FSAPIWriteBuffer *wbuffer;
     struct {
         int successive_count;
         struct fs_api_otid_entry *entry;
@@ -118,6 +137,10 @@ typedef struct fs_api_context {
         int thread_pool_max_idle_time;
     } write_combine;
     FSClientContext *fs;
+    struct {
+        fs_api_write_done_callback func;
+        int arg_extra_size;
+    } write_done_callback;
 } FSAPIContext;
 
 #ifdef __cplusplus

@@ -55,13 +55,12 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 static void combine_handler_run(void *arg, void *thread_data)
 {
     FSAPISliceEntry *slice;
-    int write_bytes;
-    int inc_alloc;
     int result;
 
     slice = (FSAPISliceEntry *)arg;
-    if ((result=fs_client_slice_write(g_fs_api_ctx.fs, &slice->bs_key,
-            slice->buff, &write_bytes, &inc_alloc)) != 0)
+    if ((result=fs_client_slice_write(slice->api_ctx->fs, &slice->bs_key,
+            slice->buff, &slice->done_callback_arg->write_bytes,
+            &slice->done_callback_arg->inc_alloc)) != 0)
     {
         sf_terminate_myself();
         return;
@@ -74,7 +73,11 @@ static void combine_handler_run(void *arg, void *thread_data)
             slice->bs_key.block.oid, slice->bs_key.block.offset,
             slice->bs_key.slice.offset, slice->bs_key.slice.length,
             slice->merged_slices, slice->stage);
-            */
+     */
+
+    slice->api_ctx->write_done_callback.func(slice->done_callback_arg);
+    fast_mblock_free_object(slice->done_callback_arg->allocator,
+            slice->done_callback_arg);
 
     notify_and_release_slice(slice);
 }

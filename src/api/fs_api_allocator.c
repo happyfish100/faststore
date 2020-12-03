@@ -21,13 +21,14 @@
 FSAPIAllocatorCtxArray g_allocator_array;
 
 static int task_slice_pair_alloc_init(FSAPIWaitingTaskSlicePair
-        *task_slice_pair, void *arg)
+        *task_slice_pair, struct fast_mblock_man *allocator)
 {
-    task_slice_pair->allocator = (struct fast_mblock_man *)arg;
+    task_slice_pair->allocator = allocator;
     return 0;
 }
 
-static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
+static int waiting_task_alloc_init(FSAPIWaitingTask *task,
+        struct fast_mblock_man *allocator)
 {
     int result;
 
@@ -36,7 +37,7 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task, void *arg)
     }
 
     FC_INIT_LIST_HEAD(&task->waitings.head);
-    task->allocator = (struct fast_mblock_man *)arg;
+    task->allocator = allocator;
     return 0;
 }
 
@@ -56,9 +57,18 @@ static int slice_entry_alloc_init(FSAPISliceEntry *slice,
     return 0;
 }
 
-static int init_allocator_context(FSAPIAllocatorContext *ctx)
+static int callback_arg_alloc_init(FSAPIWriteDoneCallbackArg
+        *callback_arg, struct fast_mblock_man *allocator)
+{
+    callback_arg->allocator = allocator;
+    return 0;
+}
+
+static int init_allocator_context(FSAPIContext *api_ctx,
+        FSAPIAllocatorContext *ctx)
 {
     int result;
+    int element_size;
 
     if ((result=fast_mblock_init_ex1(&ctx->task_slice_pair,
                     "task_slice_pair", sizeof(FSAPIWaitingTaskSlicePair),
@@ -81,6 +91,16 @@ static int init_allocator_context(FSAPIAllocatorContext *ctx)
                     "slice_entry", sizeof(FSAPISliceEntry), 8, 0,
                     (fast_mblock_alloc_init_func)slice_entry_alloc_init,
                     ctx, true)) != 0)
+    {
+        return result;
+    }
+
+    element_size = sizeof(FSAPIWriteDoneCallbackArg) +
+        api_ctx->write_done_callback.arg_extra_size;
+    if ((result=fast_mblock_init_ex1(&ctx->callback_arg,
+                    "write_done_callback_arg", element_size, 1024, 0,
+                    (fast_mblock_alloc_init_func)callback_arg_alloc_init,
+                    &ctx->callback_arg, true)) != 0)
     {
         return result;
     }
@@ -108,7 +128,7 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
         ctx->slice.current_version = 0;
         ctx->slice.version_mask = ((int64_t)(ctx - g_allocator_array.
                     allocators) + 1) << 48;
-        if ((result=init_allocator_context(ctx)) != 0) {
+        if ((result=init_allocator_context(api_ctx, ctx)) != 0) {
             return result;
         }
     }
