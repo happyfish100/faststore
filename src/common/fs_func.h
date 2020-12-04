@@ -27,7 +27,7 @@ extern "C" {
 
     static inline void fs_calc_block_hashcode(FSBlockKey *bkey)
     {
-        bkey->hash_code = bkey->oid + (bkey->offset / FS_FILE_BLOCK_SIZE);
+        bkey->hash_code = bkey->oid + bkey->offset;
     }
 
 #ifdef __cplusplus

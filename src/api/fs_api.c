@@ -268,7 +268,7 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx)
 }
 
 #define FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx) \
-    op_ctx->bid = op_ctx->bs_key.block.offset / FS_FILE_BLOCK_SIZE; \
+    op_ctx->bid = op_ctx->bs_key.block.offset;   \
     op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid)
 
 #define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx) \

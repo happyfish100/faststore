@@ -64,7 +64,6 @@ void *thread_run(void *arg)
 
         offset += length;
 
-        op_ctx.bid = offset / FS_FILE_BLOCK_SIZE;
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
         if (op_ctx.bs_key.slice.offset + length <= FS_FILE_BLOCK_SIZE) {
@@ -73,6 +72,7 @@ void *thread_run(void *arg)
             op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE -
                 op_ctx.bs_key.slice.offset;
         }
+        op_ctx.bid = op_ctx.bs_key.block.offset;
 
         if (obid_htable_check_conflict_and_wait(&op_ctx, &conflict_count) == 0) {
             if (conflict_count > 0) {
