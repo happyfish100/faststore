@@ -125,14 +125,13 @@ static int try_combine_slice(FSAPISliceEntry *slice,
     slice_end = slice->bs_key.slice.offset + slice->bs_key.slice.length;
     if (ictx->op_ctx->bs_key.block.offset == slice->bs_key.block.offset) {
         if (ictx->op_ctx->bs_key.slice.offset != slice_end) {
-            /*
-               logInfo("slice NOT successive! slice {stage: %d, oid: %"PRId64", "
-               "offset: %"PRId64"}, input {oid: %"PRId64", offset: %"PRId64"}",
-               slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
-               ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset);
-             */
+            logInfo("file: "__FILE__", line: %d, "
+                    "slice NOT successive! slice stage: %d, block {oid: %"PRId64", "
+                    "offset: %"PRId64"}, slice {offset: %d, length: %d}", __LINE__,
+                    slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
+                    slice->bs_key.slice.offset, slice->bs_key.slice.length);
 
-            ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE;
+            ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE1;
             *is_new_slice = false;
             return 0;
         }
@@ -146,7 +145,13 @@ static int try_combine_slice(FSAPISliceEntry *slice,
                 (ictx->op_ctx->bs_key.block.offset ==
                  slice->bs_key.block.offset + slice_end)))
     {
-        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE;
+        logInfo("file: "__FILE__", line: %d, "
+                "slice NOT successive! slice stage: %d, block {oid: %"PRId64", "
+                "offset: %"PRId64"}, slice {offset: %d, length: %d}", __LINE__,
+                slice->stage, slice->bs_key.block.oid, slice->bs_key.block.offset,
+                slice->bs_key.slice.offset, slice->bs_key.slice.length);
+
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE2;
         *is_new_slice = false;
         return 0;
     }
