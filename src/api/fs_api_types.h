@@ -30,15 +30,6 @@
 #define FS_API_COMBINED_WRITER_STAGE_PROCESSING  2
 #define FS_API_COMBINED_WRITER_STAGE_CLEANUP     3
 
-#define FS_NOT_COMBINED_REASON_SLICE_SIZE         1001
-#define FS_NOT_COMBINED_REASON_REACH_BUFF_SIZE    1002
-#define FS_NOT_COMBINED_REASON_LAST_MERGED_SLICES 1003
-#define FS_NOT_COMBINED_REASON_SLICE_POSITION     1004
-#define FS_NOT_COMBINED_REASON_WAITING_TIMEOUT    1005
-#define FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE1    1006
-#define FS_NOT_COMBINED_REASON_NOT_SUCCESSIVE2    1007
-#define FS_NOT_COMBINED_REASON_DIFFERENT_OID      1099
-
 struct fs_api_block_entry;
 struct fs_api_otid_entry;
 struct fs_api_waiting_task;
@@ -116,7 +107,6 @@ typedef struct fs_api_write_buffer {
     const char *buff;
     void *extra_data;  //for write done callback
     bool combined;
-    short reason;       //not combine reason
 } FSAPIWriteBuffer;
 
 typedef struct fs_api_insert_slice_context {
