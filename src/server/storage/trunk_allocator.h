@@ -24,8 +24,8 @@
 #include "storage_config.h"
 #include "object_block_index.h"
 
-#define FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT      10
-#define FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT       16
+#define FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT       6
+#define FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT       12
 #define FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS   600
 
 #define FS_TRUNK_STATUS_NONE        0
