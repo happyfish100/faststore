@@ -53,7 +53,7 @@ void *thread_run(void *arg)
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
 
     printf("tid: %"PRId64", thread_index: %ld\n", op_ctx.tid, thread_index);
-    for (i=0; i< 1000 * 1000; i++) {
+    for (i=0; i< 100 /* 1000 */; i++) {
         /*
         if (i % 10000 == 0) {
             op_ctx.bs_key.block.oid++;
