@@ -419,6 +419,15 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
                 && (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING ||
                     slice->stage == FS_API_COMBINED_WRITER_STAGE_PROCESSING))
         {
+            logInfo("file: "__FILE__", line: %d, slice conflict! "
+                    "tid: %"PRId64", operation: %c, slice stage: %s, "
+                    "block {oid: %"PRId64", offset: %"PRId64"}, "
+                    "slice {offset: %d, length: %d}", __LINE__,
+                    farg->op_ctx->tid, farg->op_ctx->op_type,
+                    fs_api_get_combine_stage(slice->stage),
+                    slice->bs_key.block.oid, slice->bs_key.block.offset,
+                    slice->bs_key.slice.offset, slice->bs_key.slice.length);
+
             if (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING) {
                 combine_handler_push_within_lock(slice);
             }

@@ -97,6 +97,7 @@ typedef struct fs_api_slice_entry {
 typedef struct fs_api_operation_context {
     uint64_t tid;  //thread id
     uint64_t bid;  //file block id
+    char op_type;  //operation type for debug
     FSBlockSliceKeyInfo bs_key;
     struct fs_api_allocator_context *allocator_ctx;
     struct fs_api_context *api_ctx;
@@ -148,6 +149,22 @@ extern "C" {
 #endif
 
     extern FSAPIContext g_fs_api_ctx;
+
+    static inline const char *fs_api_get_combine_stage(const int stage)
+    {
+        switch (stage) {
+            case FS_API_COMBINED_WRITER_STAGE_NONE:
+                return "none";
+            case FS_API_COMBINED_WRITER_STAGE_MERGING:
+                return "merging";
+            case FS_API_COMBINED_WRITER_STAGE_PROCESSING:
+                return "processing";
+            case FS_API_COMBINED_WRITER_STAGE_CLEANUP:
+                return "cleanup";
+            default:
+                return "unkown";
+        }
+    }
 
 #ifdef __cplusplus
 }

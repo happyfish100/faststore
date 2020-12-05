@@ -84,9 +84,18 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     if ((result=sharding_htable_insert(&otid_ctx, &key, &ictx)) != 0) {
         return result;
     }
+
     if (ictx.otid.successive_count > 0) {
-        return obid_htable_check_combine_slice(&ictx);
+        result = obid_htable_check_combine_slice(&ictx);
     }
 
-    return 0;
+    logInfo("file: "__FILE__", line: %d, "
+            "tid: %"PRId64", block {oid: %"PRId64", offset: %"PRId64"}, "
+            "slice {offset: %d, length: %d}, successive_count: %d, combined: %d",
+            __LINE__, op_ctx->tid, op_ctx->bs_key.block.oid,
+            op_ctx->bs_key.block.offset, op_ctx->bs_key.slice.offset,
+            op_ctx->bs_key.slice.length, ictx.otid.successive_count,
+            wbuffer->combined);
+
+    return result;
 }

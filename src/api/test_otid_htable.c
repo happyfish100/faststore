@@ -45,9 +45,10 @@ void *thread_run(void *arg)
     offset = 0;
     op_ctx.bs_key.block.oid = 10000000 * thread_index;
     op_ctx.bs_key.block.oid = 123456;
+    op_ctx.op_type = 'w';
     //op_ctx.tid = (long)pthread_self();
-    //tid = getpid() + thread_index;
-    tid = getpid();
+    tid = getpid() + thread_index;
+    //tid = getpid();
     FS_API_SET_CTX_AND_TID(op_ctx, tid);
     op_ctx.allocator_ctx = fs_api_allocator_get(op_ctx.tid);
 
@@ -121,6 +122,7 @@ int main(int argc, char *argv[])
     IniFullContext ini_ctx;
 
     log_init();
+    log_set_time_precision(&g_log_context, LOG_TIME_PRECISION_MSECOND);
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
 
     if ((result=iniLoadFromFile(config_filename, &iniContext)) != 0) {
