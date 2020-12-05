@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
 
     sf_enable_exit_on_oom();
     srand(time(NULL));
-    fast_mblock_manager_init();
+    //fast_mblock_manager_init();
 
     //sched_set_delay_params(300, 1024);
     do {

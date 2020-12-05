@@ -249,9 +249,9 @@ static int init_ob_shared_ctx_array()
 {
     int result;
     int bytes;
-    const int max_level_count = 12;
+    const int max_level_count = 8;
     const int alloc_skiplist_once = 8 * 1024;
-    const int min_alloc_elements_once = 4;
+    const int min_alloc_elements_once = 2;
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link in level 0
     OBSharedContext *ctx;
@@ -275,7 +275,7 @@ static int init_ob_shared_ctx_array()
         }
 
         if ((result=fast_mblock_init_ex1(&ctx->ob_allocator,
-                        "ob_entry", sizeof(OBEntry), 16 * 1024,
+                        "ob_entry", sizeof(OBEntry), 4 * 1024,
                         0, NULL, NULL, false)) != 0)
         {
             return result;
@@ -283,7 +283,7 @@ static int init_ob_shared_ctx_array()
 
         if ((result=fast_mblock_init_ex1(&ctx->slice_allocator,
                         "slice_entry", sizeof(OBSliceEntry),
-                        64 * 1024, 0, NULL, NULL, true)) != 0)
+                        16 * 1024, 0, NULL, NULL, true)) != 0)
         {
             return result;
         }
