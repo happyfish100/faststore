@@ -126,7 +126,8 @@ void combine_handler_terminate()
     }
 
     fc_sleep_ms(100);
-    logInfo("line: %d, combine_handler_terminate, running: %d, "
+    logInfo("file: "__FILE__", line: %d, "
+            "combine_handler_terminate, running: %d, "
             "waiting_slice_count: %d", __LINE__,
             fc_thread_pool_running_count(
                 &g_combine_handler_ctx.thread_pool),

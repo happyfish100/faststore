@@ -41,15 +41,15 @@ typedef struct fs_api_allocator_ctx_array {
 extern "C" {
 #endif
 
-    extern FSAPIAllocatorCtxArray g_allocator_array;
+    extern FSAPIAllocatorCtxArray g_fs_api_allocator_array;
 
     int fs_api_allocator_init(FSAPIContext *api_ctx);
 
     static inline FSAPIAllocatorContext *fs_api_allocator_get(
             const uint64_t tid)
     {
-        return g_allocator_array.allocators +
-            tid % g_allocator_array.count;
+        return g_fs_api_allocator_array.allocators +
+            tid % g_fs_api_allocator_array.count;
     }
 
     static inline int64_t fs_api_next_slice_version(FSAPIAllocatorContext *ctx)

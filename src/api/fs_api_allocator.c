@@ -18,7 +18,7 @@
 #include "timeout_handler.h"
 #include "fs_api_allocator.h"
 
-FSAPIAllocatorCtxArray g_allocator_array;
+FSAPIAllocatorCtxArray g_fs_api_allocator_array;
 
 static int task_slice_pair_alloc_init(FSAPIWaitingTaskSlicePair
         *task_slice_pair, struct fast_mblock_man *allocator)
@@ -44,7 +44,7 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task,
 static int slice_entry_alloc_init(FSAPISliceEntry *slice,
         FSAPIAllocatorContext *ctx)
 {
-    slice->buff = (char *)malloc(g_allocator_array.
+    slice->buff = (char *)malloc(g_fs_api_allocator_array.
             api_ctx->write_combine.buffer_size);
     if (slice->buff == NULL) {
         return ENOMEM;
@@ -115,18 +115,20 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
     FSAPIAllocatorContext *ctx;
     FSAPIAllocatorContext *end;
 
-    g_allocator_array.count = api_ctx->write_combine.shared_allocator_count;
-    bytes = sizeof(FSAPIAllocatorContext) * g_allocator_array.count;
-    g_allocator_array.allocators = (FSAPIAllocatorContext *)fc_malloc(bytes);
-    if (g_allocator_array.allocators == NULL) {
+    g_fs_api_allocator_array.count = api_ctx->
+        write_combine.shared_allocator_count;
+    bytes = sizeof(FSAPIAllocatorContext) * g_fs_api_allocator_array.count;
+    g_fs_api_allocator_array.allocators = (FSAPIAllocatorContext *)
+        fc_malloc(bytes);
+    if (g_fs_api_allocator_array.allocators == NULL) {
         return ENOMEM;
     }
 
-    g_allocator_array.api_ctx = api_ctx;
-    end = g_allocator_array.allocators + g_allocator_array.count;
-    for (ctx=g_allocator_array.allocators; ctx<end; ctx++) {
+    g_fs_api_allocator_array.api_ctx = api_ctx;
+    end = g_fs_api_allocator_array.allocators + g_fs_api_allocator_array.count;
+    for (ctx=g_fs_api_allocator_array.allocators; ctx<end; ctx++) {
         ctx->slice.current_version = 0;
-        ctx->slice.version_mask = ((int64_t)(ctx - g_allocator_array.
+        ctx->slice.version_mask = ((int64_t)(ctx - g_fs_api_allocator_array.
                     allocators) + 1) << 48;
         if ((result=init_allocator_context(api_ctx, ctx)) != 0) {
             return result;

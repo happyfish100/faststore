@@ -102,11 +102,11 @@ static int fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
             FS_API_MIN_TIMER_SHARED_LOCK_COUNT,
             FS_API_MAX_TIMER_SHARED_LOCK_COUNT);
 
-    api_ctx->write_combine.shared_allocator_count = iniGetIntCorrectValue(
+    api_ctx->write_combine.shared_allocator_count = iniGetIntCorrectValueEx(
             ini_ctx, "shared_allocator_count",
             FS_API_DEFAULT_SHARED_ALLOCATOR_COUNT,
             FS_API_MIN_SHARED_ALLOCATOR_COUNT,
-            FS_API_MAX_SHARED_ALLOCATOR_COUNT);
+            FS_API_MAX_SHARED_ALLOCATOR_COUNT, true);
 
     api_ctx->write_combine.hashtable_sharding_count = iniGetIntCorrectValue(
             ini_ctx, "hashtable_sharding_count",
