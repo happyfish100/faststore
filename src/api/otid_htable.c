@@ -92,11 +92,11 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     /*
     logInfo("file: "__FILE__", line: %d, "
             "tid: %"PRId64", block {oid: %"PRId64", offset: %"PRId64"}, "
-            "slice {offset: %d, length: %d}, successive_count: %d, combined: %d",
-            __LINE__, op_ctx->tid, op_ctx->bs_key.block.oid,
-            op_ctx->bs_key.block.offset, op_ctx->bs_key.slice.offset,
-            op_ctx->bs_key.slice.length, ictx.otid.successive_count,
-            wbuffer->combined);
+            "slice {offset: %d, length: %d}, successive_count: %d, "
+            "combined: %d, reason: %d", __LINE__, op_ctx->tid,
+            op_ctx->bs_key.block.oid, op_ctx->bs_key.block.offset,
+            op_ctx->bs_key.slice.offset, op_ctx->bs_key.slice.length,
+            ictx.otid.successive_count, wbuffer->combined, wbuffer->reason);
             */
 
     return result;

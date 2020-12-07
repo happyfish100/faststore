@@ -61,6 +61,7 @@ static int do_combine_slice(FSAPISliceEntry *slice,
 
     if (!IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx)) {
         combine_handler_push_within_lock(slice);
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_SLICE_SIZE;
         return 0;
     }
 
@@ -107,6 +108,7 @@ static int try_combine_slice(FSAPISliceEntry *slice,
                 "op_ctx oid: %"PRId64" != slice oid: %"PRId64, __LINE__,
                 ictx->op_ctx->bs_key.block.oid, slice->bs_key.block.oid);
         *is_new_slice = false;
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_DIFFERENT_OID;
         return 0;
     }
 
@@ -141,11 +143,15 @@ static int try_combine_slice(FSAPISliceEntry *slice,
 
     if (!IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx)) {
         *is_new_slice = false;
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_SLICE_SIZE;
         return 0;
     }
 
     ictx->wbuffer->combined = is_jump || IF_COMBINE_BY_SLICE_MERGED(
             slice, ictx->op_ctx);
+    if (!ictx->wbuffer->combined) {
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_LAST_MERGED_SLICES;
+    }
     if (ictx->wbuffer->combined && (slice->stage ==
                 FS_API_COMBINED_WRITER_STAGE_PROCESSING) &&
             (__sync_add_and_fetch(&g_combine_handler_ctx.
@@ -177,12 +183,14 @@ static int create_slice(FSAPIInsertSliceContext *ictx)
             api_ctx->write_combine.buffer_size)
     {
         ictx->wbuffer->combined = false;
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_REACH_BUFF_SIZE;
         return 0;
     }
 
     if (!IF_COMBINE_BY_SLICE_POSITION(ictx->op_ctx->bs_key.slice)) {
         /* remain buffer is too small */
         ictx->wbuffer->combined = false;
+        ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_SLICE_POSITION;
         return 0;
     }
 
@@ -212,6 +220,9 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
                 &ictx->otid.entry->slice, 0);
         if (ictx->otid.old_slice == NULL) {
             ictx->wbuffer->combined = IF_COMBINE_BY_SLICE_SIZE(ictx->op_ctx);
+            if (!ictx->wbuffer->combined) {
+                ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_SLICE_SIZE;
+            }
             is_new_slice = true;
             break;
         } else {
@@ -240,6 +251,7 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
     if (is_new_slice && ictx->wbuffer->combined) {
         if ((result=create_slice(ictx)) != 0) {
             ictx->wbuffer->combined = false;
+            ictx->wbuffer->reason = result;
         }
         return result;
     } else {
@@ -492,6 +504,7 @@ int obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
         result = check_combine_slice(ictx);
         if (ictx->waiting_task != NULL) {
             ictx->wbuffer->combined = false;
+            ictx->wbuffer->reason = FS_NOT_COMBINED_REASON_WAITING_TIMEOUT;
             fs_api_wait_write_done_and_release(ictx->waiting_task);
         }
     } while (result == 0 && ictx->waiting_task != NULL && count++ < 3);
