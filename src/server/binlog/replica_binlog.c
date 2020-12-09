@@ -420,7 +420,7 @@ static SFBinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
 {
     *writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
-    return sf_binlog_writer_alloc_versioned_buffer(*writer, data_version);
+    return sf_binlog_writer_alloc_one_version_buffer(*writer, data_version);
 }
 
 int replica_binlog_log_slice(const time_t current_time,

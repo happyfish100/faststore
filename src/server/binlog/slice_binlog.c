@@ -301,7 +301,7 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
         return ENOMEM;
     }
 
-    wbuffer->version = sn;
+    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
             "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
@@ -328,7 +328,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
         return ENOMEM;
     }
 
-    wbuffer->version = sn;
+    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
             (int64_t)current_time, data_version, source,
@@ -349,7 +349,7 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
         return ENOMEM;
     }
 
-    wbuffer->version = sn;
+    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version, source,
