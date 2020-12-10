@@ -14,7 +14,7 @@
  */
 
 #include <stdlib.h>
-#include "timeout_handler.h"
+#include "fastcommon/shared_func.h"
 #include "sharding_htable.h"
 
 static int init_allocators(FSAPIHtableShardingContext *sharding_ctx,
@@ -78,7 +78,7 @@ static int init_sharding(FSAPIHtableSharding *sharding,
 
     sharding->hashtable.capacity = per_capacity;
     sharding->element_count = 0;
-    sharding->last_reclaim_time_ms = g_timer_ms_ctx.current_time_ms;
+    sharding->last_reclaim_time_sec = get_current_time();
     FC_INIT_LIST_HEAD(&sharding->lru);
     return 0;
 }
@@ -120,8 +120,8 @@ int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
         fs_api_sharding_htable_accept_reclaim_callback reclaim_callback,
         const int sharding_count, const int64_t htable_capacity,
         const int allocator_count, const int element_size,
-        int64_t element_limit, const int64_t min_ttl_ms,
-        const int64_t max_ttl_ms)
+        int64_t element_limit, const int64_t min_ttl_sec,
+        const int64_t max_ttl_sec)
 {
     int result;
     int64_t per_elt_limit;
@@ -148,17 +148,17 @@ int sharding_htable_init(FSAPIHtableShardingContext *sharding_ctx,
     sharding_ctx->find_callback = find_callback;
     sharding_ctx->accept_reclaim_callback = reclaim_callback;
     sharding_ctx->sharding_reclaim.elt_water_mark = per_elt_limit * 0.10;
-    sharding_ctx->sharding_reclaim.min_ttl_ms = min_ttl_ms;
-    sharding_ctx->sharding_reclaim.max_ttl_ms = max_ttl_ms;
-    sharding_ctx->sharding_reclaim.elt_ttl_ms = (double)(sharding_ctx->
-            sharding_reclaim.max_ttl_ms - sharding_ctx->
-            sharding_reclaim.min_ttl_ms) / per_elt_limit;
+    sharding_ctx->sharding_reclaim.min_ttl_sec = min_ttl_sec;
+    sharding_ctx->sharding_reclaim.max_ttl_sec = max_ttl_sec;
+    sharding_ctx->sharding_reclaim.elt_ttl_sec = (double)(sharding_ctx->
+            sharding_reclaim.max_ttl_sec - sharding_ctx->
+            sharding_reclaim.min_ttl_sec) / per_elt_limit;
 
     /*
     logInfo("per_elt_limit: %"PRId64", elt_water_mark: %d, "
-            "elt_ttl_ms: %.2f", per_elt_limit, (int)sharding_ctx->
+            "elt_ttl_sec: %.2f", per_elt_limit, (int)sharding_ctx->
             sharding_reclaim.elt_water_mark, sharding_ctx->
-            sharding_reclaim.elt_ttl_ms);
+            sharding_reclaim.elt_ttl_sec);
             */
     return 0;
 }
@@ -214,7 +214,7 @@ static inline void htable_insert(FSAPIHashEntry *entry,
 
 static FSAPIHashEntry *otid_entry_reclaim(FSAPIHtableSharding *sharding)
 {
-    int64_t reclaim_ttl_ms;
+    int64_t reclaim_ttl_sec;
     int64_t delta;
     int64_t reclaim_count;
     int64_t reclaim_limit;
@@ -233,11 +233,11 @@ static FSAPIHashEntry *otid_entry_reclaim(FSAPIHtableSharding *sharding)
 
     first = NULL;
     reclaim_count = 0;
-    reclaim_ttl_ms = (int64_t)(sharding->ctx->sharding_reclaim.max_ttl_ms -
-        sharding->ctx->sharding_reclaim.elt_ttl_ms * delta);
+    reclaim_ttl_sec = (int64_t)(sharding->ctx->sharding_reclaim.max_ttl_sec -
+            sharding->ctx->sharding_reclaim.elt_ttl_sec * delta);
     fc_list_for_each_entry_safe(entry, tmp, &sharding->lru, dlinks.lru) {
-        if (g_timer_ms_ctx.current_time_ms - entry->
-                last_update_time_ms <= reclaim_ttl_ms)
+        if (get_current_time() - entry->last_update_time_sec <=
+                reclaim_ttl_sec)
         {
             break;
         }
@@ -264,10 +264,10 @@ static FSAPIHashEntry *otid_entry_reclaim(FSAPIHtableSharding *sharding)
 
     if (reclaim_count > 0) {
         logInfo("sharding index: %d, element_count: %"PRId64", "
-                "reclaim_ttl_ms: %"PRId64" ms, reclaim_count: %"PRId64", "
+                "reclaim_ttl_sec: %"PRId64" ms, reclaim_count: %"PRId64", "
                 "reclaim_limit: %"PRId64, (int)(sharding - sharding->ctx->
                     sharding_array.entries), sharding->element_count,
-                reclaim_ttl_ms, reclaim_count, reclaim_limit);
+                reclaim_ttl_sec, reclaim_count, reclaim_limit);
     }
 
     return first;
@@ -279,10 +279,10 @@ static inline FSAPIHashEntry *htable_entry_alloc(
     FSAPIHashEntry *entry;
 
     if (sharding->element_count > sharding->ctx->sharding_reclaim.
-            elt_water_mark && g_timer_ms_ctx.current_time_ms - sharding->
-            last_reclaim_time_ms > 1000)
+            elt_water_mark && get_current_time() - sharding->
+            last_reclaim_time_sec > 1000)
     {
-        sharding->last_reclaim_time_ms = g_timer_ms_ctx.current_time_ms;
+        sharding->last_reclaim_time_sec = get_current_time();
         if ((entry=otid_entry_reclaim(sharding)) != NULL) {
             return entry;
         }
@@ -353,7 +353,7 @@ int sharding_htable_insert(FSAPIHtableShardingContext
             fc_list_move_tail(&entry->dlinks.lru, &sharding->lru);
         }
 
-        entry->last_update_time_ms = g_timer_ms_ctx.current_time_ms;
+        entry->last_update_time_sec = get_current_time();
         result = sharding_ctx->insert_callback(
                 entry, arg, new_create);
     } while (0);

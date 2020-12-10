@@ -300,7 +300,7 @@ static int obid_htable_find_position(FSAPIBlockEntry *block,
     return 0;
 }
 
-static int obid_htable_insert_callback(struct fs_api_hash_entry *he,
+static int obid_htable_insert_callback(FSAPIHashEntry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
@@ -405,7 +405,7 @@ static int deal_confilct_slice(FSAPIFindCallbackArg *farg,
     return 0;
 }
 
-static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
+static void *obid_htable_find_callback(FSAPIHashEntry *he,
         void *arg)
 {
     FSAPIBlockEntry *block;
@@ -455,7 +455,7 @@ static void *obid_htable_find_callback(struct fs_api_hash_entry *he,
     return block;
 }
 
-static bool obid_htable_accept_reclaim_callback(struct fs_api_hash_entry *he)
+static bool obid_htable_accept_reclaim_callback(FSAPIHashEntry *he)
 {
     return fc_list_empty(&((FSAPIBlockEntry *)he)->slices.head);
 }

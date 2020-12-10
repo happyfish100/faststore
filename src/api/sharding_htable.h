@@ -16,7 +16,12 @@
 #ifndef _SHARDING_HTABLE_H
 #define _SHARDING_HTABLE_H
 
-#include "fs_api_types.h"
+#include <limits.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include "fastcommon/common_define.h"
+#include "fastcommon/fc_list.h"
+#include "fastcommon/pthread_func.h"
 
 struct fs_api_hash_entry;
 struct fs_api_htable_sharding;
@@ -49,7 +54,7 @@ typedef struct fs_api_hash_entry {
         struct fc_list_head htable;  //for hashtable
         struct fc_list_head lru;     //for LRU chain
     } dlinks;
-    int64_t last_update_time_ms;
+    int64_t last_update_time_sec;
     struct fs_api_htable_sharding *sharding;  //hold for lock
 } FSAPIHashEntry;
 
@@ -66,7 +71,7 @@ typedef struct fs_api_htable_sharding {
     FSAPIHashtable hashtable;
     int64_t element_count;
     int64_t element_limit;
-    int64_t last_reclaim_time_ms;
+    int64_t last_reclaim_time_sec;
     struct fs_api_htable_sharding_context *ctx;
 } FSAPIHtableSharding;
 
@@ -77,9 +82,9 @@ typedef struct fs_api_htable_sharding_array {
 
 typedef struct fs_api_htable_sharding_context {
     struct {
-        int64_t min_ttl_ms;
-        int64_t max_ttl_ms;
-        double elt_ttl_ms;
+        int64_t min_ttl_sec;
+        int64_t max_ttl_sec;
+        double elt_ttl_sec;
         int elt_water_mark;  //trigger reclaim when elements exceeds water mark
     } sharding_reclaim;
 
@@ -104,8 +109,8 @@ extern "C" {
             fs_api_sharding_htable_accept_reclaim_callback reclaim_callback,
             const int sharding_count, const int64_t htable_capacity,
             const int allocator_count, const int element_size,
-            int64_t element_limit, const int64_t min_ttl_ms,
-            const int64_t max_ttl_ms);
+            int64_t element_limit, const int64_t min_ttl_sec,
+            const int64_t max_ttl_sec);
 
     int sharding_htable_insert(FSAPIHtableShardingContext
             *sharding_ctx, const FSAPITwoIdsHashKey *key, void *arg);

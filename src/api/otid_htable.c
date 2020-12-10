@@ -22,7 +22,7 @@
 
 static FSAPIHtableShardingContext otid_ctx;
 
-static int otid_htable_insert_callback(struct fs_api_hash_entry *he,
+static int otid_htable_insert_callback(FSAPIHashEntry *he,
         void *arg, const bool new_create)
 {
     FSAPIOTIDEntry *entry;
@@ -53,7 +53,7 @@ static int otid_htable_insert_callback(struct fs_api_hash_entry *he,
     return 0;
 }
 
-static bool otid_htable_accept_reclaim_callback(struct fs_api_hash_entry *he)
+static bool otid_htable_accept_reclaim_callback(FSAPIHashEntry *he)
 {
     return ((FSAPIOTIDEntry *)he)->slice == NULL;
 }
