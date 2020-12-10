@@ -19,7 +19,7 @@
 #include "otid_htable.h"
 #include "obid_htable.h"
 
-static FSAPIHtableShardingContext obid_ctx;
+static SFHtableShardingContext obid_ctx;
 
 typedef struct fs_api_find_callback_arg {
     FSAPIOperationContext *op_ctx;
@@ -168,11 +168,11 @@ static int try_combine_slice(FSAPISliceEntry *slice,
 
 static inline int obid_htable_insert(FSAPIInsertSliceContext *ictx)
 {
-    FSAPITwoIdsHashKey key;
+    SFTwoIdsHashKey key;
 
     key.oid = ictx->op_ctx->bs_key.block.oid;
     key.bid = ictx->op_ctx->bid;
-    return sharding_htable_insert(&obid_ctx, &key, ictx);
+    return sf_sharding_htable_insert(&obid_ctx, &key, ictx);
 }
 
 static int create_slice(FSAPIInsertSliceContext *ictx)
@@ -300,7 +300,7 @@ static int obid_htable_find_position(FSAPIBlockEntry *block,
     return 0;
 }
 
-static int obid_htable_insert_callback(FSAPIHashEntry *he,
+static int obid_htable_insert_callback(SFShardingHashEntry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
@@ -405,7 +405,7 @@ static int deal_confilct_slice(FSAPIFindCallbackArg *farg,
     return 0;
 }
 
-static void *obid_htable_find_callback(FSAPIHashEntry *he,
+static void *obid_htable_find_callback(SFShardingHashEntry *he,
         void *arg)
 {
     FSAPIBlockEntry *block;
@@ -455,25 +455,26 @@ static void *obid_htable_find_callback(FSAPIHashEntry *he,
     return block;
 }
 
-static bool obid_htable_accept_reclaim_callback(FSAPIHashEntry *he)
+static bool obid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
 {
     return fc_list_empty(&((FSAPIBlockEntry *)he)->slices.head);
 }
 
 int obid_htable_init(const int sharding_count, const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
-        const int64_t min_ttl_ms, const int64_t max_ttl_ms)
+        const int64_t min_ttl_sec, const int64_t max_ttl_sec)
 {
-    return sharding_htable_init(&obid_ctx, obid_htable_insert_callback,
-            obid_htable_find_callback, obid_htable_accept_reclaim_callback,
-            sharding_count, htable_capacity, allocator_count,
-            sizeof(FSAPIBlockEntry), element_limit, min_ttl_ms, max_ttl_ms);
+    return sf_sharding_htable_init(&obid_ctx, sf_sharding_htable_key_ids_two,
+            obid_htable_insert_callback, obid_htable_find_callback,
+            obid_htable_accept_reclaim_callback, sharding_count,
+            htable_capacity, allocator_count, sizeof(FSAPIBlockEntry),
+            element_limit, min_ttl_sec, max_ttl_sec);
 }
 
 int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
         int *conflict_count)
 {
-    FSAPITwoIdsHashKey key;
+    SFTwoIdsHashKey key;
     FSAPIFindCallbackArg callback_arg;
 
     *conflict_count = 0;
@@ -482,7 +483,7 @@ int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
     callback_arg.op_ctx = op_ctx;
     callback_arg.waiting_task = NULL;
     callback_arg.conflict_count = conflict_count;
-    if (sharding_htable_find(&obid_ctx, &key, &callback_arg) == NULL) {
+    if (sf_sharding_htable_find(&obid_ctx, &key, &callback_arg) == NULL) {
         return 0;
     }
 

@@ -17,10 +17,10 @@
 #define _OPID_HTABLE_H
 
 #include "fs_api_types.h"
-#include "sharding_htable.h"
+#include "sf/sf_sharding_htable.h"
 
 typedef struct fs_api_otid_entry {
-    FSAPIHashEntry hentry;  //must be the first
+    SFShardingHashEntry hentry;  //must be the first
     int successive_count;
     int64_t last_write_offset;
     volatile FSAPISliceEntry *slice;    //current combined slice
@@ -33,7 +33,7 @@ extern "C" {
     int otid_htable_init(const int sharding_count,
             const int64_t htable_capacity,
             const int allocator_count, int64_t element_limit,
-            const int64_t min_ttl_ms, const int64_t max_ttl_ms);
+            const int64_t min_ttl_sec, const int64_t max_ttl_sec);
 
     int otid_htable_insert(FSAPIOperationContext *op_ctx,
             FSAPIWriteBuffer *wbuffer);

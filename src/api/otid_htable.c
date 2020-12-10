@@ -20,9 +20,9 @@
 #include "obid_htable.h"
 #include "otid_htable.h"
 
-static FSAPIHtableShardingContext otid_ctx;
+static SFHtableShardingContext otid_ctx;
 
-static int otid_htable_insert_callback(FSAPIHashEntry *he,
+static int otid_htable_insert_callback(SFShardingHashEntry *he,
         void *arg, const bool new_create)
 {
     FSAPIOTIDEntry *entry;
@@ -53,7 +53,7 @@ static int otid_htable_insert_callback(FSAPIHashEntry *he,
     return 0;
 }
 
-static bool otid_htable_accept_reclaim_callback(FSAPIHashEntry *he)
+static bool otid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
 {
     return ((FSAPIOTIDEntry *)he)->slice == NULL;
 }
@@ -61,18 +61,19 @@ static bool otid_htable_accept_reclaim_callback(FSAPIHashEntry *he)
 int otid_htable_init(const int sharding_count,
         const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
-        const int64_t min_ttl_ms, const int64_t max_ttl_ms)
+        const int64_t min_ttl_sec, const int64_t max_ttl_sec)
 {
-    return sharding_htable_init(&otid_ctx, otid_htable_insert_callback,
-            NULL, otid_htable_accept_reclaim_callback, sharding_count,
+    return sf_sharding_htable_init(&otid_ctx, sf_sharding_htable_key_ids_two,
+            otid_htable_insert_callback, NULL,
+            otid_htable_accept_reclaim_callback, sharding_count,
             htable_capacity, allocator_count, sizeof(FSAPIOTIDEntry),
-            element_limit, min_ttl_ms, max_ttl_ms);
+            element_limit, min_ttl_sec, max_ttl_sec);
 }
 
 int otid_htable_insert(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer)
 {
-    FSAPITwoIdsHashKey key;
+    SFTwoIdsHashKey key;
     FSAPIInsertSliceContext ictx;
     int result;
 
@@ -81,7 +82,7 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
     ictx.wbuffer = wbuffer;
-    if ((result=sharding_htable_insert(&otid_ctx, &key, &ictx)) != 0) {
+    if ((result=sf_sharding_htable_insert(&otid_ctx, &key, &ictx)) != 0) {
         return result;
     }
 

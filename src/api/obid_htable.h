@@ -17,10 +17,10 @@
 #define _OBID_HTABLE_H
 
 #include "fs_api_types.h"
-#include "sharding_htable.h"
+#include "sf/sf_sharding_htable.h"
 
 typedef struct fs_api_block_entry {
-    FSAPIHashEntry hentry; //must be the first
+    SFShardingHashEntry hentry; //must be the first
     struct {
         struct fc_list_head head;  //element: FSAPISliceEntry
     } slices;
@@ -32,8 +32,8 @@ extern "C" {
 
     int obid_htable_init(const int sharding_count,
             const int64_t htable_capacity, const int allocator_count,
-            int64_t element_limit, const int64_t min_ttl_ms,
-            const int64_t max_ttl_ms);
+            int64_t element_limit, const int64_t min_ttl_sec,
+            const int64_t max_ttl_sec);
 
     int obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx,
             int *conflict_count);
