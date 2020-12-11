@@ -13,8 +13,8 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _OPID_HTABLE_H
-#define _OPID_HTABLE_H
+#ifndef _OTID_HTABLE_H
+#define _OTID_HTABLE_H
 
 #include "fs_api_types.h"
 #include "sf/sf_sharding_htable.h"

@@ -146,37 +146,39 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
 {
     int len;
 
-    len = snprintf(output, size, "write_combine enabled: %d",
+    len = snprintf(output, size, "write_combine { enabled: %d",
             api_ctx->write_combine.enabled);
-    if (!api_ctx->write_combine.enabled) {
-        return;
+    if (api_ctx->write_combine.enabled) {
+        len += snprintf(output + len, size - len, ", "
+                "buffer_size: %d KB, "
+                "min_wait_time_ms: %d ms, "
+                "max_wait_time_ms: %d ms, "
+                "skip_combine_on_slice_size: %d KB, "
+                "skip_combine_on_last_merged_slices: %d, "
+                "timer_shared_lock_count: %d, "
+                "shared_allocator_count: %d, "
+                "hashtable_sharding_count: %d, "
+                "hashtable_total_capacity: %"PRId64", "
+                "thread_pool_max_threads: %d, "
+                "thread_pool_min_idle_count: %d, "
+                "thread_pool_max_idle_time: %d s",
+                api_ctx->write_combine.buffer_size / 1024,
+                api_ctx->write_combine.min_wait_time_ms,
+                api_ctx->write_combine.max_wait_time_ms,
+                api_ctx->write_combine.skip_combine_on_slice_size / 1024,
+                api_ctx->write_combine.skip_combine_on_last_merged_slices,
+                api_ctx->write_combine.timer_shared_lock_count,
+                api_ctx->write_combine.shared_allocator_count,
+                api_ctx->write_combine.hashtable_sharding_count,
+                api_ctx->write_combine.hashtable_total_capacity,
+                api_ctx->write_combine.thread_pool_max_threads,
+                api_ctx->write_combine.thread_pool_min_idle_count,
+                api_ctx->write_combine.thread_pool_max_idle_time);
+        if (len > size) {
+            len = size;
+        }
     }
-
-    snprintf(output + len, size - len, ", "
-            "buffer_size=%d KB, "
-            "min_wait_time_ms=%d ms, "
-            "max_wait_time_ms=%d ms, "
-            "skip_combine_on_slice_size=%d KB, "
-            "skip_combine_on_last_merged_slices=%d, "
-            "timer_shared_lock_count=%d, "
-            "shared_allocator_count=%d, "
-            "hashtable_sharding_count=%d, "
-            "hashtable_total_capacity=%"PRId64", "
-            "thread_pool_max_threads=%d, "
-            "thread_pool_min_idle_count=%d, "
-            "thread_pool_max_idle_time=%d s",
-            api_ctx->write_combine.buffer_size / 1024,
-            api_ctx->write_combine.min_wait_time_ms,
-            api_ctx->write_combine.max_wait_time_ms,
-            api_ctx->write_combine.skip_combine_on_slice_size / 1024,
-            api_ctx->write_combine.skip_combine_on_last_merged_slices,
-            api_ctx->write_combine.timer_shared_lock_count,
-            api_ctx->write_combine.shared_allocator_count,
-            api_ctx->write_combine.hashtable_sharding_count,
-            api_ctx->write_combine.hashtable_total_capacity,
-            api_ctx->write_combine.thread_pool_max_threads,
-            api_ctx->write_combine.thread_pool_min_idle_count,
-            api_ctx->write_combine.thread_pool_max_idle_time);
+    snprintf(output + len, size - len, " }");
 }
 
 int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
