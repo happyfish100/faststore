@@ -84,7 +84,8 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     return 0;
 }
 
-void fs_client_log_config(FSClientContext *client_ctx)
+void fs_client_log_config_ex(FSClientContext *client_ctx,
+        const char *extra_config)
 {
     char net_retry_output[256];
 
@@ -96,7 +97,7 @@ void fs_client_log_config(FSClientContext *client_ctx)
             "network_timeout: %d, "
             "read_rule: %s, %s, "
             "server group count: %d, "
-            "data group count: %d",
+            "data group count: %d%s%s",
             g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor,
             g_fs_client_vars.base_path,
@@ -105,7 +106,9 @@ void fs_client_log_config(FSClientContext *client_ctx)
             sf_get_read_rule_caption(client_ctx->read_rule),
             net_retry_output,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
-            FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr));
+            FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
+            extra_config != NULL ? ", " : "",
+            extra_config != NULL ? extra_config : "");
 
     //fs_cluster_cfg_to_log(client_ctx->cluster_cfg.ptr);
 }

@@ -34,6 +34,9 @@ extern "C" {
 #define fs_client_destroy() \
     fs_client_destroy_ex((&g_fs_client_vars.client_ctx))
 
+#define fs_client_log_config(client_ctx) \
+    fs_client_log_config_ex(client_ctx, NULL)
+
 
 int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
         IniFullContext *ini_ctx);
@@ -79,7 +82,8 @@ void fs_client_destroy_ex(FSClientContext *client_ctx);
 int fs_alloc_group_servers(FSServerGroup *server_group,
         const int alloc_size);
 
-void fs_client_log_config(FSClientContext *client_ctx);
+void fs_client_log_config_ex(FSClientContext *client_ctx,
+        const char *extra_config);
 
 #ifdef __cplusplus
 }
