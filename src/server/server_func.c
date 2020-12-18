@@ -62,7 +62,7 @@ static void log_cluster_server_config()
     log_it1(LOG_INFO, buffer.data, buffer.length);
     fast_buffer_destroy(&buffer);
 
-    fc_server_to_log(&SERVER_CONFIG_CTX);
+    //fc_server_to_log(&SERVER_CONFIG_CTX);
 }
 
 static int calc_cluster_config_sign()
