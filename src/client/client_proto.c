@@ -91,7 +91,7 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
     if (result != 0) {
         *inc_alloc = 0;
-        sf_log_network_error(&response, conn, result);
+        sf_log_network_error_for_update(&response, conn, result);
     }
 
     return result;
@@ -232,7 +232,6 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
     FSProtoSliceUpdateResp resp;
     int result;
     int body_len;
-    int log_level;
 
     if (req_cmd == FS_SERVICE_PROTO_BLOCK_DELETE_REQ) {
         return fs_client_proto_block_delete(client_ctx, conn, req_id,
@@ -267,8 +266,8 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
         *inc_alloc = buff2int(resp.inc_alloc);
     } else {
         *inc_alloc = 0;
-        log_level = (result == ENOENT) ? enoent_log_level : LOG_ERR;
-        sf_log_network_error_ex(&response, conn, result, log_level);
+        sf_log_network_error_for_delete(&response, conn,
+                result, enoent_log_level);
     }
 
     return result;
@@ -288,7 +287,6 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     FSProtoSliceUpdateResp resp;
     int result;
     int body_len;
-    int log_level;
 
     proto_header = (FSProtoHeader *)out_buff;
     body_len = sizeof(FSProtoBlockDeleteReq);
@@ -315,8 +313,8 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         *dec_alloc = buff2int(resp.inc_alloc);
     } else {
         *dec_alloc = 0;
-        log_level = (result == ENOENT) ? enoent_log_level : LOG_ERR;
-        sf_log_network_error_ex(&response, conn, result, log_level);
+        sf_log_network_error_for_delete(&response, conn,
+                result, enoent_log_level);
     }
 
     return result;
