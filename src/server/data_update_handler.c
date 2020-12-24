@@ -217,7 +217,7 @@ static void log_data_operation_error(struct fast_task_info *task,
             );
 
     if (op->operation != DATA_OPERATION_BLOCK_DELETE) {
-        len += sprintf(buff, ", slice offset: %d, length: %d",
+        len += sprintf(buff + len, ", slice offset: %d, length: %d",
                 op->ctx->info.bs_key.slice.offset,
                 op->ctx->info.bs_key.slice.length);
     }
