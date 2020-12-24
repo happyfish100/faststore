@@ -69,7 +69,9 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
         FSTrunkFileInfo *trunk)
 {
     UniqSkiplistNode *node;
+    UniqSkiplistNode *prev;
     UniqSkiplistNode *previous;
+    int64_t last_used_bytes;
     int status;
     int event;
     int result;
@@ -100,8 +102,8 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
                     by_size, trunk);
             break;
         case FS_TRUNK_UTIL_EVENT_UPDATE:
-            if ((node=uniq_skiplist_find_node(allocator->trunks.
-                            by_size, trunk)) == NULL)
+            if ((node=uniq_skiplist_find_node_ex(allocator->trunks.
+                            by_size, trunk, &prev)) == NULL)
             {
                 result = ENOENT;
                 break;
@@ -110,14 +112,15 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
             result = 0;
             previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
             if (previous != allocator->trunks.by_size->top) {
-                if (compare_trunk_by_size_id((FSTrunkFileInfo *)
-                            previous->data, trunk) > 0)
+                last_used_bytes = __sync_fetch_and_add(&trunk->used.bytes, 0);
+                if (fs_compare_trunk_by_size_id((FSTrunkFileInfo *)
+                            previous->data, last_used_bytes,
+                            trunk->id_info.id) > 0)
                 {
                     uniq_skiplist_delete_node(allocator->trunks.
-                            by_size, previous, node);
+                            by_size, prev, node);
 
-                    trunk->util.last_used_bytes = __sync_fetch_and_add(
-                            &trunk->used.bytes, 0);
+                    trunk->util.last_used_bytes = last_used_bytes;
                     result = uniq_skiplist_insert(allocator->trunks.
                             by_size, trunk);
                 }
@@ -128,9 +131,11 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
             break;
     }
 
+    /*
     logInfo("event: %c, id: %"PRId64", status: %d, last_used_bytes: %"PRId64", "
             "current used: %"PRId64", result: %d", event, trunk->id_info.id,
             trunk->status, trunk->util.last_used_bytes, trunk->used.bytes, result);
+            */
 
     __sync_bool_compare_and_swap(&trunk->util.event,
             event, FS_TRUNK_UTIL_EVENT_NONE);
@@ -252,12 +257,14 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     ratio_thredhold = trunk_allocator_calc_reclaim_ratio_thredhold(
             task->allocator);
 
-    logInfo("file: "__FILE__", line: %d, "
+    /*
+    logDebug("file: "__FILE__", line: %d, "
             "path index: %d, trunk id: %"PRId64", "
             "usage ratio: %.2f%%, ratio_thredhold: %.2f%%",
             __LINE__, task->allocator->path_info->store.index,
             trunk->id_info.id, 100.00 * (double)used_bytes /
             (double)trunk->size, 100.00 * ratio_thredhold);
+            */
 
     if ((double)used_bytes / (double)trunk->size >= ratio_thredhold) {
         return ENOENT;
@@ -274,8 +281,10 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     logInfo("file: "__FILE__", line: %d, "
             "path index: %d, reclaiming trunk id: %"PRId64", "
             "last used bytes: %"PRId64", current used bytes: %"PRId64", "
-            "result: %d", __LINE__, task->allocator->path_info->store.index,
-            trunk->id_info.id, used_bytes, trunk->used.bytes, result);
+            "last usage ratio: %.2f%%, result: %d", __LINE__, task->
+            allocator->path_info->store.index, trunk->id_info.id,
+            used_bytes, trunk->used.bytes, 100.00 * (double)used_bytes /
+            (double)trunk->size, result);
 
     if (result == 0) {
         PTHREAD_MUTEX_LOCK(&task->allocator->freelist.lcp.lock);
@@ -287,6 +296,7 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     } else {
         fs_set_trunk_status(trunk, FS_TRUNK_STATUS_NONE); //rollback status
     }
+
     return result;
 }
 

@@ -41,15 +41,8 @@ static int compare_trunk_by_id(const FSTrunkFileInfo *t1,
 int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
         const FSTrunkFileInfo *t2)
 {
-    int sub;
-
-    if ((sub=fc_compare_int64(t1->util.last_used_bytes,
-                    t2->util.last_used_bytes)) != 0)
-    {
-        return sub;
-    }
-
-    return fc_compare_int64(t1->id_info.id, t2->id_info.id);
+    return fs_compare_trunk_by_size_id(t1, t2->util.
+            last_used_bytes, t2->id_info.id);
 }
 
 static void trunk_free_func(void *ptr, const int delay_seconds)

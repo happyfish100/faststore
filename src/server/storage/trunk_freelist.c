@@ -130,6 +130,42 @@ static void trunk_freelist_remove(FSTrunkAllocator *allocator,
     }
 }
 
+static int waiting_avail_trunk(struct fs_trunk_allocator *allocator,
+        FSTrunkFreelist *freelist)
+{
+    int result;
+    int i;
+
+    result = 0;
+    for (i=0; i<5; i++) {
+        if (allocator->allocate.creating_trunks == 0 && (g_current_time -
+                    allocator->allocate.last_trigger_time > 0 || i > 0))
+        {
+            allocator->allocate.last_trigger_time = g_current_time;
+            if ((result=trunk_maker_allocate_ex(allocator,
+                            true, false, NULL, NULL)) != 0)
+            {
+                break;
+            }
+        }
+
+        allocator->allocate.waiting_callers++;
+        while (allocator->allocate.creating_trunks > 0 &&
+                freelist->head == NULL && SF_G_CONTINUE_FLAG)
+        {
+            pthread_cond_wait(&freelist->lcp.cond,
+                    &freelist->lcp.lock);
+        }
+        allocator->allocate.waiting_callers--;
+
+        if (freelist->head != NULL) {
+            break;
+        }
+    }
+
+    return result;
+}
+
 int trunk_freelist_alloc_space(struct fs_trunk_allocator
             *allocator, FSTrunkFreelist *freelist,
         const uint32_t blk_hc, const int size,
@@ -178,26 +214,9 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator
                 break;
             }
 
-            if (allocator->allocate.creating_trunks == 0 &&
-                    g_current_time - allocator->allocate.
-                    last_trigger_time > 0)
-            {
-                allocator->allocate.last_trigger_time = g_current_time;
-                if ((result=trunk_maker_allocate_ex(allocator,
-                                true, false, NULL, NULL)) != 0)
-                {
-                    break;
-                }
+            if ((result=waiting_avail_trunk(allocator, freelist)) != 0) {
+                break;
             }
-
-            allocator->allocate.waiting_callers++;
-            while (allocator->allocate.creating_trunks > 0 &&
-                    freelist->head == NULL && SF_G_CONTINUE_FLAG)
-            {
-                pthread_cond_wait(&freelist->lcp.cond,
-                        &freelist->lcp.lock);
-            }
-            allocator->allocate.waiting_callers--;
         }
 
         if (freelist->head == NULL) {

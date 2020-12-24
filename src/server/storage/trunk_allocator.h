@@ -126,6 +126,20 @@ extern "C" {
 
     void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info);
 
+    static inline int fs_compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
+            const int64_t last_used_bytes2, const int64_t id2)
+    {
+        int sub;
+
+        if ((sub=fc_compare_int64(t1->util.last_used_bytes,
+                        last_used_bytes2)) != 0)
+        {
+            return sub;
+        }
+
+        return fc_compare_int64(t1->id_info.id, id2);
+    }
+
     int compare_trunk_by_size_id(const FSTrunkFileInfo *t1,
             const FSTrunkFileInfo *t2);
 
