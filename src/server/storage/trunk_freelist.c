@@ -137,7 +137,7 @@ static int waiting_avail_trunk(struct fs_trunk_allocator *allocator,
     int i;
 
     result = 0;
-    for (i=0; i<5; i++) {
+    for (i=0; i<10; i++) {
         if (allocator->allocate.creating_trunks == 0 && (g_current_time -
                     allocator->allocate.last_trigger_time > 0 || i > 0))
         {
@@ -158,7 +158,7 @@ static int waiting_avail_trunk(struct fs_trunk_allocator *allocator,
         }
         allocator->allocate.waiting_callers--;
 
-        if (freelist->head != NULL) {
+        if (freelist->head != NULL || allocator->reclaim.last_errno != 0) {
             break;
         }
     }

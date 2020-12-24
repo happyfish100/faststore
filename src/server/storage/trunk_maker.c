@@ -357,7 +357,7 @@ static void deal_allocate_task(TrunkMakerThreadInfo *thread,
         }
     } while (result == 0 && freelist_type == fs_freelist_type_reclaim);
 
-    trunk_allocator_after_make_trunk(task->allocator);
+    trunk_allocator_after_make_trunk(task->allocator, result);
     fast_mblock_free_object(&thread->task_allocator, task);
 }
 

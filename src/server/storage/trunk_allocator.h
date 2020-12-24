@@ -68,6 +68,7 @@ typedef struct fs_trunk_allocator {
 
     struct {
         time_t last_deal_time;
+        int last_errno;
         struct fc_queue queue;  //trunk event queue for nodify
         struct fs_trunk_allocator *next; //for event notify queue
     } reclaim; //for trunk reclaim
@@ -182,9 +183,10 @@ extern "C" {
     }
 
     static inline void trunk_allocator_after_make_trunk(
-            FSTrunkAllocator *allocator)
+            FSTrunkAllocator *allocator, const int result)
     {
         PTHREAD_MUTEX_LOCK(&allocator->freelist.lcp.lock);
+        allocator->reclaim.last_errno = result;
         allocator->allocate.creating_trunks--;
         if (allocator->allocate.waiting_callers > 0) {
             pthread_cond_broadcast(&allocator->freelist.lcp.cond);
