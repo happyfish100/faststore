@@ -208,8 +208,8 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
     return result;
 }
 
-void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
-        FSTrunkFileInfo *trunk_info)
+FSTrunkFreelistType trunk_allocator_add_to_freelist(
+        FSTrunkAllocator *allocator, FSTrunkFileInfo *trunk_info)
 {
     FSTrunkFreelist *freelist;
 
@@ -224,6 +224,8 @@ void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
     PTHREAD_MUTEX_UNLOCK(&g_allocator_mgr->reclaim_freelist.lcp.lock);
 
     trunk_freelist_add(freelist, trunk_info);
+    return (freelist == &allocator->freelist) ? fs_freelist_type_normal :
+        fs_freelist_type_reclaim;
 }
 
 int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)

@@ -161,7 +161,7 @@ static void create_trunk_done(struct trunk_io_buffer *record,
 }
 
 static int prealloc_trunk_finish(FSTrunkAllocator *allocator,
-        FSTrunkSpaceInfo *space)
+        FSTrunkSpaceInfo *space, FSTrunkFreelistType *freelist_type)
 {
     int result;
     time_t last_stat_time;
@@ -170,7 +170,7 @@ static int prealloc_trunk_finish(FSTrunkAllocator *allocator,
     result = storage_allocator_add_trunk_ex(space->store->index,
             &space->id_info, space->size, &trunk_info);
     if (result == 0) {
-        trunk_allocator_add_to_freelist(allocator, trunk_info);
+        *freelist_type = trunk_allocator_add_to_freelist(allocator, trunk_info);
     }
 
     __sync_add_and_fetch(&allocator->path_info->
@@ -185,7 +185,7 @@ static int prealloc_trunk_finish(FSTrunkAllocator *allocator,
 }
 
 static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
-        TrunkMakerTask *task)
+        TrunkMakerTask *task, FSTrunkFreelistType *freelist_type)
 {
     int result;
     FSTrunkSpaceInfo space;
@@ -220,11 +220,11 @@ static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
         return result;
     }
 
-    return prealloc_trunk_finish(task->allocator, &space);
+    return prealloc_trunk_finish(task->allocator, &space, freelist_type);
 }
 
 static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
-        TrunkMakerTask *task)
+        TrunkMakerTask *task, FSTrunkFreelistType *freelist_type)
 {
     double ratio_thredhold;
     FSTrunkFileInfo *trunk;
@@ -281,21 +281,23 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         PTHREAD_MUTEX_LOCK(&task->allocator->freelist.lcp.lock);
         trunk->free_start = 0;
         PTHREAD_MUTEX_UNLOCK(&task->allocator->freelist.lcp.lock);
-        trunk_allocator_add_to_freelist(task->allocator, trunk);
+
         uniq_skiplist_delete(task->allocator->trunks.by_size, trunk);
+        *freelist_type = trunk_allocator_add_to_freelist(task->allocator, trunk);
     } else {
         fs_set_trunk_status(trunk, FS_TRUNK_STATUS_NONE); //rollback status
     }
     return result;
 }
 
-static int do_allocate_trunk(TrunkMakerThreadInfo *thread,
-        TrunkMakerTask *task, bool *is_new_trunk)
+static int do_allocate_trunk(TrunkMakerThreadInfo *thread, TrunkMakerTask *task,
+        FSTrunkFreelistType *freelist_type, bool *is_new_trunk)
 {
     int result;
     bool avail_enough;
     bool need_reclaim;
 
+    *freelist_type = fs_freelist_type_none;
     *is_new_trunk = false;
     if ((result=storage_config_calc_path_avail_space(task->
                     allocator->path_info)) != 0)
@@ -315,37 +317,50 @@ static int do_allocate_trunk(TrunkMakerThreadInfo *thread,
     }
 
     if (need_reclaim) {
-        if ((result=do_reclaim_trunk(thread, task)) == 0) {
+        if ((result=do_reclaim_trunk(thread, task, freelist_type)) == 0) {
             return 0;
         }
     }
 
     if (avail_enough) {
         *is_new_trunk = true;
-        return do_prealloc_trunk(thread, task);
+        return do_prealloc_trunk(thread, task, freelist_type);
     } else {
         return ENOSPC;
     }
 }
 
-static void deal_allocate_request(TrunkMakerThreadInfo *thread,
+static void deal_allocate_task(TrunkMakerThreadInfo *thread,
+        TrunkMakerTask *task)
+{
+    int result;
+    bool is_new_trunk;
+    FSTrunkFreelistType freelist_type;
+
+    do {
+        result = do_allocate_trunk(thread, task,
+                &freelist_type, &is_new_trunk);
+        if (task->notify.callback != NULL) {
+            task->notify.callback(task->allocator, result,
+                    is_new_trunk, task->notify.arg);
+            break;
+        }
+    } while (result == 0 && freelist_type == fs_freelist_type_reclaim);
+
+    trunk_allocator_after_make_trunk(task->allocator);
+    fast_mblock_free_object(&thread->task_allocator, task);
+}
+
+static inline void deal_allocate_requests(TrunkMakerThreadInfo *thread,
         TrunkMakerTask *head)
 {
     TrunkMakerTask *task;
-    int result;
-    bool is_new_trunk;
 
     while (head != NULL && SF_G_CONTINUE_FLAG) {
         task = head;
         head = head->next;
 
-        result = do_allocate_trunk(thread, task, &is_new_trunk);
-        trunk_allocator_after_make_trunk(task->allocator);
-        if (task->notify.callback != NULL) {
-            task->notify.callback(task->allocator,
-                    result, is_new_trunk, task->notify.arg);
-        }
-        fast_mblock_free_object(&thread->task_allocator, task);
+        deal_allocate_task(thread, task);
     }
 }
 
@@ -362,7 +377,7 @@ static void *trunk_maker_thread_func(void *arg)
             continue;
         }
 
-        deal_allocate_request(thread, head);
+        deal_allocate_requests(thread, head);
     }
 
     thread->running = false;

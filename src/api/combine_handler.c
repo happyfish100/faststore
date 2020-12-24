@@ -58,28 +58,29 @@ static void combine_handler_run(void *arg, void *thread_data)
     int result;
 
     slice = (FSAPISliceEntry *)arg;
-    if ((result=fs_client_slice_write(slice->api_ctx->fs, &slice->bs_key,
+    result = fs_client_slice_write(slice->api_ctx->fs, &slice->bs_key,
             slice->buff, &slice->done_callback_arg->write_bytes,
-            &slice->done_callback_arg->inc_alloc)) != 0)
-    {
-        sf_terminate_myself();
-        return;
-    }
+            &slice->done_callback_arg->inc_alloc);
 
     /*
-    slice = (FSAPISliceEntry *)arg;
-    logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
-            "slice {offset: %d, length: %d}, merged slices: %d, stage: %d",
-            slice->bs_key.block.oid, slice->bs_key.block.offset,
-            slice->bs_key.slice.offset, slice->bs_key.slice.length,
-            slice->merged_slices, slice->stage);
+       slice = (FSAPISliceEntry *)arg;
+       logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
+       "slice {offset: %d, length: %d}, merged slices: %d, stage: %d",
+       slice->bs_key.block.oid, slice->bs_key.block.offset,
+       slice->bs_key.slice.offset, slice->bs_key.slice.length,
+       slice->merged_slices, slice->stage);
      */
 
-    slice->api_ctx->write_done_callback.func(slice->done_callback_arg);
+    if (result == 0) {
+        slice->api_ctx->write_done_callback.func(slice->done_callback_arg);
+    }
     fast_mblock_free_object(slice->done_callback_arg->allocator,
             slice->done_callback_arg);
-
     notify_and_release_slice(slice);
+
+    if (result != 0) {
+        sf_terminate_myself();
+    }
 }
 
 static inline void deal_slices(FSAPISliceEntry *head)

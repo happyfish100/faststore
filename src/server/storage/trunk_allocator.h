@@ -39,6 +39,12 @@
 
 #define FS_TRUNK_AVAIL_SPACE(trunk) ((trunk)->size - (trunk)->free_start)
 
+typedef enum {
+    fs_freelist_type_none,
+    fs_freelist_type_normal,
+    fs_freelist_type_reclaim
+} FSTrunkFreelistType;
+
 typedef struct {
     int alloc;
     int count;
@@ -98,14 +104,6 @@ extern "C" {
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);
 
-    int trunk_allocator_normal_alloc(FSTrunkAllocator *allocator,
-            const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *spaces, int *count);
-
-    int trunk_allocator_reclaim_alloc(FSTrunkAllocator *allocator,
-            const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *spaces, int *count);
-
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);
 
@@ -115,8 +113,8 @@ extern "C" {
     int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);
 
-    void trunk_allocator_add_to_freelist(FSTrunkAllocator *allocator,
-            FSTrunkFileInfo *trunk_info);
+    FSTrunkFreelistType trunk_allocator_add_to_freelist(
+            FSTrunkAllocator *allocator, FSTrunkFileInfo *trunk_info);
 
     void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator);
 
