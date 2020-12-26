@@ -78,6 +78,7 @@ int otid_htable_insert(FSAPIOperationContext *op_ctx,
     int result;
 
     wbuffer->combined = false;
+    wbuffer->reason = 0;
     key.oid = op_ctx->bs_key.block.oid;
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
