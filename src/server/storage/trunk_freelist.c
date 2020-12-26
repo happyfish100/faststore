@@ -74,12 +74,21 @@ void trunk_freelist_keep_water_mark(struct fs_trunk_allocator
     int count;
     int i;
 
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "%s freelist count: %d, water_mark count: %d",
-            __LINE__, __FUNCTION__, allocator->path_info->store.path.str,
-            allocator->freelist.count, allocator->freelist.water_mark_trunks);
-
     count = allocator->freelist.water_mark_trunks - allocator->freelist.count;
+    if (count <= 0) {
+        logInfo("file: "__FILE__", line: %d, "
+                "path: %s, freelist count: %d, water_mark count: %d",
+                __LINE__, allocator->path_info->store.path.str,
+                allocator->freelist.count,
+                allocator->freelist.water_mark_trunks);
+        return;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "path: %s, freelist count: %d, water_mark count: %d, "
+            "should allocate: %d trunks", __LINE__, allocator->
+            path_info->store.path.str, allocator->freelist.count,
+            allocator->freelist.water_mark_trunks, count);
     for (i=0; i<count; i++) {
         trunk_maker_allocate(allocator);
     }

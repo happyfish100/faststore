@@ -129,7 +129,7 @@ int storage_allocator_init()
     return trunk_id_info_init();
 }
 
-static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
+static int deal_allocator_on_ready(FSStorageAllocatorContext *allocator_ctx)
 {
     FSTrunkAllocator *allocator;
     FSTrunkAllocator *end;
@@ -137,7 +137,6 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
     end = allocator_ctx->all.allocators + allocator_ctx->all.count;
     for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
         trunk_allocator_deal_on_ready(allocator);
-        trunk_freelist_keep_water_mark(allocator);
 
         /*
         logInfo("path index: %d, total: %"PRId64" MB, used: %"PRId64" MB, "
@@ -146,6 +145,19 @@ static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
                 allocator->path_info->trunk_stat.used / (1024 * 1024),
                 allocator->path_info->trunk_stat.avail / (1024 * 1024));
                 */
+    }
+
+    return 0;
+}
+
+static int prealloc_trunk_freelist(FSStorageAllocatorContext *allocator_ctx)
+{
+    FSTrunkAllocator *allocator;
+    FSTrunkAllocator *end;
+
+    end = allocator_ctx->all.allocators + allocator_ctx->all.count;
+    for (allocator=allocator_ctx->all.allocators; allocator<end; allocator++) {
+        trunk_freelist_keep_water_mark(allocator);
     }
 
     return 0;
@@ -291,10 +303,12 @@ int init_allocator_ptr_array(FSStorageAllocatorContext *allocator_ctx)
         }
         add_to_aptr_array(aptr_array, allocator);
 
+        /*
         logInfo("path index: %d, avail count: %d, full count: %d",
                 allocator->path_info->store.index,
                 allocator_ctx->avail->count,
                 allocator_ctx->full->count);
+                */
     }
 
     return 0;
@@ -380,11 +394,11 @@ int storage_allocator_prealloc_trunk_freelists()
     g_trunk_allocator_vars.data_load_done = true;
     ob_index_enable_modify_used_space();
 
-    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->write_cache)) != 0) {
+    if ((result=deal_allocator_on_ready(&g_allocator_mgr->write_cache)) != 0) {
         return result;
     }
 
-    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->store_path)) != 0) {
+    if ((result=deal_allocator_on_ready(&g_allocator_mgr->store_path)) != 0) {
         return result;
     }
 
@@ -393,6 +407,14 @@ int storage_allocator_prealloc_trunk_freelists()
     }
 
     if ((result=init_allocator_ptr_array(&g_allocator_mgr->store_path)) != 0) {
+        return result;
+    }
+
+    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->write_cache)) != 0) {
+        return result;
+    }
+
+    if ((result=prealloc_trunk_freelist(&g_allocator_mgr->store_path)) != 0) {
         return result;
     }
 

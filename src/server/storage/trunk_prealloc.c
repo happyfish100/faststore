@@ -168,7 +168,7 @@ static int init_preallocator_array(
     preallocator_array->count = preallocator -
         preallocator_array->preallocators;
 
-    logInfo("preallocator_array->count: %d", preallocator_array->count);
+    //logInfo("preallocator_array->count: %d", preallocator_array->count);
     return 0;
 }
 
