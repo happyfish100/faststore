@@ -153,16 +153,21 @@ int handler_deal_task_done(struct fast_task_info *task)
 
     r = sf_send_add_event(task);
     time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
-    if (time_used > 100 * 1000) {
-        logWarning("file: "__FILE__", line: %d, "
-                "process a request timed used: %s us, "
+    if (SLOW_LOG_CFG.enabled && time_used >
+            SLOW_LOG_CFG.log_slower_than_ms * 1000)
+    {
+        char buff[256];
+        int blen;
+
+        blen = sprintf(buff, "timed used: %s us, client %s:%u, "
                 "req cmd: %d (%s), req body len: %d, resp cmd: %d (%s), "
-                "status: %d, resp body len: %d", __LINE__,
-                long_to_comma_str(time_used, time_buff),
+                "status: %d, resp body len: %d", long_to_comma_str(time_used,
+                    time_buff), task->client_ip, task->port,
                 REQUEST.header.cmd, fs_get_cmd_caption(REQUEST.header.cmd),
                 REQUEST.header.body_len, RESPONSE.header.cmd,
                 fs_get_cmd_caption(RESPONSE.header.cmd),
                 RESPONSE_STATUS, RESPONSE.header.body_len);
+        log_it_ex2(&SLOW_LOG_CTX, NULL, buff, blen, false, true);
     }
 
     switch (REQUEST.header.cmd) {

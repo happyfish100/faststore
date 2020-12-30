@@ -179,11 +179,16 @@ static void server_log_configs()
 {
     char sz_server_config[512];
     char sz_global_config[512];
+    char sz_slowlog_config[256];
     char sz_service_config[128];
     char sz_cluster_config[128];
     char sz_replica_config[128];
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
+
+    sf_slow_log_config_to_string(&SLOW_LOG_CFG, "slow_log",
+            sz_slowlog_config, sizeof(sz_slowlog_config));
+
     sf_context_config_to_string(&g_sf_context,
             sz_service_config, sizeof(sz_service_config));
     sf_context_config_to_string(&CLUSTER_SF_CTX,
@@ -211,9 +216,9 @@ static void server_log_configs()
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
-    logInfo("%s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
-            sz_global_config, sz_service_config, sz_cluster_config,
-            sz_replica_config, sz_server_config);
+    logInfo("%s, %s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
+            sz_global_config, sz_slowlog_config, sz_service_config,
+            sz_cluster_config, sz_replica_config, sz_server_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -361,6 +366,12 @@ int server_load_config(const char *filename)
     }
 
     if ((result=load_storage_cfg(&ini_context, filename)) != 0) {
+        return result;
+    }
+
+    if ((result=sf_load_slow_log_config(filename, &ini_context,
+                    &SLOW_LOG_CTX, &SLOW_LOG_CFG)) != 0)
+    {
         return result;
     }
 

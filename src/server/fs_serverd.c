@@ -129,6 +129,12 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=sf_add_slow_log_schedule(&g_server_global_vars.
+                        slow_log)) != 0)
+        {
+            break;
+        }
+
         if ((result=server_group_info_setup_sync_to_file_task()) != 0) {
             break;
         }

@@ -63,6 +63,8 @@ typedef struct server_global_vars {
         SFContext sf_context;       //for replica communication
     } replica;
 
+    SFSlowLogContext slow_log;
+
 } FSServerGlobalVars;
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
@@ -98,6 +100,9 @@ typedef struct server_global_vars {
 #define DATA_PATH             g_server_global_vars.data.path
 #define DATA_PATH_STR         DATA_PATH.str
 #define DATA_PATH_LEN         DATA_PATH.len
+
+#define SLOW_LOG_CFG          g_server_global_vars.slow_log.cfg
+#define SLOW_LOG_CTX          g_server_global_vars.slow_log.ctx
 
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars.replica.channels_between_two_servers
