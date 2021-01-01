@@ -146,11 +146,12 @@ replace_makefile
 make $1 $2
 cd ..
 
-cd tests || exit
-replace_makefile
-make $1 $2
-cd ..
-
+if [ -z $DESTDIR ]; then
+  cd tests || exit
+  replace_makefile
+  make $1 $2
+  cd ..
+fi
 
 cd ../api
 replace_makefile

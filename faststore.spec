@@ -84,7 +84,6 @@ rm -rf %{buildroot}
 /usr/lib64/libfsapi.so*
 /usr/bin/fs_cluster_stat
 /usr/bin/fs_delete
-/usr/bin/fs_fused
 /usr/bin/fs_read
 /usr/bin/fs_write
 
