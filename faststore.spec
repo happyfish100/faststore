@@ -1,7 +1,8 @@
 %define FastStoreServer faststore-server
 %define FastStoreClient faststore-client
-%define FastStoreDevel faststore-devel
+%define FastStoreDevel  faststore-devel
 %define FastStoreDebuginfo faststore-debuginfo
+%define FastStoreConfig faststore-config
 %define CommitVersion %(echo $COMMIT_VERSION)
 
 Name: faststore
@@ -41,6 +42,9 @@ Summary: FastStore client library and tools
 Requires: %{FastStoreClient} = %{version}-%{release}
 Summary: header files of FastStore client library
 
+%package -n %{FastStoreConfig}
+Summary: faststore config files for sample
+
 %description -n %{FastStoreServer}
 FastStore server
 commit version: %{CommitVersion}
@@ -53,6 +57,10 @@ commit version: %{CommitVersion}
 This package provides the header files of libfsclient and libfsapi
 commit version: %{CommitVersion}
 
+%description -n %{FastStoreConfig}
+faststore config files for sample including server and client
+commit version: %{CommitVersion}
+
 
 %prep
 %setup -q
@@ -63,6 +71,12 @@ commit version: %{CommitVersion}
 %install
 rm -rf %{buildroot}
 DESTDIR=$RPM_BUILD_ROOT ./make.sh install
+CONFDIR=%{buildroot}/etc/fastcfs/fstore/
+SYSTEMDIR=%{buildroot}/usr/lib/systemd/system/
+mkdir -p $CONFDIR
+mkdir -p $SYSTEMDIR
+cp conf/*.conf $CONFDIR
+cp systemd/faststore.service $SYSTEMDIR
 
 %post
 
@@ -77,6 +91,7 @@ rm -rf %{buildroot}
 
 %files -n %{FastStoreServer}
 /usr/bin/fs_serverd
+/usr/lib/systemd/system/faststore.service
 
 %files -n %{FastStoreClient}
 %defattr(-,root,root,-)
@@ -91,6 +106,10 @@ rm -rf %{buildroot}
 %defattr(-,root,root,-)
 /usr/include/faststore/client/*
 /usr/include/fastsore/api/*
+
+%files -n %{FastStoreConfig}
+%defattr(-,root,root,-)
+%config(noreplace) /etc/fastcfs/fstore/*.conf
 
 %changelog
 * Fri Jan 1 2021 YuQing <384681@qq.com>
