@@ -31,13 +31,13 @@ commit version: %{CommitVersion}
 %package -n %{FastStoreServer}
 Requires: libfastcommon >= 1.0.46
 Requires: libserverframe >= 1.1.2
-Requires: %{FastStoreConfig} = %{version}-%{release}
+Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
 Requires: libfastcommon >= 1.0.46
 Requires: libserverframe >= 1.1.2
-Requires: %{FastStoreConfig} = %{version}-%{release}
+Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore client library and tools
 
 %package -n %{FastStoreDevel}
