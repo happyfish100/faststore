@@ -216,7 +216,9 @@ static void server_log_configs()
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
-    logInfo("%s, %s, service: {%s}, cluster: {%s}, replica: {%s}, %s",
+    logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
+            "replica: {%s}, %s", g_fs_global_vars.version.major,
+            g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
             sz_global_config, sz_slowlog_config, sz_service_config,
             sz_cluster_config, sz_replica_config, sz_server_config);
     log_local_host_ip_addrs();

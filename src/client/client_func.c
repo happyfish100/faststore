@@ -91,7 +91,7 @@ void fs_client_log_config_ex(FSClientContext *client_ctx,
 
     sf_net_retry_config_to_string(&client_ctx->net_retry_cfg,
             net_retry_output, sizeof(net_retry_output));
-    logInfo("FastStore v%d.%02d, "
+    logInfo("FastStore v%d.%d.%d, "
             "base_path: %s, "
             "connect_timeout: %d, "
             "network_timeout: %d, "
@@ -100,6 +100,7 @@ void fs_client_log_config_ex(FSClientContext *client_ctx,
             "data group count: %d%s%s",
             g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor,
+            g_fs_global_vars.version.patch,
             g_fs_client_vars.base_path,
             client_ctx->connect_timeout,
             client_ctx->network_timeout,

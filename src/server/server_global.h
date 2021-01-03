@@ -21,6 +21,7 @@
 #include "fastcommon/server_id_func.h"
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
+#include "common/fs_global.h"
 #include "server_types.h"
 #include "storage/storage_config.h"
 
