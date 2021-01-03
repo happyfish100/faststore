@@ -81,8 +81,6 @@ cp conf/*.conf $CONFDIR
 cp systemd/faststore.service $SYSTEMDIR
 
 %post
-mkdir -p /opt/fastcfs/fstore
-mkdir -p /opt/faststore/data
 
 %preun
 
@@ -93,9 +91,16 @@ rm -rf %{buildroot}
 
 %files
 
+%post -n %{FastStoreServer}
+mkdir -p /opt/fastcfs/fstore
+mkdir -p /opt/faststore/data
+
 %files -n %{FastStoreServer}
 /usr/bin/fs_serverd
 /usr/lib/systemd/system/faststore.service
+
+%post -n %{FastStoreClient}
+mkdir -p /opt/fastcfs/fstore
 
 %files -n %{FastStoreClient}
 %defattr(-,root,root,-)
