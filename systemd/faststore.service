@@ -4,13 +4,13 @@ After=network.target
 
 [Service]
 Type=forking
-Environment=CONF=/etc/fastcfs/fstore/server.conf
-ExecStart=/usr/bin/fs_serverd ${CONF} start
-ExecStop=/usr/bin/fs_serverd ${CONF} stop
-ExecReload=/usr/bin/fs_serverd ${CONF} restart
-ExecRestart=/usr/bin/fs_serverd ${CONF} restart
+PIDFile=/opt/fastcfs/fstore/serverd.pid
+ExecStart=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf start
 
-# Disable OOM kill on the postmaster
+# No artificial start/stop timeout
+TimeoutSec=0
+
+# Disable OOM kill by Linux kernel
 OOMScoreAdjust=-1000
 
 [Install]
