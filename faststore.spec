@@ -97,7 +97,7 @@ mkdir -p /opt/faststore/data
 
 %files -n %{FastStoreServer}
 /usr/bin/fs_serverd
-/usr/lib/systemd/system/faststore.service
+%config(noreplace) /usr/lib/systemd/system/faststore.service
 
 %post -n %{FastStoreClient}
 mkdir -p /opt/fastcfs/fstore
