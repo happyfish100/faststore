@@ -81,6 +81,8 @@ cp conf/*.conf $CONFDIR
 cp systemd/faststore.service $SYSTEMDIR
 
 %post
+mkdir -p /opt/fastcfs/fstore
+mkdir -p /opt/faststore/data
 
 %preun
 
