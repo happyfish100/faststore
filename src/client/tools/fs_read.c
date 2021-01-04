@@ -34,7 +34,7 @@ static void usage(char *argv[])
 
 int main(int argc, char *argv[])
 {
-    const char *config_filename = "/etc/fstore/client.conf";
+    const char *config_filename = "/etc/fastcfs/fstore/client.conf";
     int ch;
     int result;
     int blk_offset_remain;

@@ -26,7 +26,7 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename=/etc/fstore/client.conf] "
+    fprintf(stderr, "Usage: %s [-c config_filename=/etc/fastcfs/fstore/client.conf] "
             "[-g data_group_id=0]\n", argv[0]);
 }
 
@@ -68,7 +68,7 @@ int main(int argc, char *argv[])
 {
 #define CLUSTER_MAX_STAT_COUNT  256
 	int ch;
-    const char *config_filename = "/etc/fstore/client.conf";
+    const char *config_filename = "/etc/fastcfs/fstore/client.conf";
     int data_group_id;
     int alloc_size;
     int count;
