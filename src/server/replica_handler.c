@@ -587,8 +587,10 @@ static inline int replica_deal_active_test_req(struct fast_task_info *task)
 {
     int result;
 
-    if ((result=replica_check_replication_task(task)) != 0) {
-        return result;
+    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION) {
+        if ((result=replica_check_replication_task(task)) != 0) {
+            return result;
+        }
     }
     return sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
 }
