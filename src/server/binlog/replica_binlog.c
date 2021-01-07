@@ -437,6 +437,7 @@ int replica_binlog_log_slice(const time_t current_time,
         return ENOMEM;
     }
 
+    wbuffer->tag = source;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
             (int64_t)current_time, data_version, source,
@@ -459,6 +460,7 @@ int replica_binlog_log_block(const time_t current_time,
         return ENOMEM;
     }
 
+    wbuffer->tag = source;
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version,
