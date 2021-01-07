@@ -650,7 +650,7 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             op_ctx = &SLICE_OP_CTX;
         }
 
-        op_ctx->info.source = BINLOG_SOURCE_RPC;
+        op_ctx->info.source = BINLOG_SOURCE_RPC_SLAVE;
         op_ctx->info.data_version = buff2long(body_part->data_version);
         if (op_ctx->info.data_version <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -858,7 +858,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     }
 
     sf_hold_task(task);
-    OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
+    OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
     OP_CTX_INFO.buff = REQUEST.body;
     if (direct_read) {
         SLICE_OP_CTX.rw_done_callback = (fs_rw_done_callback_func)

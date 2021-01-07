@@ -146,7 +146,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
     }
 
     sf_hold_task(task);
-    OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
+    OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
     OP_CTX_INFO.buff = REQUEST.body;
     OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
@@ -385,7 +385,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     }
 
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
-    OP_CTX_INFO.source = BINLOG_SOURCE_RPC;
+    OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
     OP_CTX_INFO.data_version = 0;
     SLICE_OP_CTX.update.space_changed = 0;
 

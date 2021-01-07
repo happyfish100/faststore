@@ -776,8 +776,8 @@ static int check_records_consistency(ReplicaBinlogRecord *slave_records,
         if (sr->data_version < mr->data_version) {
             sr++;
         } else if (sr->data_version == mr->data_version) {
-            if (sr->source == BINLOG_SOURCE_RPC &&
-                    mr->source == BINLOG_SOURCE_RPC)
+            if (FS_IS_BINLOG_SOURCE_RPC(sr->source) &&
+                    FS_IS_BINLOG_SOURCE_RPC(mr->source))
             {
                 if (compare_record(sr, mr) != 0) {
                     *first_unmatched_dv = sr->data_version;
