@@ -91,6 +91,7 @@ int handler_check_config_signs(struct fast_task_info *task,
 int handler_deal_task_done(struct fast_task_info *task)
 {
     FSProtoHeader *proto_header;
+    int status;
     int r;
     int64_t time_used;
     int log_level;
@@ -146,8 +147,9 @@ int handler_deal_task_done(struct fast_task_info *task)
         }
     }
 
-    short2buff(RESPONSE_STATUS >= 0 ? RESPONSE_STATUS : -1 * RESPONSE_STATUS,
-            proto_header->status);
+    status = sf_unify_errno(RESPONSE_STATUS >= 0 ?
+            RESPONSE_STATUS : -1 * RESPONSE_STATUS);
+    short2buff(status, proto_header->status);
     proto_header->cmd = RESPONSE.header.cmd;
     int2buff(RESPONSE.header.body_len, proto_header->body_len);
     task->length = sizeof(FSProtoHeader) + RESPONSE.header.body_len;
@@ -196,5 +198,5 @@ int handler_deal_task_done(struct fast_task_info *task)
                 long_to_comma_str(time_used, time_buff));
     }
 
-    return sf_unify_errno(r == 0 ? RESPONSE_STATUS : r);
+    return r == 0 ? RESPONSE_STATUS : r;
 }
