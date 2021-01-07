@@ -254,17 +254,25 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
         }
 
         log_data_update(op->operation, op->ctx);
+
+        /*
+        logInfo("file: "__FILE__", line: %d, op ptr: %p, "
+                "operation: %d, log_replica: %d, source: %d, "
+                "data_group_id: %d, data_version: %"PRId64", "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {length: %d, offset: %d}, "
+                "body_len: %d, result: %d", __LINE__,
+                op, op->operation, op->ctx->info.write_binlog.log_replica,
+                op->ctx->info.source, op->ctx->info.data_group_id,
+                op->ctx->info.data_version, op->ctx->info.bs_key.block.oid,
+                op->ctx->info.bs_key.block.offset,
+                op->ctx->info.bs_key.slice.offset,
+                op->ctx->info.bs_key.slice.length,
+                op->ctx->info.body_len, result);
+                */
     }
 
     op->ctx->notify_func(op);
-
-    /*
-    logInfo("file: "__FILE__", line: %d, record: %p, "
-            "operation: %d, hash code: %u, inode: %"PRId64
-             ", data_version: %"PRId64", result: %d", __LINE__,
-             record, record->operation, record->hash_code,
-             record->inode, record->data_version, result);
-             */
 }
 
 static void *data_thread_func(void *arg)
