@@ -257,18 +257,18 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
 
         /*
         logInfo("file: "__FILE__", line: %d, op ptr: %p, "
-                "operation: %d, log_replica: %d, source: %d, "
+                "operation: %d, log_replica: %d, source: %c, "
                 "data_group_id: %d, data_version: %"PRId64", "
                 "block {oid: %"PRId64", offset: %"PRId64"}, "
-                "slice {length: %d, offset: %d}, "
-                "body_len: %d, result: %d", __LINE__,
-                op, op->operation, op->ctx->info.write_binlog.log_replica,
+                "slice {offset: %d, length: %d}, "
+                "body_len: %d", __LINE__, op, op->operation,
+                op->ctx->info.write_binlog.log_replica,
                 op->ctx->info.source, op->ctx->info.data_group_id,
                 op->ctx->info.data_version, op->ctx->info.bs_key.block.oid,
                 op->ctx->info.bs_key.block.offset,
                 op->ctx->info.bs_key.slice.offset,
                 op->ctx->info.bs_key.slice.length,
-                op->ctx->info.body_len, result);
+                op->ctx->info.body_len);
                 */
     }
 

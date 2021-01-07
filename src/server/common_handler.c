@@ -34,6 +34,7 @@
 #include "sf/sf_func.h"
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
+#include "sf/sf_util.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_func.h"
@@ -91,7 +92,7 @@ int handler_deal_task_done(struct fast_task_info *task)
 {
     FSProtoHeader *proto_header;
     int r;
-    int time_used;
+    int64_t time_used;
     int log_level;
     char time_buff[32];
 
@@ -107,7 +108,7 @@ int handler_deal_task_done(struct fast_task_info *task)
     }
 
     if (!TASK_ARG->context.need_response) {
-        time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
+        time_used = get_current_time_us() - TASK_ARG->req_start_time;
 
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_RESP:
@@ -152,7 +153,7 @@ int handler_deal_task_done(struct fast_task_info *task)
     task->length = sizeof(FSProtoHeader) + RESPONSE.header.body_len;
 
     r = sf_send_add_event(task);
-    time_used = (int)(get_current_time_us() - TASK_ARG->req_start_time);
+    time_used = get_current_time_us() - TASK_ARG->req_start_time;
     if (SLOW_LOG_CFG.enabled && time_used >
             SLOW_LOG_CFG.log_slower_than_ms * 1000)
     {
@@ -195,5 +196,5 @@ int handler_deal_task_done(struct fast_task_info *task)
                 long_to_comma_str(time_used, time_buff));
     }
 
-    return r == 0 ? RESPONSE_STATUS : r;
+    return sf_unify_errno(r == 0 ? RESPONSE_STATUS : r);
 }
