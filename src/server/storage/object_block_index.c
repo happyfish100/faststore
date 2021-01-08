@@ -367,17 +367,12 @@ void ob_index_destroy()
 static inline int do_delete_slice(OBHashtable *htable,
         OBEntry *ob, OBSliceEntry *slice)
 {
-    int result;
-
-    if ((result=uniq_skiplist_delete(ob->slices, slice)) != 0) {
-        return result;
-    }
     if (htable->modify_sallocator) {
-        return storage_allocator_delete_slice(slice,
+        storage_allocator_delete_slice(slice,
                 htable->modify_used_space);
-    } else {
-        return 0;
     }
+
+    return uniq_skiplist_delete(ob->slices, slice);
 }
 
 static inline int do_add_slice(OBHashtable *htable,
