@@ -139,7 +139,7 @@ static int compare_by_id(const void *p1, const void *p2)
         ((StoreSubdirInfo *)p2)->subdir;
 }
 
-void id_info_free_func(void *ptr, const int delay_seconds)
+static void id_info_free_func(void *ptr, const int delay_seconds)
 {
     if (delay_seconds > 0) {
         fast_mblock_delay_free_object(&id_info_context.subdir_allocator,
@@ -255,7 +255,7 @@ int trunk_id_info_init()
 
     if ((result=fast_mblock_init_ex1(&id_info_context.subdir_allocator,
                     "subdir_info", sizeof(StoreSubdirInfo),
-                    alloc_elements_once, 0, NULL, NULL, false)) != 0)
+                    alloc_elements_once, 0, NULL, NULL, true)) != 0)
     {
         return result;
     }
