@@ -572,7 +572,7 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
             return 0;
         }
 
-        logError("file: "__FILE__", line: %d, subdir_name: %s, "
+        logWarning("file: "__FILE__", line: %d, subdir_name: %s, "
                 "last_data_version: %"PRId64" is too large, which "
                 " > the last data version %"PRId64" in the binlog file %s, "
                 "binlog index: %d", __LINE__, subdir_name,

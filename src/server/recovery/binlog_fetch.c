@@ -297,7 +297,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
         int log_level;
-        if (result == EAGAIN) {
+        if (result == EAGAIN || result == EOVERFLOW) {
             log_level = last_retry ? LOG_WARNING : LOG_DEBUG;
         } else {
             log_level = LOG_ERR;
