@@ -259,10 +259,26 @@ static int deal_task(ReplayTaskInfo *task, char *buff)
 
     if (result == 0) {
         if (log_padding) {
-            result = replica_binlog_log_no_op(task->thread_ctx->
-                    replay_ctx->recovery_ctx->ds->dg->id,
-                    task->op_ctx.info.data_version,
-                    &task->op_ctx.info.bs_key.block);
+            DataRecoveryContext *ctx;
+            int64_t ds_data_version;
+
+            ctx = task->thread_ctx->replay_ctx->recovery_ctx;
+            if ((result=replica_binlog_log_no_op(ctx->ds->dg->id,
+                            task->op_ctx.info.data_version,
+                            &task->op_ctx.info.bs_key.block)) != 0)
+            {
+                return result;
+            }
+
+            ds_data_version = __sync_fetch_and_add(&ctx->ds->data.version, 0);
+            while (task->op_ctx.info.data_version > ds_data_version) {
+                if (__sync_bool_compare_and_swap(&ctx->ds->data.version,
+                            ds_data_version, task->op_ctx.info.data_version))
+                {
+                    break;
+                }
+                ds_data_version = __sync_fetch_and_add(&ctx->ds->data.version, 0);
+            }
         }
     } else {
         __sync_add_and_fetch(&task->thread_ctx->replay_ctx->fail_count, 1);
