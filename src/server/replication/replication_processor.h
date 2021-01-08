@@ -50,10 +50,10 @@ static inline int replication_processors_deal_rpc_response(
     {
         return rpc_result_ring_remove(&replication->context.caller.
                 rpc_result_ctx, data_group_id, data_version);
+    } else {
+        return 0;
     }
-    return 0;
 }
-
 
 static inline bool replication_channel_is_ready(FSReplication *replication)
 {

@@ -101,7 +101,7 @@ int replica_recv_timeout_callback(struct fast_task_info *task)
 }
 
 
-static void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
+static inline void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 {
     int count;
     cluster_topology_offline_slave_data_servers(peer, &count);
@@ -798,7 +798,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
                         data_version)) != 0)
         {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "rpc_result_ring_remove fail, data_group_id: %d, "
+                    "deal_rpc_response fail, data_group_id: %d, "
                     "data_version: %"PRId64", result: %d",
                     data_group_id, data_version, result);
             break;

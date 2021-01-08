@@ -40,13 +40,6 @@
 #include "rpc_result_ring.h"
 #include "replication_callee.h"
 
-/*
-typedef struct {
-} ReplicationCalleeContext;
-
-static ReplicationCalleeContext repl_ctx;
-*/
-
 int replication_callee_init()
 {
     return 0;
@@ -124,12 +117,6 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
     int count;
 
     task = replication->task;
-    /*
-    if (__sync_add_and_fetch(&WAITING_WRITE_COUNT, 0) > 0) {
-        return 0;
-    }
-    */
-
     if (!(task->offset == 0 && task->length == 0)) {
         return 0;
     }

@@ -97,8 +97,10 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
             continue;
         }
 
+        /*
         logInfo("prealloc task: %p, store path: %s", task,
                 task->preallocator->allocator->path_info->store.path.str);
+                */
 
         thread_arg->is_new_trunk = false;
         if ((result=trunk_maker_allocate_ex(task->preallocator->allocator,
@@ -119,8 +121,10 @@ static void prealloc_thread_pool_run(void *arg, void *thread_data)
             PTHREAD_MUTEX_UNLOCK(&thread_arg->lcp.lock);
         }
 
+        /*
         logInfo("task: %p, store path: %s, prealloc result: %d", task,
                 task->preallocator->allocator->path_info->store.path.str, result);
+                */
 
         if (thread_arg->is_new_trunk) {
             __sync_add_and_fetch(&task->preallocator->stat.create, 1);
@@ -272,15 +276,15 @@ static TrunkPreallocatorInfo *prealloc_trunks(TrunkPreallocatorInfo *head)
             } else {
                 previous->next = p;
             }
+
             previous = p;
         }
 
-        previous = p;
         p = p->next;
     }
 
     if (previous != NULL) {
-        previous->next = NULL;
+        previous->next = NULL;  //end the chain
     }
     return head;
 }

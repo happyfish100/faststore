@@ -197,6 +197,7 @@ static int rpc_result_instance_clear_queue_timeouts(
                 "data group id: %d, data_version: %"PRId64", task: %p",
                 __LINE__, instance->data_group_id, deleted->data_version,
                 deleted->waiting_task);
+
         desc_task_waiting_rpc_count(instance, deleted);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
         ++count;
@@ -210,7 +211,7 @@ static int rpc_result_instance_clear_queue_timeouts(
     return count;
 }
 
-static void rpc_result_instance_clear_timeouts(
+static int rpc_result_instance_clear_timeouts(
         FSReplicaRPCResultContext *ctx,
         FSReplicaRPCResultInstance *instance)
 {
@@ -246,22 +247,28 @@ static void rpc_result_instance_clear_timeouts(
                 "waiting entries count: %d", __LINE__,
                 instance->data_group_id, clear_count);
     }
+
+    return clear_count;
 }
 
-void rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx)
+int rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx)
 {
     FSReplicaRPCResultInstance *instance;
     FSReplicaRPCResultInstance *end;
+    int total_count;
 
     if (ctx->last_check_timeout_time == g_current_time) {
-        return;
+        return 0;
     }
     ctx->last_check_timeout_time = g_current_time;
 
+    total_count = 0;
     end = ctx->instances + ctx->dg_count;
     for (instance=ctx->instances; instance<end; instance++) {
-        rpc_result_instance_clear_timeouts(ctx, instance);
+        total_count += rpc_result_instance_clear_timeouts(ctx, instance);
     }
+
+    return total_count;
 }
 
 void rpc_result_ring_destroy(FSReplicaRPCResultContext *ctx)

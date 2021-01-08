@@ -164,7 +164,8 @@ int replication_processor_unbind(FSReplication *replication)
                 replica.connected, replication)) == 0)
     {
         replication_queue_discard_all(replication);
-        rpc_result_ring_clear_all(&replication->context.caller.rpc_result_ctx);
+        rpc_result_ring_clear_all(&replication->
+                context.caller.rpc_result_ctx);
         if (replication->is_client) {
             result = replication_processor_bind_thread(replication);
         } else {
@@ -427,12 +428,6 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
         if (remove_from_replication_ptr_array(&server_ctx->
                     replica.connectings, replication) == 0)
         {
-            /*
-            replication->peer->last_data_version = -1;
-            replication->peer->binlog_pos_hint.index = -1;
-            replication->peer->binlog_pos_hint.offset = -1;
-            */
-
             add_to_replication_ptr_array(&server_ctx->
                     replica.connected, replication);
         }
@@ -480,7 +475,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
         return 0;
     }
 
-    rb = qinfo.head;
+    rb = (ReplicationRPCEntry *)qinfo.head;
     count = 0;
     task = replication->task;
     task->length = sizeof(FSProtoHeader) +
@@ -493,8 +488,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
             bool notify;
 
             qinfo.head = rb;
-            fc_queue_push_queue_to_head_ex(&replication->context.caller.rpc_queue,
-                    &qinfo, &notify);
+            fc_queue_push_queue_to_head_ex(&replication->context.
+                    caller.rpc_queue, &qinfo, &notify);
             break;
         }
 
@@ -574,7 +569,11 @@ static int deal_connected_replication(FSReplication *replication)
     }
 
     if (stage == FS_REPLICATION_STAGE_SYNCING) {
-        rpc_result_ring_clear_timeouts(&replication->context.caller.rpc_result_ctx);
+        if (rpc_result_ring_clear_timeouts(&replication->
+                    context.caller.rpc_result_ctx) > 0)
+        {
+            return ETIMEDOUT;
+        }
         return replication_rpc_from_queue(replication);
     }
 

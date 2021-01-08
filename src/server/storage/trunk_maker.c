@@ -145,11 +145,14 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
 static void deal_trunk_util_change_events(FSTrunkAllocator *allocator)
 {
     FSTrunkFileInfo *trunk;
+    FSTrunkFileInfo *current;
 
     trunk = (FSTrunkFileInfo *)fc_queue_try_pop_all(&allocator->reclaim.queue);
     while (trunk != NULL && SF_G_CONTINUE_FLAG) {
-        deal_trunk_util_change_event(allocator, trunk);
+        current = trunk;
         trunk = trunk->util.next;
+
+        deal_trunk_util_change_event(allocator, current);
     }
 }
 

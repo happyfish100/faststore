@@ -38,7 +38,7 @@ int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
 
 void rpc_result_ring_clear_all(FSReplicaRPCResultContext *ctx);
 
-void rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx);
+int rpc_result_ring_clear_timeouts(FSReplicaRPCResultContext *ctx);
 
 #ifdef __cplusplus
 }
