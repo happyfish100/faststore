@@ -206,19 +206,22 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         if (binlog->len == 0) {
             if (++(fetch_ctx->wait_count) >= 5) {
                 logError("file: "__FILE__", line: %d, "
-                        "data group id: %d, waiting replica binlog timeout, "
-                        "current data version: %"PRId64", waiting/until data "
-                        "version: %"PRId64, __LINE__, ctx->ds->dg->id,
-                        last_data_version, fetch_ctx->until_version);
+                        "data group id: %d, master server id: %d, "
+                        "waiting replica binlog timeout, "
+                        "current data version: %"PRId64", waiting/until "
+                        "data version: %"PRId64, __LINE__, ctx->ds->dg->id,
+                        ctx->master->cs->server->id, last_data_version,
+                        fetch_ctx->until_version);
                 return ETIMEDOUT;
             }
 
             logInfo("file: "__FILE__", line: %d, "
-                    "data group id: %d, %dth waiting replica binlog ..., "
+                    "data group id: %d, master server id: %d, "
+                    "%dth waiting replica binlog ..., "
                     "current data version: %"PRId64", waiting/until data "
                     "version: %"PRId64, __LINE__, ctx->ds->dg->id,
-                    fetch_ctx->wait_count, last_data_version,
-                    fetch_ctx->until_version);
+                    ctx->master->cs->server->id, fetch_ctx->wait_count,
+                    last_data_version, fetch_ctx->until_version);
             fc_sleep_ms(400);
         } else {
             fetch_ctx->wait_count = 0;
@@ -234,8 +237,9 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         line_end = (char *)memchr(line.str, '\n', end - line.str);
         if (line_end == NULL) {
             logError("file: "__FILE__", line: %d, "
-                    "data group id: %d, expect end line char (\\n)",
-                    __LINE__, ctx->ds->dg->id);
+                    "data group id: %d, master server id: %d, "
+                    "expect end line char (\\n)", __LINE__,
+                    ctx->ds->dg->id, ctx->master->cs->server->id);
             return EINVAL;
         }
 
@@ -245,8 +249,10 @@ static int find_binlog_length(DataRecoveryContext *ctx,
                         &record, error_info)) != 0)
         {
             logError("file: "__FILE__", line: %d, "
-                    "data group id: %d, unpack replica binlog fail, %s",
-                    __LINE__, ctx->ds->dg->id, error_info);
+                    "data group id: %d, master server id: %d, "
+                    "unpack replica binlog fail, %s", __LINE__,
+                    ctx->ds->dg->id, ctx->master->cs->server->id,
+                    error_info);
             return result;
         }
 
@@ -302,16 +308,17 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 
     if (response.header.body_len < bheader_size) {
         logError("file: "__FILE__", line: %d, "
-                "response body length: %d is too short, "
-                "the min body length is %d", __LINE__,
-                response.header.body_len, bheader_size);
+                "server %s:%u, response body length: %d is too short, "
+                "the min body length is %d", __LINE__, conn->ip_addr,
+                conn->port, response.header.body_len, bheader_size);
         return EINVAL;
     }
     if (response.header.body_len > fetch_ctx->buffer->capacity) {
         logError("file: "__FILE__", line: %d, "
-                "response body length: %d is too large, "
-                "the max body length is %d", __LINE__,
-                response.header.body_len, fetch_ctx->buffer->capacity);
+                "server %s:%u, response body length: %d is too large, "
+                "the max body length is %d", __LINE__, conn->ip_addr,
+                conn->port, response.header.body_len,
+                fetch_ctx->buffer->capacity);
         return EOVERFLOW;
     }
 
@@ -332,9 +339,9 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     *is_last = common_bheader->is_last;
     if (response.header.body_len != bheader_size + binlog.len) {
         logError("file: "__FILE__", line: %d, "
-                "response body length: %d != body header size: %d"
-                " + binlog_length: %d ", __LINE__, response.header.body_len,
-                bheader_size, binlog.len);
+                "server %s:%u, response body length: %d != body header "
+                "size: %d + binlog_length: %d ", __LINE__, conn->ip_addr,
+                conn->port, response.header.body_len, bheader_size, binlog.len);
         return EINVAL;
     }
 
