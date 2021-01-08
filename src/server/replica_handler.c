@@ -929,10 +929,16 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
             case FS_REPLICA_PROTO_RPC_REQ:
                 if ((result=replica_deal_rpc_req(task)) == 0) {
                     TASK_ARG->context.need_response = false;
+                } else if (result > 0) {
+                    result *= -1;  //force close connection
                 }
                 break;
             case FS_REPLICA_PROTO_RPC_RESP:
-                result = replica_deal_rpc_resp(task);
+                if ((result=replica_deal_rpc_resp(task)) != 0) {
+                    if (result > 0) {
+                        result *= -1;  //force close connection
+                    }
+                }
                 TASK_ARG->context.need_response = false;
                 break;
             case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ:
