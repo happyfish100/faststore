@@ -28,12 +28,15 @@ static void usage(char *argv[])
 {
     fprintf(stderr, "Usage: %s [-c config_filename="
             "/etc/fastcfs/fstore/client.conf]\n"
-            "\t[-g data_group_id=0]\n"
-            "\t[-A for ACTIVE only]\n"
-            "\t[-N for None ACTIVE]\n"
-            "\t[-M for master only]\n"
-            "\t[-S for slave only]\n\n",
-            argv[0]);
+            "\t[-g data_group_id=0] 0 for all groups]\n"
+            "\t[-A] for ACTIVE only]\n"
+            "\t[-N] for None ACTIVE]\n"
+            "\t[-M] for master only]\n"
+            "\t[-S] for slave only]\n\n"
+            "eg. list all active data servers:\n"
+            "%s -A\n\nlist all master data servers:\n"
+            "%s -M\n\nlist all data servers of data group 1:\n"
+            "%s -g 1\n\n", argv[0], argv[0], argv[0], argv[0]);
 }
 
 static void output(FSClientClusterStatEntry *stats, const int count)
