@@ -375,6 +375,16 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     if ((result=replica_binlog_reader_init(REPLICA_READER,
                     data_group_id, last_data_version)) != 0)
     {
+        if (result == EOVERFLOW) {
+            my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, slave server id: %d 's last data "
+                    "version: %"PRId64" larger than the last of my binlog "
+                    "file, my current data version: %"PRId64, data_group_id,
+                    server_id, last_data_version, my_data_version);
+            TASK_ARG->context.log_level = LOG_WARNING;
+        }
+
         replica_release_reader(task, false);
         return result;
     }
