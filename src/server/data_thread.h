@@ -33,8 +33,9 @@
 #define DATA_SOURCE_SLAVE_RECOVERY     3
 
 typedef struct fs_data_operation {
-    int operation;
-    int source;
+    short operation;
+    char source;
+    bool binlog_write_done;
     FSSliceOpContext *ctx;
     void *arg;
     struct fs_data_operation *next;  //for queue
@@ -126,22 +127,26 @@ extern "C" {
         }
     }
 
-    static inline int log_data_update(const int operation,
-            FSSliceOpContext *op_ctx)
+    static inline int log_data_update(FSDataOperation *op)
     {
-        switch (operation) {
+        if (op->binlog_write_done) {
+            return 0;
+        }
+        op->binlog_write_done = true;
+
+        switch (op->operation) {
             case DATA_OPERATION_SLICE_WRITE:
-                return fs_log_slice_write(op_ctx);
+                return fs_log_slice_write(op->ctx);
             case DATA_OPERATION_SLICE_ALLOCATE:
-                return fs_log_slice_allocate(op_ctx);
+                return fs_log_slice_allocate(op->ctx);
             case DATA_OPERATION_SLICE_DELETE:
-                return fs_log_delete_slices(op_ctx);
+                return fs_log_delete_slices(op->ctx);
             case DATA_OPERATION_BLOCK_DELETE:
-                return fs_log_delete_block(op_ctx);
+                return fs_log_delete_block(op->ctx);
             default:
                 logError("file: "__FILE__", line: %d, "
                         "invalid operation: %d",
-                        __LINE__, operation);
+                        __LINE__, op->operation);
                 return EINVAL;
         }
     }

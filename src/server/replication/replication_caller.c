@@ -101,7 +101,8 @@ static inline void push_to_slave_replica_queue(FSReplication *replication,
 }
 
 static int push_to_slave_queues(FSClusterDataGroupInfo *group,
-        const uint32_t hash_code, ReplicationRPCEntry *rpc)
+        const uint32_t hash_code, ReplicationRPCEntry *rpc,
+        FSDataOperation *op)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
@@ -120,6 +121,8 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
         status = __sync_fetch_and_add(&(*ds)->status, 0);
         if (status == FS_SERVER_STATUS_ONLINE) {  //waiting for status change
+            log_data_update(op);  //log before condition wait to avoid deadlock
+
             do {
                 PTHREAD_MUTEX_LOCK(&(*ds)->replica.notify.lock);
                 pthread_cond_wait(&(*ds)->replica.notify.cond,
@@ -171,14 +174,14 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     }
 }
 
-int replication_caller_push_to_slave_queues(struct fast_task_info *task)
+int replication_caller_push_to_slave_queues(FSDataOperation *op)
 {
     FSClusterDataGroupInfo *group;
     ReplicationRPCEntry *rpc;
     uint32_t hash_code;
     int result;
 
-    if ((group=fs_get_data_group(OP_CTX_INFO.data_group_id)) == NULL) {
+    if ((group=fs_get_data_group(op->ctx->info.data_group_id)) == NULL) {
         return ENOENT;
     }
 
@@ -190,12 +193,12 @@ int replication_caller_push_to_slave_queues(struct fast_task_info *task)
         return ENOMEM;
     }
 
-    rpc->task = task;
-    rpc->body_offset = OP_CTX_INFO.body - task->data;
-    rpc->body_length = OP_CTX_INFO.body_len;
-    /* hash_code = FS_BLOCK_HASH_CODE(OP_CTX_INFO.bs_key.block); */
-    hash_code = OP_CTX_INFO.data_group_id;
-    result = push_to_slave_queues(group, hash_code, rpc);
+    rpc->task = (struct fast_task_info *)op->arg;
+    rpc->body_offset = op->ctx->info.body - rpc->task->data;
+    rpc->body_length = op->ctx->info.body_len;
+    /* hash_code = FS_BLOCK_HASH_CODE(op->ctx->info.bs_key.block); */
+    hash_code = op->ctx->info.data_group_id;
+    result = push_to_slave_queues(group, hash_code, rpc, op);
     if (result != TASK_STATUS_CONTINUE) {
         fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
     }

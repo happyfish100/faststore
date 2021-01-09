@@ -19,6 +19,7 @@
 #define _REPLICATION_CALLER_H_
 
 #include "replication_types.h"
+#include "../data_thread.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -29,7 +30,7 @@ void replication_caller_destroy();
 
 void replication_caller_release_rpc_entry(ReplicationRPCEntry *rpc);
 
-int replication_caller_push_to_slave_queues(struct fast_task_info *task);
+int replication_caller_push_to_slave_queues(FSDataOperation *op);
 
 #ifdef __cplusplus
 }

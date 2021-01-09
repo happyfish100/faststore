@@ -244,16 +244,16 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
     }
 
     if (op->ctx->result == 0 && is_update) {
+        op->binlog_write_done = false;
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
-            if ((result=replication_caller_push_to_slave_queues(
-                            (struct fast_task_info *)op->arg)) ==
+            if ((result=replication_caller_push_to_slave_queues(op)) ==
                     TASK_STATUS_CONTINUE)
             {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
         }
 
-        log_data_update(op->operation, op->ctx);
+        log_data_update(op);
 
         if (SLOW_LOG_CFG.enabled) {
             char buff[256];
