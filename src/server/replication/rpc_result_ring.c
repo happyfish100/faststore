@@ -194,9 +194,10 @@ static int rpc_result_instance_clear_queue_timeouts(
 
         logWarning("file: "__FILE__", line: %d, "
                 "waiting push response timeout, "
-                "data group id: %d, data_version: %"PRId64", task: %p",
-                __LINE__, instance->data_group_id, deleted->data_version,
-                deleted->waiting_task);
+                "data group id: %d, peer server id: %d, data_version: "
+                "%"PRId64", task: %p", __LINE__, instance->data_group_id,
+                ctx->replication->peer->server->id,
+                deleted->data_version, deleted->waiting_task);
 
         desc_task_waiting_rpc_count(instance, deleted);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
@@ -226,8 +227,9 @@ static int rpc_result_instance_clear_timeouts(
         {
             logWarning("file: "__FILE__", line: %d, "
                     "waiting push response timeout, "
-                    "data group id: %d, data_version: %"PRId64,
-                    __LINE__, instance->data_group_id,
+                    "data group id: %d, peer server id: %d, data_version: "
+                    "%"PRId64, __LINE__, instance->data_group_id,
+                    ctx->replication->peer->server->id,
                     instance->ring.start->data_version);
 
             desc_task_waiting_rpc_count(instance, instance->ring.start);
@@ -243,9 +245,10 @@ static int rpc_result_instance_clear_timeouts(
     clear_count += rpc_result_instance_clear_queue_timeouts(ctx, instance);
     if (clear_count > 0) {
         logWarning("file: "__FILE__", line: %d, "
-                "data group id: %d, clear timeout push response "
-                "waiting entries count: %d", __LINE__,
-                instance->data_group_id, clear_count);
+                "data group id: %d, peer server id: %d, clear timeout "
+                "push response waiting entries count: %d", __LINE__,
+                instance->data_group_id, ctx->replication->peer->server->id,
+                clear_count);
     }
 
     return clear_count;
@@ -380,10 +383,11 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
     }
 
     logWarning("file: "__FILE__", line: %d, "
-            "data group id: %d, can't found data version %"PRId64", "
-            "in the ring", __LINE__, instance->data_group_id, data_version);
-    return add_to_queue(ctx, instance, data_version,
-            waiting_task);
+            "data group id: %d, peer server id: %d, can't found "
+            "data version %"PRId64" in the ring", __LINE__,
+            instance->data_group_id, ctx->replication->peer->server->id,
+            data_version);
+    return add_to_queue(ctx, instance, data_version, waiting_task);
 }
 
 static int remove_from_queue(FSReplicaRPCResultContext *ctx,

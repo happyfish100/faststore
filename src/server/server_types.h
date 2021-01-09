@@ -267,6 +267,7 @@ typedef struct fs_rpc_result_context {
     int dg_base_id;    //min data group id
     int dg_count;
     FSReplicaRPCResultInstance *instances;   //for my data groups
+    struct fs_replication *replication;
     struct fast_mblock_man rentry_allocator; //element: FSReplicaRPCResultEntry
 } FSReplicaRPCResultContext;
 

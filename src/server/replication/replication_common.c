@@ -96,6 +96,7 @@ static int init_replication_context(FSReplication *replication)
         return result;
     }
 
+    replication->context.caller.rpc_result_ctx.replication = replication;
     alloc_size = 4 * g_sf_global_vars.min_buff_size /
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
     if ((result=rpc_result_ring_check_init(&replication->
