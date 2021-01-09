@@ -26,8 +26,14 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename=/etc/fastcfs/fstore/client.conf] "
-            "[-g data_group_id=0]\n", argv[0]);
+    fprintf(stderr, "Usage: %s [-c config_filename="
+            "/etc/fastcfs/fstore/client.conf]\n"
+            "\t[-g data_group_id=0]\n"
+            "\t[-A for ACTIVE only]\n"
+            "\t[-N for None ACTIVE]\n"
+            "\t[-M for master only]\n"
+            "\t[-S for slave only]\n\n",
+            argv[0]);
 }
 
 static void output(FSClientClusterStatEntry *stats, const int count)
@@ -69,23 +75,16 @@ int main(int argc, char *argv[])
 #define CLUSTER_MAX_STAT_COUNT  256
 	int ch;
     const char *config_filename = "/etc/fastcfs/fstore/client.conf";
-    int data_group_id;
     int alloc_size;
     int count;
     int bytes;
+    FSClusterStatFilter filter;
     FSClientClusterStatEntry fixed_stats[CLUSTER_MAX_STAT_COUNT];
     FSClientClusterStatEntry *stats;
 	int result;
 
-    /*
-    if (argc < 2) {
-        usage(argv);
-        return 1;
-    }
-    */
-
-    data_group_id = 0;
-    while ((ch=getopt(argc, argv, "hc:g:")) != -1) {
+    memset(&filter, 0, sizeof(filter));
+    while ((ch=getopt(argc, argv, "hc:g:ANMS")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -94,7 +93,19 @@ int main(int argc, char *argv[])
                 config_filename = optarg;
                 break;
             case 'g':
-                data_group_id = strtol(optarg, NULL, 10);
+                filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_GROUP;
+                filter.data_group_id = strtol(optarg, NULL, 10);
+                break;
+            case 'A':
+            case 'N':
+                filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_STATUS;
+                filter.op_type = (ch == 'A' ? '=' : '!');
+                filter.status = FS_SERVER_STATUS_ACTIVE;
+                break;
+            case 'M':
+            case 'S':
+                filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_IS_MASTER;
+                filter.is_master = (ch == 'M');
                 break;
             default:
                 usage(argv);
@@ -124,7 +135,7 @@ int main(int argc, char *argv[])
     }
 
     if ((result=fs_cluster_stat(&g_fs_client_vars.client_ctx,
-                    data_group_id, stats, alloc_size, &count)) != 0)
+                    &filter, stats, alloc_size, &count)) != 0)
     {
         fprintf(stderr, "fs_cluster_stat fail, "
                 "errno: %d, error info: %s\n", result, STRERROR(result));

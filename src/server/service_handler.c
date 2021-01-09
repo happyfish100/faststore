@@ -240,48 +240,84 @@ static int service_deal_get_leader(struct fast_task_info *task)
 static int service_deal_cluster_stat(struct fast_task_info *task)
 {
     int result;
-    int data_group_id;
+    int status;
+    bool is_master;
+    FSClusterStatFilter filter;
+    FSProtoClusterStatReq *req;
     FSProtoClusterStatRespBodyHeader *body_header;
     FSProtoClusterStatRespBodyPart *part_start;
     FSProtoClusterStatRespBodyPart *body_part;
     FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gstart;
     FSClusterDataGroupInfo *gend;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *dend;
+    char *p;
     const FCAddressInfo *addr;
 
-    if ((result=server_check_max_body_length(task, 4)) != 0) {
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoClusterStatReq))) != 0)
+    {
         return result;
     }
 
-    if (REQUEST.header.body_len == 0) {
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups;
+    req = (FSProtoClusterStatReq *)REQUEST.body;
+    filter.filter_by = req->filter_by;
+    filter.op_type = req->op_type;
+    filter.status = req->status;
+    filter.is_master = req->is_master;
+    if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP) == 0) {
+        gstart = CLUSTER_DATA_RGOUP_ARRAY.groups;
         gend = CLUSTER_DATA_RGOUP_ARRAY.groups +
             CLUSTER_DATA_RGOUP_ARRAY.count;
-    } else if (REQUEST.header.body_len == 4) {
-        data_group_id = buff2int(REQUEST.body);
-        if ((group=fs_get_data_group(data_group_id)) == NULL) {
+    } else {
+        filter.filter_by &= ~FS_CLUSTER_STAT_FILTER_BY_GROUP;
+        filter.data_group_id = buff2int(req->data_group_id);
+        if ((gstart=fs_get_data_group(filter.data_group_id)) == NULL) {
             return ENOENT;
         }
-        gend = group + 1;
-    } else {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "invalid request body length: %d != 0 or 4",
-                REQUEST.header.body_len);
-        return EINVAL;
+        gend = gstart + 1;
     }
 
     body_header = (FSProtoClusterStatRespBodyHeader *)REQUEST.body;
-    part_start = (FSProtoClusterStatRespBodyPart *)(REQUEST.body +
-            sizeof(FSProtoClusterStatRespBodyHeader));
-    body_part = part_start;
+    p = (char *)(body_header + 1);
+    for (group=gstart; group<gend; group++) {
+        int2buff(group->id, p);
+        p += 4;
+    }
 
-    for (; group<gend; group++) {
+    part_start = (FSProtoClusterStatRespBodyPart *)p;
+    body_part = part_start;
+    for (group=gstart; group<gend; group++) {
         dend = group->data_server_array.servers +
             group->data_server_array.count;
-        for (ds=group->data_server_array.servers; ds<dend;
-                ds++, body_part++)
-        {
+        for (ds=group->data_server_array.servers; ds<dend; ds++) {
+            status = __sync_add_and_fetch(&ds->status, 0);
+            is_master = __sync_add_and_fetch(&ds->is_master, 0);
+            if (filter.filter_by > 0) {
+                if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_IS_MASTER)) {
+                    if (is_master != filter.is_master) {
+                        continue;
+                    }
+                }
+
+                if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_STATUS)) {
+                    if (filter.op_type == '=') {
+                        if (status != filter.status) {
+                            continue;
+                        }
+                    } else if (filter.op_type == '!') {
+                        if (status == filter.status) {
+                            continue;
+                        }
+                    } else {
+                        RESPONSE.error.length = sprintf(
+                                RESPONSE.error.message,
+                                "unkown op_type: %d", filter.op_type);
+                        return EINVAL;
+                    }
+                }
+            }
 
             addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
                         ds->cs->server), task->client_ip);
@@ -292,13 +328,15 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
                     "%s", addr->conn.ip_addr);
             short2buff(addr->conn.port, body_part->port);
             body_part->is_preseted = ds->is_preseted;
-            body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
-            body_part->status = __sync_add_and_fetch(&ds->status, 0);
+            body_part->is_master = is_master;
+            body_part->status = status;
             long2buff(ds->data.version, body_part->data_version);
+            body_part++;
         }
     }
 
-    int2buff(body_part - part_start, body_header->count);
+    int2buff(gend - gstart, body_header->dg_count);
+    int2buff(body_part - part_start, body_header->ds_count);
     RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;
     TASK_ARG->context.response_done = true;

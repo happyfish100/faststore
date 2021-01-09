@@ -60,8 +60,8 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
 }
 
 static int stat_data_group_by_addresses(FSClientContext *client_ctx,
-        const int data_group_id, FCAddressPtrArray *addr_ptr_array,
-        FSClientClusterStatEntry *stats, const int size, int *count)
+        const FSClusterStatFilter *filter, FCAddressPtrArray *addr_ptr_array,
+        FSIdArray *gid_array, FSClientClusterStatEntryArray *cs_array)
 {
     FCAddressInfo **addr;
     FCAddressInfo **end;
@@ -71,7 +71,7 @@ static int stat_data_group_by_addresses(FSClientContext *client_ctx,
     end = addr_ptr_array->addrs + addr_ptr_array->count;
     for (addr=addr_ptr_array->addrs; addr<end; addr++) {
         if ((result=fs_client_proto_cluster_stat(client_ctx, &(*addr)->conn,
-                        data_group_id, stats, size, count)) == 0)
+                        filter, gid_array, cs_array)) == 0)
         {
             break;
         }
@@ -81,23 +81,21 @@ static int stat_data_group_by_addresses(FSClientContext *client_ctx,
 }
 
 static int stat_data_group(FSClientContext *client_ctx,
-        const int data_group_id, const int only_this_group,
-        FSClientClusterStatEntry *stats, const int size, int *count)
+        const int data_group_id, const FSClusterStatFilter *filter,
+        FSIdArray *gid_array, FSClientClusterStatEntryArray *cs_array)
 {
     FSServerGroup *server_group;
     FCServerInfo **server;
-    int new_group_id;
     int index;
     int i;
     int result;
 
-    if ((server_group=fs_cluster_cfg_get_server_group(client_ctx->cluster_cfg.ptr,
-                    data_group_id - 1)) == NULL)
+    if ((server_group=fs_cluster_cfg_get_server_group(client_ctx->
+                    cluster_cfg.ptr, data_group_id - 1)) == NULL)
     {
         return ENOENT;
     }
 
-    new_group_id = only_this_group ? data_group_id : 0;
     result = ENOENT;
     for (i=0; i<server_group->server_array.count; i++) {
         if (i == 0) {
@@ -107,9 +105,9 @@ static int stat_data_group(FSClientContext *client_ctx,
                         (int64_t)rand()) / (int64_t)RAND_MAX);
         }
         server = server_group->server_array.servers + index;
-        if ((result=stat_data_group_by_addresses(client_ctx, new_group_id,
-                        &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, *server),
-                        stats, size, count)) == 0)
+        if ((result=stat_data_group_by_addresses(client_ctx, filter,
+                        &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx,
+                            *server), gid_array, cs_array)) == 0)
         {
             break;
         }
@@ -118,26 +116,48 @@ static int stat_data_group(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
-        FSClientClusterStatEntry *stats, const int size, int *count)
+int fs_cluster_stat(FSClientContext *client_ctx, const FSClusterStatFilter
+        *filter, FSClientClusterStatEntry *stats, const int size, int *count)
 {
 #define FIXED_DATA_GROUP_SIZE  1024
     int data_group_count;
     int fixed_ids[FIXED_DATA_GROUP_SIZE];
+    int fixed_gids[FIXED_DATA_GROUP_SIZE];
     int *ids;
-    FSClientClusterStatEntry *stat;
-    FSClientClusterStatEntry *end;
+    FSIdArray gid_array;
+    FSClientClusterStatEntryArray cs_array;
+    int *gid;
+    int *gid_end;
     int i;
-    int n;
     int bytes;
     int result;
 
-    if (data_group_id > 0) {
-        return stat_data_group(client_ctx, data_group_id, true,
-                stats, size, count);
+    data_group_count = FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr);
+    if (data_group_count <= FIXED_DATA_GROUP_SIZE) {
+        gid_array.ids = fixed_gids;
+        gid_array.alloc = FIXED_DATA_GROUP_SIZE;
+    } else {
+        bytes = sizeof(int) * data_group_count;
+        gid_array.ids = (int *)fc_malloc(bytes);
+        if (gid_array.ids == NULL) {
+            return ENOMEM;
+        }
+        gid_array.alloc = data_group_count;
     }
 
-    data_group_count = FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr);
+    cs_array.stats = stats;
+    cs_array.size = size;
+    if ((filter->filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP)) {
+        if ((result=stat_data_group(client_ctx, filter->data_group_id,
+                        filter, &gid_array, &cs_array)) == 0)
+        {
+            *count = cs_array.count;
+        } else {
+            *count = 0;
+        }
+        return result;
+    }
+
     if (data_group_count <= FIXED_DATA_GROUP_SIZE) {
         ids = fixed_ids;
     } else {
@@ -158,24 +178,27 @@ int fs_cluster_stat(FSClientContext *client_ctx, const int data_group_id,
             continue;
         }
 
-        stat = stats + *count;
-        if ((result=stat_data_group(client_ctx, i + 1, false,
-                        stat, size - *count, &n)) != 0)
+        cs_array.stats = stats + *count;
+        cs_array.size = size - *count;
+        if ((result=stat_data_group(client_ctx, i + 1, filter,
+                        &gid_array, &cs_array)) != 0)
         {
             break;
         }
 
-        end = stat + n;
-        while (stat < end) {
-            ids[stat->data_group_id - 1] = 0;
-            stat++;
+        gid_end = gid_array.ids + gid_array.count;
+        for (gid=gid_array.ids; gid<gid_end; gid++) {
+            ids[(*gid) - 1] = 0;
         }
 
-        *count += n;
+        *count += cs_array.count;
     }
 
     if (ids != fixed_ids) {
         free(ids);
+    }
+    if (gid_array.ids != fixed_gids) {
+        free(gid_array.ids);
     }
 
     return result;

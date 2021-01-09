@@ -27,7 +27,6 @@ void fs_proto_init()
 
 const char *fs_get_server_status_caption(const int status)
 {
-
     switch (status) {
         case FS_SERVER_STATUS_INIT:
             return "INIT";

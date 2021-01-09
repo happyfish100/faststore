@@ -43,6 +43,10 @@
 #define FS_SERVER_STATUS_ONLINE     4
 #define FS_SERVER_STATUS_ACTIVE     5
 
+#define FS_CLUSTER_STAT_FILTER_BY_GROUP           1
+#define FS_CLUSTER_STAT_FILTER_BY_STATUS          2
+#define FS_CLUSTER_STAT_FILTER_BY_IS_MASTER       4
+
 #define FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST    1
 
 #define FS_FILE_BLOCK_ALIGN(offset) \
@@ -77,6 +81,14 @@ typedef struct {
     int64_t success;
     int64_t ignore;
 } FSCounterTripple;
+
+typedef struct {
+    char filter_by;
+    char op_type;
+    char status;
+    char is_master;
+    int data_group_id;
+} FSClusterStatFilter;
 
 typedef SFSpaceStat FSClusterSpaceStat;
 

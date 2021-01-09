@@ -471,21 +471,24 @@ int fs_client_proto_get_leader(FSClientContext *client_ctx,
 }
 
 int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
-        const ConnectionInfo *spec_conn, const int data_group_id,
-        FSClientClusterStatEntry *stats, const int size, int *count)
+        const ConnectionInfo *spec_conn, const FSClusterStatFilter *filter,
+        FSIdArray *gid_array, FSClientClusterStatEntryArray *cs_array)
 {
     FSProtoHeader *header;
+    FSProtoClusterStatReq *req;
     FSProtoClusterStatRespBodyHeader *body_header;
     FSProtoClusterStatRespBodyPart *body_part;
     FSProtoClusterStatRespBodyPart *body_end;
     FSClientClusterStatEntry *stat;
     ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + 4];
-    char fixed_buff[8 * 1024];
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoClusterStatReq)];
+    char fixed_buff[16 * 1024];
     char *in_buff;
+    char *p;
+    int *gid;
+    int *gid_end;
     SFResponseInfo response;
     int result;
-    int out_bytes;
     int calc_size;
 
     if ((conn=client_ctx->conn_manager.get_spec_connection(
@@ -495,18 +498,18 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     }
 
     header = (FSProtoHeader *)out_buff;
-    if (data_group_id > 0) {
-        out_bytes = sizeof(FSProtoHeader) + 4;
-        int2buff(data_group_id, out_buff + sizeof(FSProtoHeader));
-    } else {
-        out_bytes = sizeof(FSProtoHeader);
-    }
+    req = (FSProtoClusterStatReq *)(header + 1);
+    req->filter_by = filter->filter_by;
+    req->op_type = filter->op_type;
+    req->status = filter->status;
+    req->is_master = filter->is_master;
+    int2buff(filter->data_group_id, req->data_group_id);
     SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_CLUSTER_STAT_REQ,
-            out_bytes - sizeof(FSProtoHeader));
+            sizeof(out_buff) - sizeof(FSProtoHeader));
 
     in_buff = fixed_buff;
     if ((result=sf_send_and_check_response_header(conn, out_buff,
-                    out_bytes, &response, client_ctx->network_timeout,
+                    sizeof(out_buff), &response, client_ctx->network_timeout,
                     FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
         if (response.header.body_len > sizeof(fixed_buff)) {
@@ -525,34 +528,48 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     }
 
     body_header = (FSProtoClusterStatRespBodyHeader *)in_buff;
-    body_part = (FSProtoClusterStatRespBodyPart *)(in_buff +
-            sizeof(FSProtoClusterStatRespBodyHeader));
     if (result == 0) {
-        *count = buff2int(body_header->count);
+        gid_array->count = buff2int(body_header->dg_count);
+        cs_array->count = buff2int(body_header->ds_count);
 
         calc_size = sizeof(FSProtoClusterStatRespBodyHeader) +
-            (*count) * sizeof(FSProtoClusterStatRespBodyPart);
+            gid_array->count * 4 + cs_array->count *
+            sizeof(FSProtoClusterStatRespBodyPart);
         if (calc_size != response.header.body_len) {
             response.error.length = sprintf(response.error.message,
                     "response body length: %d != calculate size: %d, "
-                    "server count: %d", response.header.body_len,
-                    calc_size, *count);
+                    "data group count: %d, server count: %d",
+                    response.header.body_len, calc_size,
+                    gid_array->count, cs_array->count);
             result = EINVAL;
-        } else if (size < *count) {
+        } else if (gid_array->alloc < gid_array->count) {
             response.error.length = sprintf(response.error.message,
-                    "entry size %d too small < %d", size, *count);
-            *count = 0;
+                    "group id array size %d too small < %d",
+                    gid_array->alloc, gid_array->count);
+            result = ENOSPC;
+        } else if (cs_array->size < cs_array->count) {
+            response.error.length = sprintf(response.error.message,
+                    "stat array size %d too small < %d",
+                    cs_array->size, cs_array->count);
             result = ENOSPC;
         }
-    } else {
-        *count = 0;
     }
 
     if (result != 0) {
+        gid_array->count = 0;
+        cs_array->count = 0;
         sf_log_network_error(&response, conn, result);
     } else {
-        body_end = body_part + (*count);
-        for (stat=stats; body_part<body_end; body_part++, stat++) {
+        p = (char *)(body_header + 1);
+        gid_end = gid_array->ids + gid_array->count;
+        for (gid=gid_array->ids; gid<gid_end; gid++) {
+            *gid = buff2int(p);
+            p += 4;
+        }
+
+        body_part = (FSProtoClusterStatRespBodyPart *)p;
+        body_end = body_part + cs_array->count;
+        for (stat=cs_array->stats; body_part<body_end; body_part++, stat++) {
             stat->data_group_id = buff2int(body_part->data_group_id);
             stat->server_id = buff2int(body_part->server_id);
             stat->is_preseted = body_part->is_preseted;

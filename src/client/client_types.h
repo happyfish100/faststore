@@ -84,6 +84,12 @@ typedef struct fs_client_cluster_stat_entry {
     int64_t data_version;
 } FSClientClusterStatEntry;
 
+typedef struct fs_client_cluster_stat_entry_array {
+    FSClientClusterStatEntry *stats;
+    int size;
+    int count;
+} FSClientClusterStatEntryArray;
+
 typedef struct fs_client_server_space_stat {
     int server_id;
     FSClusterSpaceStat stat;

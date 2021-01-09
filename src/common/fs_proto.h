@@ -192,9 +192,17 @@ typedef struct fs_proto_service_stat_resp {
 
 } FSProtoServiceStatResp;
 
+typedef struct fs_proto_cluster_stat_req {
+    char data_group_id[4];  //0 for all data groups
+    char filter_by;
+    char op_type;  //including =, !
+    char status;
+    char is_master;
+} FSProtoClusterStatReq;
+
 typedef struct fs_proto_cluster_stat_resp_body_header {
-    char count[4];
-    char padding[4];
+    char dg_count[4];  //data group count
+    char ds_count[4];  //data server count
 } FSProtoClusterStatRespBodyHeader;
 
 typedef struct fs_proto_cluster_stat_resp_body_part {
@@ -206,7 +214,7 @@ typedef struct fs_proto_cluster_stat_resp_body_part {
     char is_preseted;
     char is_master;
     char status;
-    char padding[4];
+    char padding[3];
 } FSProtoClusterStatRespBodyPart;
 
 typedef struct fs_proto_disk_space_stat_resp_body_header {
