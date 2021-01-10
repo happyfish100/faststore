@@ -196,7 +196,6 @@ int replication_caller_push_to_slave_queues(FSDataOperation *op)
     rpc->task = (struct fast_task_info *)op->arg;
     rpc->body_offset = op->ctx->info.body - rpc->task->data;
     rpc->body_length = op->ctx->info.body_len;
-    /* hash_code = FS_BLOCK_HASH_CODE(op->ctx->info.bs_key.block); */
     hash_code = op->ctx->info.data_group_id;
     result = push_to_slave_queues(group, hash_code, rpc, op);
     if (result != TASK_STATUS_CONTINUE) {

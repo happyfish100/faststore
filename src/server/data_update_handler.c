@@ -304,11 +304,11 @@ static void slave_data_update_done_notify(FSDataOperation *op)
         }
     }
 
+    op_buffer_ctx = fc_list_entry(op->ctx, FSSliceOpBufferContext, op_ctx);
     if (op->operation == DATA_OPERATION_SLICE_WRITE) {
-        op_buffer_ctx = fc_list_entry(op->ctx, FSSliceOpBufferContext, op_ctx);
         shared_buffer_release(op_buffer_ctx->buffer);
-        replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
     }
+    replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
     sf_release_task(task);
 }
 

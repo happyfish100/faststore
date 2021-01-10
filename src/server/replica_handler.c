@@ -605,8 +605,8 @@ static inline int replica_deal_active_test_req(struct fast_task_info *task)
     return sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
 }
 
-static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
-        const int count)
+static int handle_rpc_req(struct fast_task_info *task,
+        SharedBuffer *buffer, const int count)
 {
     FSProtoReplicaRPCReqBodyPart *body_part;
     FSSliceOpBufferContext *op_buffer_ctx;
@@ -646,18 +646,16 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             }
         }
 
-        if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
-            if ((op_buffer_ctx=replication_callee_alloc_op_buffer_ctx(
-                            SERVER_CTX)) == NULL)
-            {
-                return ENOMEM;
-            }
+        if ((op_buffer_ctx=replication_callee_alloc_op_buffer_ctx(
+                        SERVER_CTX)) == NULL)
+        {
+            return ENOMEM;
+        }
+        op_ctx = &op_buffer_ctx->op_ctx;
 
+        if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
             shared_buffer_hold(buffer);
             op_buffer_ctx->buffer = buffer;
-            op_ctx = &op_buffer_ctx->op_ctx;
-        } else {
-            op_ctx = &SLICE_OP_CTX;
         }
 
         op_ctx->info.source = BINLOG_SOURCE_RPC_SLAVE;
@@ -686,7 +684,8 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,
                         "unkown cmd: %d", body_part->cmd);
-                return EINVAL;
+                result = EINVAL;
+                break;
         }
 
         if (result != TASK_STATUS_CONTINUE) {
@@ -695,6 +694,15 @@ static int handle_rpc_req(struct fast_task_info *task, SharedBuffer *buffer,
             r = replication_callee_push_to_rpc_result_queue(
                     REPLICA_REPLICATION, op_ctx->info.data_group_id,
                     op_ctx->info.data_version, result);
+
+            if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
+                shared_buffer_release(op_buffer_ctx->buffer);
+            }
+            replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
+
+            if (result != 0) {
+                return result;
+            }
             if (r != 0) {
                 return r;
             }
