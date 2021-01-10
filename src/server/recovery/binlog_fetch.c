@@ -222,7 +222,7 @@ static int find_binlog_length(DataRecoveryContext *ctx,
                     "version: %"PRId64, __LINE__, ctx->ds->dg->id,
                     ctx->master->cs->server->id, fetch_ctx->wait_count,
                     last_data_version, fetch_ctx->until_version);
-            fc_sleep_ms(400);
+            fc_sleep_ms(500);
         } else {
             fetch_ctx->wait_count = 0;
         }
@@ -297,7 +297,10 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
         int log_level;
-        if (result == EAGAIN || result == EOVERFLOW) {
+        if (result == EOVERFLOW) {
+            result = EAGAIN;
+        }
+        if (result == EAGAIN) {
             log_level = last_retry ? LOG_WARNING : LOG_DEBUG;
         } else {
             log_level = LOG_ERR;
