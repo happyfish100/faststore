@@ -196,6 +196,7 @@ typedef struct fs_cluster_data_server_info {
     struct {
         volatile char in_progress;  //if recovery in progress
         int continuous_fail_count;
+        volatile uint64_t until_version;
     } recovery;
 
     struct {

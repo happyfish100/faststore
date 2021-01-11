@@ -658,6 +658,8 @@ static int handle_rpc_req(struct fast_task_info *task,
             op_buffer_ctx->buffer = buffer;
         }
 
+        op_ctx->info.deal_done = false;
+        op_ctx->info.is_update = true;
         op_ctx->info.source = BINLOG_SOURCE_RPC_SLAVE;
         op_ctx->info.data_version = buff2long(body_part->data_version);
         if (op_ctx->info.data_version <= 0) {
@@ -691,9 +693,13 @@ static int handle_rpc_req(struct fast_task_info *task,
         if (result != TASK_STATUS_CONTINUE) {
             int r;
 
-            r = replication_callee_push_to_rpc_result_queue(
-                    REPLICA_REPLICATION, op_ctx->info.data_group_id,
-                    op_ctx->info.data_version, result);
+            if (result == 0 && op_ctx->info.deal_done) {
+                r = replication_callee_push_to_rpc_result_queue(
+                        REPLICA_REPLICATION, op_ctx->info.data_group_id,
+                        op_ctx->info.data_version, result);
+            } else {
+                r = 0;
+            }
 
             if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
                 shared_buffer_release(op_buffer_ctx->buffer);
@@ -833,6 +839,8 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     bool direct_read;
     FSProtoReplicaSliceReadReq *req;
 
+    OP_CTX_INFO.deal_done = false;
+    OP_CTX_INFO.is_update = false;
     RESPONSE.header.cmd = FS_REPLICA_PROTO_SLICE_READ_RESP;
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoReplicaSliceReadReq))) != 0)

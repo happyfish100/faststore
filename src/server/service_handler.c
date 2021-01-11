@@ -123,6 +123,8 @@ static int service_deal_slice_read(struct fast_task_info *task)
     int result;
     FSProtoServiceSliceReadReq *req;
 
+    OP_CTX_INFO.deal_done = false;
+    OP_CTX_INFO.is_update = false;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
     if ((result=server_expect_body_length(task,
                     sizeof(FSProtoServiceSliceReadReq))) != 0)
@@ -377,8 +379,11 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
 }
 
 static int service_update_prepare_and_check(struct fast_task_info *task,
-        const int resp_cmd, bool *deal_done)
+        const int resp_cmd)
 {
+    OP_CTX_INFO.deal_done = false;
+    OP_CTX_INFO.is_update = true;
+
     if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
     {
@@ -401,11 +406,11 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
                 }
 
                 fast_mblock_free_object(request->allocator, request);
-                *deal_done = true;
+                OP_CTX_INFO.deal_done = true;
                 return result;
             }
         } else {
-            *deal_done = true;
+            OP_CTX_INFO.deal_done = true;
             if (result == SF_RETRIABLE_ERROR_CHANNEL_INVALID) {
                 TASK_ARG->context.log_level = LOG_DEBUG;
             }
@@ -427,18 +432,16 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     OP_CTX_INFO.data_version = 0;
     SLICE_OP_CTX.update.space_changed = 0;
 
-    *deal_done = false;
     return 0;
 }
 
 static inline int service_deal_slice_write(struct fast_task_info *task)
 {
     int result;
-    bool deal_done;
 
     result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_WRITE_RESP, &deal_done);
-    if (result != 0 || deal_done) {
+            FS_SERVICE_PROTO_SLICE_WRITE_RESP);
+    if (result != 0 || OP_CTX_INFO.deal_done) {
         return result;
     }
 
@@ -453,11 +456,10 @@ static inline int service_deal_slice_write(struct fast_task_info *task)
 static inline int service_deal_slice_allocate(struct fast_task_info *task)
 {
     int result;
-    bool deal_done;
 
     result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP, &deal_done);
-    if (result != 0 || deal_done) {
+            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
+    if (result != 0 || OP_CTX_INFO.deal_done) {
         return result;
     }
 
@@ -472,11 +474,10 @@ static inline int service_deal_slice_allocate(struct fast_task_info *task)
 static inline int service_deal_slice_delete(struct fast_task_info *task)
 {
     int result;
-    bool deal_done;
 
     result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_DELETE_RESP, &deal_done);
-    if (result != 0 || deal_done) {
+            FS_SERVICE_PROTO_SLICE_DELETE_RESP);
+    if (result != 0 || OP_CTX_INFO.deal_done) {
         return result;
     }
 
@@ -491,11 +492,10 @@ static inline int service_deal_slice_delete(struct fast_task_info *task)
 static inline int service_deal_block_delete(struct fast_task_info *task)
 {
     int result;
-    bool deal_done;
 
     result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_BLOCK_DELETE_RESP, &deal_done);
-    if (result != 0 || deal_done) {
+            FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
+    if (result != 0 || OP_CTX_INFO.deal_done) {
         return result;
     }
 

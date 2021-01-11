@@ -784,17 +784,6 @@ static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
         {
             recovery_thread_push_to_queue(ds);
         }
-    } else {
-        if (master->cs == CLUSTER_MYSELF_PTR) {  //i am master
-            if ((old_status == FS_SERVER_STATUS_ONLINE) ||
-                    (old_status == FS_SERVER_STATUS_OFFLINE &&
-                     new_status == FS_SERVER_STATUS_ACTIVE))
-            {
-                PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
-                pthread_cond_broadcast(&ds->replica.notify.cond);
-                PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
-            }
-        }
     }
 }
 

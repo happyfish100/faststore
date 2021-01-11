@@ -117,10 +117,12 @@ typedef struct fs_slice_op_context {
     int done_bytes;
 
     struct {
+        bool deal_done;  //for continue deal check
+        bool is_update;
         struct {
             bool log_replica;  //false for trunk reclaim
         } write_binlog;
-        short source;           //for binlog write
+        char source;           //for binlog write
         int data_group_id;
         uint64_t data_version;  //for replica binlog
         uint64_t sn;            //for slice binlog

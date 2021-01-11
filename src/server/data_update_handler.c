@@ -49,6 +49,36 @@
 #include "server_storage.h"
 #include "data_update_handler.h"
 
+static inline void wait_recovery_done(FSClusterDataServerInfo *ds,
+        FSSliceOpContext *op_ctx)
+{
+    int status;
+    int64_t until_version;
+
+    until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
+    if (op_ctx->info.data_version <= until_version) {
+        logInfo("file: "__FILE__", line: %d, "
+                "rpc data group id: %d, data version: %"PRId64" <= "
+                "until_version: %"PRId64", skipped", __LINE__,
+                op_ctx->info.data_group_id, op_ctx->info.data_version,
+                until_version);
+        op_ctx->info.deal_done = true;
+        return;
+    }
+
+    while (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ONLINE
+            && SF_G_CONTINUE_FLAG)
+    {
+        PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
+        status = __sync_fetch_and_add(&ds->status, 0);
+        if (status == FS_SERVER_STATUS_ONLINE) {
+            pthread_cond_wait(&ds->replica.notify.cond,
+                    &ds->replica.notify.lock);
+        }
+        PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+    }
+}
+
 static int parse_check_block_key_ex(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const FSProtoBlockKey *bkey,
         const bool master_only)
@@ -82,16 +112,35 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
             return SF_RETRIABLE_ERROR_NOT_MASTER;
         }
     } else {
-        if (op_ctx->info.myself->status != FS_SERVER_STATUS_ACTIVE) {
-            int status;
-            status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
-            if (status != FS_SERVER_STATUS_ACTIVE) {
-                RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                        "data group id: %d, i am NOT active, "
-                        "my status: %d (%s)", op_ctx->info.data_group_id,
-                        status, fs_get_server_status_caption(status));
-                return SF_RETRIABLE_ERROR_NOT_ACTIVE;
+        int status;
+        status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
+        if (op_ctx->info.is_update) {
+            while (SF_G_CONTINUE_FLAG) {
+                if (status == FS_SERVER_STATUS_ACTIVE) {
+                    break;
+                } else if (status == FS_SERVER_STATUS_ONLINE) {
+                    if (!__sync_add_and_fetch(&op_ctx->info.myself->
+                                recovery.in_progress, 0))
+                    {
+                        status = __sync_add_and_fetch(&op_ctx->
+                                info.myself->status, 0);
+                        break;
+                    }
+
+                    wait_recovery_done(op_ctx->info.myself, op_ctx);
+                } else {
+                    break;
+                }
+                status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
             }
+        }
+
+        if (!(status == FS_SERVER_STATUS_ACTIVE || op_ctx->info.deal_done)) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, i am NOT active or online, "
+                    "my status: %d (%s)", op_ctx->info.data_group_id,
+                    status, fs_get_server_status_caption(status));
+            return SF_RETRIABLE_ERROR_NOT_ACTIVE;
         }
     }
 
@@ -369,6 +418,10 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
 {
     int result;
     bool skipped;
+
+    if (op_ctx->info.deal_done) {
+        return 0;
+    }
 
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
         op_ctx->notify_func = master_data_update_done_notify;

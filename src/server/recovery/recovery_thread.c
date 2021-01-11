@@ -47,15 +47,86 @@ typedef struct {
 
 static RecoveryThreadContext recovery_thread_ctx;
 
-static void recovery_thread_run_task(void *arg, void *thread_data)
+static void data_recovery_do(FSClusterDataServerInfo *ds,
+        const int old_status)
 {
     int result;
+    int new_status;
+    int sleep_seconds;
+    bool recovery_again;
+
+    result = data_recovery_start(ds);
+    new_status = __sync_add_and_fetch(&ds->status, 0);
+    __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
+
+    if (result == 0) {
+        ds->recovery.continuous_fail_count = 0;
+        sleep_seconds = 0;
+        recovery_again = false;
+    } else {
+        ds->recovery.continuous_fail_count++;
+        if (new_status == FS_SERVER_STATUS_REBUILDING ||
+                new_status == FS_SERVER_STATUS_RECOVERING ||
+                new_status == FS_SERVER_STATUS_ONLINE)
+        {
+            if (cluster_relationship_swap_report_ds_status(ds,
+                        new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
+            {  //rollback status
+                logWarning("file: "__FILE__", line: %d, "
+                        "data group id: %d, data recovery continuous fail "
+                        "count: %d, result: %d, rollback my status from "
+                        "%d (%s) to %d (%s)", __LINE__, ds->dg->id, ds->
+                        recovery.continuous_fail_count, result, new_status,
+                        fs_get_server_status_caption(new_status),
+                        old_status, fs_get_server_status_caption(old_status));
+
+                if (ds->recovery.continuous_fail_count > 1) {
+                    sleep_seconds = 1;
+                } else {
+                    sleep_seconds = 0;
+                }
+                recovery_again = false;
+            } else {
+                sleep_seconds = 0;
+                recovery_again = true;
+            }
+        } else {
+            sleep_seconds = 0;
+            recovery_again = true;
+        }
+    }
+
+    PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
+    pthread_cond_signal(&ds->replica.notify.cond);
+    PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+
+    if (sleep_seconds > 0) {
+        sleep(sleep_seconds);
+    }
+    if (recovery_again) {
+        int status;
+        status = __sync_add_and_fetch(&ds->status, 0);
+        if (status == FS_SERVER_STATUS_INIT ||
+                status == FS_SERVER_STATUS_OFFLINE)
+        {
+            sleep(1);
+            recovery_thread_push_to_queue(ds);
+        }
+    }
+
+    logInfo("====file: "__FILE__", line: %d, func: %s, "
+            "do recovery, data group id: %d, result: %d, done status: %d, "
+            "current status: %d =====", __LINE__, __FUNCTION__, ds->dg->id,
+            result, new_status, __sync_add_and_fetch(&ds->status, 0));
+}
+
+static void recovery_thread_run_task(void *arg, void *thread_data)
+{
     int old_status;
     int new_status;
     FSClusterDataServerInfo *ds;
 
     ds = (FSClusterDataServerInfo *)arg;
-
     while (1) {
         old_status = __sync_fetch_and_add(&ds->status, 0);
         if (old_status == FS_SERVER_STATUS_INIT) {
@@ -95,60 +166,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
         return;
     }
 
-    result = data_recovery_start(ds);
-    new_status = __sync_add_and_fetch(&ds->status, 0);
-    __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
-
-    if (result == 0) {
-        ds->recovery.continuous_fail_count = 0;
-    } else {
-        bool recovery_again;
-
-        ds->recovery.continuous_fail_count++;
-        if (new_status == FS_SERVER_STATUS_REBUILDING ||
-                new_status == FS_SERVER_STATUS_RECOVERING ||
-                new_status == FS_SERVER_STATUS_ONLINE)
-        {
-            if (cluster_relationship_swap_report_ds_status(ds,
-                        new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
-            {  //rollback status
-                logWarning("file: "__FILE__", line: %d, "
-                        "data group id: %d, data recovery continuous fail "
-                        "count: %d, result: %d, rollback my status from "
-                        "%d (%s) to %d (%s)", __LINE__, ds->dg->id, ds->
-                        recovery.continuous_fail_count, result, new_status,
-                        fs_get_server_status_caption(new_status),
-                        old_status, fs_get_server_status_caption(old_status));
-
-                if (ds->recovery.continuous_fail_count > 1) {
-                    sleep(1);
-                }
-                recovery_again = false;
-            } else {
-                recovery_again = true;
-            }
-        } else {
-            recovery_again = true;
-        }
-
-        if (recovery_again) {
-            int status;
-            status = __sync_add_and_fetch(&ds->status, 0);
-            if (status == FS_SERVER_STATUS_INIT ||
-                    status == FS_SERVER_STATUS_OFFLINE)
-            {
-                sleep(1);
-                recovery_thread_push_to_queue(ds);
-            }
-        }
-    }
-
-    /*
-    logInfo("====file: "__FILE__", line: %d, func: %s, "
-            "do recovery, data group id: %d, result: %d, done status: %d, "
-            "current status: %d =====", __LINE__, __FUNCTION__, ds->dg->id,
-            result, new_status, __sync_add_and_fetch(&ds->status, 0));
-            */
+    data_recovery_do(ds, old_status);
 }
 
 static void recovery_thread_deal(FSClusterDataServerInfo *ds)
