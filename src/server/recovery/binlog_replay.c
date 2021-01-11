@@ -514,7 +514,7 @@ static int replay_output(DataRecoveryContext *ctx, const int err_no)
     long_to_comma_str(end_time - ctx->start_time, time_buff);
     logInfo("file: "__FILE__", line: %d, "
             "data group id: %d, last_data_version: %"PRId64", "
-            "data recovery %s, time used: %s ms. "
+            "data recovery %s, is_online: %d, time used: %s ms. "
             "all : {total : %"PRId64", success : %"PRId64", "
             "fail : %"PRId64", ignore : %"PRId64"}, "
             "write : {total : %"PRId64", success : %"PRId64", "
@@ -523,7 +523,7 @@ static int replay_output(DataRecoveryContext *ctx, const int err_no)
             "ignore : %"PRId64"}, "
             "remove: {total : %"PRId64", success : %"PRId64", "
             "ignore : %"PRId64"}", __LINE__, ctx->ds->dg->id,
-            ctx->fetch.last_data_version, prompt,
+            ctx->fetch.last_data_version, prompt, ctx->is_online,
             time_buff, total_count, success_count, fail_count, ignore_count,
             stat.write.total, stat.write.success, stat.write.ignore,
             stat.allocate.total, stat.allocate.success, stat.allocate.ignore,

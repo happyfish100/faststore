@@ -355,34 +355,21 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
             fetch_ctx->buffer->buff;
         fetch_ctx->until_version = buff2long(first_bheader->until_version);
-        ctx->is_online = first_bheader->is_online;
         if (ctx->is_online) {
-            int old_status;
-            old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
-            if (!(old_status == FS_SERVER_STATUS_REBUILDING ||
-                        old_status == FS_SERVER_STATUS_RECOVERING))
-            {
+            if (!first_bheader->is_online) {
+                int old_status;
+                old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
                 logError("file: "__FILE__", line: %d, "
-                        "data group id: %d, unexpect my status %d (%s)",
-                        __LINE__, ctx->ds->dg->id, old_status,
-                        fs_get_server_status_caption(old_status));
+                        "server %s:%u, data group id: %d, "
+                        "my status: %d (%s), unexpect is_online: %d",
+                        __LINE__, conn->ip_addr, conn->port, ctx->ds->dg->id,
+                        old_status, fs_get_server_status_caption(old_status),
+                        first_bheader->is_online);
                 return EBUSY;
             }
 
             FC_ATOMIC_SET(ctx->ds->recovery.until_version,
                     fetch_ctx->until_version);
-            if (!cluster_relationship_swap_report_ds_status(ctx->ds,
-                        old_status, FS_SERVER_STATUS_ONLINE,
-                        FS_EVENT_SOURCE_SELF_REPORT))
-            {
-                logError("file: "__FILE__", line: %d, "
-                        "data group id: %d, change my status from %d (%s) "
-                        "to %d (%s) fail", __LINE__, ctx->ds->dg->id,
-                        old_status, fs_get_server_status_caption(old_status),
-                        FS_SERVER_STATUS_ONLINE,
-                        fs_get_server_status_caption(FS_SERVER_STATUS_ONLINE));
-                return EBUSY;
-            }
         }
 
         logDebug("data group id: %d, is_online: %d, last_data_version: %"PRId64
@@ -464,7 +451,8 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
-                my_status == FS_SERVER_STATUS_RECOVERING))
+                my_status == FS_SERVER_STATUS_RECOVERING ||
+                (my_status == FS_SERVER_STATUS_ONLINE && ctx->is_online)))
         {
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, my status: %d (%s) "
@@ -554,6 +542,42 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
     return result;
 }
 
+static int check_online_me(DataRecoveryContext *ctx)
+{
+    int old_status;
+
+    ctx->is_online = (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH);
+    if (!ctx->is_online) {
+        return 0;
+    }
+
+    old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
+    if (!(old_status == FS_SERVER_STATUS_REBUILDING ||
+                old_status == FS_SERVER_STATUS_RECOVERING))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, unexpect my status %d (%s)",
+                __LINE__, ctx->ds->dg->id, old_status,
+                fs_get_server_status_caption(old_status));
+        return EBUSY;
+    }
+
+    if (!cluster_relationship_swap_report_ds_status(ctx->ds,
+                old_status, FS_SERVER_STATUS_ONLINE,
+                FS_EVENT_SOURCE_SELF_REPORT))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, change my status from %d (%s) "
+                "to %d (%s) fail", __LINE__, ctx->ds->dg->id,
+                old_status, fs_get_server_status_caption(old_status),
+                FS_SERVER_STATUS_ONLINE,
+                fs_get_server_status_caption(FS_SERVER_STATUS_ONLINE));
+        return EBUSY;
+    }
+
+    return 0;
+}
+
 int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
 {
     int result;
@@ -572,15 +596,24 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         return ENOMEM;
     }
 
-    if ((result=do_fetch_binlog(ctx)) == 0) {
+    do {
+        if ((result=check_online_me(ctx)) != 0) {
+            break;
+        }
+
+        if ((result=do_fetch_binlog(ctx)) != 0) {
+            break;
+        }
+
         if ((*binlog_size=lseek(fetch_ctx.fd, 0, SEEK_END)) < 0) {
             result = errno != 0 ? errno : EIO;
             logError("file: "__FILE__", line: %d, "
                     "lseek fetched binlog fail, data group id: %d, "
                     "errno: %d, error info: %s", __LINE__,
                     ctx->ds->dg->id, result, STRERROR(result));
+            break;
         }
-    }
+    } while (0);
 
     close(fetch_ctx.fd);
     shared_buffer_release(fetch_ctx.buffer);

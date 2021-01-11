@@ -183,7 +183,7 @@ static int check_peer_slave(struct fast_task_info *task,
 
 static int fetch_binlog_check_peer(struct fast_task_info *task,
         const int data_group_id, const int server_id,
-        FSClusterDataServerInfo **peer)
+        const int catch_up, FSClusterDataServerInfo **peer)
 {
     int status;
     int result;
@@ -196,15 +196,16 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
 
     status = __sync_add_and_fetch(&(*peer)->status, 0);
     if (!(status == FS_SERVER_STATUS_REBUILDING ||
-            status == FS_SERVER_STATUS_RECOVERING))
+            status == FS_SERVER_STATUS_RECOVERING ||
+            (status == FS_SERVER_STATUS_ONLINE && catch_up)))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d, "
                 "unexpect data server status: %d (%s), "
-                "expect status: %d or %d", data_group_id, server_id,
+                "expect status: %d, %d or %d", data_group_id, server_id,
                 status, fs_get_server_status_caption(status),
-                FS_SERVER_STATUS_REBUILDING,
-                FS_SERVER_STATUS_RECOVERING);
+                FS_SERVER_STATUS_REBUILDING, FS_SERVER_STATUS_RECOVERING,
+                FS_SERVER_STATUS_ONLINE);
         TASK_ARG->context.log_level = LOG_DEBUG;
         return EAGAIN;
     }
@@ -323,7 +324,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     if ((result=fetch_binlog_check_peer(task, data_group_id,
-                    server_id, &peer)) != 0)
+                    server_id, rheader->catch_up, &peer)) != 0)
     {
         return result;
     }
@@ -389,22 +390,28 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
-    if (rheader->catch_up || last_data_version == my_data_version) {
-        if (cluster_relationship_set_ds_status(peer,
-                    FS_SERVER_STATUS_ONLINE))
-        {
-            until_version = __sync_add_and_fetch(&myself->data.version, 0);
+    if (rheader->catch_up) {
+        int old_status;
+        old_status = __sync_add_and_fetch(&peer->status, 0);
+        if (old_status == FS_SERVER_STATUS_ONLINE) {
             is_online = true;
+        } else if (old_status == FS_SERVER_STATUS_REBUILDING ||
+                old_status == FS_SERVER_STATUS_RECOVERING)
+        {
+            is_online = cluster_relationship_set_ds_status_ex(peer,
+                    old_status, FS_SERVER_STATUS_ONLINE);
         } else {
-            until_version = 0;
             is_online = false;
         }
     } else {
-        until_version = 0;
         is_online = false;
     }
 
+    if (is_online) {
+        until_version = __sync_add_and_fetch(&myself->data.version, 0);
+    } else {
+        until_version = 0;
+    }
     return replica_fetch_binlog_first_output(task, is_online, until_version);
 }
 

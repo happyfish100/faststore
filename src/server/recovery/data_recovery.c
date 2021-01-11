@@ -533,6 +533,15 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     }
 
     if (ctx->is_online) {
+        if (ctx->fetch.last_data_version != __sync_fetch_and_add(
+                    &ctx->ds->recovery.until_version, 0))
+        {
+            logError("@@@@@@@@@@@file: "__FILE__", line: %d, "
+                "last_data_version: %"PRId64" != until data version: %"PRId64,
+                __LINE__, ctx->fetch.last_data_version, __sync_fetch_and_add(
+                    &ctx->ds->recovery.until_version, 0));
+        }
+
         if ((result=active_me(ctx)) != 0) {
             return result;
         }
