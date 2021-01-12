@@ -53,30 +53,41 @@ static inline void wait_recovery_done(FSClusterDataServerInfo *ds,
         FSSliceOpContext *op_ctx)
 {
     int status;
+    bool checked;
     int64_t until_version;
 
-    until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
-    if (op_ctx->info.data_version <= until_version) {
-        logInfo("file: "__FILE__", line: %d, "
-                "rpc data group id: %d, data version: %"PRId64" <= "
-                "until_version: %"PRId64", skipped", __LINE__,
+    do {
+        until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
+
+        logInfo("file: "__FILE__", line: %d, ====@@@@@"
+                "rpc data group id: %d, data version: %"PRId64", "
+                "until_version: %"PRId64"  @@@@@@", __LINE__,
                 op_ctx->info.data_group_id, op_ctx->info.data_version,
                 until_version);
-        op_ctx->info.deal_done = true;
-        return;
-    }
 
-    while (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ONLINE
-            && SF_G_CONTINUE_FLAG)
-    {
-        PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
-        status = __sync_fetch_and_add(&ds->status, 0);
-        if (status == FS_SERVER_STATUS_ONLINE) {
-            pthread_cond_wait(&ds->replica.notify.cond,
-                    &ds->replica.notify.lock);
+        checked = (until_version != 0);
+        if (checked && (op_ctx->info.data_version <= until_version)) {
+            logInfo("!!!!!!!!file: "__FILE__", line: %d, "
+                    "rpc data group id: %d, data version: %"PRId64" <= "
+                    "until_version: %"PRId64", skipped", __LINE__,
+                    op_ctx->info.data_group_id, op_ctx->info.data_version,
+                    until_version);
+            op_ctx->info.deal_done = true;
+            return;
         }
-        PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
-    }
+
+        while (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ONLINE
+                && SF_G_CONTINUE_FLAG)
+        {
+            PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
+            status = __sync_fetch_and_add(&ds->status, 0);
+            if (status == FS_SERVER_STATUS_ONLINE) {
+                pthread_cond_wait(&ds->replica.notify.cond,
+                        &ds->replica.notify.lock);
+            }
+            PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+        }
+    } while (!checked);
 }
 
 static int parse_check_block_key_ex(struct fast_task_info *task,
@@ -124,6 +135,12 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                     {
                         status = __sync_add_and_fetch(&op_ctx->
                                 info.myself->status, 0);
+
+                        logInfo("file: "__FILE__", line: %d, @@@@@===="
+                                "rpc data group id: %d, data version: %"PRId64", "
+                                "until_version: %"PRId64", status: %d  @@@@@@", __LINE__,
+                                op_ctx->info.data_group_id, op_ctx->info.data_version,
+                                __sync_add_and_fetch(&op_ctx->info.myself->recovery.until_version, 0), status);
                         break;
                     }
 
@@ -374,42 +391,29 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
 static inline int du_slave_check_data_version(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, bool *skipped)
 {
-    uint64_t data_version;
     uint64_t rpc_last_version;
 
     *skipped = false;
-    data_version = __sync_add_and_fetch(&op_ctx->info.
-            myself->data.version, 0);
-    if (op_ctx->info.data_version != data_version + 1) {
-        if (op_ctx->info.data_version <= data_version) {
+    rpc_last_version = __sync_fetch_and_add(&op_ctx->info.
+            myself->replica.rpc_last_version, 0);
+    if (op_ctx->info.data_version != rpc_last_version + 1) {
+        if (op_ctx->info.data_version <= rpc_last_version) {
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, rpc data version: %"PRId64
                     " <= current data version: %"PRId64", skip it!",
                     __LINE__, op_ctx->info.data_group_id,
-                    op_ctx->info.data_version, data_version);
+                    op_ctx->info.data_version, rpc_last_version);
             *skipped = true;
             return 0;
         }  else {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "rpc data version: %"PRId64" is too large, expect: %"
-                    PRId64, op_ctx->info.data_version, data_version);
+                    PRId64, op_ctx->info.data_version, rpc_last_version + 1);
             return EINVAL;
         }
     }
 
-    rpc_last_version = __sync_fetch_and_add(&op_ctx->info.
-            myself->replica.rpc_last_version, 0);
-    while (op_ctx->info.data_version > rpc_last_version) {
-        if (__sync_bool_compare_and_swap(&op_ctx->info.myself->
-                    replica.rpc_last_version, rpc_last_version,
-                    op_ctx->info.data_version))
-        {
-            break;
-        }
-        rpc_last_version = __sync_fetch_and_add(&op_ctx->info.
-                myself->replica.rpc_last_version, 0);
-    }
-
+    __sync_fetch_and_add(&op_ctx->info.myself->replica.rpc_last_version, 1);
     return 0;
 }
 

@@ -370,6 +370,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 
             FC_ATOMIC_SET(ctx->ds->recovery.until_version,
                     fetch_ctx->until_version);
+            data_recovery_notify_replication(ctx->ds);
         }
 
         logDebug("data group id: %d, is_online: %d, last_data_version: %"PRId64
@@ -562,6 +563,7 @@ static int check_online_me(DataRecoveryContext *ctx)
         return EBUSY;
     }
 
+    FC_ATOMIC_SET(ctx->ds->recovery.until_version, 0); //for hold RPC replication
     if (!cluster_relationship_swap_report_ds_status(ctx->ds,
                 old_status, FS_SERVER_STATUS_ONLINE,
                 FS_EVENT_SOURCE_SELF_REPORT))

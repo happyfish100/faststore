@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fastcommon/fc_atomic.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
 #include "../../common/fs_proto.h"
@@ -253,8 +254,6 @@ static int init_data_recovery_ctx(DataRecoveryContext *ctx,
     struct nio_thread_data *thread_data;
 
     ctx->ds = ds;
-    ctx->start_time = get_current_time_ms();
-
     if ((result=init_recovery_sub_path(ctx,
                     RECOVERY_BINLOG_SUBDIR_NAME_FETCH)) != 0)
     {
@@ -470,6 +469,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     int64_t binlog_size;
     int64_t start_time;
 
+    ctx->start_time = get_current_time_ms();
     start_time = 0;
     binlog_count = 0;
     result = 0;
@@ -645,6 +645,12 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (!ctx.is_online);
+
+
+    if (result == 0) {
+        FC_ATOMIC_SET(ds->replica.rpc_last_version,
+                ctx.fetch.last_data_version);
+    }
 
     destroy_data_recovery_ctx(&ctx);
     return result;

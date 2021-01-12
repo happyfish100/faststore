@@ -28,6 +28,13 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size);
 
 int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx);
 
+static inline void data_recovery_notify_replication(FSClusterDataServerInfo *ds)
+{
+    PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
+    pthread_cond_signal(&ds->replica.notify.cond);
+    PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+}
+
 #ifdef __cplusplus
 }
 #endif

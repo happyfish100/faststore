@@ -36,6 +36,7 @@
 #include "../server_group_info.h"
 #include "../cluster_relationship.h"
 #include "../server_storage.h"
+#include "binlog_fetch.h"
 #include "data_recovery.h"
 #include "recovery_thread.h"
 
@@ -96,9 +97,7 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
         }
     }
 
-    PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
-    pthread_cond_signal(&ds->replica.notify.cond);
-    PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
+    data_recovery_notify_replication(ds);
 
     if (sleep_seconds > 0) {
         sleep(sleep_seconds);
