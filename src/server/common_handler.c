@@ -102,10 +102,11 @@ int handler_deal_task_done(struct fast_task_info *task)
     {
         log_it_ex(&g_log_context, TASK_ARG->context.log_level,
                 "file: "__FILE__", line: %d, "
-                "peer %s:%u, cmd: %d (%s), req body length: %d, %s",
-                __LINE__, task->client_ip, task->port, REQUEST.header.cmd,
-                fs_get_cmd_caption(REQUEST.header.cmd),
-                REQUEST.header.body_len, RESPONSE.error.message);
+                "peer %s:%u, cmd: %d (%s), req body length: %d, "
+                "resp status: %d, %s", __LINE__, task->client_ip, task->port,
+                REQUEST.header.cmd, fs_get_cmd_caption(REQUEST.header.cmd),
+                REQUEST.header.body_len, RESPONSE_STATUS,
+                RESPONSE.error.message);
     }
 
     if (!TASK_ARG->context.need_response) {
@@ -124,7 +125,7 @@ int handler_deal_task_done(struct fast_task_info *task)
         if (FC_LOG_BY_LEVEL(log_level)) {
             log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
                     "client %s:%u, req cmd: %d (%s), req body_len: %d, "
-                    "status: %d, time used: %s us", __LINE__,
+                    "resp status: %d, time used: %s us", __LINE__,
                     task->client_ip, task->port, REQUEST.header.cmd,
                     fs_get_cmd_caption(REQUEST.header.cmd),
                     REQUEST.header.body_len, RESPONSE_STATUS,

@@ -546,7 +546,9 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
 
 static int check_online_me(DataRecoveryContext *ctx)
 {
+#define RETRY_TIMES  3
     int old_status;
+    int i;
 
     ctx->is_online = (ctx->catch_up == DATA_RECOVERY_CATCH_UP_LAST_BATCH);
     if (!ctx->is_online) {
@@ -562,6 +564,30 @@ static int check_online_me(DataRecoveryContext *ctx)
                 __LINE__, ctx->ds->dg->id, old_status,
                 fs_get_server_status_caption(old_status));
         return EBUSY;
+    }
+
+    for (i=0; i<RETRY_TIMES; i++) {
+        if (replication_channel_is_all_ready(ctx->master)) {
+            break;
+        }
+
+        sleep(1);
+    }
+
+    if (i > 0) {
+        char prompt[64];
+        int log_level;
+        if (i < RETRY_TIMES) {
+            strcpy(prompt, "success");
+            log_level = (i == 1 ? LOG_DEBUG : LOG_INFO);
+        } else {
+            strcpy(prompt, "timeout");
+            log_level = LOG_WARNING;
+        }
+        log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
+                "data group id: %d, wait replica channel of master id %d "
+                "ready %s, waiting count: %d", __LINE__, ctx->ds->dg->id,
+                ctx->master->cs->server->id, prompt, i);
     }
 
     FC_ATOMIC_SET(ctx->ds->recovery.until_version, 0); //for hold RPC replication

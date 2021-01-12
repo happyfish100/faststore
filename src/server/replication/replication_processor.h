@@ -69,6 +69,23 @@ static inline FSReplication *replication_channel_get(
         slave->cs->repl_ptr_array.count];
 }
 
+static inline bool replication_channel_is_all_ready(
+        FSClusterDataServerInfo *peer)
+{
+    FSReplication **repl;
+    FSReplication **end;
+
+    end = peer->cs->repl_ptr_array.replications +
+        peer->cs->repl_ptr_array.count;
+    for (repl=peer->cs->repl_ptr_array.replications; repl<end; repl++) {
+        if (!replication_channel_is_ready(*repl)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 static inline void set_replication_stage(FSReplication *
         replication, const int new_stage)
 {

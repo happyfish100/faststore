@@ -61,7 +61,7 @@ static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
         until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
         checked = (until_version != 0);
         if (checked && (op_ctx->info.data_version <= until_version)) {
-            logInfo("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "rpc data group id: %d, data version: %"PRId64" <= "
                     "until_version: %"PRId64", skipped", __LINE__,
                     op_ctx->info.data_group_id, op_ctx->info.data_version,
