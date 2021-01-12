@@ -49,31 +49,25 @@
 #include "server_storage.h"
 #include "data_update_handler.h"
 
-static inline void wait_recovery_done(FSClusterDataServerInfo *ds,
+static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
         FSSliceOpContext *op_ctx)
 {
     int status;
+    int i;
     bool checked;
     int64_t until_version;
 
-    do {
+    for (i=0; i<3; i++) {
         until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
-
-        logInfo("file: "__FILE__", line: %d, ====@@@@@"
-                "rpc data group id: %d, data version: %"PRId64", "
-                "until_version: %"PRId64"  @@@@@@", __LINE__,
-                op_ctx->info.data_group_id, op_ctx->info.data_version,
-                until_version);
-
         checked = (until_version != 0);
         if (checked && (op_ctx->info.data_version <= until_version)) {
-            logInfo("!!!!!!!!file: "__FILE__", line: %d, "
+            logInfo("file: "__FILE__", line: %d, "
                     "rpc data group id: %d, data version: %"PRId64" <= "
                     "until_version: %"PRId64", skipped", __LINE__,
                     op_ctx->info.data_group_id, op_ctx->info.data_version,
                     until_version);
             op_ctx->info.deal_done = true;
-            return;
+            return 0;
         }
 
         while (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ONLINE
@@ -87,7 +81,13 @@ static inline void wait_recovery_done(FSClusterDataServerInfo *ds,
             }
             PTHREAD_MUTEX_UNLOCK(&ds->replica.notify.lock);
         }
-    } while (!checked);
+
+        if (checked) {
+            break;
+        }
+    }
+
+    return EAGAIN;
 }
 
 static int parse_check_block_key_ex(struct fast_task_info *task,
@@ -136,15 +136,20 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                         status = __sync_add_and_fetch(&op_ctx->
                                 info.myself->status, 0);
 
-                        logInfo("file: "__FILE__", line: %d, @@@@@===="
-                                "rpc data group id: %d, data version: %"PRId64", "
-                                "until_version: %"PRId64", status: %d  @@@@@@", __LINE__,
-                                op_ctx->info.data_group_id, op_ctx->info.data_version,
-                                __sync_add_and_fetch(&op_ctx->info.myself->recovery.until_version, 0), status);
+                        logInfo("file: "__FILE__", line: %d, "
+                                "rpc data group id: %d, recovery in "
+                                "progress: 0, data version: %"PRId64", "
+                                "until_version: %"PRId64", status: %d",
+                                __LINE__, op_ctx->info.data_group_id,
+                                op_ctx->info.data_version,
+                                __sync_add_and_fetch(&op_ctx->info.myself->
+                                    recovery.until_version, 0), status);
                         break;
                     }
 
-                    wait_recovery_done(op_ctx->info.myself, op_ctx);
+                    if (wait_recovery_done(op_ctx->info.myself, op_ctx) == 0) {
+                        break;
+                    }
                 } else {
                     break;
                 }

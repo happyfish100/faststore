@@ -451,7 +451,7 @@ static void waiting_replay_threads_exit(DataRecoveryContext *ctx)
 
 static void replay_finish(DataRecoveryContext *ctx, const int err_no)
 {
-#define REPLAY_WAIT_TIMES  30
+#define REPLAY_WAIT_TIMES  300
     BinlogReplayContext *replay_ctx;
     ReplayStatInfo stat;
     int64_t total_count;
@@ -464,7 +464,7 @@ static void replay_finish(DataRecoveryContext *ctx, const int err_no)
             calc_replay_stat(replay_ctx, &stat);
             total_count = stat.write.total + stat.allocate.total +
                 stat.remove.total;
-            if (total_count == replay_ctx->total_count) {
+            if (total_count >= replay_ctx->total_count) {
                 break;
             }
         }
