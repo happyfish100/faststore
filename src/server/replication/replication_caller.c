@@ -120,11 +120,9 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     end = group->slave_ds_array.servers + group->slave_ds_array.count;
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
         status = __sync_fetch_and_add(&(*ds)->status, 0);
-        if (status == FS_SERVER_STATUS_ONLINE) {  //waiting for status change
+        if (status == FS_SERVER_STATUS_ONLINE) {
             log_data_update(op);  //log before RPC for slave fetching binlog
-        }
-
-        if (status != FS_SERVER_STATUS_ACTIVE) {
+        } else if (status != FS_SERVER_STATUS_ACTIVE) {
             inactive_count++;
             continue;
         }
@@ -134,9 +132,11 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
         if (!replication_channel_is_ready(replication)) {
             int64_t data_version;
 
-            cluster_relationship_swap_report_ds_status(*ds,
-                    FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE,
-                    FS_EVENT_SOURCE_MASTER_REPORT);
+            if (status == FS_SERVER_STATUS_ACTIVE) {
+                cluster_relationship_swap_report_ds_status(*ds,
+                        FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE,
+                        FS_EVENT_SOURCE_MASTER_REPORT);
+            }
             data_version = ((FSServerTaskArg *)rpc->task->arg)->
                 context.slice_op_ctx.info.data_version;
             logWarning("file: "__FILE__", line: %d, "
