@@ -324,9 +324,10 @@ typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
 
 typedef struct fs_proto_replia_fetch_binlog_first_resp_body_header {
     FSProtoReplicaFetchBinlogRespBodyHeader common;
-    char is_online;        //tell slave to ONLINE
+    char is_online;         //tell slave to ONLINE
     char padding[2];
-    char until_version[8];  // for catch up master (including)
+    char repl_version[4];   //master replication version for check
+    char until_version[8];  //for catch up master (including)
     char binlog[0];
 } FSProtoReplicaFetchBinlogFirstRespBodyHeader;
 
@@ -339,6 +340,7 @@ typedef struct fs_proto_replia_fetch_binlog_next_resp_body_header {
 typedef struct fs_proto_replia_active_confirm_req {
     char data_group_id[4];
     char server_id[4];
+    char repl_version[4];  //master replication version for check
 } FSProtoReplicaActiveConfirmReq;
 
 typedef struct fs_proto_replica_rpc_req_body_header {

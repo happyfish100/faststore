@@ -388,6 +388,7 @@ static int proto_active_confirm(ConnectionInfo *conn,
         (out_buff + sizeof(FSProtoHeader));
     int2buff(ctx->ds->dg->id, req->data_group_id);
     int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
+    int2buff(ctx->master_repl_version, req->repl_version);
     SF_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
             FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
             sizeof(FSProtoReplicaActiveConfirmReq));

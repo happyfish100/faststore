@@ -287,13 +287,14 @@ typedef struct fs_replication_context {
 typedef struct fs_replication {
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
-    volatile short stage;
+    volatile uint32_t version;  //for ds ONLINE to ACTIVE check
+    volatile char stage;
     bool is_free;
     bool is_client;
     volatile char reverse_hb; //if server send active test immediately
-    int thread_index; //for nio thread
-    int conn_index;
-    int last_net_comm_time;  //last network communication time
+    int thread_index;         //for nio thread
+    int conn_index;           //for connect failover
+    int last_net_comm_time;   //last network communication time
     struct {
         int start_time;
         int next_connect_time;

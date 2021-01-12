@@ -34,6 +34,7 @@ typedef struct data_recovery_context {
     FSClusterDataServerInfo *ds;
     int stage;
     int catch_up;
+    uint32_t master_repl_version;
     bool is_online;
     struct {
         uint64_t last_data_version;

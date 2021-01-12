@@ -354,6 +354,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
 
         first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
             fetch_ctx->buffer->buff;
+        ctx->master_repl_version = buff2int(first_bheader->repl_version);
         fetch_ctx->until_version = buff2long(first_bheader->until_version);
         if (ctx->is_online) {
             if (!first_bheader->is_online) {
