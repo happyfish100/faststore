@@ -501,7 +501,7 @@ static int binlog_repair_finish(const int data_group_id,
 
     /*
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "===== data_group_id: %d, rename_count: %d, end_binlog_index: %d",
+            "data_group_id: %d, rename_count: %d, end_binlog_index: %d",
             __LINE__, __FUNCTION__, data_group_id,
             rename_count, end_binlog_index);
             */

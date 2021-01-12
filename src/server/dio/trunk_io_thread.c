@@ -466,17 +466,6 @@ static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
         return result;
     }
 
-    /*
-    if (iob->slice->read_offset > 0) {
-        logInfo("==== file: "__FILE__", line: %d, "
-                "slice {offset: %d, length: %d}, "
-                "space {offset: %"PRId64", size: %"PRId64"}, read offset: %d ===",
-                __LINE__, iob->slice->ssize.offset, iob->slice->ssize.length,
-                iob->slice->space.offset, iob->slice->space.size,
-                iob->slice->read_offset);
-    }
-    */
-
     remain = iob->slice->ssize.length;
     while (remain > 0) {
         if ((bytes=pread(fd, iob->data.str + iob->data.len, remain,

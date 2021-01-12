@@ -480,7 +480,7 @@ static int init_cluster_server_array(const char *filename)
     }
 
     /*
-    logInfo("=====cluster server count: %d", count);
+    logInfo("cluster server count: %d", count);
     {
         FSClusterServerInfo *cs_end;
 

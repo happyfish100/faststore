@@ -628,7 +628,7 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
         }
 
         /*
-        logInfo("======= data group id: %d, stage: %d, catch_up: %d, "
+        logInfo("data group id: %d, stage: %d, catch_up: %d, "
                 "is_online: %d, last_data_version: %"PRId64,
                 ds->dg->id, ctx.stage, ctx.catch_up, ctx.is_online,
                 ctx.fetch.last_data_version);

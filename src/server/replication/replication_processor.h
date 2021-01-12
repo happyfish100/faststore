@@ -69,15 +69,6 @@ static inline FSReplication *replication_channel_get(
         slave->cs->repl_ptr_array.count];
 }
 
-//for master only
-static inline uint32_t replication_channel_get_version(
-        FSClusterDataServerInfo *slave)
-{
-    FSReplication *replication;
-    replication = replication_channel_get(slave);
-    return __sync_add_and_fetch(&replication->version, 0);
-}
-
 static inline void set_replication_stage(FSReplication *
         replication, const int new_stage)
 {
@@ -92,9 +83,6 @@ static inline void set_replication_stage(FSReplication *
                     old_stage, new_stage))
         {
             __sync_add_and_fetch(&replication->version, 1);
-            logInfo("====replication peer id: %d, stage: %d, version: %u",
-                    replication->peer->server->id, new_stage,
-                    __sync_add_and_fetch(&replication->version, 0));
             break;
         }
     }

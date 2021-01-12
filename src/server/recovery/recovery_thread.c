@@ -113,10 +113,12 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
         }
     }
 
-    logInfo("====file: "__FILE__", line: %d, func: %s, "
+    /*
+    logInfo("file: "__FILE__", line: %d, func: %s, "
             "do recovery, data group id: %d, result: %d, done status: %d, "
-            "current status: %d =====", __LINE__, __FUNCTION__, ds->dg->id,
+            "current status: %d", __LINE__, __FUNCTION__, ds->dg->id,
             result, new_status, __sync_add_and_fetch(&ds->status, 0));
+            */
 }
 
 static void recovery_thread_run_task(void *arg, void *thread_data)
