@@ -125,18 +125,15 @@ int fs_log_slice_write(FSSliceOpContext *op_ctx)
         }
     }
 
-    if (op_ctx->info.write_binlog.log_replica) {
-        if ((result=replica_binlog_log_write_slice(current_time,
-                        op_ctx->info.data_group_id, op_ctx->info.
-                        data_version, &op_ctx->info.bs_key,
-                        op_ctx->info.source)) != 0)
-        {
-            return result;
-        }
+    if (result == 0 && op_ctx->info.write_binlog.log_replica) {
+        result = replica_binlog_log_write_slice(current_time,
+                op_ctx->info.data_group_id, op_ctx->info.
+                data_version, &op_ctx->info.bs_key,
+                op_ctx->info.source);
     }
 
     free_slice_array(&op_ctx->update.sarray);
-    return 0;
+    return result;
 }
 
 void fs_write_finish(FSSliceOpContext *op_ctx)
@@ -237,6 +234,11 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     }
 
     if (result != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "alloc disk space %d bytes fail, "
+                "errno: %d, error info: %s",
+                __LINE__, bs_key->slice.length,
+                result, STRERROR(result));
         return result;
     }
 
@@ -294,18 +296,19 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     FSSliceSNPair *slice_sn_end;
     int result;
 
-    //TODO notify alloc fail
+    op_ctx->done_bytes = 0;
+    op_ctx->update.space_changed = 0;
     if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM,
                     op_ctx->update.sarray.slice_sn_pairs,
                     &op_ctx->update.sarray.count)) != 0)
     {
+        op_ctx->result = result;
+        op_ctx->rw_done_callback(op_ctx, op_ctx->arg);
         return result;
     }
 
     op_ctx->result = 0;
-    op_ctx->done_bytes = 0;
-    op_ctx->update.space_changed = 0;
     op_ctx->counter = op_ctx->update.sarray.count;
     if (op_ctx->update.sarray.count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,

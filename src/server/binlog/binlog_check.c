@@ -301,21 +301,14 @@ int binlog_compare_dg_version(const BinlogDataGroupVersion *p1,
 {
     int64_t sub;
 
-    sub = p1->data_group_id - p2->data_group_id;
+    sub = (int)p1->data_group_id - (int)p2->data_group_id;
     if (sub < 0) {
         return -1;
     } else if (sub > 0) {
         return 1;
     }
 
-    sub = p1->data_version - p2->data_version;
-    if (sub < 0) {
-        return -1;
-    } else if (sub == 0) {
-        return 0;
-    } else {
-        return 1;
-    }
+    return fc_compare_int64(p1->data_version, p2->data_version);
 }
 
 static inline void sort_version_array(BinlogDataGroupVersionArray *varray)
