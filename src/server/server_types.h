@@ -206,7 +206,6 @@ typedef struct fs_cluster_data_server_info {
 
     struct {
         uint64_t version;
-        pthread_mutex_t lock;
     } data;
 
     int64_t last_report_version; //for record last data version to the leader

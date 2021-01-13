@@ -27,23 +27,6 @@
 #include "storage_allocator.h"
 #include "slice_op.h"
 
-#define SLICE_OP_CHECK_LOCK(op_ctx) \
-    do { \
-        bool need_lock;  \
-        do {  \
-            need_lock = (op_ctx->info.data_version == 0 &&   \
-                    op_ctx->info.write_binlog.log_replica);  \
-            if (need_lock) {  \
-                PTHREAD_MUTEX_LOCK(&op_ctx->info.myself->data.lock); \
-            }  \
-        } while (0)
-
-#define SLICE_OP_CHECK_UNLOCK(op_ctx) \
-        if (need_lock) {  \
-            PTHREAD_MUTEX_UNLOCK(&op_ctx->info.myself->data.lock); \
-        } \
-    } while (0)
-
 static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
         const int capacity)
 {
@@ -148,7 +131,6 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
             break;
         }
 
-        SLICE_OP_CHECK_LOCK(op_ctx);
         slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
             op_ctx->update.sarray.count;
         for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
@@ -167,7 +149,6 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
         if (op_ctx->result == 0) {
             set_data_version(op_ctx);
         }
-        SLICE_OP_CHECK_UNLOCK(op_ctx);
     } while (0);
 
     if (op_ctx->result != 0) {
@@ -485,7 +466,6 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
 
     slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
         op_ctx->update.sarray.count;
-    SLICE_OP_CHECK_LOCK(op_ctx);
     for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
@@ -500,7 +480,6 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
     if (result == 0) {
         set_data_version(op_ctx);
     }
-    SLICE_OP_CHECK_UNLOCK(op_ctx);
 
     if (result != 0) {
         free_slice_array(&op_ctx->update.sarray);
@@ -649,14 +628,12 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
 {
     int result;
 
-    SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
         set_data_version(op_ctx);
     }
-    SLICE_OP_CHECK_UNLOCK(op_ctx);
 
     return result;
 }
@@ -687,14 +664,12 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
 {
     int result;
 
-    SLICE_OP_CHECK_LOCK(op_ctx);
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
         set_data_version(op_ctx);
     }
-    SLICE_OP_CHECK_UNLOCK(op_ctx);
 
     return result;
 }

@@ -135,9 +135,6 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
         }
         ds->is_preseted = (server_index == master_index);
 
-        if ((result=init_pthread_lock(&ds->data.lock)) != 0) {
-            return result;
-        }
         if ((result=init_pthread_lock_cond_pair(&ds->replica.notify)) != 0) {
             return result;
         }
