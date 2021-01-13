@@ -31,6 +31,7 @@
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
+#include "sf/sf_func.h"
 #include "server_global.h"
 #include "server_replication.h"
 #include "data_thread.h"
@@ -196,6 +197,68 @@ static void data_thread_rw_done_callback(
     data_thread_notify((FSDataThreadContext *)arg);
 }
 
+static void deal_operation_finish(FSDataThreadContext *thread_ctx,
+        FSDataOperation *op, const bool is_update)
+{
+    if (op->ctx->result != 0) {
+        if (is_update && op->source == DATA_SOURCE_SLAVE_REPLICA) {
+            logCrit("file: "__FILE__", line: %d, "
+                    "rpc update data fail, errno: %d, program terminate!",
+                    __LINE__, op->ctx->result);
+            sf_terminate_myself();
+        }
+    } else if (is_update) {
+        op->binlog_write_done = false;
+        if (op->source == DATA_SOURCE_MASTER_SERVICE) {
+            if (replication_caller_push_to_slave_queues(op) ==
+                    TASK_STATUS_CONTINUE)
+            {
+                DATA_THREAD_COND_WAIT(thread_ctx);
+            }
+        }
+
+        log_data_update(op);
+
+        if (SLOW_LOG_CFG.enabled) {
+            char buff[256];
+            int blen;
+
+            blen = sprintf(buff, "file: "__FILE__", line: %d, op ptr: %p, "
+                    "operation: %d, log_replica: %d, source: %c, "
+                    "data_group_id: %d, data_version: %"PRId64", "
+                    "block {oid: %"PRId64", offset: %"PRId64"}, "
+                    "slice {offset: %d, length: %d}, "
+                    "body_len: %d", __LINE__, op, op->operation,
+                    op->ctx->info.write_binlog.log_replica,
+                    op->ctx->info.source, op->ctx->info.data_group_id,
+                    op->ctx->info.data_version,
+                    op->ctx->info.bs_key.block.oid,
+                    op->ctx->info.bs_key.block.offset,
+                    op->ctx->info.bs_key.slice.offset,
+                    op->ctx->info.bs_key.slice.length,
+                    op->ctx->info.body_len);
+
+            log_it_ex2(&SLOW_LOG_CTX, NULL, buff, blen, false, true);
+        }
+
+        /*
+           logInfo("file: "__FILE__", line: %d, op ptr: %p, "
+           "operation: %d, log_replica: %d, source: %c, "
+           "data_group_id: %d, data_version: %"PRId64", "
+           "block {oid: %"PRId64", offset: %"PRId64"}, "
+           "slice {offset: %d, length: %d}, "
+           "body_len: %d", __LINE__, op, op->operation,
+           op->ctx->info.write_binlog.log_replica,
+           op->ctx->info.source, op->ctx->info.data_group_id,
+           op->ctx->info.data_version, op->ctx->info.bs_key.block.oid,
+           op->ctx->info.bs_key.block.offset,
+           op->ctx->info.bs_key.slice.offset,
+           op->ctx->info.bs_key.slice.length,
+           op->ctx->info.body_len);
+         */
+    }
+}
+
 static void deal_one_operation(FSDataThreadContext *thread_ctx,
         FSDataOperation *op)
 {
@@ -243,57 +306,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             break;
     }
 
-    if (op->ctx->result == 0 && is_update) {
-        op->binlog_write_done = false;
-        if (op->source == DATA_SOURCE_MASTER_SERVICE) {
-            if ((result=replication_caller_push_to_slave_queues(op)) ==
-                    TASK_STATUS_CONTINUE)
-            {
-                DATA_THREAD_COND_WAIT(thread_ctx);
-            }
-        }
-
-        log_data_update(op);
-
-        if (SLOW_LOG_CFG.enabled) {
-            char buff[256];
-            int blen;
-
-            blen = sprintf(buff, "file: "__FILE__", line: %d, op ptr: %p, "
-                    "operation: %d, log_replica: %d, source: %c, "
-                    "data_group_id: %d, data_version: %"PRId64", "
-                    "block {oid: %"PRId64", offset: %"PRId64"}, "
-                    "slice {offset: %d, length: %d}, "
-                    "body_len: %d", __LINE__, op, op->operation,
-                    op->ctx->info.write_binlog.log_replica,
-                    op->ctx->info.source, op->ctx->info.data_group_id,
-                    op->ctx->info.data_version,
-                    op->ctx->info.bs_key.block.oid,
-                    op->ctx->info.bs_key.block.offset,
-                    op->ctx->info.bs_key.slice.offset,
-                    op->ctx->info.bs_key.slice.length,
-                    op->ctx->info.body_len);
-
-            log_it_ex2(&SLOW_LOG_CTX, NULL, buff, blen, false, true);
-        }
-
-        /*
-        logInfo("file: "__FILE__", line: %d, op ptr: %p, "
-                "operation: %d, log_replica: %d, source: %c, "
-                "data_group_id: %d, data_version: %"PRId64", "
-                "block {oid: %"PRId64", offset: %"PRId64"}, "
-                "slice {offset: %d, length: %d}, "
-                "body_len: %d", __LINE__, op, op->operation,
-                op->ctx->info.write_binlog.log_replica,
-                op->ctx->info.source, op->ctx->info.data_group_id,
-                op->ctx->info.data_version, op->ctx->info.bs_key.block.oid,
-                op->ctx->info.bs_key.block.offset,
-                op->ctx->info.bs_key.slice.offset,
-                op->ctx->info.bs_key.slice.length,
-                op->ctx->info.body_len);
-                */
-    }
-
+    deal_operation_finish(thread_ctx, op, is_update);
     op->ctx->notify_func(op);
 }
 
