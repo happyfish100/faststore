@@ -422,7 +422,7 @@ int trunk_prealloc_init()
     {
         return result;
     }
-    prealloc_ctx.task_allocator.exceed_log_level = LOG_NOTHING;
+    prealloc_ctx.task_allocator.alloc_elements.exceed_log_level = LOG_NOTHING;
 
     if ((result=init_pthread_lock_cond_pair(&prealloc_ctx.lcp)) != 0) {
         return result;

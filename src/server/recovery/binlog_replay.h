@@ -27,6 +27,10 @@ extern "C" {
 int binlog_replay_init();
 void binlog_replay_destroy();
 
+DataReplayTaskAllocatorInfo *binlog_replay_get_task_allocator();
+
+void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai);
+
 int data_recovery_replay_binlog(DataRecoveryContext *ctx);
 
 int data_recovery_unlink_replay_binlog(DataRecoveryContext *ctx);

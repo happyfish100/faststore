@@ -23,11 +23,22 @@
 #include <pthread.h>
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/common_blocked_queue.h"
+#include "fastcommon/fast_mblock.h"
 #include "../server_types.h"
 #include "../binlog/binlog_reader.h"
 
 #define RECOVERY_BINLOG_SUBDIR_NAME_FETCH   "fetch"
 #define RECOVERY_BINLOG_SUBDIR_NAME_REPLAY  "replay"
+
+typedef struct data_replay_task_allocator_info {
+    volatile int used;
+    struct fast_mblock_man task_allocator;  //element: ReplayTaskInfo
+} DataReplayTaskAllocatorInfo;
+
+typedef struct data_replay_task_allocator_array {
+    int count;
+    DataReplayTaskAllocatorInfo *allocators;
+} DataReplayTaskAllocatorArray;
 
 typedef struct data_recovery_context {
     int64_t start_time;   //in ms
@@ -42,6 +53,7 @@ typedef struct data_recovery_context {
     } fetch;
     FSServerContext *server_ctx;
     FSClusterDataServerInfo *master;
+    DataReplayTaskAllocatorInfo *tallocator_info;
     void *arg;
 } DataRecoveryContext;
 

@@ -267,11 +267,24 @@ static int init_data_recovery_ctx(DataRecoveryContext *ctx,
 
     thread_data = sf_get_random_thread_data_ex(&REPLICA_SF_CTX);
     ctx->server_ctx = (FSServerContext *)thread_data->arg;
-    return data_recovery_load_sys_data(ctx);
+    if ((result=data_recovery_load_sys_data(ctx)) != 0) {
+        return result;
+    }
+
+    if ((ctx->tallocator_info=binlog_replay_get_task_allocator()) == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "get_task_allocator fail", __LINE__);
+        return ENOSPC;
+    }
+
+    return 0;
 }
 
 static void destroy_data_recovery_ctx(DataRecoveryContext *ctx)
 {
+    if (ctx->tallocator_info != NULL) {
+        binlog_replay_release_task_allocator(ctx->tallocator_info);
+    }
 }
 
 static int waiting_binlog_write_done(DataRecoveryContext *ctx,
@@ -534,15 +547,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     }
 
     if (ctx->is_online) {
-        if (ctx->fetch.last_data_version != __sync_fetch_and_add(
-                    &ctx->ds->recovery.until_version, 0))
-        {
-            logError("@@@@@@@@@@@file: "__FILE__", line: %d, "
-                "last_data_version: %"PRId64" != until data version: %"PRId64,
-                __LINE__, ctx->fetch.last_data_version, __sync_fetch_and_add(
-                    &ctx->ds->recovery.until_version, 0));
-        }
-
         if ((result=active_me(ctx)) != 0) {
             return result;
         }
@@ -646,7 +650,6 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
 
         ctx.stage = DATA_RECOVERY_STAGE_FETCH;
     } while (!ctx.is_online);
-
 
     if (result == 0) {
         FC_ATOMIC_SET(ds->replica.rpc_last_version,

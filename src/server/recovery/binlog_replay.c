@@ -50,7 +50,9 @@ struct replay_thread_context;
 typedef struct replay_task_info {
     int op_type;
     FSSliceOpContext op_ctx;
+    char *buff;   //buffer for slice write
     struct replay_thread_context *thread_ctx;
+    struct fast_mblock_man *allocator;    //for free
     struct replay_task_info *next;
 } ReplayTaskInfo;
 
@@ -92,7 +94,12 @@ typedef struct binlog_replay_context {
     DataRecoveryContext *recovery_ctx;
 } BinlogReplayContext;
 
-static FCThreadPool replay_thread_pool;
+typedef struct binlog_replay_global_vars {
+    FCThreadPool thread_pool;
+    DataReplayTaskAllocatorArray allocator_array;
+} BinlogReplayGlobalVars;
+
+static BinlogReplayGlobalVars replay_global_vars;
 
 static void *alloc_thread_extra_data_func()
 {
@@ -102,6 +109,70 @@ static void *alloc_thread_extra_data_func()
 static void free_thread_extra_data_func(void *ptr)
 {
     free(ptr);
+}
+
+int replay_task_alloc_init(void *element, void *args)
+{
+    ReplayTaskInfo *task;
+    task = (ReplayTaskInfo *)element;
+    task->allocator = (struct fast_mblock_man *)args;
+    task->buff = (char *)(task + 1);
+    return 0;
+}
+
+static int init_task_allocator_array(DataReplayTaskAllocatorArray
+        *allocator_array, const int count, const int elements_limit)
+{
+    const bool need_wait = true;
+    int result;
+    DataReplayTaskAllocatorInfo *ai;
+    DataReplayTaskAllocatorInfo *end;
+    int element_size;
+
+    allocator_array->allocators = (DataReplayTaskAllocatorInfo *)
+        fc_malloc(sizeof(DataReplayTaskAllocatorInfo) * count);
+    if (allocator_array->allocators == NULL) {
+        return ENOMEM;
+    }
+
+    element_size = sizeof(ReplayTaskInfo) + FS_FILE_BLOCK_SIZE;
+    end = allocator_array->allocators + count;
+    for (ai=allocator_array->allocators; ai<end; ai++) {
+        if ((result=fast_mblock_init_ex1(&ai->task_allocator, "replay_task",
+                        element_size, 8, elements_limit, replay_task_alloc_init,
+                        &ai->task_allocator, true)) != 0)
+        {
+            return result;
+        }
+
+        ai->used = 0;
+        fast_mblock_set_need_wait(&ai->task_allocator,
+                need_wait, (bool *)&SF_G_CONTINUE_FLAG);
+    }
+
+    allocator_array->count = count;
+    return 0;
+}
+
+DataReplayTaskAllocatorInfo *binlog_replay_get_task_allocator()
+{
+    DataReplayTaskAllocatorInfo *ai;
+    DataReplayTaskAllocatorInfo *end;
+
+    end = replay_global_vars.allocator_array.allocators +
+        replay_global_vars.allocator_array.count;
+    for (ai=replay_global_vars.allocator_array.allocators; ai<end; ai++) {
+        if (__sync_bool_compare_and_swap(&ai->used, 0, 1)) {
+            return ai;
+        }
+    }
+
+    return NULL;
+}
+
+void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai)
+{
+    __sync_bool_compare_and_swap(&ai->used, 1, 0);
 }
 
 int binlog_replay_init()
@@ -115,10 +186,17 @@ int binlog_replay_init()
     limit = DATA_RECOVERY_THREADS_LIMIT * RECOVERY_THREADS_PER_DATA_GROUP;
     extra_data_callbacks.alloc = alloc_thread_extra_data_func;
     extra_data_callbacks.free = free_thread_extra_data_func;
-    if ((result=fc_thread_pool_init_ex(&replay_thread_pool, "binlog replay",
-                    limit, SF_G_THREAD_STACK_SIZE, max_idle_time,
-                    min_idle_count, (bool *)&SF_G_CONTINUE_FLAG,
+    if ((result=fc_thread_pool_init_ex(&replay_global_vars.thread_pool,
+                    "binlog replay", limit, SF_G_THREAD_STACK_SIZE,
+                    max_idle_time, min_idle_count, (bool *)&SF_G_CONTINUE_FLAG,
                     &extra_data_callbacks)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=init_task_allocator_array(&replay_global_vars.
+                    allocator_array, DATA_RECOVERY_THREADS_LIMIT,
+                    RECOVERY_THREADS_PER_DATA_GROUP * 2)) != 0)
     {
         return result;
     }
@@ -714,7 +792,7 @@ static int int_replay_context(DataRecoveryContext *ctx)
             break;
         }
 
-        if ((result=fc_thread_pool_run(&replay_thread_pool,
+        if ((result=fc_thread_pool_run(&replay_global_vars.thread_pool,
                         binlog_replay_run, context)) != 0)
         {
             break;
