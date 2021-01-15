@@ -42,11 +42,17 @@ typedef struct data_replay_task_allocator_array {
 
 typedef struct data_recovery_context {
     int64_t start_time;   //in ms
+    struct {
+        int64_t fetch;
+        int64_t dedup;
+        int64_t replay;
+    } time_used;   //in ms
     FSClusterDataServerInfo *ds;
-    int stage;
-    int catch_up;
-    uint32_t master_repl_version;
+    char stage;
+    char catch_up;
     bool is_online;
+    int loop_count;  //recovery loop count
+    uint32_t master_repl_version;
     struct {
         uint64_t last_data_version;
         FSBlockKey last_bkey;

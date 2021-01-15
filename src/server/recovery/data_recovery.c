@@ -288,7 +288,7 @@ static void destroy_data_recovery_ctx(DataRecoveryContext *ctx)
 }
 
 static int waiting_binlog_write_done(DataRecoveryContext *ctx,
-        const uint64_t waiting_data_version)
+        const uint64_t waiting_data_version, const char *caption)
 {
 #define MAX_WAITING_COUNT  50
     int result;
@@ -339,9 +339,9 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx,
     }
 
     log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
-            "data group id: %d, waiting data version: %"PRId64", "
+            "data group id: %d, waiting %s data version: %"PRId64", "
             "waiting binlog write done %s", __LINE__, ctx->ds->dg->id,
-            waiting_data_version, prompt);
+            caption, waiting_data_version, prompt);
     return result;
 }
 
@@ -361,7 +361,7 @@ static int waiting_replay_binlog_write_done(DataRecoveryContext *ctx)
         return result;
     }
 
-    return waiting_binlog_write_done(ctx, last_data_version);
+    return waiting_binlog_write_done(ctx, last_data_version, "last");
 }
 
 static int replica_binlog_log_padding(DataRecoveryContext *ctx)
@@ -379,7 +379,7 @@ static int replica_binlog_log_padding(DataRecoveryContext *ctx)
         {
             __sync_fetch_and_add(&ctx->ds->data.version, 1);
             result = waiting_binlog_write_done(ctx,
-                    ctx->fetch.last_data_version);
+                    ctx->fetch.last_data_version, "padding");
         }
     } else {
         result = 0;
@@ -482,6 +482,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     int64_t binlog_count;
     int64_t binlog_size;
     int64_t start_time;
+    int64_t dedup_start_time;
 
     ctx->start_time = get_current_time_ms();
     start_time = 0;
@@ -493,6 +494,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             if ((result=data_recovery_fetch_binlog(ctx, &binlog_size)) != 0) {
                 break;
             }
+            ctx->time_used.fetch = get_current_time_ms() - start_time;
 
             /*
             logInfo("data group id: %d, last_data_version: %"PRId64", "
@@ -509,9 +511,11 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 break;
             }
         case DATA_RECOVERY_STAGE_DEDUP:
+            dedup_start_time = get_current_time_ms();
             if ((result=data_recovery_dedup_binlog(ctx, &binlog_count)) != 0) {
                 break;
             }
+            ctx->time_used.dedup = get_current_time_ms() - dedup_start_time;
 
             if (binlog_count == 0) {  //no binlog to replay
                 result = replica_binlog_log_padding(ctx);
@@ -627,6 +631,7 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
             break;
         }
 
+        ctx.loop_count++;
         if ((result=do_data_recovery(&ctx)) != 0) {
             break;
         }

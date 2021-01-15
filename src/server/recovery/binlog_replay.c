@@ -77,6 +77,7 @@ typedef struct dispatch_thread_context {
     struct {
         volatile int fetch_data_count;
     } notify;
+    volatile int64_t replay_total_count;
 } DispatchThreadContext;
 
 typedef struct fetch_data_thread_context {
@@ -97,7 +98,9 @@ typedef struct replay_thread_context {
 
 typedef struct binlog_replay_context {
     volatile int continue_flag;
+    int64_t start_time;
     int64_t total_count;
+    int64_t start_data_version;
     volatile int64_t fail_count;
     BinlogReadThreadContext rdthread_ctx;
     BinlogReadThreadResult *r;
@@ -385,16 +388,70 @@ static int clear_task_queue(BinlogReplayContext *replay_ctx,
     return count;
 }
 
+static int task_dispatch(BinlogReplayContext *replay_ctx,
+        ReplayTaskInfo **tasks, const int count)
+{
+    FetchDataThreadContext *fetch_thread;
+    ReplayTaskInfo **ppt;
+    ReplayTaskInfo **end;
+    int write_count;
+
+    end = tasks + count;
+    if (!FC_ATOMIC_GET(replay_ctx->continue_flag)) {
+        for (ppt=tasks; ppt<end; ppt++) {
+            fast_mblock_free_object(&replay_ctx->recovery_ctx->
+                    tallocator_info->allocator, *ppt);
+        }
+        return EINTR;
+    }
+
+    write_count = 0;
+    for (ppt=tasks; ppt<end; ppt++) {
+        if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
+            ++write_count;
+        }
+    }
+
+    if (write_count > 0) {
+        FC_ATOMIC_INC_EX(replay_ctx->dispatch_thread.notify.
+                fetch_data_count, write_count);
+        for (ppt=tasks; ppt<end; ppt++) {
+            if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
+                fetch_thread = replay_ctx->thread_env.contexts + (ppt - tasks);
+                fc_queue_push(&fetch_thread->queue, *ppt);
+            }
+        }
+
+        PTHREAD_MUTEX_LOCK(&replay_ctx->dispatch_thread.common.lcp.lock);
+        while (FC_ATOMIC_GET(replay_ctx->dispatch_thread.
+                    notify.fetch_data_count) > 0)
+        {
+            pthread_cond_wait(&replay_ctx->dispatch_thread.common.lcp.cond,
+                    &replay_ctx->dispatch_thread.common.lcp.lock);
+        }
+        PTHREAD_MUTEX_UNLOCK(&replay_ctx->dispatch_thread.common.lcp.lock);
+    }
+
+    if (!FC_ATOMIC_GET(replay_ctx->continue_flag)) {
+        for (ppt=tasks; ppt<end; ppt++) {
+            fast_mblock_free_object(&replay_ctx->recovery_ctx->
+                    tallocator_info->allocator, *ppt);
+        }
+        return EINTR;
+    }
+
+    for (ppt=tasks; ppt<end; ppt++) {
+        fc_queue_push(&replay_ctx->replay_thread.common.queue, *ppt);
+    }
+
+    return 0;
+}
+
 static void task_dispatch_run(void *arg, void *thread_data)
 {
     BinlogReplayContext *replay_ctx;
     DispatchThreadContext *dispatch_thread;
-    FetchDataThreadContext *fetch_thread;
     ReplayTaskInfo *tasks[FS_MAX_RECOVERY_THREADS_PER_DATA_GROUP];
-    ReplayTaskInfo **ppt;
-    ReplayTaskInfo **end;
-    int64_t replay_total_count;
-    int write_count;
     int remain_count;
     int count;
     int i;
@@ -403,7 +460,6 @@ static void task_dispatch_run(void *arg, void *thread_data)
     dispatch_thread = &replay_ctx->dispatch_thread;
 
     FC_ATOMIC_SET(dispatch_thread->common.stage, FS_THREAD_STAGE_RUNNING);
-    replay_total_count = 0;
     while (FC_ATOMIC_GET(replay_ctx->continue_flag)) {
         for (count=0; count<RECOVERY_THREADS_PER_DATA_GROUP; count++) {
             if ((tasks[count]=(ReplayTaskInfo *)fc_queue_pop(
@@ -417,56 +473,10 @@ static void task_dispatch_run(void *arg, void *thread_data)
             continue;
         }
 
+        if (task_dispatch(replay_ctx, tasks, count) == 0) {
+            FC_ATOMIC_INC_EX(dispatch_thread->replay_total_count, count);
+        }
         dispatch_thread->common.total_count += count;
-        end = tasks + count;
-        if (!FC_ATOMIC_GET(replay_ctx->continue_flag)) {
-            for (ppt=tasks; ppt<end; ppt++) {
-                fast_mblock_free_object(&replay_ctx->recovery_ctx->
-                        tallocator_info->allocator, *ppt);
-            }
-            break;
-        }
-
-        write_count = 0;
-        for (ppt=tasks; ppt<end; ppt++) {
-            if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
-                ++write_count;
-            }
-        }
-
-        if (write_count > 0) {
-            FC_ATOMIC_INC_EX(dispatch_thread->notify.
-                    fetch_data_count, write_count);
-            for (ppt=tasks; ppt<end; ppt++) {
-                if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
-                    fetch_thread = replay_ctx->thread_env.contexts +
-                        (ppt - tasks);
-                    fc_queue_push(&fetch_thread->queue, *ppt);
-                }
-            }
-
-            PTHREAD_MUTEX_LOCK(&dispatch_thread->common.lcp.lock);
-            while (FC_ATOMIC_GET(dispatch_thread->notify.
-                        fetch_data_count) > 0)
-            {
-                pthread_cond_wait(&dispatch_thread->common.lcp.cond,
-                        &dispatch_thread->common.lcp.lock);
-            }
-            PTHREAD_MUTEX_UNLOCK(&dispatch_thread->common.lcp.lock);
-        }
-
-        if (!FC_ATOMIC_GET(replay_ctx->continue_flag)) {
-            for (ppt=tasks; ppt<end; ppt++) {
-                fast_mblock_free_object(&replay_ctx->recovery_ctx->
-                        tallocator_info->allocator, *ppt);
-            }
-            break;
-        }
-
-        replay_total_count += count;
-        for (ppt=tasks; ppt<end; ppt++) {
-            fc_queue_push(&replay_ctx->replay_thread.common.queue, *ppt);
-        }
     }
 
     FC_ATOMIC_SET(dispatch_thread->common.stage, FS_THREAD_STAGE_CLEANUP);
@@ -480,20 +490,6 @@ static void task_dispatch_run(void *arg, void *thread_data)
         }
     }
 
-    i = 0;
-    while (replay_total_count > replay_ctx->
-            replay_thread.common.total_count)
-    {
-        fc_sleep_ms(10);
-        ++i;
-    }
-
-    if (i > 0) {
-        logInfo("file: "__FILE__", line: %d, "
-                "data group id: %d, waiting replay thread "
-                "time count: %d", __LINE__, replay_ctx->
-                recovery_ctx->ds->dg->id, i);
-    }
     FC_ATOMIC_SET(dispatch_thread->common.stage, FS_THREAD_STAGE_FINISHED);
 }
 
@@ -534,10 +530,11 @@ static void fetch_data_run(void *arg, void *thread_data)
         {
             if (read_bytes != task->op_ctx.info.bs_key.slice.length) {
                 logWarning("file: "__FILE__", line: %d, "
-                        "oid: %"PRId64", block offset: %"PRId64", "
-                        "slice offset: %d, length: %d, "
-                        "read bytes: %d != slice length, "
+                        "data group id: %d, block {oid: %"PRId64", "
+                        "offset: %"PRId64"}, slice {offset: %d, "
+                        "length: %d}, read bytes: %d != slice length, "
                         "maybe delete later?", __LINE__,
+                        thread_ctx->replay_ctx->recovery_ctx->ds->dg->id,
                         task->op_ctx.info.bs_key.block.oid,
                         task->op_ctx.info.bs_key.block.offset,
                         task->op_ctx.info.bs_key.slice.offset,
@@ -547,14 +544,26 @@ static void fetch_data_run(void *arg, void *thread_data)
             }
         } else if (task->op_ctx.result == ENODATA) {
             logWarning("file: "__FILE__", line: %d, "
-                    "oid: %"PRId64", block offset: %"PRId64", "
-                    "slice offset: %d, length: %d, slice not exist, "
+                    "data group id: %d, block {oid: %"PRId64", "
+                    "offset: %"PRId64"}, slice {offset: %d, "
+                    "length: %d}, slice not exist, "
                     "maybe delete later?", __LINE__,
+                    thread_ctx->replay_ctx->recovery_ctx->ds->dg->id,
                     task->op_ctx.info.bs_key.block.oid,
                     task->op_ctx.info.bs_key.block.offset,
                     task->op_ctx.info.bs_key.slice.offset,
                     task->op_ctx.info.bs_key.slice.length);
         } else {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, block {oid: %"PRId64", "
+                    "offset: %"PRId64"}, slice {offset: %d, length: %d}, "
+                    "fetch data fail, errno: %d, error info: %s", __LINE__,
+                    thread_ctx->replay_ctx->recovery_ctx->ds->dg->id,
+                    task->op_ctx.info.bs_key.block.oid,
+                    task->op_ctx.info.bs_key.block.offset,
+                    task->op_ctx.info.bs_key.slice.offset,
+                    task->op_ctx.info.bs_key.slice.length,
+                    task->op_ctx.result, STRERROR(task->op_ctx.result));
             binlog_replay_fail(thread_ctx->replay_ctx);
         }
 
@@ -568,6 +577,62 @@ static void fetch_data_run(void *arg, void *thread_data)
     FC_ATOMIC_DEC(thread_ctx->running);
 }
 
+static void replay_output(BinlogReplayContext *replay_ctx)
+{
+    DataRecoveryContext *ctx;
+    ReplayStatInfo *stat;
+    char prompt[32];
+    char total_tm_buff[32];
+    char fetch_tm_buff[32];
+    char dedup_tm_buff[32];
+    char replay_tm_buff[32];
+    int64_t total_count;
+    int64_t success_count;
+    int64_t fail_count;
+    int64_t ignore_count;
+
+    ctx = replay_ctx->recovery_ctx;
+    stat = &replay_ctx->replay_thread.stat;
+    total_count = stat->write.total + stat->allocate.total + stat->remove.total;
+    success_count = stat->write.success + stat->allocate.success +
+        stat->remove.success;
+    fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
+    ignore_count = stat->write.ignore + stat->remove.ignore;
+
+    if (fail_count == 0) {
+        strcpy(prompt, "success");
+    } else {
+        strcpy(prompt, "fail");
+    }
+
+    ctx->time_used.replay  = get_current_time_ms() - replay_ctx->start_time;
+    long_to_comma_str(get_current_time_ms() - ctx->start_time, total_tm_buff);
+    long_to_comma_str(ctx->time_used.fetch, fetch_tm_buff);
+    long_to_comma_str(ctx->time_used.dedup, dedup_tm_buff);
+    long_to_comma_str(ctx->time_used.replay, replay_tm_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, loop_count: %d, start_data_version: %"
+            PRId64", last_data_version: %"PRId64", until_version: %"
+            PRId64", data recovery %s, is_online: %d. "
+            "all : {total : %"PRId64", success : %"PRId64", "
+            "fail : %"PRId64", ignore : %"PRId64"}, "
+            "write : {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "allocate: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, "
+            "remove: {total : %"PRId64", success : %"PRId64", "
+            "ignore : %"PRId64"}, total time used: %s ms {fetch: %s ms, "
+            "dedup: %s ms, replay: %s ms}", __LINE__,
+            ctx->ds->dg->id, ctx->loop_count, replay_ctx->start_data_version,
+            ctx->fetch.last_data_version, __sync_fetch_and_add(&ctx->
+                ds->recovery.until_version, 0), prompt, ctx->is_online,
+            total_count, success_count, fail_count, ignore_count,
+            stat->write.total, stat->write.success, stat->write.ignore,
+            stat->allocate.total, stat->allocate.success, stat->allocate.ignore,
+            stat->remove.total, stat->remove.success, stat->remove.ignore,
+            total_tm_buff, fetch_tm_buff, dedup_tm_buff, replay_tm_buff);
+}
+
 static void binlog_replay_run(void *arg, void *thread_data)
 {
     BinlogReplayContext *replay_ctx;
@@ -578,7 +643,6 @@ static void binlog_replay_run(void *arg, void *thread_data)
 
     replay_ctx = (BinlogReplayContext *)arg;
     thread_ctx = &replay_ctx->replay_thread;
-
     FC_ATOMIC_SET(thread_ctx->common.stage, FS_THREAD_STAGE_RUNNING);
     while (FC_ATOMIC_GET(replay_ctx->continue_flag)) {
         if ((task=(ReplayTaskInfo *)fc_queue_pop(
@@ -603,7 +667,11 @@ static void binlog_replay_run(void *arg, void *thread_data)
     }
 
     remain_count = clear_task_queue(replay_ctx, &thread_ctx->common.queue);
-    thread_ctx->common.total_count += remain_count;
+    if (remain_count > 0) {
+        thread_ctx->common.total_count += remain_count;
+    }
+
+    replay_output(replay_ctx);
     FC_ATOMIC_SET(thread_ctx->common.stage, FS_THREAD_STAGE_FINISHED);
 }
 
@@ -641,6 +709,10 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
                         &replay_ctx->record, error_info)) != 0)
         {
             break;
+        }
+
+        if (replay_ctx->start_data_version == 0) {
+            replay_ctx->start_data_version = replay_ctx->record.data_version;
         }
 
         if (replay_ctx->record.bs_key.slice.length >
@@ -712,12 +784,15 @@ static void waiting_thread_exit(BinlogReplayContext *replay_ctx,
     while ((stage=FC_ATOMIC_GET(common_ctx->stage)) !=
             FS_THREAD_STAGE_FINISHED)
     {
-        logInfo("data group id: %d, %dth waiting %s thread exit, "
-                "stage: %d, fetch_data_count: %d ...", replay_ctx->
-                recovery_ctx->ds->dg->id, ++count, caption, stage,
-                FC_ATOMIC_GET(replay_ctx->dispatch_thread.notify.fetch_data_count));
+        if (FC_LOG_BY_LEVEL(LOG_DEBUG) && count % 10 == 0) {
+            logDebug("data group id: %d, %dth waiting %s thread exit, "
+                    "stage: %d, fetch_data_count: %d ...", replay_ctx->
+                    recovery_ctx->ds->dg->id, ++count, caption, stage,
+                    FC_ATOMIC_GET(replay_ctx->dispatch_thread.
+                        notify.fetch_data_count));
+        }
 
-        fc_sleep_ms(100);
+        fc_sleep_ms(10);
     }
 }
 
@@ -740,6 +815,7 @@ static void replay_finish(DataRecoveryContext *ctx)
 {
 #define REPLAY_WAIT_TIMES  300
     BinlogReplayContext *replay_ctx;
+    int64_t replay_total_count;
     int sub;
     int i;
 
@@ -751,12 +827,12 @@ static void replay_finish(DataRecoveryContext *ctx)
         if (sub <= RECOVERY_THREADS_PER_DATA_GROUP) {
             fc_queue_terminate(&replay_ctx->dispatch_thread.common.queue);
         }
-        fc_sleep_ms(100);
+        fc_sleep_ms(20);
         ++i;
     }
 
-    if (i > 0) {
-        logInfo("file: "__FILE__", line: %d, "
+    if (i > 3000) {
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, waiting dispatch thread time count: %d, "
                 "input record count: %"PRId64", current deal "
                 "count: %"PRId64, __LINE__, ctx->ds->dg->id, i,
@@ -764,61 +840,24 @@ static void replay_finish(DataRecoveryContext *ctx)
                 dispatch_thread.common.total_count);
     }
 
-    waiting_work_threads_exit(ctx);
-}
-
-static int replay_output(DataRecoveryContext *ctx, const int err_no)
-{
-    BinlogReplayContext *replay_ctx;
-    ReplayStatInfo *stat;
-    char prompt[32];
-    char time_buff[32];
-    int64_t end_time;
-    int64_t total_count;
-    int64_t success_count;
-    int64_t fail_count;
-    int64_t ignore_count;
-    int result;
-
-    replay_ctx = (BinlogReplayContext *)ctx->arg;
-    stat = &replay_ctx->replay_thread.stat;
-    total_count = stat->write.total + stat->allocate.total + stat->remove.total;
-    success_count = stat->write.success + stat->allocate.success +
-        stat->remove.success;
-    fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
-    ignore_count = stat->write.ignore + stat->remove.ignore;
-
-    result = fail_count == 0 ? err_no : EBUSY;
-    if (result == 0) {
-        strcpy(prompt, "success");
-    } else {
-        strcpy(prompt, "fail");
+    replay_total_count = FC_ATOMIC_GET(replay_ctx->
+            dispatch_thread.replay_total_count);
+    i = 0;
+    while (replay_ctx->replay_thread.common.total_count <
+            replay_total_count)
+    {
+        fc_sleep_ms(10);
+        ++i;
     }
 
-    end_time = get_current_time_ms();
-    long_to_comma_str(end_time - ctx->start_time, time_buff);
-    logInfo("file: "__FILE__", line: %d, "
-            "data group id: %d, last_data_version: %"PRId64", "
-            "until_version: %"PRId64", "
-            "data recovery %s, is_online: %d. "
-            "all : {total : %"PRId64", success : %"PRId64", "
-            "fail : %"PRId64", ignore : %"PRId64"}, "
-            "write : {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}, "
-            "allocate: {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}, "
-            "remove: {total : %"PRId64", success : %"PRId64", "
-            "ignore : %"PRId64"}, time used: %s ms", __LINE__,
-            ctx->ds->dg->id, ctx->fetch.last_data_version,
-            __sync_fetch_and_add(&ctx->ds->recovery.until_version, 0),
-            prompt, ctx->is_online,
-            total_count, success_count, fail_count, ignore_count,
-            stat->write.total, stat->write.success, stat->write.ignore,
-            stat->allocate.total, stat->allocate.success, stat->allocate.ignore,
-            stat->remove.total, stat->remove.success, stat->remove.ignore,
-            time_buff);
+    if (i > 100) {
+        logInfo("file: "__FILE__", line: %d, "
+                "data group id: %d, waiting replay thread "
+                "time count: %d", __LINE__, replay_ctx->
+                recovery_ctx->ds->dg->id, i);
+    }
 
-    return result;
+    waiting_work_threads_exit(ctx);
 }
 
 static int do_replay_binlog(DataRecoveryContext *ctx)
@@ -900,7 +939,11 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
         binlog_replay_fail(replay_ctx);
     }
     replay_finish(ctx);
-    return replay_output(ctx, result);
+
+    if (result == 0 && __sync_add_and_fetch(&replay_ctx->fail_count, 0) > 0) {
+        return EBUSY;
+    }
+    return result;
 }
 
 static int init_common_thread_ctx(CommonThreadContext *common_ctx)
@@ -1031,6 +1074,7 @@ int data_recovery_replay_binlog(DataRecoveryContext *ctx)
     ctx->arg = &replay_ctx;
     memset(&replay_ctx, 0, sizeof(replay_ctx));
     replay_ctx.recovery_ctx = ctx;
+    replay_ctx.start_time = get_current_time_ms();
 
     if ((result=int_replay_context(ctx)) != 0) {
         return result;
