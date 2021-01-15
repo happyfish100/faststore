@@ -272,6 +272,7 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
 int server_load_config(const char *filename)
 {
     IniContext ini_context;
+    IniFullContext full_ini_ctx;
     int result;
 
     if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
@@ -309,55 +310,37 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    DATA_THREAD_COUNT = iniGetIntValue(NULL, "data_threads",
-            &ini_context, FS_DEFAULT_DATA_THREAD_COUNT);
-    if (DATA_THREAD_COUNT < FS_MIN_DATA_THREAD_COUNT) {
-        logWarning("file: "__FILE__", line: %d, "
-                "config file: %s , data_threads: %d is too small, "
-                "set it to %d", __LINE__, filename, DATA_THREAD_COUNT,
-                FS_MIN_DATA_THREAD_COUNT);
-        DATA_THREAD_COUNT = FS_MIN_DATA_THREAD_COUNT;
-    }
+    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
 
-    REPLICA_CHANNELS_BETWEEN_TWO_SERVERS = iniGetIntValue(NULL,
-            "replica_channels_between_two_servers",
-            &ini_context, FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
-    if (REPLICA_CHANNELS_BETWEEN_TWO_SERVERS <= 0) {
-        REPLICA_CHANNELS_BETWEEN_TWO_SERVERS =
-            FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS;
-    }
+    DATA_THREAD_COUNT = iniGetIntCorrectValue(&full_ini_ctx,
+            "data_threads", FS_DEFAULT_DATA_THREAD_COUNT,
+            FS_MIN_DATA_THREAD_COUNT, FS_MAX_DATA_THREAD_COUNT);
 
-    RECOVERY_THREADS_PER_DATA_GROUP = iniGetIntValue(NULL,
-            "recovery_threads_per_data_group", &ini_context,
-            FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP);
-    if (RECOVERY_THREADS_PER_DATA_GROUP <= 0) {
-        RECOVERY_THREADS_PER_DATA_GROUP =
-            FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP;
-    }
+    REPLICA_CHANNELS_BETWEEN_TWO_SERVERS = iniGetIntCorrectValue(
+            &full_ini_ctx, "replica_channels_between_two_servers",
+            FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            FS_MIN_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            FS_MAX_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
 
-    RECOVERY_MAX_QUEUE_DEPTH = iniGetIntValue(NULL,
-            "recovery_max_queue_depth", &ini_context,
-            FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH);
-    if (RECOVERY_MAX_QUEUE_DEPTH <= 0) {
-        RECOVERY_MAX_QUEUE_DEPTH =
-            FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH;
-    }
+    RECOVERY_THREADS_PER_DATA_GROUP = iniGetIntCorrectValue(&full_ini_ctx,
+            "recovery_threads_per_data_group",
+            FS_DEFAULT_RECOVERY_THREADS_PER_DATA_GROUP,
+            FS_MIN_RECOVERY_THREADS_PER_DATA_GROUP,
+            FS_MAX_RECOVERY_THREADS_PER_DATA_GROUP);
+
+    RECOVERY_MAX_QUEUE_DEPTH = iniGetIntCorrectValue(&full_ini_ctx,
+            "recovery_max_queue_depth", FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH,
+            FS_MIN_RECOVERY_MAX_QUEUE_DEPTH, FS_MAX_RECOVERY_MAX_QUEUE_DEPTH);
 
     LOCAL_BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
             "local_binlog_check_last_seconds", &ini_context,
             FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS);
 
-    SLAVE_BINLOG_CHECK_LAST_ROWS = iniGetIntValue(NULL,
-            "slave_binlog_check_last_rows", &ini_context,
-            FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS);
-    if (SLAVE_BINLOG_CHECK_LAST_ROWS > FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS) {
-        logWarning("file: "__FILE__", line: %d, "
-                "config file: %s , slave_binlog_check_last_rows: %d "
-                "is too large, set it to %d", __LINE__, filename,
-                SLAVE_BINLOG_CHECK_LAST_ROWS,
-                FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
-        SLAVE_BINLOG_CHECK_LAST_ROWS = FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS;
-    }
+    SLAVE_BINLOG_CHECK_LAST_ROWS = iniGetIntCorrectValue(
+            &full_ini_ctx, "slave_binlog_check_last_rows",
+            FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS,
+            FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS,
+            FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {
         return result;

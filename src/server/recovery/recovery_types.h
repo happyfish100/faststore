@@ -32,7 +32,7 @@
 
 typedef struct data_replay_task_allocator_info {
     volatile int used;
-    struct fast_mblock_man task_allocator;  //element: ReplayTaskInfo
+    struct fast_mblock_man allocator;  //element: ReplayTaskInfo
 } DataReplayTaskAllocatorInfo;
 
 typedef struct data_replay_task_allocator_array {
