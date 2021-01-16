@@ -179,7 +179,7 @@ typedef struct fs_cluster_server_info {
     FSReplicationPtrArray repl_ptr_array;
     FSClusterTopologyNotifyContext notify_ctx;
     FSClusterDataServerPtrArray ds_ptr_array;
-    bool is_leader;
+    bool is_leader;      //for hint
     bool is_partner;     //if my partner
     volatile int active; //for push topology change notify
     int server_index;    //for offset

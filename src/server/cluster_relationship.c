@@ -41,7 +41,8 @@
 
 typedef struct fs_cluster_server_status {
     FSClusterServerInfo *cs;
-    bool is_leader;
+    char is_leader;
+    char leader_hint;
     int server_id;
     int up_time;
     int last_shutdown_time;
@@ -108,6 +109,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
 
     req = (FSProtoGetServerStatusReq *)(out_buff + sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
+    req->is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR ? 1 : 0);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
@@ -124,6 +126,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
 
     resp = (FSProtoGetServerStatusResp *)in_body;
     server_status->is_leader = resp->is_leader;
+    server_status->leader_hint = resp->leader_hint;
     server_status->server_id = buff2int(resp->server_id);
     server_status->up_time = buff2int(resp->up_time);
     server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
@@ -215,26 +218,29 @@ static void leader_deal_data_version_changes()
 
 static int cluster_cmp_server_status(const void *p1, const void *p2)
 {
-	FSClusterServerStatus *status1;
-	FSClusterServerStatus *status2;
+    FSClusterServerStatus *status1;
+    FSClusterServerStatus *status2;
     int restart_interval1;
     int restart_interval2;
-	int sub;
+    int64_t sub;
 
-	status1 = (FSClusterServerStatus *)p1;
-	status2 = (FSClusterServerStatus *)p2;
-	if (status1->version < status2->version) {
-        return -1;
-    } else if (status1->version > status2->version) {
-        return 1;
-	}
+    status1 = (FSClusterServerStatus *)p1;
+    status2 = (FSClusterServerStatus *)p2;
+    sub = (int)status1->is_leader - (int)status2->is_leader;
+    if (sub != 0) {
+        return sub;
+    }
 
-	sub = status1->is_leader - status2->is_leader;
-	if (sub != 0) {
-		return sub;
-	}
+    if ((sub=fc_compare_int64(status1->version, status2->version)) != 0) {
+        return sub;
+    }
 
-	sub = ALIGN_TIME(status2->up_time) - ALIGN_TIME(status1->up_time);
+    sub = (int)status1->leader_hint - (int)status2->leader_hint;
+    if (sub != 0) {
+        return sub;
+    }
+
+    sub = ALIGN_TIME(status2->up_time) - ALIGN_TIME(status1->up_time);
     if (sub != 0) {
         return sub;
     }
@@ -246,7 +252,7 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
-	return status1->server_id - status2->server_id;
+    return (int)status1->server_id - (int)status2->server_id;
 }
 
 #define cluster_get_server_status(server_status) \
@@ -259,7 +265,9 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
     int result;
 
     if (server_status->cs == CLUSTER_MYSELF_PTR) {
-        server_status->is_leader = MYSELF_IS_LEADER;
+        server_status->is_leader = (CLUSTER_MYSELF_PTR ==
+                CLUSTER_LEADER_ATOM_PTR ? 1 : 0);
+        server_status->leader_hint = MYSELF_IS_LEADER;
         server_status->up_time = g_sf_global_vars.up_time;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
         server_status->version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
@@ -464,13 +472,13 @@ static int do_check_brainsplit(FSClusterServerInfo *cs)
 
     server_status.cs = cs;
     if (cluster_get_server_status_ex(&server_status, log_connect_error) != 0) {
-        return 0;
+        return 0;   //ignore network error
     }
 
     if (server_status.is_leader) {
         logWarning("file: "__FILE__", line: %d, "
-                "two leaders occurs, anonther leader is %s:%u, "
-                "trigger re-select leader ...", __LINE__,
+                "two leaders occurs, anonther leader id: %d, ip %s:%u, "
+                "trigger re-select leader ...", __LINE__, cs->server->id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs->server));
         cluster_unset_leader();
@@ -602,7 +610,6 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
 void cluster_relationship_trigger_reselect_leader()
 {
     cluster_unset_leader();
-    //g_data_thread_vars.error_mode = FS_DATA_ERROR_MODE_LOOSE;
 }
 
 static int cluster_notify_next_leader(FSClusterServerInfo *cs,
@@ -701,7 +708,8 @@ static int cluster_select_leader()
             return result;
         }
         if ((active_count == CLUSTER_SERVER_ARRAY.count) ||
-                (active_count >= 2 && server_status.is_leader))
+                (active_count >= 2 && (server_status.is_leader ||
+                                       server_status.leader_hint)))
         {
             break;
         }
@@ -739,29 +747,27 @@ static int cluster_select_leader()
     if (CLUSTER_MYSELF_PTR == next_leader) {
 		if ((result=cluster_notify_leader_changed(
                         &server_status)) != 0)
-		{
-			return result;
-		}
+        {
+            return result;
+        }
 
 		logInfo("file: "__FILE__", line: %d, "
 			"I am the new leader, id: %d, ip %s:%u",
 			__LINE__, next_leader->server->id,
             CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
             CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
-	} else {
+    } else {
         if (server_status.is_leader) {
             cluster_relationship_set_leader(next_leader);
+        } else {
+            logInfo("file: "__FILE__", line: %d, "
+                    "waiting for the candidate leader server id: %d, "
+                    "ip %s:%u notify ...", __LINE__, next_leader->server->id,
+                    CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
+                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
+            return ENOENT;
         }
-        else
-		{
-			logInfo("file: "__FILE__", line: %d, "
-				"waiting for the candidate leader server id: %d, "
-                "ip %s:%u notify ...", __LINE__, next_leader->server->id,
-                CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
-                CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
-			return ENOENT;
-		}
-	}
+    }
 
 	return 0;
 }
@@ -1244,7 +1250,7 @@ static int follower_ping(ConnectionInfo *conn)
 
     leader = CLUSTER_LEADER_ATOM_PTR;
     if (leader == NULL) {
-        return ENOENT;
+        return 0;
     }
 
     if (conn->sock < 0) {
@@ -1283,11 +1289,13 @@ static int follower_ping(ConnectionInfo *conn)
     return result;
 }
 
-static inline int cluster_ping_leader(ConnectionInfo *conn)
+static inline int cluster_ping_leader(ConnectionInfo *conn, bool *is_ping)
 {
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
+        *is_ping = false;
         return leader_check();
     } else {
+        *is_ping = true;
         return follower_ping(conn);
     }
 }
@@ -1298,6 +1306,7 @@ static void *cluster_thread_entrance(void *arg)
 
     int fail_count;
     int sleep_seconds;
+    bool is_ping;
     FSClusterServerInfo *leader;
     ConnectionInfo mconn;  //leader connection
 
@@ -1317,23 +1326,27 @@ static void *cluster_thread_entrance(void *arg)
                 sleep_seconds = 1;
             }
         } else {
-            if (cluster_ping_leader(&mconn) == 0) {
+            if (cluster_ping_leader(&mconn, &is_ping) == 0) {
                 fail_count = 0;
                 sleep_seconds = 0;
             } else {
-                ++fail_count;
-                logError("file: "__FILE__", line: %d, "
-                        "%dth ping leader id: %d, ip %s:%u fail",
-                        __LINE__, fail_count, leader->server->id,
-                        CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
-                        CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
+                if (is_ping) {
+                    ++fail_count;
+                    logError("file: "__FILE__", line: %d, "
+                            "%dth ping leader id: %d, ip %s:%u fail",
+                            __LINE__, fail_count, leader->server->id,
+                            CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
+                            CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
 
-                sleep_seconds *= 2;
-                if (fail_count >= 4) {
-                    cluster_unset_leader();
+                    sleep_seconds *= 2;
+                    if (fail_count >= 4) {
+                        cluster_unset_leader();
 
-                    fail_count = 0;
-                    sleep_seconds = 1;
+                        fail_count = 0;
+                        sleep_seconds = 1;
+                    }
+                } else {
+                    sleep_seconds = 0;
                 }
             }
         }

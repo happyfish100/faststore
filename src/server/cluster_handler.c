@@ -127,8 +127,31 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     }
 
     resp = (FSProtoGetServerStatusResp *)REQUEST.body;
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
+        if (req->is_leader) {
+            FSClusterServerInfo *peer;
 
-    resp->is_leader = MYSELF_IS_LEADER;
+            peer = fs_get_server_by_id(server_id);
+            if (peer == NULL) {
+                RESPONSE.error.length = sprintf(
+                        RESPONSE.error.message,
+                        "peer server id: %d not exist", server_id);
+                return ENOENT;
+            }
+
+            logError("file: "__FILE__", line: %d, "
+                    "two leaders occurs, anonther leader id: %d, ip %s:%u, "
+                    "trigger re-select leader ...", __LINE__, server_id,
+                    CLUSTER_GROUP_ADDRESS_FIRST_IP(peer->server),
+                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(peer->server));
+            cluster_relationship_trigger_reselect_leader();
+        }
+        resp->is_leader = 1;
+    } else {
+        resp->is_leader = 0;
+    }
+
+    resp->leader_hint = MYSELF_IS_LEADER;
     int2buff(CLUSTER_MY_SERVER_ID, resp->server_id);
     int2buff(g_sf_global_vars.up_time, resp->up_time);
     int2buff(fs_get_last_shutdown_time(), resp->last_shutdown_time);

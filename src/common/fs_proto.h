@@ -160,8 +160,9 @@ typedef struct {
 
 typedef struct fs_proto_get_server_status_req {
     FSProtoConfigSigns config_signs;
-    char server_id[4];
-    char padding[4];
+    char server_id[4];  //my server id
+    char is_leader;     //am i leader
+    char padding[3];
 } FSProtoGetServerStatusReq;
 
 typedef struct fs_proto_get_server_status_resp {
@@ -170,7 +171,8 @@ typedef struct fs_proto_get_server_status_resp {
     char version[8];
     char last_shutdown_time[4];
     char is_leader;
-    char padding[3];
+    char leader_hint;
+    char padding[2];
 } FSProtoGetServerStatusResp;
 
 typedef struct fs_proto_report_ds_status_req {
