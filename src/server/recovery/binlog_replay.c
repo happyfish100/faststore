@@ -586,23 +586,30 @@ static void replay_output(BinlogReplayContext *replay_ctx)
     char fetch_tm_buff[32];
     char dedup_tm_buff[32];
     char replay_tm_buff[32];
-    int64_t total_count;
+    char skip_count_buff[64];
     int64_t success_count;
     int64_t fail_count;
     int64_t ignore_count;
+    int64_t skip_count;
 
     ctx = replay_ctx->recovery_ctx;
     stat = &replay_ctx->replay_thread.stat;
-    total_count = stat->write.total + stat->allocate.total + stat->remove.total;
     success_count = stat->write.success + stat->allocate.success +
         stat->remove.success;
     fail_count = __sync_add_and_fetch(&replay_ctx->fail_count, 0);
     ignore_count = stat->write.ignore + stat->remove.ignore;
+    skip_count = replay_ctx->total_count - (success_count +
+            fail_count + ignore_count);
 
     if (fail_count == 0) {
         strcpy(prompt, "success");
     } else {
         strcpy(prompt, "fail");
+    }
+    if (skip_count == 0) {
+        *skip_count_buff = '\0';
+    } else {
+        sprintf(skip_count_buff, ", skip_count: %"PRId64, skip_count);
     }
 
     ctx->time_used.replay  = get_current_time_ms() - replay_ctx->start_time;
@@ -615,7 +622,7 @@ static void replay_output(BinlogReplayContext *replay_ctx)
             PRId64", last_data_version: %"PRId64", until_version: %"
             PRId64", data recovery %s, is_online: %d. "
             "all : {total : %"PRId64", success : %"PRId64", "
-            "fail : %"PRId64", ignore : %"PRId64"}, "
+            "fail : %"PRId64", ignore : %"PRId64"%s}, "
             "write : {total : %"PRId64", success : %"PRId64", "
             "ignore : %"PRId64"}, "
             "allocate: {total : %"PRId64", success : %"PRId64", "
@@ -626,7 +633,8 @@ static void replay_output(BinlogReplayContext *replay_ctx)
             ctx->ds->dg->id, ctx->loop_count, replay_ctx->start_data_version,
             ctx->fetch.last_data_version, __sync_fetch_and_add(&ctx->
                 ds->recovery.until_version, 0), prompt, ctx->is_online,
-            total_count, success_count, fail_count, ignore_count,
+            replay_ctx->total_count, success_count,
+            fail_count, ignore_count, skip_count_buff,
             stat->write.total, stat->write.success, stat->write.ignore,
             stat->allocate.total, stat->allocate.success, stat->allocate.ignore,
             stat->remove.total, stat->remove.success, stat->remove.ignore,
