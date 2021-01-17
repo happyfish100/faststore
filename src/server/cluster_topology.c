@@ -30,6 +30,7 @@
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/ioevent_loop.h"
+#include "fastcommon/fc_atomic.h"
 #include "sf/sf_global.h"
 #include "sf/sf_nio.h"
 #include "common/fs_proto.h"
@@ -559,38 +560,44 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 {
     FSClusterDataServerInfo **ds1;
     FSClusterDataServerInfo **ds2;
-    int64_t dv_sub;
-    int active_sub;
+    int64_t sub;
 
     ds1 = (FSClusterDataServerInfo **)p1;
     ds2 = (FSClusterDataServerInfo **)p2;
-    dv_sub = (int64_t)((*ds1)->data.version) -
-        (int64_t)((*ds2)->data.version);
-    if (dv_sub > 0) {
-        return 1;
-    } else if (dv_sub < 0) {
-        return -1;
+    if ((sub=fc_compare_int64((*ds1)->data.version,
+                    (*ds2)->data.version)) != 0)
+    {
+        return sub;
     }
 
-    active_sub = __sync_fetch_and_add(&(*ds1)->cs->active, 0) -
-        __sync_fetch_and_add(&(*ds2)->cs->active, 0);
-    if (active_sub != 0) {
-        return active_sub;
+    sub = FC_ATOMIC_GET((*ds1)->cs->active) -
+        FC_ATOMIC_GET((*ds2)->cs->active);
+    if (sub != 0) {
+        return sub;
     }
 
-    return (*ds1)->is_preseted - (*ds2)->is_preseted;
+    sub = FC_ATOMIC_GET((*ds1)->is_master) -
+        FC_ATOMIC_GET((*ds2)->is_master);
+    if (sub != 0) {
+        return sub;
+    }
+
+    return (int)(*ds1)->is_preseted - (int)(*ds2)->is_preseted;
 }
 
 static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         const bool force, int *result)
 {
     FSClusterDataServerInfo *online_data_servers[FS_MAX_GROUP_SERVERS];
+    FSClusterDataServerInfo *last;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
     uint64_t max_data_version;
     int active_count;
     int master_index;
     int old_action;
+
+    //TODO  check all ds ready
 
     if (group->ds_ptr_array.count > 1) {
         qsort(group->ds_ptr_array.servers,
@@ -599,11 +606,11 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
                 compare_ds_by_data_version);
     }
 
-    ds = group->ds_ptr_array.servers[group->ds_ptr_array.count - 1];
-    if (__sync_fetch_and_add(&ds->cs->active, 0)) {
-        if (group->ds_ptr_array.count == 1 || ds->is_preseted) {
+    last = group->ds_ptr_array.servers[group->ds_ptr_array.count - 1];
+    if (FC_ATOMIC_GET(last->cs->active)) {
+        if (group->ds_ptr_array.count == 1) {
             *result = 0;
-            return ds;
+            return last;
         }
     } else {
         *result = ENOENT;
@@ -611,8 +618,8 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     }
 
     if (!force) {
-        if ((old_action=__sync_fetch_and_add(&group->delay_decision.
-                        action, 0)) == FS_CLUSTER_DELAY_DECISION_NO_OP)
+        if ((old_action=FC_ATOMIC_GET(group->delay_decision.
+                        action)) == FS_CLUSTER_DELAY_DECISION_NO_OP)
         {
             if (__sync_bool_compare_and_swap(&group->delay_decision.action,
                         old_action, FS_CLUSTER_DELAY_DECISION_SELECT_MASTER))
@@ -626,11 +633,11 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    max_data_version = ds->data.version;
+    max_data_version = last->data.version;
     active_count = 0;
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&ds->cs->active, 0) &&
+        if (FC_ATOMIC_GET(ds->cs->active) &&
                 ds->data.version >= max_data_version)
         {
             online_data_servers[active_count++] = ds;
@@ -642,20 +649,24 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    master_index = group->hash_code % active_count;
+    if (active_count == group->data_server_array.count) {
+        *result = 0;
+        return last;
+    }
 
+    master_index = group->hash_code % active_count;
     /*
     logInfo("data_group_id: %d, active_count: %d, master_index: %d, hash_code: %d",
             group->id, active_count, master_index, group->hash_code);
             */
 
     ds = online_data_servers[master_index];
-    if (__sync_fetch_and_add(&ds->cs->active, 0)) {
+    if (FC_ATOMIC_GET(ds->cs->active)) {
         *result = 0;
         return ds;
     }
 
-    *result = ENOENT;
+    *result = EAGAIN;
     return NULL;
 }
 
@@ -705,6 +716,7 @@ static int decision_select_master(FSClusterDataGroupInfo *group)
         return EAGAIN;
     }
 
+    //TODO
     return cluster_topology_select_master(group, true);
 }
 
