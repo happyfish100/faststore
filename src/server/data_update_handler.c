@@ -70,12 +70,12 @@ static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
             return 0;
         }
 
-        while (__sync_fetch_and_add(&ds->status, 0) == FS_SERVER_STATUS_ONLINE
+        while (__sync_fetch_and_add(&ds->status, 0) == FS_DS_STATUS_ONLINE
                 && SF_G_CONTINUE_FLAG)
         {
             PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
             status = __sync_fetch_and_add(&ds->status, 0);
-            if (status == FS_SERVER_STATUS_ONLINE) {
+            if (status == FS_DS_STATUS_ONLINE) {
                 pthread_cond_wait(&ds->replica.notify.cond,
                         &ds->replica.notify.lock);
             }
@@ -127,9 +127,9 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
         status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
         if (op_ctx->info.is_update) {
             while (SF_G_CONTINUE_FLAG) {
-                if (status == FS_SERVER_STATUS_ACTIVE) {
+                if (status == FS_DS_STATUS_ACTIVE) {
                     break;
-                } else if (status == FS_SERVER_STATUS_ONLINE) {
+                } else if (status == FS_DS_STATUS_ONLINE) {
                     if (!__sync_add_and_fetch(&op_ctx->info.myself->
                                 recovery.in_progress, 0))
                     {
@@ -157,7 +157,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
             }
         }
 
-        if (!(status == FS_SERVER_STATUS_ACTIVE || op_ctx->info.deal_done)) {
+        if (!(status == FS_DS_STATUS_ACTIVE || op_ctx->info.deal_done)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT active or online, "
                     "my status: %d (%s)", op_ctx->info.data_group_id,
@@ -667,7 +667,7 @@ static FSClusterDataServerInfo *get_readable_server(
 
     index = rand() % group->data_server_array.count;
     if (__sync_add_and_fetch(&group->data_server_array.servers[index].
-                status, 0) == FS_SERVER_STATUS_ACTIVE)
+                status, 0) == FS_DS_STATUS_ACTIVE)
     {
         if (read_rule != sf_data_read_rule_slave_first ||
                 !__sync_add_and_fetch(&group->data_server_array.
@@ -683,7 +683,7 @@ static FSClusterDataServerInfo *get_readable_server(
         active_count = 0;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
             if (__sync_add_and_fetch(&ds->status, 0) !=
-                    FS_SERVER_STATUS_ACTIVE)
+                    FS_DS_STATUS_ACTIVE)
             {
                 continue;
             }

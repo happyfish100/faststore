@@ -452,9 +452,9 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     for (i=1; i<=FETCH_BINLOG_RETRY_TIMES; i++) {
         fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
-        if (!(my_status == FS_SERVER_STATUS_REBUILDING ||
-                my_status == FS_SERVER_STATUS_RECOVERING ||
-                (my_status == FS_SERVER_STATUS_ONLINE && ctx->is_online)))
+        if (!(my_status == FS_DS_STATUS_REBUILDING ||
+                my_status == FS_DS_STATUS_RECOVERING ||
+                (my_status == FS_DS_STATUS_ONLINE && ctx->is_online)))
         {
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, my status: %d (%s) "
@@ -556,8 +556,8 @@ static int check_online_me(DataRecoveryContext *ctx)
     }
 
     old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
-    if (!(old_status == FS_SERVER_STATUS_REBUILDING ||
-                old_status == FS_SERVER_STATUS_RECOVERING))
+    if (!(old_status == FS_DS_STATUS_REBUILDING ||
+                old_status == FS_DS_STATUS_RECOVERING))
     {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, unexpect my status %d (%s)",
@@ -592,15 +592,15 @@ static int check_online_me(DataRecoveryContext *ctx)
 
     FC_ATOMIC_SET(ctx->ds->recovery.until_version, 0); //for hold RPC replication
     if (!cluster_relationship_swap_report_ds_status(ctx->ds,
-                old_status, FS_SERVER_STATUS_ONLINE,
+                old_status, FS_DS_STATUS_ONLINE,
                 FS_EVENT_SOURCE_SELF_REPORT))
     {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d, change my status from %d (%s) "
                 "to %d (%s) fail", __LINE__, ctx->ds->dg->id,
                 old_status, fs_get_server_status_caption(old_status),
-                FS_SERVER_STATUS_ONLINE,
-                fs_get_server_status_caption(FS_SERVER_STATUS_ONLINE));
+                FS_DS_STATUS_ONLINE,
+                fs_get_server_status_caption(FS_DS_STATUS_ONLINE));
         return EBUSY;
     }
 

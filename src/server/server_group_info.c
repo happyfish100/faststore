@@ -631,27 +631,27 @@ int fs_downgrade_data_server_status(const int old_status, int *new_status)
     int result;
 
     switch (old_status) {
-        case FS_SERVER_STATUS_INIT:
-        case FS_SERVER_STATUS_OFFLINE:
+        case FS_DS_STATUS_INIT:
+        case FS_DS_STATUS_OFFLINE:
             result = 0;
             *new_status = old_status;
             break;
-        case FS_SERVER_STATUS_REBUILDING:
+        case FS_DS_STATUS_REBUILDING:
             result = 0;
-            *new_status = FS_SERVER_STATUS_INIT;
+            *new_status = FS_DS_STATUS_INIT;
             break;
-        case FS_SERVER_STATUS_RECOVERING:
-        case FS_SERVER_STATUS_ONLINE:
-        case FS_SERVER_STATUS_ACTIVE:
+        case FS_DS_STATUS_RECOVERING:
+        case FS_DS_STATUS_ONLINE:
+        case FS_DS_STATUS_ACTIVE:
             result = 0;
-            *new_status = FS_SERVER_STATUS_OFFLINE;
+            *new_status = FS_DS_STATUS_OFFLINE;
             break;
         default:
             logError("file: "__FILE__", line: %d, "
                     "invalid status: %d, set to %d (INIT)",
-                    __LINE__, old_status, FS_SERVER_STATUS_INIT);
+                    __LINE__, old_status, FS_DS_STATUS_INIT);
             result = EINVAL;
-            *new_status = FS_SERVER_STATUS_INIT;
+            *new_status = FS_DS_STATUS_INIT;
             break;
     }
 

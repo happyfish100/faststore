@@ -20,6 +20,7 @@
 
 #include <time.h>
 #include <pthread.h>
+#include "fastcommon/fc_atomic.h"
 #include "server_types.h"
 #include "server_group_info.h"
 
@@ -64,6 +65,31 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
 void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs);
 
 void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs);
+
+static inline bool cluster_relationship_swap_server_status(
+        FSClusterServerInfo *cs, const int old_status, const int new_status)
+{
+    if (__sync_bool_compare_and_swap(&cs->status, old_status, new_status)) {
+        cs->status_changed_time = g_current_time;
+        return true;
+    } else {
+        return false;
+    }
+}
+
+static inline bool cluster_relationship_set_server_status(
+        FSClusterServerInfo *cs, const int new_status)
+{
+    int old_status;
+
+    old_status = FC_ATOMIC_GET(cs->status);
+    if (new_status == old_status) {
+        return false;
+    }
+
+    return cluster_relationship_swap_server_status(
+            cs, old_status, new_status);
+}
 
 #ifdef __cplusplus
 }

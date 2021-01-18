@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
             case 'N':
                 filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_STATUS;
                 filter.op_type = (ch == 'A' ? '=' : '!');
-                filter.status = FS_SERVER_STATUS_ACTIVE;
+                filter.status = FS_DS_STATUS_ACTIVE;
                 break;
             case 'M':
             case 'S':

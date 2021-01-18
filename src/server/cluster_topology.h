@@ -76,7 +76,7 @@ void cluster_topology_activate_server(FSClusterServerInfo *cs);
 
 void cluster_topology_deactivate_server(FSClusterServerInfo *cs);
 
-void cluster_topology_offline_all_data_servers();
+void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader);
 
 int cluster_topology_offline_slave_data_servers(
         FSClusterServerInfo *peer, int *count);
@@ -90,9 +90,6 @@ int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
         notify_ctx_ptr_array);
 
 void cluster_topology_set_check_master_flags();
-
-int cluster_topology_select_master(FSClusterDataGroupInfo *group,
-        const bool force);
 
 void cluster_topology_check_and_make_delay_decisions();
 

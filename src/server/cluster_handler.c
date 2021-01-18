@@ -306,6 +306,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
 static int cluster_deal_ping_leader(struct fast_task_info *task)
 {
     int result;
+    FSClusterServerInfo *peer;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;
     if ((result=server_check_min_body_length(task,
@@ -314,7 +315,7 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         return result;
     }
 
-    if (CLUSTER_PEER == NULL) {
+    if ((peer=CLUSTER_PEER) == NULL) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "please join first");
@@ -328,7 +329,10 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         return EINVAL;
     }
 
-    return process_ping_leader_req(task);
+    if ((result=process_ping_leader_req(task)) == 0) {
+        peer->last_ping_time = g_current_time;
+    }
+    return result;
 }
 
 static int cluster_deal_active_server(struct fast_task_info *task)
@@ -399,7 +403,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
             return EPERM;
         }
 
-        if (old_status != FS_SERVER_STATUS_ACTIVE) {
+        if (old_status != FS_DS_STATUS_ACTIVE) {
             if (old_status == req->status) {  //just ignore
                 return 0;
             } else {
@@ -413,7 +417,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
             }
         }
 
-        if (req->status != FS_SERVER_STATUS_OFFLINE) {
+        if (req->status != FS_DS_STATUS_OFFLINE) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data_group_id: %d, my_server_id: %d, ds_server_id: %d, "
                     "invalid dest status: %d", data_group_id, my_server_id,
@@ -512,7 +516,7 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
             RESPONSE_STATUS = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
             break;
         default:
-            RESPONSE_STATUS = EOPNOTSUPP;
+            RESPONSE_STATUS = SF_ERROR_EOPNOTSUPP;
             break;
     }
 

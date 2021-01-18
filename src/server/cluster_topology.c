@@ -38,6 +38,9 @@
 #include "cluster_relationship.h"
 #include "cluster_topology.h"
 
+static int cluster_topology_select_master(FSClusterDataGroupInfo *group,
+        const bool by_decision);
+
 static FSClusterDataServerInfo *find_data_group_server(
         const int gindex, FSClusterServerInfo *cs)
 {
@@ -113,7 +116,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
             continue;
         }
 
-        if (__sync_fetch_and_add(&cs->active, 0) == 0) {
+        if (FC_ATOMIC_GET(cs->status) != FS_SERVER_STATUS_ACTIVE) {
             logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, "
                     "target server id: %d not online! "
@@ -214,7 +217,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     cs = ((FSServerTaskArg *)ctx->task->arg)->context.shared.cluster.peer;
-    if (__sync_fetch_and_add(&cs->active, 0) == 0) {
+    if (FC_ATOMIC_GET(cs->status) != FS_SERVER_STATUS_ACTIVE) {
         logDebug("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",
                 __LINE__, cs->server->id);
@@ -242,7 +245,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         int2buff(ds->cs->server->id, body_part->server_id);
         body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
         body_part->status = __sync_add_and_fetch(&ds->status, 0);
-        long2buff(ds->data.version, body_part->data_version);
+        long2buff(FC_ATOMIC_GET(ds->data.version), body_part->data_version);
 
         /*
         logInfo("push to target server id: %d (ctx: %p), event "
@@ -290,8 +293,8 @@ static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
     int new_status;
 
     old_status = __sync_fetch_and_add(&ds->status, 0);
-    if (old_status == FS_SERVER_STATUS_ACTIVE) {
-        new_status = FS_SERVER_STATUS_OFFLINE;
+    if (old_status == FS_DS_STATUS_ACTIVE) {
+        new_status = FS_DS_STATUS_OFFLINE;
     } else if (remove_recovery_flag) {
         fs_downgrade_data_server_status(old_status, &new_status);
     } else {
@@ -347,7 +350,7 @@ void cluster_topology_activate_server(FSClusterServerInfo *cs)
         return;
     }
 
-    __sync_bool_compare_and_swap(&cs->active, 0, 1);
+    cluster_relationship_set_server_status(cs, FS_SERVER_STATUS_ACTIVE);
     cluster_relationship_remove_from_inactive_sarray(cs);
 
     end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
@@ -367,7 +370,9 @@ void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
         return;
     }
 
-    if (__sync_bool_compare_and_swap(&cs->active, 1, 0)) {
+    if (cluster_relationship_swap_server_status(cs,
+                FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE))
+    {
         end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
         for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
             cluster_topology_offline_data_server(*ds, true);
@@ -376,7 +381,7 @@ void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
     }
 }
 
-void cluster_topology_offline_all_data_servers()
+void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
 {
     FSClusterDataGroupInfo *group;
     FSClusterDataGroupInfo *gend;
@@ -385,9 +390,10 @@ void cluster_topology_offline_all_data_servers()
 
     gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+        group->election_start_time_ms = 0;
         send = group->data_server_array.servers + group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
-            if (ds->cs != CLUSTER_MYSELF_PTR) {
+            if (ds->cs != leader) {
                 cluster_topology_offline_data_server(ds, false);
             }
         }
@@ -431,14 +437,14 @@ int cluster_topology_offline_slave_data_servers(
         }
 
         old_status = __sync_fetch_and_add(&ds->status, 0);
-        if (old_status == FS_SERVER_STATUS_ACTIVE) {
+        if (old_status == FS_DS_STATUS_ACTIVE) {
             if (master->cs == CLUSTER_MYSELF_PTR) { //report peer/slave status
                 changed = cluster_relationship_report_ds_status(ds,
-                        old_status, FS_SERVER_STATUS_OFFLINE,
+                        old_status, FS_DS_STATUS_OFFLINE,
                         FS_EVENT_SOURCE_MASTER_OFFLINE) == 0;
             } else {  //i am slave
                 changed = cluster_relationship_swap_report_ds_status(ds,
-                        old_status, FS_SERVER_STATUS_OFFLINE,
+                        old_status, FS_DS_STATUS_OFFLINE,
                         FS_EVENT_SOURCE_MASTER_OFFLINE);
             }
 
@@ -523,7 +529,7 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
             break;
         }
 
-        if (__sync_fetch_and_add(&master->status, 0) == FS_SERVER_STATUS_ACTIVE) {
+        if (__sync_fetch_and_add(&master->status, 0) == FS_DS_STATUS_ACTIVE) {
             return 0;
         }
 
@@ -564,14 +570,14 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 
     ds1 = (FSClusterDataServerInfo **)p1;
     ds2 = (FSClusterDataServerInfo **)p2;
-    if ((sub=fc_compare_int64((*ds1)->data.version,
-                    (*ds2)->data.version)) != 0)
+    if ((sub=fc_compare_int64(FC_ATOMIC_GET((*ds1)->data.version),
+                    FC_ATOMIC_GET((*ds2)->data.version))) != 0)
     {
         return sub;
     }
 
-    sub = FC_ATOMIC_GET((*ds1)->cs->active) -
-        FC_ATOMIC_GET((*ds2)->cs->active);
+    sub = FC_ATOMIC_GET((*ds1)->cs->status) -
+        FC_ATOMIC_GET((*ds2)->cs->status);
     if (sub != 0) {
         return sub;
     }
@@ -586,18 +592,103 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 }
 
 static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
-        const bool force, int *result)
+        int *result)
 {
+#define OFFLINE_WAIT_TIMEOUT   4
+#define ONLINE_WAIT_TIMEOUT   30
+
+#define IS_SERVER_TIMEDOUT(group, cs, election_start_time, timeout)  \
+    (g_current_time - (cs->status_changed_time > 0 ?     \
+                       FC_MIN(cs->status_changed_time,   \
+                           election_start_time) : \
+                           election_start_time) >= timeout)
+
     FSClusterDataServerInfo *online_data_servers[FS_MAX_GROUP_SERVERS];
     FSClusterDataServerInfo *last;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
-    uint64_t max_data_version;
+    int64_t max_data_version;
+    int election_start_time;
     int active_count;
+    int waiting_report_count;
+    int waiting_online_count;
+    int waiting_offline_count;
+    int *waiting_count;
     int master_index;
-    int old_action;
+    int status;
+    int timeout;
 
-    //TODO  check all ds ready
+    if (group->election_start_time_ms == 0) {
+        group->election_start_time_ms = get_current_time_ms();
+
+        if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR &&
+                group->myself != NULL)
+        {
+            CLUSTER_MYSELF_PTR->last_ping_time = g_current_time + 1;
+        }
+    }
+    election_start_time = (int)(group->election_start_time_ms / 1000);
+
+    active_count = 0;
+    waiting_report_count = 0;
+    waiting_online_count = 0;
+    waiting_offline_count = 0;
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        status = FC_ATOMIC_GET(ds->cs->status);
+        if (status == FS_SERVER_STATUS_ACTIVE) {
+            if (ds->cs->last_ping_time >= election_start_time) {
+                active_count++;
+            } else if (g_current_time - ds->cs->last_ping_time <=
+                    ONLINE_WAIT_TIMEOUT + 5)
+            {
+                waiting_report_count++;
+            } else {
+                int64_t time_used;
+                char time_buff[32];
+
+                time_used = get_current_time_ms() -
+                    group->election_start_time_ms;
+                long_to_comma_str(time_used, time_buff);
+                logError("file: "__FILE__", line: %d, "
+                        "data group id: %d, waiting server id: %d "
+                        "timeout, time used: %s ms", __LINE__, group->id,
+                        ds->cs->server->id, time_buff);
+                group->election_start_time_ms = 0;
+                *result = EAGAIN;
+                return NULL;
+            }
+        } else {
+            if (status == FS_SERVER_STATUS_ONLINE) {
+                timeout = ONLINE_WAIT_TIMEOUT;
+                waiting_count = &waiting_online_count;
+            } else {
+                timeout = OFFLINE_WAIT_TIMEOUT;
+                waiting_count = &waiting_offline_count;
+            }
+
+            if (!IS_SERVER_TIMEDOUT(group, ds->cs,
+                        election_start_time, timeout))
+            {
+                (*waiting_count)++;
+            }
+        }
+    }
+
+    if (active_count == 0 || (waiting_report_count +
+                waiting_online_count + waiting_offline_count) > 0)
+    {
+        /*
+        logInfo("file: "__FILE__", line: %d, "
+                "data group id: %d, active_count: %d, "
+                "waiting_report_count: %d, waiting_online_count: %d, "
+                "waiting_offline_count: %d", __LINE__, group->id,
+                active_count, waiting_report_count, waiting_online_count,
+                waiting_offline_count);
+                */
+        *result = EAGAIN;
+        return NULL;
+    }
 
     if (group->ds_ptr_array.count > 1) {
         qsort(group->ds_ptr_array.servers,
@@ -607,38 +698,40 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     }
 
     last = group->ds_ptr_array.servers[group->ds_ptr_array.count - 1];
-    if (FC_ATOMIC_GET(last->cs->active)) {
-        if (group->ds_ptr_array.count == 1) {
-            *result = 0;
-            return last;
-        }
+    status = FC_ATOMIC_GET(last->cs->status);
+    if (status == FS_SERVER_STATUS_ACTIVE) {
+        *result = 0;
+        return last;
+    } else if (status == FS_SERVER_STATUS_ONLINE) {
+        timeout = ONLINE_WAIT_TIMEOUT * 3;
     } else {
-        *result = ENOENT;
-        return NULL;
+        timeout = OFFLINE_WAIT_TIMEOUT * 3;
     }
 
-    if (!force) {
-        if ((old_action=FC_ATOMIC_GET(group->delay_decision.
-                        action)) == FS_CLUSTER_DELAY_DECISION_NO_OP)
-        {
-            if (__sync_bool_compare_and_swap(&group->delay_decision.action,
-                        old_action, FS_CLUSTER_DELAY_DECISION_SELECT_MASTER))
-            {
-                group->delay_decision.expire_time = g_current_time + 5;
-                __sync_add_and_fetch(&CLUSTER_DATA_RGOUP_ARRAY.
-                        delay_decision_count, 1);
-            }
-        }
+    if (!IS_SERVER_TIMEDOUT(group, last->cs,
+                election_start_time, timeout))
+    {
         *result = EAGAIN;
         return NULL;
     }
 
-    max_data_version = last->data.version;
+    max_data_version = -1;
+    for (ds=end-1; ds>=group->data_server_array.servers; ds--) {
+        if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE) {
+            max_data_version = FC_ATOMIC_GET(ds->data.version);
+            break;
+        }
+    }
+
+    if (max_data_version == -1) {
+        *result = ENOENT;
+        return NULL;
+    }
+
     active_count = 0;
-    end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if (FC_ATOMIC_GET(ds->cs->active) &&
-                ds->data.version >= max_data_version)
+        if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE &&
+                FC_ATOMIC_GET(ds->data.version) >= max_data_version)
         {
             online_data_servers[active_count++] = ds;
         }
@@ -661,7 +754,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
             */
 
     ds = online_data_servers[master_index];
-    if (FC_ATOMIC_GET(ds->cs->active)) {
+    if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE) {
         *result = 0;
         return ds;
     }
@@ -670,15 +763,16 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     return NULL;
 }
 
-int cluster_topology_select_master(FSClusterDataGroupInfo *group,
-        const bool force)
+static int cluster_topology_select_master(FSClusterDataGroupInfo *group,
+        const bool by_decision)
 {
     FSClusterDataServerInfo *master;
+    int old_action;
     int result;
 
     PTHREAD_MUTEX_LOCK(&group->lock);
     if (__sync_add_and_fetch(&group->master, 0) == NULL) {
-        master = select_master(group, force, &result);
+        master = select_master(group, &result);
     } else {
         master = NULL;
         result = 0;
@@ -686,22 +780,44 @@ int cluster_topology_select_master(FSClusterDataGroupInfo *group,
     PTHREAD_MUTEX_UNLOCK(&group->lock);
 
     if (master == NULL) {
+        if (by_decision) {
+            group->delay_decision.expire_time = g_current_time + 1;
+            return EAGAIN;
+        }
+
+        if ((old_action=FC_ATOMIC_GET(group->delay_decision.
+                        action)) == FS_CLUSTER_DELAY_DECISION_NO_OP)
+        {
+            if (__sync_bool_compare_and_swap(&group->delay_decision.action,
+                        old_action, FS_CLUSTER_DELAY_DECISION_SELECT_MASTER))
+            {
+                group->delay_decision.expire_time = g_current_time + 1;
+                __sync_add_and_fetch(&CLUSTER_DATA_RGOUP_ARRAY.
+                        delay_decision_count, 1);
+            }
+        }
+
         return result;
     }
 
     if (__sync_bool_compare_and_swap(&group->master, NULL, master)) {
+        int64_t time_used;
+        char time_buff[32];
+
         __sync_bool_compare_and_swap(&master->is_master, false, true);
         cluster_relationship_on_master_change(NULL, master);
         cluster_topology_data_server_chg_notify(master,
                 FS_EVENT_SOURCE_CS_LEADER,
                 FS_EVENT_TYPE_MASTER_CHANGE, true);
 
+        time_used = get_current_time_ms() - group->election_start_time_ms;
+        long_to_comma_str(time_used, time_buff);
         logInfo("file: "__FILE__", line: %d, "
                 "data group id: %d, elected master id: %d, "
-                "is_preseted: %d, status: %d", __LINE__, group->id,
-                master->cs->server->id, master->is_preseted,
-                __sync_add_and_fetch(&master->status, 0));
+                "is_preseted: %d, time used: %s ms", __LINE__, group->id,
+                master->cs->server->id, master->is_preseted, time_buff);
     }
+    group->election_start_time_ms = 0;
 
     return 0;
 }
@@ -716,7 +832,6 @@ static int decision_select_master(FSClusterDataGroupInfo *group)
         return EAGAIN;
     }
 
-    //TODO
     return cluster_topology_select_master(group, true);
 }
 

@@ -89,6 +89,10 @@
 
 #define TASK_STATUS_CONTINUE   12345
 
+#define FS_SERVER_STATUS_OFFLINE    0
+#define FS_SERVER_STATUS_ONLINE     1
+#define FS_SERVER_STATUS_ACTIVE     2
+
 #define FS_WHICH_SIDE_MASTER    'M'
 #define FS_WHICH_SIDE_SLAVE     'S'
 
@@ -179,11 +183,13 @@ typedef struct fs_cluster_server_info {
     FSReplicationPtrArray repl_ptr_array;
     FSClusterTopologyNotifyContext notify_ctx;
     FSClusterDataServerPtrArray ds_ptr_array;
-    bool is_leader;      //for hint
-    bool is_partner;     //if my partner
-    volatile int active; //for push topology change notify
-    int server_index;    //for offset
-    int link_index;      //for next links
+    bool is_leader;       //for hint
+    bool is_partner;      //if my partner
+    volatile char status; //for push topology change notify
+    int status_changed_time;
+    int server_index;      //for offset
+    int link_index;        //for next links
+    time_t last_ping_time; //for the leader
     FSClusterServerSpaceStat space_stat;
 } FSClusterServerInfo;
 
@@ -217,7 +223,8 @@ typedef struct fs_cluster_data_server_info {
     } replica;
 
     struct {
-        uint64_t version;
+        volatile uint64_t version;
+        time_t last_report_time; //for the leader
     } data;
 
     int64_t last_report_version; //for record last data version to the leader
@@ -236,6 +243,7 @@ typedef struct fs_cluster_data_group_info {
         volatile int action;
         int expire_time;
     } delay_decision;
+    int64_t election_start_time_ms;  //for master select
     FSClusterDataServerArray data_server_array;
     FSClusterDataServerPtrArray ds_ptr_array;  //for leader select master
     FSClusterDataServerPtrArray slave_ds_array;

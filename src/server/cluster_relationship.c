@@ -89,7 +89,7 @@ static FSClusterRelationshipContext relationship_ctx = {
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
     do {  \
         entry->cs = server;    \
-        entry->next_time = g_current_time + SF_G_NETWORK_TIMEOUT; \
+        entry->next_time = g_current_time + 1; \
     } while (0)
 
 static int proto_get_server_status(ConnectionInfo *conn,
@@ -475,12 +475,15 @@ static inline void cluster_unset_leader()
 
 static int do_check_brainsplit(FSClusterServerInfo *cs)
 {
+    int result;
     const bool log_connect_error = false;
     FSClusterServerStatus server_status;
 
     server_status.cs = cs;
-    if (cluster_get_server_status_ex(&server_status, log_connect_error) != 0) {
-        return 0;   //ignore network error
+    if ((result=cluster_get_server_status_ex(&server_status,
+                    log_connect_error)) != 0)
+    {
+        return result;
     }
 
     if (server_status.is_leader) {
@@ -512,11 +515,17 @@ static int cluster_check_brainsplit(const int inactive_count)
         if (entry->next_time > g_current_time) {
             continue;
         }
-        if ((result=do_check_brainsplit(entry->cs)) != 0) {
+
+        result = do_check_brainsplit(entry->cs);
+        if (result == EEXIST) {  //brain-split occurs
             return result;
         }
 
-        entry->next_time = g_current_time + SF_G_NETWORK_TIMEOUT;
+        if (result == 0 || result == EOPNOTSUPP) {
+            cluster_relationship_swap_server_status(entry->cs,
+                    FS_SERVER_STATUS_OFFLINE, FS_SERVER_STATUS_ONLINE);
+        }
+        entry->next_time = g_current_time + 1;
     }
 
     return 0;
@@ -550,9 +559,8 @@ static void cluster_relationship_deactivate_all_servers()
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
         if (cs != CLUSTER_MYSELF_PTR) {
-            if (__sync_fetch_and_add(&cs->active, 0)) {
-                __sync_bool_compare_and_swap(&cs->active, 1, 0);
-            }
+            cluster_relationship_set_server_status(cs,
+                    FS_SERVER_STATUS_OFFLINE);
         }
     }
 }
@@ -564,12 +572,14 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
     old_leader = CLUSTER_LEADER_ATOM_PTR;
     new_leader->is_leader = true;
     if (CLUSTER_MYSELF_PTR == new_leader) {
-        if (old_leader != CLUSTER_MYSELF_PTR) {
+        if (new_leader != old_leader) {
             cluster_relationship_deactivate_all_servers();
-            __sync_bool_compare_and_swap(&CLUSTER_MYSELF_PTR->active, 0, 1);
+            cluster_relationship_set_server_status(CLUSTER_MYSELF_PTR,
+                    FS_SERVER_STATUS_ACTIVE);
+            CLUSTER_MYSELF_PTR->last_ping_time = g_current_time + 1;
 
             init_inactive_server_array();
-            cluster_topology_offline_all_data_servers();
+            cluster_topology_offline_all_data_servers(new_leader);
             cluster_topology_set_check_master_flags();
         }
     } else {
@@ -792,8 +802,8 @@ static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
     }
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
-        if ((new_status == FS_SERVER_STATUS_INIT ||
-                    new_status == FS_SERVER_STATUS_OFFLINE) &&
+        if ((new_status == FS_DS_STATUS_INIT ||
+                    new_status == FS_DS_STATUS_OFFLINE) &&
                 (master->cs != CLUSTER_MYSELF_PTR))
         {
             recovery_thread_push_to_queue(ds);
@@ -820,14 +830,18 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         const int status, const uint64_t data_version)
 {
     int flags;
+    uint64_t old_dv;
 
     if (cluster_relationship_set_ds_status(ds, status)) {
         flags = FS_EVENT_TYPE_STATUS_CHANGE;
     } else {
         flags = 0;
     }
-    if (ds->data.version != data_version) {
-        ds->data.version = data_version;
+
+    ds->data.last_report_time = g_current_time;
+    old_dv = FC_ATOMIC_GET(ds->data.version);
+    if (data_version != old_dv) {
+        FC_ATOMIC_CAS(ds->data.version, old_dv, data_version);
         flags |= FS_EVENT_TYPE_DV_CHANGE;
     }
 
@@ -906,13 +920,13 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
 
     if (group->myself == new_master) {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
-        new_status = FS_SERVER_STATUS_ACTIVE;
+        new_status = FS_DS_STATUS_ACTIVE;
         ds = group->myself;
     } else {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
-        new_status = FS_SERVER_STATUS_OFFLINE;
+        new_status = FS_DS_STATUS_OFFLINE;
         if (group->myself == old_master) {
-            ds = old_status == FS_SERVER_STATUS_ACTIVE ? group->myself : NULL;
+            ds = old_status == FS_DS_STATUS_ACTIVE ? group->myself : NULL;
         } else {
             ds = NULL;
         }
@@ -926,8 +940,8 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     if (new_master != NULL && group->myself != new_master) {
         int my_status;
         my_status = __sync_add_and_fetch(&group->myself->status, 0);
-        if (my_status == FS_SERVER_STATUS_INIT ||
-                my_status == FS_SERVER_STATUS_OFFLINE)
+        if (my_status == FS_DS_STATUS_INIT ||
+                my_status == FS_DS_STATUS_OFFLINE)
         {
             recovery_thread_push_to_queue(group->myself);
         }
@@ -947,11 +961,11 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     is_master = __sync_add_and_fetch(&ds->is_master, 0);
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
         old_status = __sync_add_and_fetch(&ds->status, 0);
-        if ((body_part->status == FS_SERVER_STATUS_OFFLINE) &&
-                (!is_master) && (old_status == FS_SERVER_STATUS_ACTIVE))
+        if ((body_part->status == FS_DS_STATUS_OFFLINE) &&
+                (!is_master) && (old_status == FS_DS_STATUS_ACTIVE))
         {
             cluster_relationship_set_ds_status_ex(ds, old_status,
-                    FS_SERVER_STATUS_OFFLINE);
+                    FS_DS_STATUS_OFFLINE);
         }
     } else {
         cluster_relationship_set_ds_status(ds, body_part->status);

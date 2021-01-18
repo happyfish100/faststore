@@ -144,6 +144,12 @@ int main(int argc, char *argv[])
         if ((result=sf_socket_server_ex(&CLUSTER_SF_CTX)) != 0) {
             break;
         }
+        if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
+            break;
+        }
+        if ((result=sf_socket_server()) != 0) {
+            break;
+        }
 
         if ((result=write_to_pid_file(g_pid_filename)) != 0) {
             break;
@@ -212,13 +218,6 @@ int main(int argc, char *argv[])
         sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,
                 cluster_thread_loop_callback);
         sf_set_deal_task_func_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
-
-        if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
-            break;
-        }
-        if ((result=sf_socket_server()) != 0) {
-            break;
-        }
 
         result = sf_service_init_ex2(&REPLICA_SF_CTX,
                 replica_alloc_thread_extra_data,

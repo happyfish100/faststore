@@ -66,9 +66,9 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
         recovery_again = false;
     } else {
         ds->recovery.continuous_fail_count++;
-        if (new_status == FS_SERVER_STATUS_REBUILDING ||
-                new_status == FS_SERVER_STATUS_RECOVERING ||
-                new_status == FS_SERVER_STATUS_ONLINE)
+        if (new_status == FS_DS_STATUS_REBUILDING ||
+                new_status == FS_DS_STATUS_RECOVERING ||
+                new_status == FS_DS_STATUS_ONLINE)
         {
             if (cluster_relationship_swap_report_ds_status(ds,
                         new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
@@ -105,8 +105,8 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
     if (recovery_again) {
         int status;
         status = __sync_add_and_fetch(&ds->status, 0);
-        if (status == FS_SERVER_STATUS_INIT ||
-                status == FS_SERVER_STATUS_OFFLINE)
+        if (status == FS_DS_STATUS_INIT ||
+                status == FS_DS_STATUS_OFFLINE)
         {
             sleep(1);
             recovery_thread_push_to_queue(ds);
@@ -130,10 +130,10 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     ds = (FSClusterDataServerInfo *)arg;
     while (1) {
         old_status = __sync_fetch_and_add(&ds->status, 0);
-        if (old_status == FS_SERVER_STATUS_INIT) {
-            new_status = FS_SERVER_STATUS_REBUILDING;
-        } else if (old_status == FS_SERVER_STATUS_OFFLINE) {
-            new_status = FS_SERVER_STATUS_RECOVERING;
+        if (old_status == FS_DS_STATUS_INIT) {
+            new_status = FS_DS_STATUS_REBUILDING;
+        } else if (old_status == FS_DS_STATUS_OFFLINE) {
+            new_status = FS_DS_STATUS_RECOVERING;
         } else {
             logInfo("file: "__FILE__", line: %d, "
                     "data group id: %d, my status: %d (%s), "
@@ -184,20 +184,20 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
 
     status = __sync_fetch_and_add(&ds->status, 0);
     switch (status) {
-        case FS_SERVER_STATUS_REBUILDING:
-        case FS_SERVER_STATUS_RECOVERING:
-        case FS_SERVER_STATUS_ONLINE:
+        case FS_DS_STATUS_REBUILDING:
+        case FS_DS_STATUS_RECOVERING:
+        case FS_DS_STATUS_ONLINE:
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, data recovery in progress",
                     __LINE__, ds->dg->id);
             break;
-        case FS_SERVER_STATUS_ACTIVE:
+        case FS_DS_STATUS_ACTIVE:
             logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, status: %d (%s), "
                     "skip data recovery!", __LINE__, ds->dg->id,
                     status, fs_get_server_status_caption(status));
             break;
-        case FS_SERVER_STATUS_INIT:
+        case FS_DS_STATUS_INIT:
             if (fc_thread_pool_avail_count(&recovery_thread_ctx.tpool) <
                     DATA_RECOVERY_THREADS_LIMIT)
             {
@@ -207,10 +207,10 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
                 break;
             }
 
-        case FS_SERVER_STATUS_OFFLINE:
+        case FS_DS_STATUS_OFFLINE:
             fc_thread_pool_run(&recovery_thread_ctx.tpool,
                     recovery_thread_run_task, ds);
-            if (status == FS_SERVER_STATUS_INIT) {
+            if (status == FS_DS_STATUS_INIT) {
                 fc_sleep_ms(500);
             }
             break;

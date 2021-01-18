@@ -195,17 +195,17 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
     }
 
     status = __sync_add_and_fetch(&(*peer)->status, 0);
-    if (!(status == FS_SERVER_STATUS_REBUILDING ||
-            status == FS_SERVER_STATUS_RECOVERING ||
-            (status == FS_SERVER_STATUS_ONLINE && catch_up)))
+    if (!(status == FS_DS_STATUS_REBUILDING ||
+            status == FS_DS_STATUS_RECOVERING ||
+            (status == FS_DS_STATUS_ONLINE && catch_up)))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d, "
                 "unexpect data server status: %d (%s), "
                 "expect status: %d, %d or %d", data_group_id, server_id,
                 status, fs_get_server_status_caption(status),
-                FS_SERVER_STATUS_REBUILDING, FS_SERVER_STATUS_RECOVERING,
-                FS_SERVER_STATUS_ONLINE);
+                FS_DS_STATUS_REBUILDING, FS_DS_STATUS_RECOVERING,
+                FS_DS_STATUS_ONLINE);
         TASK_ARG->context.log_level = LOG_DEBUG;
         return EAGAIN;
     }
@@ -408,13 +408,13 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         }
 
         old_status = __sync_add_and_fetch(&slave->status, 0);
-        if (old_status == FS_SERVER_STATUS_ONLINE) {
+        if (old_status == FS_DS_STATUS_ONLINE) {
             is_online = true;
-        } else if (old_status == FS_SERVER_STATUS_REBUILDING ||
-                old_status == FS_SERVER_STATUS_RECOVERING)
+        } else if (old_status == FS_DS_STATUS_REBUILDING ||
+                old_status == FS_DS_STATUS_RECOVERING)
         {
             is_online = cluster_relationship_set_ds_status_ex(slave,
-                    old_status, FS_SERVER_STATUS_ONLINE);
+                    old_status, FS_DS_STATUS_ONLINE);
         } else {
             is_online = false;
         }
@@ -488,13 +488,13 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
     }
 
     status = __sync_add_and_fetch(&slave->status, 0);
-    if (status != FS_SERVER_STATUS_ONLINE) {
+    if (status != FS_DS_STATUS_ONLINE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, slave id: %d, "
                 "unexpect data server status: %d (%s), "
                 "expect status: %d", data_group_id, server_id,
                 status, fs_get_server_status_caption(status),
-                FS_SERVER_STATUS_ONLINE);
+                FS_DS_STATUS_ONLINE);
         return EINVAL;
     }
 
