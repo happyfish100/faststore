@@ -141,14 +141,6 @@ int main(int argc, char *argv[])
 
         //sched_print_all_entries();
 
-        if ((result=sf_socket_server()) != 0) {
-            break;
-        }
-
-        if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
-            break;
-        }
-
         if ((result=sf_socket_server_ex(&CLUSTER_SF_CTX)) != 0) {
             break;
         }
@@ -177,6 +169,19 @@ int main(int argc, char *argv[])
             break;
         }
 
+        result = sf_service_init_ex2(&CLUSTER_SF_CTX,
+                cluster_alloc_thread_extra_data, NULL, NULL,
+                sf_proto_set_body_length, cluster_deal_task_partly,
+                cluster_task_finish_cleanup, cluster_recv_timeout_callback,
+                1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
+                init_nio_task);
+        if (result != 0) {
+            break;
+        }
+        sf_enable_thread_notify_ex(&CLUSTER_SF_CTX, true);
+        sf_set_remove_from_ready_list_ex(&CLUSTER_SF_CTX, false);
+        sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
+
         if ((result=server_storage_init()) != 0) {
             break;
         }
@@ -204,22 +209,16 @@ int main(int argc, char *argv[])
         fs_proto_init();
         //sched_print_all_entries();
 
-        if ((result=cluster_relationship_init()) != 0) {
-            break;
-        }
+        sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,
+                cluster_thread_loop_callback);
+        sf_set_deal_task_func_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
-        result = sf_service_init_ex2(&CLUSTER_SF_CTX,
-                cluster_alloc_thread_extra_data,
-                cluster_thread_loop_callback, NULL,
-                sf_proto_set_body_length, cluster_deal_task,
-                cluster_task_finish_cleanup, cluster_recv_timeout_callback,
-                1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task);
-        if (result != 0) {
+        if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
             break;
         }
-        sf_enable_thread_notify_ex(&CLUSTER_SF_CTX, true);
-        sf_set_remove_from_ready_list_ex(&CLUSTER_SF_CTX, false);
+        if ((result=sf_socket_server()) != 0) {
+            break;
+        }
 
         result = sf_service_init_ex2(&REPLICA_SF_CTX,
                 replica_alloc_thread_extra_data,
@@ -246,6 +245,10 @@ int main(int argc, char *argv[])
         sf_enable_thread_notify_ex(&g_sf_context, true);
         sf_set_remove_from_ready_list_ex(&g_sf_context, false);
 
+        if ((result=cluster_relationship_init()) != 0) {
+            break;
+        }
+
         result = replication_common_start();
     } while (0);
 
@@ -258,7 +261,6 @@ int main(int argc, char *argv[])
     setup_mblock_stat_task();
     //sched_print_all_entries();
 
-    sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
     sf_accept_loop_ex(&REPLICA_SF_CTX, false);
     sf_accept_loop();
     if (g_schedule_flag) {

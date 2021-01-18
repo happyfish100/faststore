@@ -76,6 +76,7 @@ int server_binlog_init()
         return result;
     }
 
+    //TODO move to first?
 	return do_binlog_check();
 }
 

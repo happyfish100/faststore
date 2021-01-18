@@ -120,7 +120,9 @@ static int proto_get_server_status(ConnectionInfo *conn,
             FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP, in_body,
             sizeof(FSProtoGetServerStatusResp))) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        if (result != EOPNOTSUPP) {
+            sf_log_network_error(&response, conn, result);
+        }
         return result;
     }
 
@@ -157,7 +159,9 @@ static int proto_join_leader(ConnectionInfo *conn)
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_JOIN_LEADER_RESP)) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        if (result != EOPNOTSUPP) {
+            sf_log_network_error(&response, conn, result);
+        }
     }
 
     return result;
@@ -386,7 +390,9 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     SF_PROTO_ACK)) != 0)
     {
-        sf_log_network_error(&response, &conn, result);
+        if (result != EOPNOTSUPP) {
+            sf_log_network_error(&response, &conn, result);
+        }
     }
 
     conn_pool_disconnect_server(&conn);
@@ -428,7 +434,9 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
-        sf_log_network_error(&response, &conn, result);
+        if (result != EOPNOTSUPP) {
+            sf_log_network_error(&response, &conn, result);
+        }
     }
 
     conn_pool_disconnect_server(&conn);
@@ -1143,7 +1151,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
                 1000 * SF_G_NETWORK_TIMEOUT, false);
     }
 
-    if (result != 0) {
+    if (result != 0 && result != EOPNOTSUPP) {
         sf_log_network_error(&response, conn, result);
     }
 
@@ -1181,7 +1189,7 @@ static int proto_report_disk_space(ConnectionInfo *conn,
                 1000 * SF_G_NETWORK_TIMEOUT, false);
     }
 
-    if (result != 0) {
+    if (result != 0 && result != EOPNOTSUPP) {
         sf_log_network_error(&response, conn, result);
     }
 
@@ -1338,7 +1346,11 @@ static void *cluster_thread_entrance(void *arg)
                             CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
                             CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
 
-                    sleep_seconds *= 2;
+                    if (sleep_seconds == 0) {
+                        sleep_seconds = 1;
+                    } else {
+                        sleep_seconds *= 2;
+                    }
                     if (fail_count >= 4) {
                         cluster_unset_leader();
 

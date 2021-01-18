@@ -31,7 +31,8 @@ extern "C" {
 
 int cluster_handler_init();
 int cluster_handler_destroy();
-int cluster_deal_task(struct fast_task_info *task, const int stage);
+int cluster_deal_task_partly(struct fast_task_info *task, const int stage);
+int cluster_deal_task_fully(struct fast_task_info *task, const int stage);
 void cluster_task_finish_cleanup(struct fast_task_info *task);
 int cluster_recv_timeout_callback(struct fast_task_info *pTask);
 void *cluster_alloc_thread_extra_data(const int thread_index);

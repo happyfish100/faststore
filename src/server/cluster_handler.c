@@ -503,7 +503,23 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
     }
 }
 
-int cluster_deal_task(struct fast_task_info *task, const int stage)
+int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
+{
+    handler_init_task_context(task);
+    switch (REQUEST.header.cmd) {
+        case SF_PROTO_ACTIVE_TEST_REQ:
+            RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
+            RESPONSE_STATUS = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
+            break;
+        default:
+            RESPONSE_STATUS = EOPNOTSUPP;
+            break;
+    }
+
+    return handler_deal_task_done(task);
+}
+
+int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
 {
     int result;
 
@@ -580,6 +596,7 @@ static int alloc_notify_ctx_ptr_array(FSClusterNotifyContextPtrArray *array)
     }
     memset(array->contexts, 0, bytes);
     array->alloc = CLUSTER_SERVER_ARRAY.count;
+
     return 0;
 }
 
