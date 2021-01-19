@@ -27,7 +27,6 @@
 #include <pthread.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
-#include "fastcommon/common_blocked_queue.h"
 #include "fastcommon/thread_pool.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
@@ -54,16 +53,13 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
     int result;
     int new_status;
     int sleep_seconds;
-    bool recovery_again;
 
     result = data_recovery_start(ds);
     new_status = __sync_add_and_fetch(&ds->status, 0);
-    __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
 
     if (result == 0) {
         ds->recovery.continuous_fail_count = 0;
         sleep_seconds = 0;
-        recovery_again = false;
     } else {
         ds->recovery.continuous_fail_count++;
         if (new_status == FS_DS_STATUS_REBUILDING ||
@@ -86,31 +82,23 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
                 } else {
                     sleep_seconds = 0;
                 }
-                recovery_again = false;
             } else {
                 sleep_seconds = 0;
-                recovery_again = true;
             }
         } else {
             sleep_seconds = 0;
-            recovery_again = true;
         }
     }
+    __sync_bool_compare_and_swap(&ds->recovery.in_progress, 1, 0);
 
     data_recovery_notify_replication(ds);
 
     if (sleep_seconds > 0) {
         sleep(sleep_seconds);
     }
-    if (recovery_again) {
-        int status;
-        status = __sync_add_and_fetch(&ds->status, 0);
-        if (status == FS_DS_STATUS_INIT ||
-                status == FS_DS_STATUS_OFFLINE)
-        {
-            sleep(1);
-            recovery_thread_push_to_queue(ds);
-        }
+
+    if (recovery_thread_check_push_to_queue(ds) == 0) {
+        sleep(1);
     }
 
     /*
@@ -269,5 +257,20 @@ void recovery_thread_destroy()
 
 int recovery_thread_push_to_queue(FSClusterDataServerInfo *ds)
 {
+    return common_blocked_queue_push(&recovery_thread_ctx.queue, ds);
+}
+
+int recovery_thread_check_push_to_queue(FSClusterDataServerInfo *ds)
+{
+    int status;
+    status = FC_ATOMIC_GET(ds->status);
+    if (!(status == FS_DS_STATUS_INIT || status == FS_DS_STATUS_OFFLINE)) {
+        return EALREADY;
+    }
+
+    if (FC_ATOMIC_GET(ds->dg->master) == NULL) {
+        return ENOENT;
+    }
+
     return common_blocked_queue_push(&recovery_thread_ctx.queue, ds);
 }

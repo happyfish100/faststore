@@ -182,10 +182,10 @@ static int service_deal_get_master(struct fast_task_info *task)
                 "data_group_id: %d not exist", data_group_id);
         return ENOENT;
     }
-    master = (FSClusterDataServerInfo *)__sync_fetch_and_add(&group->master, 0);
+    master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
     if (master == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "the master NOT exist");
+                "data group id: %d, the master NOT exist", data_group_id);
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 

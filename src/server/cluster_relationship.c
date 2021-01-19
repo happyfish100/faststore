@@ -954,13 +954,7 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     }
 
     if (new_master != NULL && group->myself != new_master) {
-        int my_status;
-        my_status = __sync_add_and_fetch(&group->myself->status, 0);
-        if (my_status == FS_DS_STATUS_INIT ||
-                my_status == FS_DS_STATUS_OFFLINE)
-        {
-            recovery_thread_push_to_queue(group->myself);
-        }
+        recovery_thread_check_push_to_queue(group->myself);
     }
 
     return 0;
