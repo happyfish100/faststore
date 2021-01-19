@@ -25,6 +25,7 @@
 #include "fastcommon/fast_allocator.h"
 #include "fastcommon/server_id_func.h"
 #include "fastcommon/shared_buffer.h"
+#include "fastcommon/fc_atomic.h"
 #include "sf/idempotency/server/server_types.h"
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
@@ -224,7 +225,6 @@ typedef struct fs_cluster_data_server_info {
 
     struct {
         volatile uint64_t version;
-        time_t last_report_time; //for the leader
     } data;
 
     int64_t last_report_version; //for record last data version to the leader
@@ -239,11 +239,17 @@ typedef struct fs_cluster_data_group_info {
     int id;
     int index;
     uint32_t hash_code;  //for master election
+
     struct {
         volatile int action;
         int expire_time;
     } delay_decision;
-    int64_t election_start_time_ms;  //for master select
+
+    struct {
+        int retry_count;
+        int64_t start_time_ms;
+    } election;  //for master select
+
     FSClusterDataServerArray data_server_array;
     FSClusterDataServerPtrArray ds_ptr_array;  //for leader select master
     FSClusterDataServerPtrArray slave_ds_array;

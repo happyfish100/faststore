@@ -72,7 +72,11 @@ typedef struct fs_cluster_server_detect_array {
 } FSClusterServerDetectArray;
 
 typedef struct fs_cluster_relationship_context {
-    FSClusterServerInfo *next_leader;
+    struct {
+        int retry_count;
+        int64_t start_time_ms;
+        FSClusterServerInfo *next_leader;
+    } election;
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
     volatile int immediate_report;
@@ -83,7 +87,7 @@ typedef struct fs_cluster_relationship_context {
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
 
 static FSClusterRelationshipContext relationship_ctx = {
-    NULL, {NULL, 0}, {NULL, 0}, 0
+    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0
 };
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
@@ -447,15 +451,15 @@ int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
 {
     FSClusterServerInfo *next_leader;
 
-    next_leader = relationship_ctx.next_leader;
+    next_leader = relationship_ctx.election.next_leader;
     if (next_leader == NULL) {
-        relationship_ctx.next_leader = leader;
+        relationship_ctx.election.next_leader = leader;
     } else if (next_leader != leader) {
         logError("file: "__FILE__", line: %d, "
                 "try to set next leader id: %d, "
                 "but next leader: %d already exist",
                 __LINE__, leader->server->id, next_leader->server->id);
-        relationship_ctx.next_leader = NULL;
+        relationship_ctx.election.next_leader = NULL;
         return EEXIST;
     }
 
@@ -568,6 +572,9 @@ static void cluster_relationship_deactivate_all_servers()
 static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
 {
     FSClusterServerInfo *old_leader;
+    int64_t time_used;
+    char prefix_prompt[64];
+    char time_buff[32];
 
     old_leader = CLUSTER_LEADER_ATOM_PTR;
     new_leader->is_leader = true;
@@ -582,22 +589,31 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
             cluster_topology_offline_all_data_servers(new_leader);
             cluster_topology_set_check_master_flags();
         }
+        strcpy(prefix_prompt, "i am the new leader,");
     } else {
         if (MYSELF_IS_LEADER) {
             MYSELF_IS_LEADER = false;
         }
-
-        if (new_leader != old_leader) {
-            logInfo("file: "__FILE__", line: %d, "
-                    "the leader server id: %d, ip %s:%u",
-                    __LINE__, new_leader->server->id,
-                    CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
-                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server));
-        }
+        strcpy(prefix_prompt, "the leader server");
     }
-    __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
-            old_leader, new_leader);
 
+    if (new_leader != old_leader) {
+        __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
+                old_leader, new_leader);
+
+        time_used = get_current_time_ms() - relationship_ctx.
+            election.start_time_ms;
+        long_to_comma_str(time_used, time_buff);
+        logInfo("file: "__FILE__", line: %d, "
+                "%s id: %d, ip %s:%u, retry count: %d, time used: %s ms",
+                __LINE__, prefix_prompt, new_leader->server->id,
+                CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
+                CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server),
+                relationship_ctx.election.retry_count, time_buff);
+    }
+
+    relationship_ctx.election.start_time_ms = 0;
+    relationship_ctx.election.retry_count = 0;
     return 0;
 }
 
@@ -606,7 +622,7 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
     FSClusterServerInfo *next_leader;
     int result;
 
-    next_leader = relationship_ctx.next_leader;
+    next_leader = relationship_ctx.election.next_leader;
     if (next_leader == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "next leader is NULL", __LINE__);
@@ -616,12 +632,12 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
         logError("file: "__FILE__", line: %d, "
                 "next leader server id: %d != expected server id: %d",
                 __LINE__, next_leader->server->id, leader->server->id);
-        relationship_ctx.next_leader = NULL;
+        relationship_ctx.election.next_leader = NULL;
         return EBUSY;
     }
 
     result = cluster_relationship_set_leader(leader);
-    relationship_ctx.next_leader = NULL;
+    relationship_ctx.election.next_leader = NULL;
     return result;
 }
 
@@ -719,7 +735,14 @@ static int cluster_select_leader()
 	logInfo("file: "__FILE__", line: %d, "
 		"selecting leader...", __LINE__);
 
-    sleep_secs = 2;
+    if (relationship_ctx.election.start_time_ms == 0) {
+        relationship_ctx.election.start_time_ms = get_current_time_ms();
+        relationship_ctx.election.retry_count = 1;
+    } else {
+        relationship_ctx.election.retry_count++;
+    }
+
+    sleep_secs = 1;
     i = 0;
     while (1) {
         if ((result=cluster_get_leader(&server_status, &active_count)) != 0) {
@@ -763,17 +786,11 @@ static int cluster_select_leader()
 
     next_leader = server_status.cs;
     if (CLUSTER_MYSELF_PTR == next_leader) {
-		if ((result=cluster_notify_leader_changed(
+        if ((result=cluster_notify_leader_changed(
                         &server_status)) != 0)
         {
             return result;
         }
-
-		logInfo("file: "__FILE__", line: %d, "
-			"I am the new leader, id: %d, ip %s:%u",
-			__LINE__, next_leader->server->id,
-            CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
-            CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
     } else {
         if (server_status.is_leader) {
             cluster_relationship_set_leader(next_leader);
@@ -838,7 +855,6 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         flags = 0;
     }
 
-    ds->data.last_report_time = g_current_time;
     old_dv = FC_ATOMIC_GET(ds->data.version);
     if (data_version != old_dv) {
         FC_ATOMIC_CAS(ds->data.version, old_dv, data_version);
@@ -1365,7 +1381,7 @@ static void *cluster_thread_entrance(void *arg)
                     } else {
                         sleep_seconds *= 2;
                     }
-                    if (fail_count >= 4) {
+                    if (fail_count >= 3) {
                         cluster_unset_leader();
 
                         fail_count = 0;

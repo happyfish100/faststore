@@ -123,9 +123,9 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     "ds is_master: %d, status: %d, data version: %"PRId64", "
                     "event {source: %c, type: %d} ", __LINE__,
                     ds->dg->id, ds->cs->server->id,
-                    cs->server->id, __sync_add_and_fetch(&ds->is_master, 0),
-                    __sync_add_and_fetch(&ds->status, 0),
-                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+                    cs->server->id, FC_ATOMIC_GET(ds->is_master),
+                    FC_ATOMIC_GET(ds->status),
+                    FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
                     source, event_type);
             continue;
         }
@@ -146,10 +146,9 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     "status: %d, target server id: %d, push to in_queue: %d, "
                     "data version: %"PRId64", event {source: %c, type: %d}, "
                     "ds: %p", __LINE__, ds->dg->id, ds->cs->server->id,
-                    __sync_add_and_fetch(&ds->is_master, 0),
-                    __sync_add_and_fetch(&ds->status, 0),
+                    FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(ds->status),
                     cs->server->id, in_queue,
-                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+                    FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
                     source, event_type, event->ds);
                     */
 
@@ -165,10 +164,9 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     "status: %d, target server id: %d, alread in_queue: %d, "
                     "data version: %"PRId64", event {source: %c, type: %d}, "
                     "ds: %p", __LINE__, ds->dg->id, ds->cs->server->id,
-                    __sync_add_and_fetch(&ds->is_master, 0),
-                    __sync_add_and_fetch(&ds->status, 0),
+                    FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(ds->status),
                     cs->server->id, in_queue,
-                    __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+                    FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
                     source, event_type, event->ds);
         }
     }
@@ -243,8 +241,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
         int2buff(ds->dg->id, body_part->data_group_id);
         int2buff(ds->cs->server->id, body_part->server_id);
-        body_part->is_master = __sync_add_and_fetch(&ds->is_master, 0);
-        body_part->status = __sync_add_and_fetch(&ds->status, 0);
+        body_part->is_master = FC_ATOMIC_GET(ds->is_master);
+        body_part->status = FC_ATOMIC_GET(ds->status);
         long2buff(FC_ATOMIC_GET(ds->data.version), body_part->data_version);
 
         /*
@@ -255,8 +253,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
                 "cluster version: %"PRId64, ctx->server_id, ctx,
                 event_source, event_type, ds->dg->id, ds->cs->server->id,
                 body_part->is_master, body_part->status,
-                ds->data.version,
-                __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0));
+                ds->data.version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
                 */
 
         ++body_part;
@@ -312,8 +309,8 @@ static void cluster_topology_offline_data_server(
     bool notify;
 
     notify = downgrade_data_server_status(ds, unset_master);
-    if (unset_master && __sync_fetch_and_add(&ds->is_master, 0)) {
-        __sync_bool_compare_and_swap(&ds->is_master, true, false);
+    if (unset_master && FC_ATOMIC_GET(ds->is_master)) {
+        __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
         if (__sync_bool_compare_and_swap(&ds->dg->master, ds, NULL)) {
             cluster_relationship_on_master_change(ds, NULL);
 
@@ -390,7 +387,8 @@ void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
 
     gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
-        group->election_start_time_ms = 0;
+        group->election.start_time_ms = 0;
+        group->election.retry_count = 0;
         send = group->data_server_array.servers + group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
             if (ds->cs != leader) {
@@ -534,7 +532,7 @@ static int decision_check_master(FSClusterDataGroupInfo *group)
         }
 
         if (__sync_bool_compare_and_swap(&group->master, master, NULL)) {
-            __sync_bool_compare_and_swap(&master->is_master, true, false);
+            __sync_bool_compare_and_swap(&master->is_master, 1, 0);
             cluster_relationship_on_master_change(master, NULL);
 
             cluster_topology_data_server_chg_notify(master,
@@ -618,16 +616,19 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     int status;
     int timeout;
 
-    if (group->election_start_time_ms == 0) {
-        group->election_start_time_ms = get_current_time_ms();
+    if (group->election.start_time_ms == 0) {
+        group->election.start_time_ms = get_current_time_ms();
+        group->election.retry_count = 1;
 
         if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR &&
                 group->myself != NULL)
         {
             CLUSTER_MYSELF_PTR->last_ping_time = g_current_time + 1;
         }
+    } else {
+        group->election.retry_count++;
     }
-    election_start_time = (int)(group->election_start_time_ms / 1000);
+    election_start_time = (int)(group->election.start_time_ms / 1000);
 
     active_count = 0;
     waiting_report_count = 0;
@@ -648,13 +649,14 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
                 char time_buff[32];
 
                 time_used = get_current_time_ms() -
-                    group->election_start_time_ms;
+                    group->election.start_time_ms;
                 long_to_comma_str(time_used, time_buff);
                 logError("file: "__FILE__", line: %d, "
                         "data group id: %d, waiting server id: %d "
                         "timeout, time used: %s ms", __LINE__, group->id,
                         ds->cs->server->id, time_buff);
-                group->election_start_time_ms = 0;
+                group->election.start_time_ms = 0;
+                group->election.retry_count = 0;
                 *result = EAGAIN;
                 return NULL;
             }
@@ -804,20 +806,22 @@ static int cluster_topology_select_master(FSClusterDataGroupInfo *group,
         int64_t time_used;
         char time_buff[32];
 
-        __sync_bool_compare_and_swap(&master->is_master, false, true);
+        __sync_bool_compare_and_swap(&master->is_master, 0, 1);
         cluster_relationship_on_master_change(NULL, master);
         cluster_topology_data_server_chg_notify(master,
                 FS_EVENT_SOURCE_CS_LEADER,
                 FS_EVENT_TYPE_MASTER_CHANGE, true);
 
-        time_used = get_current_time_ms() - group->election_start_time_ms;
+        time_used = get_current_time_ms() - group->election.start_time_ms;
         long_to_comma_str(time_used, time_buff);
         logInfo("file: "__FILE__", line: %d, "
                 "data group id: %d, elected master id: %d, "
-                "is_preseted: %d, time used: %s ms", __LINE__, group->id,
-                master->cs->server->id, master->is_preseted, time_buff);
+                "is_preseted: %d, retry count: %d, time used: %s ms",
+                __LINE__, group->id, master->cs->server->id,
+                master->is_preseted, group->election.retry_count, time_buff);
     }
-    group->election_start_time_ms = 0;
+    group->election.start_time_ms = 0;
+    group->election.retry_count = 0;
 
     return 0;
 }

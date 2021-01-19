@@ -294,8 +294,8 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         dend = group->data_server_array.servers +
             group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<dend; ds++) {
-            status = __sync_add_and_fetch(&ds->status, 0);
-            is_master = __sync_add_and_fetch(&ds->is_master, 0);
+            status = FC_ATOMIC_GET(ds->status);
+            is_master = FC_ATOMIC_GET(ds->is_master);
             if (filter.filter_by > 0) {
                 if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_IS_MASTER)) {
                     if (is_master != filter.is_master) {

@@ -171,7 +171,7 @@ static int check_peer_slave(struct fast_task_info *task,
                 data_group_id, server_id);
         return ENOENT;
     }
-    if (__sync_add_and_fetch(&(*peer)->is_master, 0)) {
+    if (FC_ATOMIC_GET((*peer)->is_master)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d is master",
                 data_group_id, server_id);
@@ -223,7 +223,7 @@ static int check_myself_master(struct fast_task_info *task,
         return ENOENT;
     }
 
-    if (!__sync_add_and_fetch(&(*myself)->is_master, 0)) {
+    if (!FC_ATOMIC_GET((*myself)->is_master)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, i am NOT master", data_group_id);
         return EINVAL;
@@ -902,7 +902,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     slave_id = buff2int(req->slave_id);
     if (slave_id == 0) {
         direct_read = false;
-    } else if (__sync_add_and_fetch(&OP_CTX_INFO.myself->is_master, 0)) {
+    } else if (FC_ATOMIC_GET(OP_CTX_INFO.myself->is_master)) {
         /*
         FSClusterDataServerInfo *slave;
         if ((slave=fs_get_data_server_ex(OP_CTX_INFO.
