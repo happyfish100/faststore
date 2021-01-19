@@ -145,12 +145,12 @@ typedef struct fs_client_context {
 
 
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \
-    client_ctx->cluster_cfg.group_index
+    (client_ctx)->cluster_cfg.group_index
 
 #define FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx, server) \
     (server)->group_addrs[FS_CFG_SERVICE_INDEX(client_ctx)].address_array
 
 #define FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code) \
-    (hash_code % FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr))
+    (hash_code % FS_DATA_GROUP_COUNT(*(client_ctx)->cluster_cfg.ptr))
 
 #endif

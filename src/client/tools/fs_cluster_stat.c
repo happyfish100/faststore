@@ -29,6 +29,8 @@ static void usage(char *argv[])
     fprintf(stderr, "Usage: %s [-c config_filename="
             "/etc/fastcfs/fstore/client.conf]\n"
             "\t[-g data_group_id=0] 0 for all groups]\n"
+            "\t[-s server_id] specify the server id\n"
+            "\t[-H ip:port] specify the server ip and port\n"
             "\t[-A] for ACTIVE only]\n"
             "\t[-N] for None ACTIVE]\n"
             "\t[-M] for master only]\n"
@@ -76,18 +78,24 @@ static void output(FSClientClusterStatEntry *stats, const int count)
 int main(int argc, char *argv[])
 {
 #define CLUSTER_MAX_STAT_COUNT  256
-	int ch;
     const char *config_filename = "/etc/fastcfs/fstore/client.conf";
+	int ch;
+    int server_id;
     int alloc_size;
     int count;
     int bytes;
+    FCServerInfo *server;
+    ConnectionInfo conn;
+    ConnectionInfo *spec_conn;
     FSClusterStatFilter filter;
     FSClientClusterStatEntry fixed_stats[CLUSTER_MAX_STAT_COUNT];
     FSClientClusterStatEntry *stats;
 	int result;
 
+    server_id = 0;
+    spec_conn = NULL;
     memset(&filter, 0, sizeof(filter));
-    while ((ch=getopt(argc, argv, "hc:g:ANMS")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:g:s:H:ANMS")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -110,6 +118,17 @@ int main(int argc, char *argv[])
                 filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_IS_MASTER;
                 filter.is_master = (ch == 'M');
                 break;
+            case 's':
+                server_id = strtol(optarg, NULL, 10);
+                break;
+            case 'H':
+                spec_conn = &conn;
+                if ((result=conn_pool_parse_server_info(optarg, spec_conn,
+                                FS_SERVER_DEFAULT_SERVICE_PORT)) != 0)
+                {
+                    return result;
+                }
+                break;
             default:
                 usage(argv);
                 return 1;
@@ -122,6 +141,23 @@ int main(int argc, char *argv[])
 
     if ((result=fs_client_init(config_filename)) != 0) {
         return result;
+    }
+
+    if (spec_conn == NULL && server_id != 0) {
+        FCAddressPtrArray *addr_parray;
+
+        if ((server=fc_server_get_by_id(&g_fs_client_vars.client_ctx.
+                        cluster_cfg.ptr->server_cfg, server_id)) == NULL)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "server id: %d not exist",
+                    __LINE__, server_id);
+            return ENOENT;
+        }
+
+        addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(
+                &g_fs_client_vars.client_ctx, server);
+        spec_conn = &addr_parray->addrs[0]->conn;
     }
 
     alloc_size = FS_DATA_GROUP_COUNT(*g_fs_client_vars.
@@ -137,7 +173,7 @@ int main(int argc, char *argv[])
         }
     }
 
-    if ((result=fs_cluster_stat(&g_fs_client_vars.client_ctx,
+    if ((result=fs_cluster_stat(&g_fs_client_vars.client_ctx, spec_conn,
                     &filter, stats, alloc_size, &count)) != 0)
     {
         fprintf(stderr, "fs_cluster_stat fail, "

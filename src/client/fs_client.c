@@ -98,12 +98,8 @@ static int stat_data_group(FSClientContext *client_ctx,
 
     result = ENOENT;
     for (i=0; i<server_group->server_array.count; i++) {
-        if (i == 0) {
-            index = 0;
-        } else {
-            index = (int)(((int64_t)server_group->server_array.count *
-                        (int64_t)rand()) / (int64_t)RAND_MAX);
-        }
+        index = (int)(((int64_t)server_group->server_array.count *
+                    (int64_t)rand()) / (int64_t)RAND_MAX);
         server = server_group->server_array.servers + index;
         if ((result=stat_data_group_by_addresses(client_ctx, filter,
                         &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx,
@@ -116,8 +112,9 @@ static int stat_data_group(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_cluster_stat(FSClientContext *client_ctx, const FSClusterStatFilter
-        *filter, FSClientClusterStatEntry *stats, const int size, int *count)
+int fs_cluster_stat(FSClientContext *client_ctx, const ConnectionInfo
+        *spec_conn, const FSClusterStatFilter *filter,
+        FSClientClusterStatEntry *stats, const int size, int *count)
 {
 #define FIXED_DATA_GROUP_SIZE  1024
     int data_group_count;
@@ -147,13 +144,25 @@ int fs_cluster_stat(FSClientContext *client_ctx, const FSClusterStatFilter
 
     cs_array.stats = stats;
     cs_array.size = size;
-    if ((filter->filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP)) {
-        if ((result=stat_data_group(client_ctx, filter->data_group_id,
-                        filter, &gid_array, &cs_array)) == 0)
-        {
+    if (spec_conn != NULL) {
+        result = fs_client_proto_cluster_stat(client_ctx,
+                spec_conn, filter, &gid_array, &cs_array);
+    } else if ((filter->filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP)) {
+        result = stat_data_group(client_ctx, filter->data_group_id,
+                filter, &gid_array, &cs_array);
+    } else {
+        result = -1;
+    }
+
+    if (result >= 0) {
+        if (result == 0) {
             *count = cs_array.count;
         } else {
             *count = 0;
+        }
+
+        if (gid_array.ids != fixed_gids) {
+            free(gid_array.ids);
         }
         return result;
     }
@@ -339,7 +348,9 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             continue;
         }
 
-        if (client_ctx->idempotency_enabled) {
+        if (client_ctx->idempotency_enabled &&
+                !SF_IS_SERVER_RETRIABLE_ERROR(result))
+        {
             idempotency_client_channel_push(
                     connection_params->channel, req_id);
         }
