@@ -221,10 +221,17 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
         const int result)
 {
     if (IDEMPOTENCY_REQUEST != NULL) {
-        IDEMPOTENCY_REQUEST->finished = true;
-        IDEMPOTENCY_REQUEST->output.result = result;
-        ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
-            inc_alloc = SLICE_OP_CTX.update.space_changed;
+        if (SF_IS_SERVER_RETRIABLE_ERROR(result)) {
+            if (IDEMPOTENCY_CHANNEL != NULL) {
+                idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
+                        IDEMPOTENCY_REQUEST->req_id);
+            }
+        } else {
+            IDEMPOTENCY_REQUEST->finished = true;
+            IDEMPOTENCY_REQUEST->output.result = result;
+            ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
+                inc_alloc = SLICE_OP_CTX.update.space_changed;
+        }
         idempotency_request_release(IDEMPOTENCY_REQUEST);
 
         /* server task type for channel ONLY, do NOT set task type to NONE!!! */
