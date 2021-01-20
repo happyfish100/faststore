@@ -28,13 +28,17 @@ static void usage(char *argv[])
 {
     fprintf(stderr, "Usage: %s [-c config_filename="
             "/etc/fastcfs/fstore/client.conf]\n"
-            "\t[-g data_group_id=0] 0 for all groups]\n"
+            "\t[-g data_group_id=0] 0 for all groups\n"
             "\t[-s server_id] specify the server id\n"
             "\t[-H ip:port] specify the server ip and port\n"
-            "\t[-A] for ACTIVE only]\n"
-            "\t[-N] for None ACTIVE]\n"
-            "\t[-M] for master only]\n"
-            "\t[-S] for slave only]\n\n"
+            "\t[-A] for ACTIVE status only\n"
+            "\t[-N] for None ACTIVE status\n"
+            "\t[-R] for RECOVERING status only\n"
+            "\t[-B] for REBUIDING status only\n"
+            "\t[-O] for ONLINE status only\n"
+            "\t[-D] for OFFLINE status only\n"
+            "\t[-M] for master only\n"
+            "\t[-S] for slave only\n\n"
             "eg. list all active data servers:\n"
             "%s -A\n\nlist all master data servers:\n"
             "%s -M\n\nlist all data servers of data group 1:\n"
@@ -95,7 +99,7 @@ int main(int argc, char *argv[])
     server_id = 0;
     spec_conn = NULL;
     memset(&filter, 0, sizeof(filter));
-    while ((ch=getopt(argc, argv, "hc:g:s:H:ANMS")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:g:s:H:ANMSRBOD")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -112,6 +116,27 @@ int main(int argc, char *argv[])
                 filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_STATUS;
                 filter.op_type = (ch == 'A' ? '=' : '!');
                 filter.status = FS_DS_STATUS_ACTIVE;
+                break;
+            case 'R':
+            case 'B':
+            case 'O':
+            case 'D':
+                filter.filter_by |= FS_CLUSTER_STAT_FILTER_BY_STATUS;
+                filter.op_type = '=';
+                switch (ch) {
+                    case 'R':
+                        filter.status = FS_DS_STATUS_RECOVERING;
+                        break;
+                    case 'B':
+                        filter.status = FS_DS_STATUS_REBUILDING;
+                        break;
+                    case 'O':
+                        filter.status = FS_DS_STATUS_ONLINE;
+                        break;
+                    case 'D':
+                        filter.status = FS_DS_STATUS_OFFLINE;
+                        break;
+                }
                 break;
             case 'M':
             case 'S':
