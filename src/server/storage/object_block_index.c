@@ -798,12 +798,16 @@ int ob_index_delete_block_ex(OBHashtable *htable,
         } else {
             previous->next = ob->next;
         }
+        fast_mblock_delay_free_object(&ctx->ob_allocator, ob, 900);
 
-        if (sn != NULL) {
-            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        if (*dec_alloc > 0) {
+            if (sn != NULL) {
+                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+            }
+            result = 0;
+        } else {  //no slices deleted
+            result = ENOENT;
         }
-        fast_mblock_delay_free_object(&ctx->ob_allocator, ob, 3600);
-        result = 0;
     } else {
         result = ENOENT;
     }
