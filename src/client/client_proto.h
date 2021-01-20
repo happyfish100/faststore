@@ -22,6 +22,22 @@
 #include "fs_proto.h"
 #include "client_types.h"
 
+typedef struct fs_client_service_stat {
+    int server_id;
+    bool is_leader;
+
+    struct {
+        int current_count;
+        int max_count;
+    } connection;
+
+    struct {
+        int64_t current_version;
+        FSBinlogWriterStat writer;
+    } binlog;
+
+} FSClientServiceStat;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -71,6 +87,10 @@ extern "C" {
     int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
             ConnectionInfo *conn, FSClientServerSpaceStat *stats,
             const int size, int *count);
+
+    int fs_client_proto_service_stat(FSClientContext *client_ctx,
+            const ConnectionInfo *spec_conn, const int data_group_id,
+            FSClientServiceStat *stat);
 
 #ifdef __cplusplus
 }

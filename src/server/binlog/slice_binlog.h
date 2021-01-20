@@ -48,6 +48,8 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source);
 
+    void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
+
 #ifdef __cplusplus
 }
 #endif

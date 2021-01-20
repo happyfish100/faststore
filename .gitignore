@@ -35,6 +35,7 @@ src/api/tests/Makefile
 *.out
 src/server/fs_serverd
 src/client/tools/fs_cluster_stat
+src/client/tools/fs_service_stat
 src/client/tools/fs_write
 src/client/tools/fs_read
 src/client/tools/fs_delete

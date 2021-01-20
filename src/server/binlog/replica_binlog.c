@@ -844,3 +844,15 @@ int replica_binlog_check_consistency(const int data_group_id,
     return check_records_consistency(slave_records, slave_rows,
             master_records, master_rows, first_unmatched_dv);
 }
+
+void replica_binlog_writer_stat(const int data_group_id,
+        FSBinlogWriterStat *stat)
+{
+    SFBinlogWriterInfo *writer;
+
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    stat->next_version = writer->version_ctx.next;
+    stat->waiting_count = writer->version_ctx.ring.count;
+    stat->max_waitings = writer->version_ctx.ring.max_count;
+}

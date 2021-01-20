@@ -48,6 +48,7 @@
 #include "server_func.h"
 #include "server_group_info.h"
 #include "server_storage.h"
+#include "server_binlog.h"
 #include "data_thread.h"
 #include "common_handler.h"
 #include "data_update_handler.h"
@@ -100,10 +101,35 @@ void service_task_finish_cleanup(struct fast_task_info *task)
 static int service_deal_service_stat(struct fast_task_info *task)
 {
     int result;
+    int data_group_id;
+    int64_t current_version;
+    FSBinlogWriterStat writer_stat;
+    FSClusterDataGroupInfo *group;
+    FSProtoServiceStatReq *req;
     FSProtoServiceStatResp *stat_resp;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_expect_body_length(task,
+                    sizeof(FSProtoServiceStatReq))) != 0)
+    {
         return result;
+    }
+
+    req = (FSProtoServiceStatReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    if (data_group_id == 0) {
+        current_version = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+        slice_binlog_writer_stat(&writer_stat);
+    } else {
+        if ((group=fs_get_data_group(data_group_id)) == NULL ||
+                group->myself == NULL)
+        {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data_group_id: %d not exist", data_group_id);
+            return ENOENT;
+        }
+
+        current_version = FC_ATOMIC_GET(group->myself->data.version);
+        replica_binlog_writer_stat(data_group_id, &writer_stat);
     }
 
     stat_resp = (FSProtoServiceStatResp *)REQUEST.body;
@@ -111,6 +137,11 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
+
+    long2buff(current_version, stat_resp->binlog.current_version);
+    long2buff(writer_stat.next_version, stat_resp->binlog.writer.next_version);
+    int2buff(writer_stat.waiting_count, stat_resp->binlog.writer.waiting_count);
+    int2buff(writer_stat.max_waitings, stat_resp->binlog.writer.max_waitings);
 
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;

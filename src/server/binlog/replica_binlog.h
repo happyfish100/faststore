@@ -197,6 +197,9 @@ extern "C" {
     int replica_binlog_check_consistency(const int data_group_id,
             string_t *buffer, uint64_t *first_unmatched_dv);
 
+    void replica_binlog_writer_stat(const int data_group_id,
+            FSBinlogWriterStat *stat);
+
 #ifdef __cplusplus
 }
 #endif

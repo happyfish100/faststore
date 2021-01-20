@@ -183,6 +183,10 @@ typedef struct fs_proto_report_ds_status_req {
     char padding[3];
 } FSProtoReportDSStatusReq;
 
+typedef struct fs_proto_service_stat_req {
+    char data_group_id[4];   //0 for slice binlog
+} FSProtoServiceStatReq;
+
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
     char is_leader;
@@ -191,6 +195,15 @@ typedef struct fs_proto_service_stat_resp {
         char current_count[4];
         char max_count[4];
     } connection;
+
+    struct {
+        char current_version[8];
+        struct {
+            char next_version[8];
+            char waiting_count[4];
+            char max_waitings[4];
+        } writer;
+    } binlog;
 
 } FSProtoServiceStatResp;
 

@@ -301,6 +301,7 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
         return ENOMEM;
     }
 
+    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
@@ -328,6 +329,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
         return ENOMEM;
     }
 
+    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
@@ -349,6 +351,7 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
         return ENOMEM;
     }
 
+    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
@@ -357,4 +360,11 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
             bkey->oid, bkey->offset);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
+}
+
+void slice_binlog_writer_stat(FSBinlogWriterStat *stat)
+{
+    stat->next_version = binlog_writer.writer.version_ctx.next;
+    stat->waiting_count = binlog_writer.writer.version_ctx.ring.count;
+    stat->max_waitings = binlog_writer.writer.version_ctx.ring.max_count;
 }

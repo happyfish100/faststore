@@ -668,3 +668,58 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
 
     return result;
 }
+
+int fs_client_proto_service_stat(FSClientContext *client_ctx,
+        const ConnectionInfo *spec_conn, const int data_group_id,
+        FSClientServiceStat *stat)
+{
+    FSProtoHeader *header;
+    ConnectionInfo *conn;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoServiceStatReq)];
+    FSProtoServiceStatReq *req;
+    SFResponseInfo response;
+    FSProtoServiceStatResp stat_resp;
+    int result;
+
+    if ((conn=client_ctx->conn_manager.get_spec_connection(
+                    client_ctx, spec_conn, &result)) == NULL)
+    {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    req = (FSProtoServiceStatReq *)(header + 1);
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_SERVICE_STAT_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    int2buff(data_group_id, req->data_group_id);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+                    &response, client_ctx->network_timeout,
+                    FS_SERVICE_PROTO_SERVICE_STAT_RESP,
+                    (char *)&stat_resp, sizeof(FSProtoServiceStatResp))) != 0)
+    {
+        sf_log_network_error(&response, conn, result);
+    }
+
+    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+    if (result != 0) {
+        return result;
+    }
+
+    stat->is_leader = stat_resp.is_leader;
+    stat->server_id = buff2int(stat_resp.server_id);
+    stat->connection.current_count = buff2int(
+            stat_resp.connection.current_count);
+    stat->connection.max_count = buff2int(stat_resp.connection.max_count);
+
+    stat->binlog.current_version = buff2long(
+            stat_resp.binlog.current_version);
+    stat->binlog.writer.next_version = buff2long(
+            stat_resp.binlog.writer.next_version);
+    stat->binlog.writer.waiting_count = buff2int(
+            stat_resp.binlog.writer.waiting_count);
+    stat->binlog.writer.max_waitings = buff2int(
+            stat_resp.binlog.writer.max_waitings);
+
+    return 0;
+}
