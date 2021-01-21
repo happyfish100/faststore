@@ -154,13 +154,20 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     }
 
     if (inactive_count > 0) {
-        __sync_sub_and_fetch(&rpc->reffer_count, inactive_count);
-    }
+        int result;
+        if (__sync_sub_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->
+                    context.service.waiting_rpc_count, inactive_count) == 0)
+        {
+            result = 0;  //rpc finished
+        } else {
+            result = TASK_STATUS_CONTINUE;
+        }
 
-    if (__sync_sub_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->
-                context.service.waiting_rpc_count, inactive_count) == 0)
-    {
-        return 0;
+        if (__sync_sub_and_fetch(&rpc->reffer_count, inactive_count) == 0) {
+            fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
+        }
+
+        return result;
     } else {
         return TASK_STATUS_CONTINUE;
     }
@@ -171,7 +178,6 @@ int replication_caller_push_to_slave_queues(FSDataOperation *op)
     FSClusterDataGroupInfo *group;
     ReplicationRPCEntry *rpc;
     uint32_t hash_code;
-    int result;
 
     if ((group=fs_get_data_group(op->ctx->info.data_group_id)) == NULL) {
         return ENOENT;
@@ -189,9 +195,5 @@ int replication_caller_push_to_slave_queues(FSDataOperation *op)
     rpc->body_offset = op->ctx->info.body - rpc->task->data;
     rpc->body_length = op->ctx->info.body_len;
     hash_code = op->ctx->info.data_group_id;
-    result = push_to_slave_queues(group, hash_code, rpc, op);
-    if (result != TASK_STATUS_CONTINUE) {
-        fast_mblock_free_object(&repl_mctx.rpc_allocator, rpc);
-    }
-    return result;
+    return push_to_slave_queues(group, hash_code, rpc, op);
 }
