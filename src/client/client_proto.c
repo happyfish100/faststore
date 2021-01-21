@@ -714,6 +714,8 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
 
     stat->binlog.current_version = buff2long(
             stat_resp.binlog.current_version);
+    stat->binlog.writer.total_count = buff2long(
+            stat_resp.binlog.writer.total_count);
     stat->binlog.writer.next_version = buff2long(
             stat_resp.binlog.writer.next_version);
     stat->binlog.writer.waiting_count = buff2int(

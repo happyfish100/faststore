@@ -199,6 +199,7 @@ typedef struct fs_proto_service_stat_resp {
     struct {
         char current_version[8];
         struct {
+            char total_count[8];
             char next_version[8];
             char waiting_count[4];
             char max_waitings[4];

@@ -852,7 +852,8 @@ void replica_binlog_writer_stat(const int data_group_id,
 
     writer = binlog_writer_array.writers[data_group_id -
         binlog_writer_array.base_id];
+    stat->total_count = writer->total_count;
     stat->next_version = writer->version_ctx.next;
-    stat->waiting_count = writer->version_ctx.ring.count;
-    stat->max_waitings = writer->version_ctx.ring.max_count;
+    stat->waiting_count = writer->version_ctx.ring.waiting_count;
+    stat->max_waitings = writer->version_ctx.ring.max_waitings;
 }

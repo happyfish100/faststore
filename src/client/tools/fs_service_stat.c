@@ -37,13 +37,14 @@ static void output(FSClientServiceStat *stat)
             "\tis_leader: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
-            "writer: {next_version: %"PRId64", "
+            "writer: {next_version: %"PRId64", total_count: %"PRId64", "
             "waiting_count: %d, max_waitings: %d}}\n\n",
             stat->server_id, stat->is_leader ? "true" : "false",
             stat->connection.current_count,
             stat->connection.max_count,
             stat->binlog.current_version,
             stat->binlog.writer.next_version,
+            stat->binlog.writer.total_count,
             stat->binlog.writer.waiting_count,
             stat->binlog.writer.max_waitings
           );

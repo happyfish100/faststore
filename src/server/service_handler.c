@@ -139,6 +139,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
 
     long2buff(current_version, stat_resp->binlog.current_version);
+    long2buff(writer_stat.total_count, stat_resp->binlog.writer.total_count);
     long2buff(writer_stat.next_version, stat_resp->binlog.writer.next_version);
     int2buff(writer_stat.waiting_count, stat_resp->binlog.writer.waiting_count);
     int2buff(writer_stat.max_waitings, stat_resp->binlog.writer.max_waitings);

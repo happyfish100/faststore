@@ -254,7 +254,7 @@ static int init_binlog_writer()
 
     if ((result=sf_binlog_writer_init_by_version(&binlog_writer.writer,
                     FS_SLICE_BINLOG_SUBDIR_NAME, SLICE_BINLOG_SN + 1,
-                    BINLOG_BUFFER_SIZE, 4096)) != 0)
+                    BINLOG_BUFFER_SIZE, 10240)) != 0)
     {
         return result;
     }
@@ -364,7 +364,8 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
 
 void slice_binlog_writer_stat(FSBinlogWriterStat *stat)
 {
+    stat->total_count = binlog_writer.writer.total_count;
     stat->next_version = binlog_writer.writer.version_ctx.next;
-    stat->waiting_count = binlog_writer.writer.version_ctx.ring.count;
-    stat->max_waitings = binlog_writer.writer.version_ctx.ring.max_count;
+    stat->waiting_count = binlog_writer.writer.version_ctx.ring.waiting_count;
+    stat->max_waitings = binlog_writer.writer.version_ctx.ring.max_waitings;
 }

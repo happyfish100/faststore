@@ -117,8 +117,7 @@ void trunk_freelist_add(FSTrunkFreelist *freelist,
             trunk_stat.avail, avail_bytes);
 }
 
-static void trunk_freelist_remove(FSTrunkAllocator *allocator,
-        FSTrunkFreelist *freelist)
+static void trunk_freelist_remove(FSTrunkFreelist *freelist)
 {
     FSTrunkFileInfo *trunk_info;
 
@@ -130,12 +129,13 @@ static void trunk_freelist_remove(FSTrunkAllocator *allocator,
     freelist->count--;
 
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_REPUSH);
-    push_trunk_util_event_force(allocator, trunk_info,
-            FS_TRUNK_UTIL_EVENT_CREATE);
+    push_trunk_util_event_force(trunk_info->allocator,
+            trunk_info, FS_TRUNK_UTIL_EVENT_CREATE);
     fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
 
     if (freelist->count < freelist->water_mark_trunks) {
-        trunk_maker_allocate_ex(allocator, true, false, NULL, NULL);
+        trunk_maker_allocate_ex(trunk_info->allocator,
+                true, false, NULL, NULL);
     }
 }
 
@@ -213,7 +213,7 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator
                 space_info++;
 
                 aligned_size -= remain_bytes;
-                trunk_freelist_remove(trunk_info->allocator, freelist);
+                trunk_freelist_remove(freelist);
             }
         }
 
@@ -244,8 +244,8 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator
         if (FS_TRUNK_AVAIL_SPACE(trunk_info) <
                 STORAGE_CFG.discard_remain_space_size)
         {
-            trunk_freelist_remove(allocator, freelist);
-            __sync_sub_and_fetch(&allocator->path_info->
+            trunk_freelist_remove(freelist);
+            __sync_sub_and_fetch(&trunk_info->allocator->path_info->
                     trunk_stat.avail, FS_TRUNK_AVAIL_SPACE(trunk_info));
         }
 

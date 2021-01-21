@@ -91,6 +91,7 @@ typedef struct {
 } FSClusterStatFilter;
 
 typedef struct {
+    int64_t total_count;
     int64_t next_version;
     int waiting_count;
     int max_waitings;
