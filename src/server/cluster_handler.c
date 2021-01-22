@@ -77,13 +77,15 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
-                cluster_topology_deactivate_server(CLUSTER_PEER);
-                __sync_bool_compare_and_swap(&CLUSTER_PEER->notify_ctx.
-                        task, task, NULL);
-
                 server_ctx = (FSServerContext *)task->thread_data->arg;
                 cluster_topology_remove_notify_ctx(&server_ctx->cluster.
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
+
+                if (FC_ATOMIC_GET(CLUSTER_PEER->notify_ctx.task) == task) {
+                    cluster_topology_deactivate_server(CLUSTER_PEER);
+                    __sync_bool_compare_and_swap(&CLUSTER_PEER->
+                            notify_ctx.task, task, NULL);
+                }
                 CLUSTER_PEER = NULL;
             } else {
                 logError("file: "__FILE__", line: %d, "
@@ -181,8 +183,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     server_id = buff2int(req->server_id);
     peer = fs_get_server_by_id(server_id);
     if (peer == NULL) {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d not exist", server_id);
         return ENOENT;
     }
