@@ -52,13 +52,12 @@
 static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
         FSSliceOpContext *op_ctx)
 {
-    int status;
     int i;
     bool checked;
     int64_t until_version;
 
     for (i=0; i<3; i++) {
-        until_version = __sync_add_and_fetch(&ds->recovery.until_version, 0);
+        until_version = FC_ATOMIC_GET(ds->recovery.until_version);
         checked = (until_version != 0);
         if (checked && (op_ctx->info.data_version <= until_version)) {
             logDebug("file: "__FILE__", line: %d, "
@@ -70,12 +69,11 @@ static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
             return 0;
         }
 
-        while (__sync_fetch_and_add(&ds->status, 0) == FS_DS_STATUS_ONLINE
+        while (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ONLINE
                 && SF_G_CONTINUE_FLAG)
         {
             PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);
-            status = __sync_fetch_and_add(&ds->status, 0);
-            if (status == FS_DS_STATUS_ONLINE) {
+            if (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ONLINE) {
                 pthread_cond_wait(&ds->replica.notify.cond,
                         &ds->replica.notify.lock);
             }
@@ -133,17 +131,15 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                     if (!__sync_add_and_fetch(&op_ctx->info.myself->
                                 recovery.in_progress, 0))
                     {
-                        status = __sync_add_and_fetch(&op_ctx->
-                                info.myself->status, 0);
-
+                        status = FC_ATOMIC_GET(op_ctx->info.myself->status);
                         logInfo("file: "__FILE__", line: %d, "
                                 "rpc data group id: %d, recovery in "
                                 "progress: 0, data version: %"PRId64", "
                                 "until_version: %"PRId64", status: %d",
                                 __LINE__, op_ctx->info.data_group_id,
                                 op_ctx->info.data_version,
-                                __sync_add_and_fetch(&op_ctx->info.myself->
-                                    recovery.until_version, 0), status);
+                                FC_ATOMIC_GET(op_ctx->info.myself->
+                                    recovery.until_version), status);
                         break;
                     }
 
@@ -153,7 +149,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
                 } else {
                     break;
                 }
-                status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
+                status = FC_ATOMIC_GET(op_ctx->info.myself->status);
             }
         }
 

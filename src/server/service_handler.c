@@ -434,6 +434,8 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
                                 ((FSUpdateOutput *)request->output.
                                  response)->inc_alloc);
                         RESPONSE.header.cmd = resp_cmd;
+                    } else {
+                        TASK_ARG->context.log_level = LOG_WARNING;
                     }
                 }
 
