@@ -82,13 +82,18 @@ static inline bool cluster_relationship_set_server_status(
 {
     int old_status;
 
-    old_status = FC_ATOMIC_GET(cs->status);
-    if (new_status == old_status) {
-        return false;
-    }
+    while (1) {
+        old_status = FC_ATOMIC_GET(cs->status);
+        if (new_status == old_status) {
+            return false;
+        }
 
-    return cluster_relationship_swap_server_status(
-            cs, old_status, new_status);
+        if (cluster_relationship_swap_server_status(
+                    cs, old_status, new_status))
+        {
+            return true;
+        }
+    }
 }
 
 #ifdef __cplusplus

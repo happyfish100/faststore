@@ -575,6 +575,7 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
     int64_t time_used;
     char prefix_prompt[64];
     char time_buff[32];
+    char affix_prompt[128];
 
     old_leader = CLUSTER_LEADER_ATOM_PTR;
     new_leader->is_leader = true;
@@ -601,15 +602,21 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
                 old_leader, new_leader);
 
-        time_used = get_current_time_ms() - relationship_ctx.
-            election.start_time_ms;
-        long_to_comma_str(time_used, time_buff);
+        if (relationship_ctx.election.retry_count > 0) {
+            time_used = get_current_time_ms() - relationship_ctx.
+                election.start_time_ms;
+            long_to_comma_str(time_used, time_buff);
+            sprintf(affix_prompt, ", retry count: %d, time used: %s ms",
+                    relationship_ctx.election.retry_count, time_buff);
+        } else {
+            *affix_prompt = '\0';
+        }
         logInfo("file: "__FILE__", line: %d, "
-                "%s id: %d, ip %s:%u, retry count: %d, time used: %s ms",
-                __LINE__, prefix_prompt, new_leader->server->id,
+                "%s id: %d, ip %s:%u%s", __LINE__,
+                prefix_prompt, new_leader->server->id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server),
-                relationship_ctx.election.retry_count, time_buff);
+                affix_prompt);
     }
 
     relationship_ctx.election.start_time_ms = 0;
@@ -942,7 +949,7 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_OFFLINE;
         if (group->myself == old_master) {
-            ds = old_status == FS_DS_STATUS_ACTIVE ? group->myself : NULL;
+            ds = (old_status == FS_DS_STATUS_ACTIVE ? group->myself : NULL);
         } else {
             ds = NULL;
         }
@@ -970,12 +977,15 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
 
     is_master = __sync_add_and_fetch(&ds->is_master, 0);
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
-        old_status = __sync_add_and_fetch(&ds->status, 0);
-        if ((body_part->status == FS_DS_STATUS_OFFLINE) &&
-                (!is_master) && (old_status == FS_DS_STATUS_ACTIVE))
-        {
-            cluster_relationship_set_ds_status_ex(ds, old_status,
-                    FS_DS_STATUS_OFFLINE);
+        /* accept ACTIVE => OFFLINE only */
+        if (body_part->status == FS_DS_STATUS_OFFLINE) {
+            old_status = __sync_add_and_fetch(&ds->status, 0);
+            if ((old_status == FS_DS_STATUS_ACTIVE) &&
+                    (!body_part->is_master))
+            {
+                cluster_relationship_set_ds_status_ex(ds,
+                        old_status, FS_DS_STATUS_OFFLINE);
+            }
         }
     } else {
         cluster_relationship_set_ds_status(ds, body_part->status);
