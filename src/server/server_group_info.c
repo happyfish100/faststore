@@ -410,7 +410,6 @@ static int set_server_partner_attribute(const int server_id)
             return ENOENT;
         }
 
-        cs->is_partner = true;
         /*
         logInfo("file: "__FILE__", line: %d, func: %s, "
                 "%d. id = %d", __LINE__, __FUNCTION__,

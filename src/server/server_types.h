@@ -184,7 +184,6 @@ typedef struct fs_cluster_server_info {
     FSClusterTopologyNotifyContext notify_ctx;
     FSClusterDataServerPtrArray ds_ptr_array;
     bool is_leader;       //for hint
-    bool is_partner;      //if my partner
     volatile char status; //for push topology change notify
     int status_changed_time;
     int server_index;      //for offset
