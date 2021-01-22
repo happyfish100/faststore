@@ -108,6 +108,7 @@ mkdir -p /opt/fastcfs/fstore
 /usr/lib64/libfsclient.so*
 /usr/lib64/libfsapi.so*
 /usr/bin/fs_cluster_stat
+/usr/bin/fs_service_stat
 /usr/bin/fs_delete
 /usr/bin/fs_read
 /usr/bin/fs_write
