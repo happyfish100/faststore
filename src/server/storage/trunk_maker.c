@@ -237,6 +237,9 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     double ratio_thredhold;
     FSTrunkFileInfo *trunk;
     int64_t used_bytes;
+    int64_t time_used;
+    char time_buff[64];
+    char time_prompt[64];
     int result;
 
     if (task->urgent || g_current_time - task->allocator->
@@ -274,20 +277,26 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
     }
 
     if (used_bytes > 0) {
+        int64_t start_time_us;
+        start_time_us = get_current_time_us();
         fs_set_trunk_status(trunk, FS_TRUNK_STATUS_RECLAIMING);
         result = trunk_reclaim(task->allocator, trunk,
                 &thread->reclaim_ctx);
+        time_used = get_current_time_us() - start_time_us;
     } else {
+        time_used = 0;
         result = 0;
     }
 
+    long_to_comma_str(time_used, time_buff);
+    sprintf(time_prompt, "time used: %s us", time_buff);
     logInfo("file: "__FILE__", line: %d, "
             "path index: %d, reclaiming trunk id: %"PRId64", "
             "last used bytes: %"PRId64", current used bytes: %"PRId64", "
-            "last usage ratio: %.2f%%, result: %d", __LINE__, task->
+            "last usage ratio: %.2f%%, result: %d, %s", __LINE__, task->
             allocator->path_info->store.index, trunk->id_info.id,
             used_bytes, trunk->used.bytes, 100.00 * (double)used_bytes /
-            (double)trunk->size, result);
+            (double)trunk->size, result, time_prompt);
 
     if (result == 0) {
         PTHREAD_MUTEX_LOCK(&task->allocator->freelist.lcp.lock);

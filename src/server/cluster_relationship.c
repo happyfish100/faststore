@@ -801,7 +801,7 @@ static int cluster_select_leader()
     } else {
         if (server_status.is_leader) {
             cluster_relationship_set_leader(next_leader);
-        } else {
+        } else if (CLUSTER_LEADER_ATOM_PTR == NULL) {
             logInfo("file: "__FILE__", line: %d, "
                     "waiting for the candidate leader server id: %d, "
                     "ip %s:%u notify ...", __LINE__, next_leader->server->id,
