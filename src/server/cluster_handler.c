@@ -82,7 +82,12 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
 
                 if (FC_ATOMIC_GET(CLUSTER_PEER->notify_ctx.task) == task) {
-                    cluster_topology_deactivate_server(CLUSTER_PEER);
+                    if (cluster_topology_deactivate_server(CLUSTER_PEER)) {
+                        logWarning("file: "__FILE__", line: %d, "
+                                "deactivate peer server id: %d!",
+                                __LINE__, CLUSTER_PEER->server->id);
+                    }
+
                     __sync_bool_compare_and_swap(&CLUSTER_PEER->
                             notify_ctx.task, task, NULL);
                 }
@@ -228,6 +233,15 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
+
+    if (FC_ATOMIC_GET(peer->status) == FS_SERVER_STATUS_ACTIVE) {
+        logWarning("file: "__FILE__", line: %d, "
+                "peer server id: %d, unexpect server status: %d(ACTIVE), "
+                "set to %d(OFFLINE)", __LINE__, server_id,
+                FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE);
+        cluster_relationship_set_server_status(
+                peer, FS_SERVER_STATUS_OFFLINE);
+    }
     cluster_topology_sync_all_data_servers(peer);
     return 0;
 }
@@ -341,7 +355,16 @@ static int cluster_deal_active_server(struct fast_task_info *task)
     int result;
 
     if ((result=cluster_deal_ping_leader(task)) == 0) {
-        cluster_topology_activate_server(CLUSTER_PEER);
+        if (cluster_topology_activate_server(CLUSTER_PEER)) {
+            logInfo("file: "__FILE__", line: %d, "
+                    "activate peer server id: %d.",
+                    __LINE__, CLUSTER_PEER->server->id);
+        } else {
+            RESPONSE.error.length = sprintf(
+                    RESPONSE.error.message,
+                    "i am not leader");
+            return EINVAL;
+        }
     }
 
     return result;

@@ -72,9 +72,9 @@ static inline int cluster_topology_remove_notify_ctx(
     return 0;
 }
 
-void cluster_topology_activate_server(FSClusterServerInfo *cs);
+bool cluster_topology_activate_server(FSClusterServerInfo *cs);
 
-void cluster_topology_deactivate_server(FSClusterServerInfo *cs);
+bool cluster_topology_deactivate_server(FSClusterServerInfo *cs);
 
 void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader);
 

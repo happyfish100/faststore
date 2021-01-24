@@ -338,13 +338,13 @@ static void cluster_topology_offline_data_server(
     }
 }
 
-void cluster_topology_activate_server(FSClusterServerInfo *cs)
+bool cluster_topology_activate_server(FSClusterServerInfo *cs)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
 
     if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
-        return;
+        return false;
     }
 
     cluster_relationship_set_server_status(cs, FS_SERVER_STATUS_ACTIVE);
@@ -356,26 +356,30 @@ void cluster_topology_activate_server(FSClusterServerInfo *cs)
             cluster_topology_select_master((*ds)->dg, false);
         }
     }
+
+    return true;
 }
 
-void cluster_topology_deactivate_server(FSClusterServerInfo *cs)
+bool cluster_topology_deactivate_server(FSClusterServerInfo *cs)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
 
-    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
-        return;
-    }
-
     if (cluster_relationship_swap_server_status(cs,
                 FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE))
     {
+        if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+            return false;
+        }
+
         end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
         for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
             cluster_topology_offline_data_server(*ds, true);
         }
         cluster_relationship_add_to_inactive_sarray(cs);
     }
+
+    return true;
 }
 
 void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
