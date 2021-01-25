@@ -280,6 +280,10 @@ typedef struct fs_proto_join_leader_req {
     FSProtoConfigSigns config_signs;
 } FSProtoJoinLeaderReq;
 
+typedef struct fs_proto_join_leader_resp {
+    char leader_version[8];  //for check leader generation
+} FSProtoJoinLeaderResp;
+
 typedef struct fs_proto_join_server_req {
     char server_id[4];   //the server id
     char buffer_size[4]; //the task size
@@ -306,6 +310,7 @@ typedef struct fs_proto_push_data_server_status_body_part {
 } FSProtoPushDataServerStatusBodyPart;
 
 typedef struct fs_proto_ping_leader_req_header  {
+    char leader_version[8];  //for check leader generation
     char data_group_count[4];
     char padding[4];
 } FSProtoPingLeaderReqHeader;

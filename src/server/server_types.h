@@ -186,9 +186,10 @@ typedef struct fs_cluster_server_info {
     bool is_leader;       //for hint
     volatile char status; //for push topology change notify
     int status_changed_time;
-    int server_index;      //for offset
-    int link_index;        //for next links
-    time_t last_ping_time; //for the leader
+    int server_index;       //for offset
+    int link_index;         //for next links
+    time_t last_ping_time;  //for the leader
+    int64_t leader_version; //for generation check
     FSClusterServerSpaceStat space_stat;
 } FSClusterServerInfo;
 

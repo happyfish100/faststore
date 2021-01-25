@@ -140,11 +140,12 @@ static int proto_get_server_status(ConnectionInfo *conn,
     return 0;
 }
 
-static int proto_join_leader(ConnectionInfo *conn)
+static int proto_join_leader(FSClusterServerInfo *leader, ConnectionInfo *conn)
 {
 	int result;
 	FSProtoHeader *header;
     FSProtoJoinLeaderReq *req;
+    FSProtoJoinLeaderResp resp;
     SFResponseInfo response;
 	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinLeaderReq)];
 
@@ -159,10 +160,13 @@ static int proto_join_leader(ConnectionInfo *conn)
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
             SERVERS_CONFIG_SIGN_LEN);
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
+    if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
-                    FS_CLUSTER_PROTO_JOIN_LEADER_RESP)) != 0)
+                    FS_CLUSTER_PROTO_JOIN_LEADER_RESP,
+                    (char *)&resp, sizeof(resp))) == 0)
     {
+        leader->leader_version = buff2long(resp.leader_version);
+    } else {
         if (result != EOPNOTSUPP) {
             sf_log_network_error(&response, conn, result);
         }
@@ -585,6 +589,8 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
             cluster_relationship_set_server_status(CLUSTER_MYSELF_PTR,
                     FS_SERVER_STATUS_ACTIVE);
             CLUSTER_MYSELF_PTR->last_ping_time = g_current_time + 1;
+            CLUSTER_MYSELF_PTR->leader_version = __sync_add_and_fetch(
+                    &CLUSTER_CURRENT_VERSION, 1);
 
             init_inactive_server_array();
             cluster_topology_offline_all_data_servers(new_leader);
@@ -1148,8 +1154,9 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 }
 
-static int proto_ping_leader_ex(ConnectionInfo *conn,
-        const unsigned char cmd, const bool report_all)
+static int proto_ping_leader_ex(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, const unsigned char cmd,
+        const bool report_all)
 {
     FSProtoHeader *header;
     SFResponseInfo response;
@@ -1159,6 +1166,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
     int length;
     int data_group_count;
     int result;
+    int log_level;
 
     header = (FSProtoHeader *)out_buff;
     req_header = (FSProtoPingLeaderReqHeader *)(header + 1);
@@ -1174,6 +1182,7 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
                 conn->ip_addr, conn->port, report_all, data_group_count);
     }
 
+    long2buff(leader->leader_version, req_header->leader_version);
     int2buff(data_group_count, req_header->data_group_count);
     SF_PROTO_SET_HEADER(header, cmd, out_bytes - sizeof(FSProtoHeader));
 
@@ -1186,17 +1195,19 @@ static int proto_ping_leader_ex(ConnectionInfo *conn,
     }
 
     if (result != 0 && result != EOPNOTSUPP) {
-        sf_log_network_error(&response, conn, result);
+        log_level = (result == SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT
+                ? LOG_WARNING : LOG_ERR);
+        sf_log_network_error_ex(&response, conn, result, log_level);
     }
 
     return result;
 }
 
-#define proto_activate_server(conn) \
-    proto_ping_leader_ex(conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, true)
+#define proto_activate_server(leader, conn) \
+    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, true)
 
-#define proto_ping_leader(conn) \
-    proto_ping_leader_ex(conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, false)
+#define proto_ping_leader(leader, conn) \
+    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, false)
 
 static int proto_report_disk_space(ConnectionInfo *conn,
         const FSClusterServerSpaceStat *stat)
@@ -1230,7 +1241,8 @@ static int proto_report_disk_space(ConnectionInfo *conn,
     return result;
 }
 
-static int cluster_try_recv_push_data(ConnectionInfo *conn)
+static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
+        ConnectionInfo *conn)
 {
     int result;
     int start_time;
@@ -1249,7 +1261,7 @@ static int cluster_try_recv_push_data(ConnectionInfo *conn)
         }
 
         if (__sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 1, 0)) {
-            if ((result=proto_ping_leader(conn)) != 0) {
+            if ((result=proto_ping_leader(leader, conn)) != 0) {
                 return result;
             }
         }
@@ -1284,16 +1296,10 @@ static int leader_check()
     return 0;  //do not need ping myself
 }
 
-static int follower_ping(ConnectionInfo *conn)
+static int follower_ping(FSClusterServerInfo *leader, ConnectionInfo *conn)
 {
     int result;
     static time_t last_stat_time = 0;
-    FSClusterServerInfo *leader;
-
-    leader = CLUSTER_LEADER_ATOM_PTR;
-    if (leader == NULL) {
-        return 0;
-    }
 
     if (conn->sock < 0) {
         if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
@@ -1302,23 +1308,23 @@ static int follower_ping(ConnectionInfo *conn)
             return result;
         }
 
-        if ((result=proto_join_leader(conn)) != 0) {
+        if ((result=proto_join_leader(leader, conn)) != 0) {
             conn_pool_disconnect_server(conn);
             return result;
         }
 
-        if ((result=proto_activate_server(conn)) != 0) {
+        if ((result=proto_activate_server(leader, conn)) != 0) {
             conn_pool_disconnect_server(conn);
             return result;
         }
     }
 
-    if ((result=cluster_try_recv_push_data(conn)) != 0) {
+    if ((result=cluster_try_recv_push_data(leader, conn)) != 0) {
         conn_pool_disconnect_server(conn);
         return result;
     }
 
-    result = proto_ping_leader(conn);
+    result = proto_ping_leader(leader, conn);
     if (result == 0 && g_current_time - last_stat_time >= 10) {
         last_stat_time = g_current_time;
         storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
@@ -1331,14 +1337,15 @@ static int follower_ping(ConnectionInfo *conn)
     return result;
 }
 
-static inline int cluster_ping_leader(ConnectionInfo *conn, bool *is_ping)
+static inline int cluster_ping_leader(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, bool *is_ping)
 {
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         *is_ping = false;
         return leader_check();
     } else {
         *is_ping = true;
-        return follower_ping(conn);
+        return follower_ping(leader, conn);
     }
 }
 
@@ -1368,7 +1375,7 @@ static void *cluster_thread_entrance(void *arg)
                 sleep_seconds = 1;
             }
         } else {
-            if (cluster_ping_leader(&mconn, &is_ping) == 0) {
+            if (cluster_ping_leader(leader, &mconn, &is_ping) == 0) {
                 fail_count = 0;
                 sleep_seconds = 0;
             } else {

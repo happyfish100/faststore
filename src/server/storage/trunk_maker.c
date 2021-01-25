@@ -282,14 +282,14 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         fs_set_trunk_status(trunk, FS_TRUNK_STATUS_RECLAIMING);
         result = trunk_reclaim(task->allocator, trunk,
                 &thread->reclaim_ctx);
-        time_used = get_current_time_us() - start_time_us;
+        time_used = (get_current_time_us() - start_time_us) / 1000;
     } else {
         time_used = 0;
         result = 0;
     }
 
     long_to_comma_str(time_used, time_buff);
-    sprintf(time_prompt, "time used: %s us", time_buff);
+    sprintf(time_prompt, "time used: %s ms", time_buff);
     logInfo("file: "__FILE__", line: %d, "
             "path index: %d, reclaiming trunk id: %"PRId64", "
             "last used bytes: %"PRId64", current used bytes: %"PRId64", "

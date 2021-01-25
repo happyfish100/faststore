@@ -175,6 +175,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     int result;
     int server_id;
     FSProtoJoinLeaderReq *req;
+    FSProtoJoinLeaderResp *resp;
     FSClusterServerInfo *peer;
     FSServerContext *server_ctx;
 
@@ -230,7 +231,6 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return result;
     }
 
-    RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
 
@@ -243,6 +243,12 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
                 peer, FS_SERVER_STATUS_OFFLINE);
     }
     cluster_topology_sync_all_data_servers(peer);
+
+    resp = (FSProtoJoinLeaderResp *)REQUEST.body;
+    long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
+    RESPONSE.header.body_len = sizeof(FSProtoJoinLeaderResp);
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
+    TASK_ARG->context.response_done = true;
     return 0;
 }
 
@@ -270,11 +276,22 @@ static int process_ping_leader_req(struct fast_task_info *task)
     int data_group_count;
     int expect_body_length;
     int data_group_id;
+    int64_t leader_version;
     uint64_t data_version;
     int i;
     int change_count;
 
     req_header = (FSProtoPingLeaderReqHeader *)REQUEST.body;
+    leader_version = buff2long(req_header->leader_version);
+    if (leader_version != CLUSTER_MYSELF_PTR->leader_version) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "peer id: %d, leader version: %"PRId64" != mine: %"PRId64,
+                CLUSTER_PEER->server->id, leader_version,
+                CLUSTER_MYSELF_PTR->leader_version);
+        TASK_ARG->context.log_level = LOG_WARNING;
+        return SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT;
+    }
+
     data_group_count = buff2int(req_header->data_group_count);
     expect_body_length = sizeof(FSProtoPingLeaderReqHeader) +
         sizeof(FSProtoPingLeaderReqBodyPart) * data_group_count;
@@ -599,7 +616,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,
                         "unkown cmd: %d", REQUEST.header.cmd);
-                result = -EINVAL;
+                result = EINVAL;
                 break;
         }
     }
@@ -607,7 +624,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
     if (result == TASK_STATUS_CONTINUE) {
         return 0;
     } else {
-        RESPONSE_STATUS = result;
+        RESPONSE_STATUS = (result > 0 ? -1 * result : result);
         return handler_deal_task_done(task);
     }
 }
