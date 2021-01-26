@@ -206,6 +206,11 @@ typedef struct fs_proto_service_stat_resp {
         } writer;
     } binlog;
 
+    struct {
+        char ob_count[8];
+        char slice_count[8];
+    } data;
+
 } FSProtoServiceStatResp;
 
 typedef struct fs_proto_cluster_stat_req {

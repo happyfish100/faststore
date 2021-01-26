@@ -33,21 +33,33 @@ static void usage(char *argv[])
 
 static void output(FSClientServiceStat *stat)
 {
+    double avg_slices;
+
+    if (stat->data.ob_count > 0) {
+        avg_slices = (double)stat->data.slice_count /
+            (double)stat->data.ob_count;
+    } else {
+        avg_slices = 0.00;
+    }
+
     printf( "\tserver_id: %d\n"
             "\tis_leader: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
             "writer: {next_version: %"PRId64", total_count: %"PRId64", "
-            "waiting_count: %d, max_waitings: %d}}\n\n",
-            stat->server_id, stat->is_leader ? "true" : "false",
+            "waiting_count: %d, max_waitings: %d}}\n"
+            "\tdata : {ob_count: %"PRId64", slice_count: %"PRId64", "
+            "avg slices/OB: %.2f}\n\n", stat->server_id,
+            stat->is_leader ?  "true" : "false",
             stat->connection.current_count,
             stat->connection.max_count,
             stat->binlog.current_version,
             stat->binlog.writer.next_version,
             stat->binlog.writer.total_count,
             stat->binlog.writer.waiting_count,
-            stat->binlog.writer.max_waitings
-          );
+            stat->binlog.writer.max_waitings,
+            stat->data.ob_count, stat->data.slice_count,
+            avg_slices);
 }
 
 int main(int argc, char *argv[])

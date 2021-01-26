@@ -129,6 +129,9 @@ extern "C" {
     OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey);
     void ob_index_reclaim_unlock(OBEntry *ob);
 
+    void ob_index_get_ob_and_slice_counts(int64_t *ob_count,
+            int64_t *slice_count);
+
 #ifdef __cplusplus
 }
 #endif

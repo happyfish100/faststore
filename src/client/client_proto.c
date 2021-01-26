@@ -723,5 +723,8 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->binlog.writer.max_waitings = buff2int(
             stat_resp.binlog.writer.max_waitings);
 
+    stat->data.ob_count = buff2long(stat_resp.data.ob_count);
+    stat->data.slice_count = buff2long(stat_resp.data.slice_count);
+
     return 0;
 }

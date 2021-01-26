@@ -36,6 +36,11 @@ typedef struct fs_client_service_stat {
         FSBinlogWriterStat writer;
     } binlog;
 
+    struct {
+        int64_t ob_count;
+        int64_t slice_count;
+    } data;
+
 } FSClientServiceStat;
 
 #ifdef __cplusplus

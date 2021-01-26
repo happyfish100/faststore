@@ -103,6 +103,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int result;
     int data_group_id;
     int64_t current_version;
+    int64_t ob_count;
+    int64_t slice_count;
     FSBinlogWriterStat writer_stat;
     FSClusterDataGroupInfo *group;
     FSProtoServiceStatReq *req;
@@ -131,6 +133,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
         current_version = FC_ATOMIC_GET(group->myself->data.version);
         replica_binlog_writer_stat(data_group_id, &writer_stat);
     }
+    ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
 
     stat_resp = (FSProtoServiceStatResp *)REQUEST.body;
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
@@ -143,6 +146,9 @@ static int service_deal_service_stat(struct fast_task_info *task)
     long2buff(writer_stat.next_version, stat_resp->binlog.writer.next_version);
     int2buff(writer_stat.waiting_count, stat_resp->binlog.writer.waiting_count);
     int2buff(writer_stat.max_waitings, stat_resp->binlog.writer.max_waitings);
+
+    long2buff(ob_count, stat_resp->data.ob_count);
+    long2buff(slice_count, stat_resp->data.slice_count);
 
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;

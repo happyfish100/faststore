@@ -390,10 +390,11 @@ static inline int do_add_slice(OBHashtable *htable,
     }
 }
 
-static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
+static inline OBSliceEntry *slice_dup(OBSharedContext *ctx,
         const OBSliceEntry *src, const int offset, const int length)
 {
     OBSliceEntry *slice;
+    int extra_offset;
 
     slice = (OBSliceEntry *)fast_mblock_alloc_object(&ctx->slice_allocator);
     if (slice == NULL) {
@@ -403,8 +404,9 @@ static inline OBSliceEntry *splice_dup(OBSharedContext *ctx,
     slice->ob = src->ob;
     slice->type = src->type;
     slice->space = src->space;
-    if (offset > src->ssize.offset) {
-        slice->read_offset = src->read_offset + (offset - src->ssize.offset);
+    extra_offset = offset - src->ssize.offset;
+    if (extra_offset > 0) {
+        slice->read_offset = src->read_offset + extra_offset;
         slice->ssize.offset = offset;
     } else {
         slice->read_offset = src->read_offset;
@@ -449,7 +451,7 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
 {
     OBSliceEntry *new_slice;
 
-    new_slice = splice_dup(ctx, src_slice, offset, length);
+    new_slice = slice_dup(ctx, src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -727,39 +729,65 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
         } while (node != ob->slices->factory->tail);
     }
 
+    if (del_slice_array.count == 0) {
+        return ENOENT;
+    }
+
     *count = del_slice_array.count;
     for (i=0; i<del_slice_array.count; i++) {
         do_delete_slice(htable, ob, del_slice_array.slices[i]);
     }
     FREE_SLICE_PTR_ARRAY(del_slice_array);
 
-    for (i=0; i<add_slice_array.count; i++) {
-        do_add_slice(htable, ob, add_slice_array.slices[i]);
+    if (add_slice_array.count > 0) {
+        for (i=0; i<add_slice_array.count; i++) {
+            do_add_slice(htable, ob, add_slice_array.slices[i]);
+        }
+        FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
-    FREE_SLICE_PTR_ARRAY(add_slice_array);
 
-    return *count > 0 ? 0 : ENOENT;
+    return 0;
 }
+
+
+#define OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous) \
+    do {  \
+        if (previous == NULL) {  \
+            *bucket = ob->next;  \
+        } else {  \
+            previous->next = ob->next;  \
+        } \
+        uniq_skiplist_free(ob->slices); \
+        fast_mblock_free_object(&ctx->ob_allocator, ob); \
+    } while (0)
+
 
 int ob_index_delete_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
         int *dec_alloc, const bool is_reclaim)
 {
     OBEntry *ob;
+    OBEntry *previous;
     int result;
     int count;
 
     OB_INDEX_SET_BUCKET_AND_CTX(htable, bs_key->block);
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
-    ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
+    ob = get_ob_entry_ex(ctx, bucket, &bs_key->block, false, &previous);
     if (ob == NULL) {
         *dec_alloc = 0;
         result = ENOENT;
     } else {
         CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
         result = delete_slices(htable, ctx, ob, bs_key, &count, dec_alloc);
-        if (result == 0 && sn != NULL) {
-            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        if (result == 0) {
+            if (uniq_skiplist_empty(ob->slices)) {
+                OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous);
+            }
+
+            if (sn != NULL) {
+                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+            }
         }
     }
     OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
@@ -793,14 +821,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
             }
         }
 
-        uniq_skiplist_free(ob->slices);
-        if (previous == NULL) {
-            *bucket = ob->next;
-        } else {
-            previous->next = ob->next;
-        }
-        fast_mblock_delay_free_object(&ctx->ob_allocator, ob, 900);
-
+        OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous);
         if (*dec_alloc > 0) {
             if (sn != NULL) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
@@ -856,7 +877,7 @@ static inline int dup_slice_to_array(OBSharedContext *ctx,
 {
     OBSliceEntry *new_slice;
 
-    new_slice = splice_dup(ctx, src_slice, offset, length);
+    new_slice = slice_dup(ctx, src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -1049,4 +1070,17 @@ int ob_index_get_slices_ex(OBHashtable *htable,
         free_slices(sarray);
     }
     return result;
+}
+
+void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
+{
+    OBSharedContext *ctx;
+    OBSharedContext *end;
+
+    *ob_count = *slice_count = 0;
+    end = ob_shared_ctx_array.contexts + ob_shared_ctx_array.count;
+    for (ctx=ob_shared_ctx_array.contexts; ctx<end; ctx++) {
+        *ob_count += ctx->ob_allocator.info.element_used_count;
+        *slice_count += ctx->slice_allocator.info.element_used_count;
+    }
 }

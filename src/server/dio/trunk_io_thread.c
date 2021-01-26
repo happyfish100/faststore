@@ -469,8 +469,8 @@ static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
     remain = iob->slice->ssize.length;
     while (remain > 0) {
         if ((bytes=pread(fd, iob->data.str + iob->data.len, remain,
-                        iob->slice->space.offset + iob->slice->read_offset +
-                        iob->data.len)) < 0)
+                        iob->slice->space.offset + iob->slice->
+                        read_offset + iob->data.len)) < 0)
         {
             char trunk_filename[PATH_MAX];
 
