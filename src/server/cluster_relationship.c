@@ -30,6 +30,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/sched_thread.h"
+#include "fastcommon/fast_buffer.h"
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
@@ -80,11 +81,13 @@ typedef struct fs_cluster_relationship_context {
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
     volatile int immediate_report;
+    FastBuffer buffer;
 } FSClusterRelationshipContext;
 
 #define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
 #define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
+#define NETWORK_BUFFER relationship_ctx.buffer
 
 static FSClusterRelationshipContext relationship_ctx = {
     {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0
@@ -175,8 +178,7 @@ static int proto_join_leader(FSClusterServerInfo *leader, ConnectionInfo *conn)
     return result;
 }
 
-static void pack_changed_data_versions(char *buff, int *length,
-        int *count, const bool report_all)
+static void pack_changed_data_versions(int *count, const bool report_all)
 {
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
@@ -184,7 +186,8 @@ static void pack_changed_data_versions(char *buff, int *length,
     int64_t data_version;
 
     *count = 0;
-    body_part = (FSProtoPingLeaderReqBodyPart *)buff;
+    body_part = (FSProtoPingLeaderReqBodyPart *)(NETWORK_BUFFER.data +
+            NETWORK_BUFFER.length);
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
         data_version = __sync_add_and_fetch(&group->ds->data.version, 0);
@@ -198,7 +201,7 @@ static void pack_changed_data_versions(char *buff, int *length,
         }
     }
 
-    *length = (char *)body_part - buff;
+    NETWORK_BUFFER.length = (char *)body_part - NETWORK_BUFFER.data;
 }
 
 static void leader_deal_data_version_changes()
@@ -1082,7 +1085,6 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         const bool ignore_timeout)
 {
     FSProtoHeader header_proto;
-    char in_buff[8 * 1024];
     int recv_bytes;
     int status;
     int result;
@@ -1095,8 +1097,6 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
             if (recv_bytes == 0 && ignore_timeout) {
                 return 0;
             }
-
-            result = EIO;
         }
         response->error.length = sprintf(response->error.message,
                 "recv data fail, recv bytes: %d, "
@@ -1105,16 +1105,29 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         return result;
     }
 
+    if (!SF_PROTO_CHECK_MAGIC(header_proto.magic)) {
+        response->error.length = sprintf(response->error.message,
+                "magic "SF_PROTO_MAGIC_FORMAT" is invalid, expect: "
+                SF_PROTO_MAGIC_FORMAT, SF_PROTO_MAGIC_PARAMS(
+                    header_proto.magic), SF_PROTO_MAGIC_EXPECT_PARAMS);
+        return EINVAL;
+    }
+
     body_len = buff2int(header_proto.body_len);
-    status = buff2short(header_proto.status);
+    if (body_len < 0 || body_len > g_sf_global_vars.max_buff_size) {
+        response->error.length = sprintf(response->error.message,
+                "invalid body length: %d < 0 or > %d",
+                body_len, g_sf_global_vars.max_buff_size);
+        return EINVAL;
+    }
+    if ((result=fast_buffer_check_capacity(
+                    &NETWORK_BUFFER, body_len)) != 0)
+    {
+        return EINVAL;
+    }
+
     if (body_len > 0) {
-        if (body_len >= sizeof(in_buff)) {
-            response->error.length = sprintf(response->error.message,
-                    "recv body length: %d exceeds buffer size: %d",
-                    body_len, (int)sizeof(in_buff));
-            return EOVERFLOW;
-        }
-        if ((result=tcprecvdata_nb_ms(conn->sock, in_buff,
+        if ((result=tcprecvdata_nb_ms(conn->sock, NETWORK_BUFFER.data,
                         body_len, timeout_ms, &recv_bytes)) != 0)
         {
             response->error.length = sprintf(response->error.message,
@@ -1125,6 +1138,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         }
     }
 
+    status = buff2short(header_proto.status);
     if (status != 0) {
         if (body_len > 0) {
             if (body_len >= sizeof(response->error.message)) {
@@ -1133,7 +1147,8 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
                 response->error.length = body_len;
             }
 
-            memcpy(response->error.message, in_buff, response->error.length);
+            memcpy(response->error.message, NETWORK_BUFFER.data,
+                    response->error.length);
             *(response->error.message + response->error.length) = '\0';
         }
 
@@ -1145,7 +1160,8 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     {
         return 0;
     } else if (header_proto.cmd == FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS) {
-        return cluster_process_leader_push(response, in_buff, body_len);
+        return cluster_process_leader_push(response,
+                NETWORK_BUFFER.data, body_len);
     } else {
         response->error.length = sprintf(response->error.message,
                 "unexpect cmd: %d (%s)", header_proto.cmd,
@@ -1160,20 +1176,16 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
 {
     FSProtoHeader *header;
     SFResponseInfo response;
-    char out_buff[8 * 1024];
     FSProtoPingLeaderReqHeader *req_header;
-    int out_bytes;
-    int length;
     int data_group_count;
     int result;
     int log_level;
 
-    header = (FSProtoHeader *)out_buff;
+    header = (FSProtoHeader *)NETWORK_BUFFER.data;
     req_header = (FSProtoPingLeaderReqHeader *)(header + 1);
-    out_bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader);
-    pack_changed_data_versions(out_buff + out_bytes,
-            &length, &data_group_count, report_all);
-    out_bytes += length;
+    NETWORK_BUFFER.length = sizeof(FSProtoHeader) +
+        sizeof(FSProtoPingLeaderReqHeader);
+    pack_changed_data_versions(&data_group_count, report_all);
 
     if (data_group_count > 0) {
         logDebug("file: "__FILE__", line: %d, "
@@ -1184,11 +1196,12 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
 
     long2buff(leader->leader_version, req_header->leader_version);
     int2buff(data_group_count, req_header->data_group_count);
-    SF_PROTO_SET_HEADER(header, cmd, out_bytes - sizeof(FSProtoHeader));
+    SF_PROTO_SET_HEADER(header, cmd, NETWORK_BUFFER.length -
+        sizeof(FSProtoHeader));
 
     response.error.length = 0;
-    if ((result=tcpsenddata_nb(conn->sock, out_buff, out_bytes,
-                    SF_G_NETWORK_TIMEOUT)) == 0)
+    if ((result=tcpsenddata_nb(conn->sock, NETWORK_BUFFER.data,
+                    NETWORK_BUFFER.length, SF_G_NETWORK_TIMEOUT)) == 0)
     {
         result = cluster_recv_from_leader(conn, &response,
                 1000 * SF_G_NETWORK_TIMEOUT, false);
@@ -1460,6 +1473,7 @@ int cluster_relationship_init()
 	pthread_t tid;
     int result;
     int bytes;
+    int init_size;
 
     bytes = sizeof(FSClusterServerDetectEntry) * CLUSTER_SERVER_ARRAY.count;
     INACTIVE_SERVER_ARRAY.entries = (FSClusterServerDetectEntry *)
@@ -1476,6 +1490,13 @@ int cluster_relationship_init()
     INACTIVE_SERVER_ARRAY.alloc = CLUSTER_SERVER_ARRAY.count;
 
     if ((result=init_my_data_group_array()) != 0) {
+        return result;
+    }
+
+    bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader) +
+        sizeof(FSProtoPingLeaderReqBodyPart) * MY_DATA_GROUP_ARRAY.count;
+    init_size = FC_MAX(bytes, 4 * 1024);
+    if ((result=fast_buffer_init_ex(&NETWORK_BUFFER, init_size)) != 0) {
         return result;
     }
 
