@@ -454,6 +454,7 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
         return ENOMEM;
     }
 
+    new_slice->space.size = length;  //for calculating trunk used bytes correctly
     return add_to_slice_ptr_smart_array(array, new_slice);
 }
 
