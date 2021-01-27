@@ -58,19 +58,11 @@ OBHashtable g_ob_hashtable = {0, 0, NULL};
         bucket = (htable)->buckets + bucket_index; \
     } while (0)
 
-#define OB_INDEX_SHARED_CTX_LOCK(htable, ctx) \
-    do {  \
-        if ((htable)->need_lock) { \
-            PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);  \
-        } \
-    } while (0)
+#define OB_INDEX_SHARED_CTX_LOCK(htable, ctx)   \
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock)
 
 #define OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx) \
-    do {  \
-        if ((htable)->need_lock) { \
-            PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);  \
-        } \
-    } while (0)
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock)
 
 static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         const FSBlockKey *bkey, const bool create_flag, OBEntry **pprev)
@@ -146,7 +138,7 @@ OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
     OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
 
     OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
-    ob = get_ob_entry(ctx, bucket, bkey, true);
+    ob = get_ob_entry(ctx, bucket, bkey, false);
     OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
 
     return ob;
@@ -207,8 +199,6 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
 void ob_index_free_slice(OBSliceEntry *slice)
 {
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-        OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
-
         /*
         logInfo("free slice: %p, ref_count: %d, block "
                 "{oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
@@ -216,7 +206,7 @@ void ob_index_free_slice(OBSliceEntry *slice)
                 slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
                 */
 
-        fast_mblock_free_object(&ctx->slice_allocator, slice);
+        fast_mblock_free_object(slice->allocator, slice);
     }
 }
 
@@ -232,17 +222,22 @@ static void slice_free_func(void *ptr, const int delay_seconds)
 
     slice = (OBSliceEntry *)ptr;
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-        OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
-
         /*
-        logInfo("free slice3: %p, ref_count: %d, block "
-                {oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
-                slice, __sync_add_and_fetch(&slice->ref_count, 0),
-                slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
-                */
+           logInfo("free slice3: %p, ref_count: %d, block "
+           "{oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+           slice, __sync_add_and_fetch(&slice->ref_count, 0),
+           slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+         */
 
-        fast_mblock_free_object(&ctx->slice_allocator, slice);
+        fast_mblock_free_object(slice->allocator, slice);
     }
+}
+
+static int slice_alloc_init(OBSliceEntry *slice,
+        struct fast_mblock_man *allocator)
+{
+    slice->allocator = allocator;
+    return 0;
 }
 
 static int init_ob_shared_ctx_array()
@@ -253,7 +248,7 @@ static int init_ob_shared_ctx_array()
     const int alloc_skiplist_once = 8 * 1024;
     const int min_alloc_elements_once = 2;
     const int delay_free_seconds = 0;
-    const bool bidirection = true;  //need previous link in level 0
+    const bool bidirection = true;  //need previous link
     OBSharedContext *ctx;
     OBSharedContext *end;
 
@@ -282,8 +277,9 @@ static int init_ob_shared_ctx_array()
         }
 
         if ((result=fast_mblock_init_ex1(&ctx->slice_allocator,
-                        "slice_entry", sizeof(OBSliceEntry),
-                        16 * 1024, 0, NULL, NULL, true)) != 0)
+                        "slice_entry", sizeof(OBSliceEntry), 16 * 1024, 0,
+                        (fast_mblock_alloc_init_func)slice_alloc_init,
+                        &ctx->slice_allocator, true)) != 0)
         {
             return result;
         }
@@ -297,7 +293,7 @@ static int init_ob_shared_ctx_array()
 }
 
 int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
-        const bool need_lock, const bool modify_sallocator)
+        const bool modify_sallocator)
 {
     int64_t bytes;
 
@@ -309,7 +305,6 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
     }
     memset(htable->buckets, 0, bytes);
 
-    htable->need_lock = need_lock;
     htable->modify_sallocator = modify_sallocator;
     htable->modify_used_space = false;
     return 0;
@@ -357,7 +352,7 @@ int ob_index_init()
     }
 
     return ob_index_init_htable_ex(&g_ob_hashtable, STORAGE_CFG.
-            object_block.hashtable_capacity, true, true);
+            object_block.hashtable_capacity, true);
 }
 
 void ob_index_destroy()

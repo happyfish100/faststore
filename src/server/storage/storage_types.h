@@ -85,7 +85,6 @@ typedef struct {
     int64_t count;
     int64_t capacity;
     OBEntry **buckets;
-    bool need_lock;
     bool modify_sallocator; //if modify storage allocator
     bool modify_used_space; //if modify used space
 } OBHashtable;
@@ -98,6 +97,7 @@ typedef struct ob_slice_entry {
     FSSliceSize ssize;
     FSTrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
+    struct fast_mblock_man *allocator; //for free
 } OBSliceEntry;
 
 typedef struct ob_slice_ptr_array {

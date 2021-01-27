@@ -195,17 +195,14 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
     }
 
     status = __sync_add_and_fetch(&(*peer)->status, 0);
-    if (!(status == FS_DS_STATUS_REBUILDING ||
-            status == FS_DS_STATUS_RECOVERING ||
-            (status == FS_DS_STATUS_ONLINE && catch_up)))
+    if ((status == FS_DS_STATUS_ACTIVE) ||
+            (status == FS_DS_STATUS_ONLINE && !catch_up))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, server id: %d, "
-                "unexpect data server status: %d (%s), "
-                "expect status: %d, %d or %d", data_group_id, server_id,
-                status, fs_get_server_status_caption(status),
-                FS_DS_STATUS_REBUILDING, FS_DS_STATUS_RECOVERING,
-                FS_DS_STATUS_ONLINE);
+                "unexpect data server status: %d (%s) or "
+                "catch up: %d", data_group_id, server_id, status,
+                fs_get_server_status_caption(status), catch_up);
         TASK_ARG->context.log_level = LOG_DEBUG;
         return EAGAIN;
     }

@@ -396,27 +396,25 @@ static void close_output_files(BinlogDedupContext *dedup_ctx)
 
 static int compare_slice(const OBSliceEntry **s1, const OBSliceEntry **s2)
 {
-    int64_t sub;
+    int sub;
 
-    sub = (*s1)->ob->bkey.oid - (*s2)->ob->bkey.oid;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
+    if ((sub=fc_compare_int64((*s1)->ob->bkey.oid,
+                    (*s2)->ob->bkey.oid)) != 0)
+    {
+        return sub;
     }
 
-    sub = (*s1)->ob->bkey.offset - (*s2)->ob->bkey.offset;
-    if (sub < 0) {
-        return -1;
-    } else if (sub > 0) {
-        return 1;
+    if ((sub=fc_compare_int64((*s1)->ob->bkey.offset,
+                    (*s2)->ob->bkey.offset)) != 0)
+    {
+        return sub;
     }
 
-    return (*s1)->ssize.offset - (*s2)->ssize.offset;
+    return (int)(*s1)->ssize.offset - (int)(*s2)->ssize.offset;
 }
 
-static int htable_dump(BinlogDedupContext *dedup_ctx, OBHashtable *htable,
-        int64_t *binlog_count)
+static int htable_dump(BinlogDedupContext *dedup_ctx,
+        OBHashtable *htable, int64_t *binlog_count)
 {
     OBEntry **bucket;
     OBEntry **end;
@@ -621,7 +619,7 @@ static int init_htables(DataRecoveryContext *ctx)
         slice_capacity = STORAGE_CFG.object_block.hashtable_capacity;
     }
     if ((result=ob_index_init_htable_ex(&dedup_ctx->htables.create,
-                    slice_capacity, false, false)) != 0)
+                    slice_capacity, false)) != 0)
     {
         return result;
     }
@@ -631,7 +629,7 @@ static int init_htables(DataRecoveryContext *ctx)
         deleted_capacity = 10240;
     }
     if ((result=ob_index_init_htable_ex(&dedup_ctx->htables.remove,
-                    deleted_capacity, false, false)) != 0)
+                    deleted_capacity, false)) != 0)
     {
         return result;
     }
@@ -659,7 +657,9 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
             &ctx->master->dg->myself->data.version, 0);
 
     result = dedup_binlog(ctx);
+
     ob_index_destroy_htable(&dedup_ctx.htables.create);
+    ob_index_destroy_htable(&dedup_ctx.htables.remove);
 
     *binlog_count = dedup_ctx.out.binlog_counts.remove +
         dedup_ctx.out.binlog_counts.create;
