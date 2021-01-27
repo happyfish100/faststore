@@ -450,7 +450,6 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
 
     sleep_ms = 100;
     for (i=1; i<=FETCH_BINLOG_RETRY_TIMES; i++) {
-        fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_DS_STATUS_REBUILDING ||
                 my_status == FS_DS_STATUS_RECOVERING ||
@@ -482,9 +481,10 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
             break;
         }
 
-        //some thing goes wrong, trigger report to the leader again
         cluster_relationship_trigger_report_ds_status(ctx->ds);
+        fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
 
+        //some thing goes wrong, trigger report to the leader again
         if (sleep_ms < 1000) {
             sleep_ms *= 2;
             if (sleep_ms > 1000) {

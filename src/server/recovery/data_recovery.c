@@ -498,8 +498,9 @@ static int do_data_recovery(DataRecoveryContext *ctx)
 
             /*
             logInfo("data group id: %d, last_data_version: %"PRId64", "
-                    "binlog_size: %"PRId64, ctx->ds->dg->id,
-                    ctx->fetch.last_data_version, binlog_size);
+                    "binlog_size: %"PRId64", time used: %"PRId64" ms",
+                    ctx->ds->dg->id, ctx->fetch.last_data_version,
+                    binlog_size, ctx->time_used.fetch);
                     */
 
             if (binlog_size == 0) {

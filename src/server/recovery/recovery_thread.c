@@ -53,7 +53,10 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
     int result;
     int new_status;
     int sleep_seconds;
+    //int64_t start_time_us;
+    //char time_buff[32];
 
+    //start_time_us = get_current_time_us();
     result = data_recovery_start(ds);
     new_status = __sync_add_and_fetch(&ds->status, 0);
 
@@ -102,11 +105,13 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
     }
 
     /*
+    long_to_comma_str(get_current_time_us() - start_time_us, time_buff);
     logInfo("file: "__FILE__", line: %d, func: %s, "
             "do recovery, data group id: %d, result: %d, done status: %d, "
-            "current status: %d", __LINE__, __FUNCTION__, ds->dg->id,
-            result, new_status, __sync_add_and_fetch(&ds->status, 0));
-            */
+            "current status: %d, time_used: %s us", __LINE__, __FUNCTION__,
+            ds->dg->id, result, new_status, __sync_add_and_fetch(
+                &ds->status, 0), time_buff);
+                */
 }
 
 static void recovery_thread_run_task(void *arg, void *thread_data)
@@ -123,7 +128,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
         } else if (old_status == FS_DS_STATUS_OFFLINE) {
             new_status = FS_DS_STATUS_RECOVERING;
         } else {
-            logInfo("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, my status: %d (%s), "
                     "skip data recovery", __LINE__,
                     ds->dg->id, old_status,
@@ -138,7 +143,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     }
 
     if (!__sync_bool_compare_and_swap(&ds->recovery.in_progress, 0, 1)) {
-        logInfo("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, set recovery in progress fail, "
                 "skip data recovery", __LINE__, ds->dg->id);
         return;
@@ -175,12 +180,12 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
         case FS_DS_STATUS_REBUILDING:
         case FS_DS_STATUS_RECOVERING:
         case FS_DS_STATUS_ONLINE:
-            logWarning("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, data recovery in progress",
                     __LINE__, ds->dg->id);
             break;
         case FS_DS_STATUS_ACTIVE:
-            logWarning("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, status: %d (%s), "
                     "skip data recovery!", __LINE__, ds->dg->id,
                     status, fs_get_server_status_caption(status));
@@ -191,16 +196,13 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
             {
                 common_blocked_queue_push_ex(&recovery_thread_ctx.queue,
                         ds, &notify);
-                sleep(1);
+                fc_sleep_ms(10);
                 break;
             }
 
         case FS_DS_STATUS_OFFLINE:
             fc_thread_pool_run(&recovery_thread_ctx.tpool,
                     recovery_thread_run_task, ds);
-            if (status == FS_DS_STATUS_INIT) {
-                fc_sleep_ms(500);
-            }
             break;
         default:
             break;
