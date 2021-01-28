@@ -32,6 +32,12 @@ typedef struct server_global_vars {
         struct {
             FSClusterConfig ctx;
             struct {
+                bool failover;
+                char policy;
+                int timeouts;   //in seconds
+            } master_election;
+
+            struct {
                 unsigned char servers[16];
                 unsigned char cluster[16];
             } md5_digests;
@@ -70,6 +76,13 @@ typedef struct server_global_vars {
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars.cluster.config.ctx.server_cfg
+
+#define MASTER_ELECTION_FAILOVER g_server_global_vars.cluster. \
+    config.master_election.failover
+#define MASTER_ELECTION_POLICY g_server_global_vars.cluster.   \
+    config.master_election.policy
+#define MASTER_ELECTION_TIMEOUTS g_server_global_vars.cluster. \
+    config.master_election.timeouts
 
 #define CLUSTER_MYSELF_PTR    g_server_global_vars.cluster.myself
 #define MYSELF_IS_LEADER      CLUSTER_MYSELF_PTR->is_leader

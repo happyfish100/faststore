@@ -58,6 +58,21 @@ static void log_cluster_server_config()
     if (fast_buffer_init_ex(&buffer, 1024) != 0) {
         return;
     }
+
+    fast_buffer_append(&buffer, "master_election : {failover=%s",
+            MASTER_ELECTION_FAILOVER ? "true" : "false");
+    if (MASTER_ELECTION_FAILOVER) {
+        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
+            fast_buffer_append(&buffer, ", policy=%s",
+                    FS_MASTER_ELECTION_POLICY_STRICT_STR);
+        } else {
+            fast_buffer_append(&buffer, ", policy=%s:%d",
+                    FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
+                    MASTER_ELECTION_TIMEOUTS);
+        }
+    }
+    fast_buffer_append(&buffer, "}\n");
+
     fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     log_it1(LOG_INFO, buffer.data, buffer.length);
     fast_buffer_destroy(&buffer);
@@ -86,6 +101,82 @@ static int calc_cluster_config_sign()
     return 0;
 }
 
+static int load_master_election_config(const char *filename)
+{
+    const char *section_name = "master_election";
+    int result;
+    IniContext ini_context;
+    char *policy;
+    char *remain;
+    char *endptr;
+
+    if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, filename, result);
+        return result;
+    }
+
+    MASTER_ELECTION_TIMEOUTS = FS_DEFAULT_MASTER_ELECTION_TIMEOUTS;
+    MASTER_ELECTION_FAILOVER = iniGetBoolValue(section_name,
+            "failover", &ini_context, true);
+    policy = iniGetStrValue(section_name, "policy", &ini_context);
+    if (policy == NULL || *policy == '\0' ||
+            strcasecmp(policy, FS_MASTER_ELECTION_POLICY_STRICT_STR) == 0)
+    {
+        MASTER_ELECTION_POLICY = FS_MASTER_ELECTION_POLICY_STRICT_INT;
+        return 0;
+    }
+
+    if (strncasecmp(policy, FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
+                FS_MASTER_ELECTION_POLICY_TIMEOUT_LEN) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, item: policy is invalid",
+                __LINE__, filename, section_name);
+        return EINVAL;
+    }
+
+    MASTER_ELECTION_POLICY = FS_MASTER_ELECTION_POLICY_TIMEOUT_INT;
+    remain = policy + FS_MASTER_ELECTION_POLICY_TIMEOUT_LEN;
+    if (*remain == '\0') {
+        return 0;
+    }
+
+    trim_left(remain);
+    if (*remain != ':') {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, item: policy is invalid, "
+                "expect colon (:) after %s", __LINE__, filename,
+                section_name, FS_MASTER_ELECTION_POLICY_TIMEOUT_STR);
+        return EINVAL;
+    }
+    remain++;  //skip colon
+    trim_left(remain);
+    if (*remain == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, item: policy, "
+                "value: %s, expect timeout number after colon",
+                __LINE__, filename, section_name, policy);
+        return EINVAL;
+    }
+
+    MASTER_ELECTION_TIMEOUTS = strtol(remain, &endptr, 10);
+    if ((endptr != NULL && *endptr != '\0') ||
+            (MASTER_ELECTION_TIMEOUTS <= 0))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, item: policy, "
+                "invalid timeout number: %s, length: %d",
+                __LINE__, filename, section_name, remain,
+                (int)strlen(remain));
+        return EINVAL;
+    }
+    iniFreeContext(&ini_context);
+
+    return 0;
+}
+
 static int load_cluster_config(IniContext *ini_context, const char *filename)
 {
     int result;
@@ -103,12 +194,14 @@ static int load_cluster_config(IniContext *ini_context, const char *filename)
 
     resolve_path(filename, cluster_config_filename,
             full_cluster_filename, sizeof(full_cluster_filename));
-    if ((result=fs_cluster_cfg_load(&CLUSTER_CONFIG_CTX,
-            full_cluster_filename)) != 0)
+    if ((result=fs_cluster_cfg_load_from_ini(&CLUSTER_CONFIG_CTX,
+            ini_context, filename)) != 0)
     {
         return result;
     }
-
+    if ((result=load_master_election_config(full_cluster_filename)) != 0) {
+        return result;
+    }
     fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {

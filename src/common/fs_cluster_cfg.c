@@ -173,11 +173,22 @@ static int id_array_to_string_ex(FSIdArray *id_array,
     char tmp[32];
     int len;
     int i;
+    int last_index;
 
     if (id_array->count == 0) {
         *buff->str = '\0';
         buff->len = 0;
         return 0;
+    } else if (id_array->count == 1) {
+        buff->len = snprintf(buff->str, buff_size, "%d", id_array->ids[0]);
+        return 0;
+    } else if (id_array->count > 2) {
+        last_index = id_array->count - 1;
+        if (id_array->ids[last_index] == id_array->ids[0] + last_index) {
+            buff->len = snprintf(buff->str, buff_size, "[%d, %d]",
+                    id_array->ids[0], id_array->ids[last_index]);
+            return 0;
+        }
     }
 
     end = buff->str + buff_size;
@@ -920,8 +931,8 @@ int fc_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
     int len;
     int i;
 
-    if ((result=fast_buffer_check(buffer, cluster_cfg->server_groups.count *
-                    256)) != 0)
+    if ((result=fast_buffer_check(buffer, cluster_cfg->
+                    server_groups.count * 256)) != 0)
     {
         return result;
     }
