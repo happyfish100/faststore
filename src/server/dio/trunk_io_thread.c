@@ -209,7 +209,7 @@ void trunk_io_thread_terminate()
 }
 
 int trunk_io_thread_push(const int type, const int path_index,
-        const uint32_t hash_code, void *entry, char *buff,
+        const uint64_t hash_code, void *entry, char *buff,
         trunk_io_notify_func notify_func, void *notify_arg)
 {
     TrunkIOPathContext *path_ctx;

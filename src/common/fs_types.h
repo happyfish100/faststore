@@ -63,7 +63,7 @@
 typedef struct fs_block_key {
     int64_t oid;    //object id
     int64_t offset; //aligned by block size
-    uint32_t hash_code;
+    uint64_t hash_code;
 } FSBlockKey;
 
 typedef struct fs_slice_size {
