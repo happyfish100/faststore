@@ -180,6 +180,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=cluster_relationship_init()) != 0) {
+            break;
+        }
+
         result = sf_service_init_ex2(&CLUSTER_SF_CTX,
                 cluster_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, cluster_deal_task_partly,
@@ -249,7 +253,7 @@ int main(int argc, char *argv[])
         sf_enable_thread_notify_ex(&g_sf_context, true);
         sf_set_remove_from_ready_list_ex(&g_sf_context, false);
 
-        if ((result=cluster_relationship_init()) != 0) {
+        if ((result=cluster_relationship_start()) != 0) {
             break;
         }
 

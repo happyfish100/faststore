@@ -32,8 +32,8 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replication/replication_common.o replication/replication_caller.o \
               replication/replication_callee.o server_binlog.o \
               server_replication.o cluster_relationship.o cluster_topology.o \
-              data_thread.o shared_thread_pool.o server_recovery.o \
-              recovery/binlog_fetch.o recovery/binlog_dedup.o   \
+              data_thread.o shared_thread_pool.o master_election.o \
+              server_recovery.o recovery/binlog_fetch.o recovery/binlog_dedup.o \
               recovery/binlog_replay.o recovery/data_recovery.o \
               recovery/recovery_thread.o
 

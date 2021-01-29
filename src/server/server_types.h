@@ -253,11 +253,6 @@ typedef struct fs_cluster_data_group_info {
     uint32_t hash_code;  //for master election
 
     struct {
-        volatile int action;
-        int expire_time;
-    } delay_decision;
-
-    struct {
         int retry_count;
         int64_t start_time_ms;
     } election;  //for master select
@@ -267,14 +262,12 @@ typedef struct fs_cluster_data_group_info {
     FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
-    pthread_mutex_t lock;   //for master select
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {
     FSClusterDataGroupInfo *groups;
     int count;
     int base_id;
-    volatile int delay_decision_count;
 } FSClusterDataGroupArray;
 
 typedef struct fs_rpc_result_entry {

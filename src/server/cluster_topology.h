@@ -89,10 +89,6 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs);
 int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *
         notify_ctx_ptr_array);
 
-void cluster_topology_set_check_master_flags();
-
-void cluster_topology_check_and_make_delay_decisions();
-
 #ifdef __cplusplus
 }
 #endif

@@ -31,6 +31,8 @@ extern "C" {
 int cluster_relationship_init();
 int cluster_relationship_destroy();
 
+int cluster_relationship_start();
+
 int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader);
 
 int cluster_relationship_commit_leader(FSClusterServerInfo *leader);

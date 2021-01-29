@@ -35,6 +35,7 @@
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_recovery.h"
+#include "master_election.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
 
@@ -77,7 +78,8 @@ typedef struct fs_cluster_relationship_context {
         int retry_count;
         int64_t start_time_ms;
         FSClusterServerInfo *next_leader;
-    } election;
+    } leader_election;
+
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
     volatile int immediate_report;
@@ -88,6 +90,7 @@ typedef struct fs_cluster_relationship_context {
 #define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
 #define NETWORK_BUFFER relationship_ctx.buffer
+#define LEADER_ELECTION relationship_ctx.leader_election
 
 static FSClusterRelationshipContext relationship_ctx = {
     {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0
@@ -458,15 +461,15 @@ int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
 {
     FSClusterServerInfo *next_leader;
 
-    next_leader = relationship_ctx.election.next_leader;
+    next_leader = LEADER_ELECTION.next_leader;
     if (next_leader == NULL) {
-        relationship_ctx.election.next_leader = leader;
+        LEADER_ELECTION.next_leader = leader;
     } else if (next_leader != leader) {
         logError("file: "__FILE__", line: %d, "
                 "try to set next leader id: %d, "
                 "but next leader: %d already exist",
                 __LINE__, leader->server->id, next_leader->server->id);
-        relationship_ctx.election.next_leader = NULL;
+        LEADER_ELECTION.next_leader = NULL;
         return EEXIST;
     }
 
@@ -597,7 +600,6 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
 
             init_inactive_server_array();
             cluster_topology_offline_all_data_servers(new_leader);
-            cluster_topology_set_check_master_flags();
         }
         strcpy(prefix_prompt, "i am the new leader,");
     } else {
@@ -611,12 +613,11 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
                 old_leader, new_leader);
 
-        if (relationship_ctx.election.retry_count > 0) {
-            time_used = get_current_time_ms() - relationship_ctx.
-                election.start_time_ms;
+        if (LEADER_ELECTION.retry_count > 0) {
+            time_used = get_current_time_ms() - LEADER_ELECTION.start_time_ms;
             long_to_comma_str(time_used, time_buff);
             sprintf(affix_prompt, ", retry count: %d, time used: %s ms",
-                    relationship_ctx.election.retry_count, time_buff);
+                    LEADER_ELECTION.retry_count, time_buff);
         } else {
             *affix_prompt = '\0';
         }
@@ -626,10 +627,14 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(new_leader->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(new_leader->server),
                 affix_prompt);
+
+        if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
+            master_election_unset_all_masters();
+        }
     }
 
-    relationship_ctx.election.start_time_ms = 0;
-    relationship_ctx.election.retry_count = 0;
+    LEADER_ELECTION.start_time_ms = 0;
+    LEADER_ELECTION.retry_count = 0;
     return 0;
 }
 
@@ -638,7 +643,7 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
     FSClusterServerInfo *next_leader;
     int result;
 
-    next_leader = relationship_ctx.election.next_leader;
+    next_leader = LEADER_ELECTION.next_leader;
     if (next_leader == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "next leader is NULL", __LINE__);
@@ -648,12 +653,12 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
         logError("file: "__FILE__", line: %d, "
                 "next leader server id: %d != expected server id: %d",
                 __LINE__, next_leader->server->id, leader->server->id);
-        relationship_ctx.election.next_leader = NULL;
+        LEADER_ELECTION.next_leader = NULL;
         return EBUSY;
     }
 
     result = cluster_relationship_set_leader(leader);
-    relationship_ctx.election.next_leader = NULL;
+    LEADER_ELECTION.next_leader = NULL;
     return result;
 }
 
@@ -751,11 +756,11 @@ static int cluster_select_leader()
 	logInfo("file: "__FILE__", line: %d, "
 		"selecting leader...", __LINE__);
 
-    if (relationship_ctx.election.start_time_ms == 0) {
-        relationship_ctx.election.start_time_ms = get_current_time_ms();
-        relationship_ctx.election.retry_count = 1;
+    if (LEADER_ELECTION.start_time_ms == 0) {
+        LEADER_ELECTION.start_time_ms = get_current_time_ms();
+        LEADER_ELECTION.retry_count = 1;
     } else {
-        relationship_ctx.election.retry_count++;
+        LEADER_ELECTION.retry_count++;
     }
 
     sleep_secs = 1;
@@ -1305,7 +1310,7 @@ static int leader_check()
     }
 
     leader_deal_data_version_changes();
-    cluster_topology_check_and_make_delay_decisions();
+    master_election_deal_delay_queue();
     return 0;  //do not need ping myself
 }
 
@@ -1470,7 +1475,6 @@ static int init_my_data_group_array()
 
 int cluster_relationship_init()
 {
-	pthread_t tid;
     int result;
     int bytes;
     int init_size;
@@ -1483,8 +1487,8 @@ int cluster_relationship_init()
     }
     if ((result=init_pthread_lock(&INACTIVE_SERVER_ARRAY.lock)) != 0) {
         logError("file: "__FILE__", line: %d, "
-            "init_pthread_lock fail, errno: %d, error info: %s",
-            __LINE__, result, STRERROR(result));
+                "init_pthread_lock fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
         return result;
     }
     INACTIVE_SERVER_ARRAY.alloc = CLUSTER_SERVER_ARRAY.count;
@@ -1500,7 +1504,17 @@ int cluster_relationship_init()
         return result;
     }
 
-	return fc_create_thread(&tid, cluster_thread_entrance, NULL,
+    if ((result=master_election_init()) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
+int cluster_relationship_start()
+{
+    pthread_t tid;
+    return fc_create_thread(&tid, cluster_thread_entrance, NULL,
             SF_G_THREAD_STACK_SIZE);
 }
 

@@ -255,13 +255,6 @@ static int init_cluster_data_group_array(const char *filename,
         if ((result=init_ds_ptr_array(group)) != 0) {
             return result;
         }
-
-        if ((result=init_pthread_lock(&group->lock)) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "init_pthread_lock fail, errno: %d, error info: %s",
-                    __LINE__, result, STRERROR(result));
-            return result;
-        }
     }
     CLUSTER_DATA_RGOUP_ARRAY.count = count;
     CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;
