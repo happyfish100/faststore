@@ -54,6 +54,7 @@
 #include "server_recovery.h"
 #include "storage/slice_op.h"
 #include "dio/trunk_io_thread.h"
+#include "shared_thread_pool.h"
 
 static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
@@ -152,6 +153,10 @@ int main(int argc, char *argv[])
         }
 
         if ((result=write_to_pid_file(g_pid_filename)) != 0) {
+            break;
+        }
+
+        if ((result=shared_thread_pool_init()) != 0) {
             break;
         }
 

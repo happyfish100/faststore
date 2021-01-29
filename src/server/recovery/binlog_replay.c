@@ -28,7 +28,6 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
-#include "fastcommon/thread_pool.h"
 #include "fastcommon/fc_atomic.h"
 #include "sf/sf_global.h"
 #include "../../common/fs_proto.h"
@@ -40,6 +39,7 @@
 #include "../server_binlog.h"
 #include "../server_replication.h"
 #include "../server_storage.h"
+#include "../shared_thread_pool.h"
 #include "data_recovery.h"
 #include "binlog_replay.h"
 
@@ -117,7 +117,6 @@ typedef struct binlog_replay_context {
 } BinlogReplayContext;
 
 typedef struct binlog_replay_global_vars {
-    FCThreadPool thread_pool;
     DataReplayTaskAllocatorArray allocator_array;
 } BinlogReplayGlobalVars;
 
@@ -210,22 +209,9 @@ void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai)
 int binlog_replay_init()
 {
     int result;
-    int limit;
-    const int max_idle_time = 60;
-    const int min_idle_count = 0;
-
-    limit = DATA_RECOVERY_THREADS_LIMIT * (2 +
-            RECOVERY_THREADS_PER_DATA_GROUP);
-    if ((result=fc_thread_pool_init(&replay_global_vars.thread_pool,
-                    "binlog replay", limit, SF_G_THREAD_STACK_SIZE,
-                    max_idle_time, min_idle_count,
-                    (bool *)&SF_G_CONTINUE_FLAG)) != 0)
-    {
-        return result;
-    }
 
     if ((result=init_task_allocator_array(&replay_global_vars.
-                    allocator_array, DATA_RECOVERY_THREADS_LIMIT,
+                    allocator_array, FS_DATA_RECOVERY_THREADS_LIMIT,
                     RECOVERY_THREADS_PER_DATA_GROUP *
                     RECOVERY_MAX_QUEUE_DEPTH * 2)) != 0)
     {
@@ -1018,8 +1004,8 @@ static int int_replay_context(DataRecoveryContext *ctx)
 
     FC_ATOMIC_SET(replay_ctx->continue_flag, 1);
     do {
-        if ((result=fc_thread_pool_run(&replay_global_vars.thread_pool,
-                        task_dispatch_run, replay_ctx)) != 0)
+        if ((result=shared_thread_pool_run(task_dispatch_run,
+                        replay_ctx)) != 0)
         {
             break;
         }
@@ -1030,8 +1016,8 @@ static int int_replay_context(DataRecoveryContext *ctx)
                 break;
             }
             context->replay_ctx = replay_ctx;
-            if ((result=fc_thread_pool_run(&replay_global_vars.
-                            thread_pool, fetch_data_run, context)) != 0)
+            if ((result=shared_thread_pool_run(fetch_data_run,
+                            context)) != 0)
             {
                 break;
             }
@@ -1040,8 +1026,7 @@ static int int_replay_context(DataRecoveryContext *ctx)
             break;
         }
 
-        result = fc_thread_pool_run(&replay_global_vars.thread_pool,
-                binlog_replay_run, replay_ctx);
+        result = shared_thread_pool_run(binlog_replay_run, replay_ctx);
     } while (0);
 
     if (result != 0) {

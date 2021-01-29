@@ -19,6 +19,7 @@
 
 #include "fastcommon/common_define.h"
 #include "fastcommon/server_id_func.h"
+#include "fastcommon/thread_pool.h"
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
 #include "common/fs_global.h"
@@ -72,6 +73,8 @@ typedef struct server_global_vars {
 
     SFSlowLogContext slow_log;
 
+    FCThreadPool thread_pool;
+
 } FSServerGlobalVars;
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
@@ -117,6 +120,8 @@ typedef struct server_global_vars {
 
 #define SLOW_LOG_CFG          g_server_global_vars.slow_log.cfg
 #define SLOW_LOG_CTX          g_server_global_vars.slow_log.ctx
+
+#define THREAD_POOL           g_server_global_vars.thread_pool
 
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars.replica.channels_between_two_servers
