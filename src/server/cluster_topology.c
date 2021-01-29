@@ -541,19 +541,35 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
         return sub;
     }
 
-    sub = FC_ATOMIC_GET((*ds1)->is_master) -
-        FC_ATOMIC_GET((*ds2)->is_master);
+    sub = (int)(*ds1)->is_preseted - (int)(*ds2)->is_preseted;
     if (sub != 0) {
         return sub;
     }
 
-    return (int)(*ds1)->is_preseted - (int)(*ds2)->is_preseted;
+    return FC_ATOMIC_GET((*ds1)->is_master) -
+        FC_ATOMIC_GET((*ds2)->is_master);
+}
+
+static inline FSClusterDataServerInfo *get_preseted_master(
+        FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
+
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++) {
+        if (ds->is_preseted) {
+            return ds;
+        }
+    }
+
+    return group->data_server_array.servers;
 }
 
 static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         int *result)
 {
-#define OFFLINE_WAIT_TIMEOUT   4
+#define OFFLINE_WAIT_TIMEOUT   5
 #define ONLINE_WAIT_TIMEOUT   30
 
 #define IS_SERVER_TIMEDOUT(group, cs, election_start_time, timeout)  \
@@ -590,6 +606,17 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         group->election.retry_count++;
     }
     election_start_time = (int)(group->election.start_time_ms / 1000);
+
+    if (!MASTER_ELECTION_FAILOVER) {
+        ds = get_preseted_master(group);
+        if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE) {
+            *result = 0;
+            return ds;
+        } else {
+            *result = EAGAIN;
+            return NULL;
+        }
+    }
 
     active_count = 0;
     waiting_report_count = 0;
@@ -660,9 +687,12 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
                 compare_ds_by_data_version);
     }
 
-    last = group->ds_ptr_array.servers[group->ds_ptr_array.count - 1];
+    last = end - 1;
     status = FC_ATOMIC_GET(last->cs->status);
     if (status == FS_SERVER_STATUS_ACTIVE) {
+        logInfo("dg id: %d, active_count1: %d, data version: %"PRId64, group->id, active_count,
+                FC_ATOMIC_GET(group->ds_ptr_array.servers[0]->data.version));
+
         *result = 0;
         return last;
     } else if (status == FS_SERVER_STATUS_ONLINE) {
@@ -679,7 +709,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     }
 
     max_data_version = -1;
-    for (ds=end-1; ds>=group->data_server_array.servers; ds--) {
+    for (ds=last; ds>=group->data_server_array.servers; ds--) {
         if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE) {
             max_data_version = FC_ATOMIC_GET(ds->data.version);
             break;
@@ -689,6 +719,20 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     if (max_data_version == -1) {
         *result = ENOENT;
         return NULL;
+    }
+
+    if (max_data_version < FC_ATOMIC_GET(last->data.version)) {
+        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
+            *result = EAGAIN;
+            return NULL;
+        } else {
+            if (!IS_SERVER_TIMEDOUT(group, last->cs, election_start_time,
+                        MASTER_ELECTION_TIMEOUTS))
+            {
+                *result = EAGAIN;
+                return NULL;
+            }
+        }
     }
 
     active_count = 0;

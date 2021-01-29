@@ -210,65 +210,16 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
     } else if (is_update) {
         op->binlog_write_done = false;
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
+            if (!MASTER_ELECTION_FAILOVER) {
+                log_data_update(op);  //log first
+            }
+
             if (replication_caller_push_to_slave_queues(op) ==
                     TASK_STATUS_CONTINUE)
             {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
         }
-
-        /*
-        //for debug
-        if (SLOW_LOG_CFG.enabled) {
-            FSSliceSNPair *slice_sn_pair;
-            FSSliceSNPair *slice_sn_end;
-            char buff[512];
-            char sns[64];
-            int n;
-            int blen;
-
-            switch (op->operation) {
-                case DATA_OPERATION_SLICE_WRITE:
-                case DATA_OPERATION_SLICE_ALLOCATE:
-                    slice_sn_pair=op->ctx->update.sarray.slice_sn_pairs;
-                    n = sprintf(sns, "%"PRId64, slice_sn_pair->sn);
-                    slice_sn_end = op->ctx->update.sarray.slice_sn_pairs +
-                        op->ctx->update.sarray.count;
-                    for (slice_sn_pair=slice_sn_pair+1; slice_sn_pair<slice_sn_end; slice_sn_pair++)
-                    {
-                        n += snprintf(sns + n, sizeof(sns) - n,
-                                ", %"PRId64, slice_sn_pair->sn);
-                    }
-                    break;
-                case DATA_OPERATION_SLICE_DELETE:
-                case DATA_OPERATION_BLOCK_DELETE:
-                    sprintf(sns, "%"PRId64, op->ctx->info.sn);
-                    break;
-                default:
-                    *sns = '\0';
-                    break;
-            }
-
-
-            blen = sprintf(buff, "file: "__FILE__", line: %d, op ptr: %p, "
-                    "operation: %d, log_replica: %d, source: %c, "
-                    "data_group_id: %d, data_version: %"PRId64", "
-                    "block {oid: %"PRId64", offset: %"PRId64"}, "
-                    "slice {offset: %d, length: %d}, "
-                    "body_len: %d, sns: %s", __LINE__, op, op->operation,
-                    op->ctx->info.write_binlog.log_replica,
-                    op->ctx->info.source, op->ctx->info.data_group_id,
-                    op->ctx->info.data_version,
-                    op->ctx->info.bs_key.block.oid,
-                    op->ctx->info.bs_key.block.offset,
-                    op->ctx->info.bs_key.slice.offset,
-                    op->ctx->info.bs_key.slice.length,
-                    op->ctx->info.body_len, sns);
-
-            log_it_ex2(&SLOW_LOG_CTX, NULL, buff, blen, false, true);
-        }
-        */
-
         log_data_update(op);
 
         /*
