@@ -360,7 +360,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             if (!first_bheader->is_online) {
                 int old_status;
                 old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
-                logError("file: "__FILE__", line: %d, "
+                logWarning("file: "__FILE__", line: %d, "
                         "server %s:%u, data group id: %d, "
                         "my status: %d (%s), unexpect is_online: %d",
                         __LINE__, conn->ip_addr, conn->port, ctx->ds->dg->id,

@@ -404,16 +404,27 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
             return EBUSY;
         }
 
-        old_status = __sync_add_and_fetch(&slave->status, 0);
+        old_status = FC_ATOMIC_GET(slave->status);
         if (old_status == FS_DS_STATUS_ONLINE) {
             is_online = true;
         } else if (old_status == FS_DS_STATUS_REBUILDING ||
                 old_status == FS_DS_STATUS_RECOVERING)
         {
-            is_online = cluster_relationship_set_ds_status_ex(slave,
-                    old_status, FS_DS_STATUS_ONLINE);
+            if (cluster_relationship_set_ds_status_ex(slave,
+                        old_status, FS_DS_STATUS_ONLINE))
+            {
+                is_online = true;
+            } else {
+                is_online = (FC_ATOMIC_GET(slave->status) ==
+                        FS_DS_STATUS_ONLINE);
+            }
         } else {
             is_online = false;
+        }
+
+        if (!is_online) {
+            replica_release_reader(task, true);
+            return EAGAIN;
         }
     } else {
         repl_version = 0;
