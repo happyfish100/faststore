@@ -92,7 +92,6 @@ typedef struct {
 typedef struct ob_slice_entry {
     OBEntry *ob;
     OBSliceType type;    //in file or memory as fallocate
-    int read_offset;     //offset of the space start offset
     volatile int ref_count;
     FSSliceSize ssize;
     FSTrunkSpaceInfo space;

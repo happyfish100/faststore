@@ -401,10 +401,9 @@ static inline OBSliceEntry *slice_dup(OBSharedContext *ctx,
     slice->space = src->space;
     extra_offset = offset - src->ssize.offset;
     if (extra_offset > 0) {
-        slice->read_offset = src->read_offset + extra_offset;
+        slice->space.offset += extra_offset;
         slice->ssize.offset = offset;
     } else {
-        slice->read_offset = src->read_offset;
         slice->ssize.offset = src->ssize.offset;
     }
     slice->ssize.length = length;

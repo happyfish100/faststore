@@ -108,24 +108,19 @@ static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 FSClusterDataServerInfo *data_recovery_get_master(
         DataRecoveryContext *ctx, int *err_no)
 {
-    FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *master;
 
-    if ((group=fs_get_data_group(ctx->ds->dg->id)) == NULL) {
-        *err_no = ENOENT;
-        return NULL;
-    }
     master = (FSClusterDataServerInfo *)
-        __sync_fetch_and_add(&group->master, 0);
+        FC_ATOMIC_GET(ctx->ds->dg->master);
     if (master == NULL) {
-        logError("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, no master",
                 __LINE__, ctx->ds->dg->id);
         *err_no = ENOENT;
         return NULL;
     }
 
-    if (group->myself == NULL) {
+    if (ctx->ds->dg->myself == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "data group id: %d NOT belongs to me",
                 __LINE__, ctx->ds->dg->id);
@@ -133,8 +128,8 @@ FSClusterDataServerInfo *data_recovery_get_master(
         return NULL;
     }
 
-    if (group->myself == master) {
-        logError("file: "__FILE__", line: %d, "
+    if (ctx->ds->dg->myself == master) {
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, i am already master, "
                 "do NOT need recovery!", __LINE__, ctx->ds->dg->id);
         *err_no = EBUSY;

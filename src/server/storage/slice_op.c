@@ -190,7 +190,6 @@ static inline OBSliceEntry *alloc_init_slice(const FSBlockKey *bkey,
     }
 
     slice->type = slice_type;
-    slice->read_offset = 0;
     slice->space = *space;
     slice->ssize.offset = offset;
     slice->ssize.length = length;

@@ -87,7 +87,6 @@ static int add_slice(BinlogReadThreadResult *r, string_t *line,
         return ENOMEM;
     }
 
-    slice->read_offset = 0;
     slice->type = slice_type;
     SLICE_PARSE_INT_EX(slice->ssize.offset, "slice offset",
             BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);

@@ -119,6 +119,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     int old_status;
     int new_status;
     FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *master;
 
     ds = (FSClusterDataServerInfo *)arg;
     while (1) {
@@ -140,6 +141,14 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
             break;
         }
         fc_sleep_ms(500);
+    }
+
+    master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
+    if (master == NULL || ds->dg->myself == master) {
+        logDebug("file: "__FILE__", line: %d, "
+                "data group id: %d, master is NULL or i am the master, "
+                "skip data recovery", __LINE__, ds->dg->id);
+        return;
     }
 
     if (!__sync_bool_compare_and_swap(&ds->recovery.in_progress, 0, 1)) {
