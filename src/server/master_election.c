@@ -427,10 +427,10 @@ static void select_master_thread_run(void *arg, void *thread_data)
         }
     }
 
-    __sync_bool_compare_and_swap(&master_election_ctx.is_running, 1, 0);
-
     logDebug("file: "__FILE__", line: %d, "
             "select_master_thread exit.", __LINE__);
+
+    __sync_bool_compare_and_swap(&master_election_ctx.is_running, 1, 0);
 }
 
 static inline int master_election_thread_start()

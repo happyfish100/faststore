@@ -82,7 +82,7 @@ typedef struct dispatch_thread_context {
 
 typedef struct fetch_data_thread_context {
     struct fc_queue queue;  //element: ReplayTaskInfo
-    volatile int running;
+    volatile int is_running;
 
     struct binlog_replay_context *replay_ctx;
 } FetchDataThreadContext;
@@ -228,6 +228,7 @@ int binlog_replay_init()
     {
         return result;
     }
+    g_fs_client_vars.client_ctx.inited = true;
     g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
     g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
         client_ctx.cluster_cfg.ptr->replica_group_index;
@@ -438,6 +439,8 @@ static void task_dispatch_run(void *arg, void *thread_data)
     BinlogReplayContext *replay_ctx;
     DispatchThreadContext *dispatch_thread;
     ReplayTaskInfo *tasks[FS_MAX_RECOVERY_THREADS_PER_DATA_GROUP];
+    int running_count;
+    int waiting_count;
     int remain_count;
     int count;
     int i;
@@ -470,10 +473,28 @@ static void task_dispatch_run(void *arg, void *thread_data)
             &dispatch_thread->common.queue);
     dispatch_thread->common.total_count += remain_count;
 
-    for (i=0; i<RECOVERY_THREADS_PER_DATA_GROUP; i++) {
-        if (FC_ATOMIC_GET(replay_ctx->thread_env.contexts[i].running)) {
-            fc_queue_terminate(&replay_ctx->thread_env.contexts[i].queue);
+    waiting_count = 0;
+    while (1) {
+        running_count = 0;
+        for (i=0; i<RECOVERY_THREADS_PER_DATA_GROUP; i++) {
+            if (FC_ATOMIC_GET(replay_ctx->thread_env.contexts[i].is_running)) {
+                fc_queue_terminate(&replay_ctx->thread_env.contexts[i].queue);
+                running_count++;
+            }
         }
+
+        if (running_count == 0) {
+            break;
+        }
+
+        waiting_count++;
+        fc_sleep_ms(5);
+    }
+
+    if (waiting_count > 1) {
+        logInfo("file: "__FILE__", line: %d, "
+                "data group id: %d, wait fetch data thread exit count: %d",
+                __LINE__, replay_ctx->recovery_ctx->ds->dg->id, waiting_count);
     }
 
     FC_ATOMIC_SET(dispatch_thread->common.stage, FS_THREAD_STAGE_FINISHED);
@@ -488,8 +509,6 @@ static void fetch_data_run(void *arg, void *thread_data)
 
     thread_ctx = (FetchDataThreadContext *)arg;
     dispatch_thread = &thread_ctx->replay_ctx->dispatch_thread;
-
-    FC_ATOMIC_INC(thread_ctx->running);
 
     /* waiting dispatch thread ready */
     while (FC_ATOMIC_GET(dispatch_thread->common.stage) ==
@@ -560,7 +579,7 @@ static void fetch_data_run(void *arg, void *thread_data)
         PTHREAD_MUTEX_UNLOCK(&dispatch_thread->common.lcp.lock);
     }
 
-    FC_ATOMIC_DEC(thread_ctx->running);
+    __sync_bool_compare_and_swap(&thread_ctx->is_running, 1, 0);
 }
 
 static void replay_output(BinlogReplayContext *replay_ctx)
@@ -1010,15 +1029,20 @@ static int int_replay_context(DataRecoveryContext *ctx)
             break;
         }
 
-        end = replay_ctx->thread_env.contexts + RECOVERY_THREADS_PER_DATA_GROUP;
-        for (context=replay_ctx->thread_env.contexts; context<end; context++) {
+        end = replay_ctx->thread_env.contexts +
+            RECOVERY_THREADS_PER_DATA_GROUP;
+        for (context=replay_ctx->thread_env.contexts;
+                context<end; context++)
+        {
             if ((result=init_fetch_thread_ctx(context)) != 0) {
                 break;
             }
             context->replay_ctx = replay_ctx;
+            __sync_bool_compare_and_swap(&context->is_running, 0, 1);
             if ((result=shared_thread_pool_run(fetch_data_run,
                             context)) != 0)
             {
+                __sync_bool_compare_and_swap(&context->is_running, 1, 0);
                 break;
             }
         }
