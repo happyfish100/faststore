@@ -448,7 +448,6 @@ static void task_dispatch_run(void *arg, void *thread_data)
     replay_ctx = (BinlogReplayContext *)arg;
     dispatch_thread = &replay_ctx->dispatch_thread;
 
-    FC_ATOMIC_SET(dispatch_thread->common.stage, FS_THREAD_STAGE_RUNNING);
     while (FC_ATOMIC_GET(replay_ctx->continue_flag)) {
         for (count=0; count<RECOVERY_THREADS_PER_DATA_GROUP; count++) {
             if ((tasks[count]=(ReplayTaskInfo *)fc_queue_pop(
@@ -509,15 +508,6 @@ static void fetch_data_run(void *arg, void *thread_data)
 
     thread_ctx = (FetchDataThreadContext *)arg;
     dispatch_thread = &thread_ctx->replay_ctx->dispatch_thread;
-
-    /* waiting dispatch thread ready */
-    while (FC_ATOMIC_GET(dispatch_thread->common.stage) ==
-            FS_THREAD_STAGE_NONE && FC_ATOMIC_GET(
-                thread_ctx->replay_ctx->continue_flag))
-    {
-        fc_sleep_ms(5);
-    }
-
     while (FC_ATOMIC_GET(dispatch_thread->common.stage) ==
             FS_THREAD_STAGE_RUNNING)
     {
@@ -656,7 +646,6 @@ static void binlog_replay_run(void *arg, void *thread_data)
 
     replay_ctx = (BinlogReplayContext *)arg;
     thread_ctx = &replay_ctx->replay_thread;
-    FC_ATOMIC_SET(thread_ctx->common.stage, FS_THREAD_STAGE_RUNNING);
     while (FC_ATOMIC_GET(replay_ctx->continue_flag)) {
         if ((task=(ReplayTaskInfo *)fc_queue_pop(
                         &thread_ctx->common.queue)) == NULL)
@@ -797,7 +786,7 @@ static void waiting_thread_exit(BinlogReplayContext *replay_ctx,
     while ((stage=FC_ATOMIC_GET(common_ctx->stage)) !=
             FS_THREAD_STAGE_FINISHED)
     {
-        if (FC_LOG_BY_LEVEL(LOG_DEBUG) && count % 10 == 0) {
+        if (FC_LOG_BY_LEVEL(LOG_DEBUG) && count % 10 == 1) {
             logDebug("data group id: %d, %dth waiting %s thread exit, "
                     "stage: %d, fetch_data_count: %d ...", replay_ctx->
                     recovery_ctx->ds->dg->id, ++count, caption, stage,
@@ -1023,9 +1012,14 @@ static int int_replay_context(DataRecoveryContext *ctx)
 
     FC_ATOMIC_SET(replay_ctx->continue_flag, 1);
     do {
+        FC_ATOMIC_SET(replay_ctx->dispatch_thread.common.stage,
+                FS_THREAD_STAGE_RUNNING);
         if ((result=shared_thread_pool_run(task_dispatch_run,
                         replay_ctx)) != 0)
         {
+            /* rollback the stage */
+            FC_ATOMIC_SET(replay_ctx->dispatch_thread.common.stage,
+                    FS_THREAD_STAGE_FINISHED);
             break;
         }
 
@@ -1042,6 +1036,7 @@ static int int_replay_context(DataRecoveryContext *ctx)
             if ((result=shared_thread_pool_run(fetch_data_run,
                             context)) != 0)
             {
+                /* rollback the running status */
                 __sync_bool_compare_and_swap(&context->is_running, 1, 0);
                 break;
             }
@@ -1050,11 +1045,20 @@ static int int_replay_context(DataRecoveryContext *ctx)
             break;
         }
 
-        result = shared_thread_pool_run(binlog_replay_run, replay_ctx);
+        FC_ATOMIC_SET(replay_ctx->replay_thread.common.stage,
+                FS_THREAD_STAGE_RUNNING);
+        if ((result=shared_thread_pool_run(binlog_replay_run,
+                        replay_ctx)) != 0)
+        {
+            break;
+        }
     } while (0);
 
     if (result != 0) {
         FC_ATOMIC_SET(replay_ctx->continue_flag, 0);
+        FC_ATOMIC_SET(replay_ctx->replay_thread.common.stage,
+                FS_THREAD_STAGE_FINISHED);
+        waiting_work_threads_exit(ctx);
     }
     return result;
 }

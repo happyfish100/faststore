@@ -466,6 +466,7 @@ void master_election_deal_delay_queue()
                 delay_queue, node);
     }
 
+    /* check for rare case */
     if (FC_ATOMIC_GET(master_election_ctx.waiting_count) > 0 &&
             FC_ATOMIC_GET(master_election_ctx.is_running) == 0)
     {
