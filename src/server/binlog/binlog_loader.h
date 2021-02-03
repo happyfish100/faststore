@@ -74,16 +74,23 @@
 
 
 typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r, \
-        string_t *line);
+        string_t *line, void *arg);
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int binlog_loader_load(const char *subdir_name,
+    int binlog_loader_load_ex(const char *subdir_name,
             struct sf_binlog_writer_info *writer,
-            binlog_parse_line_func parse_line);
+            binlog_parse_line_func parse_line, void *arg);
 
+    static inline int binlog_loader_load(const char *subdir_name,
+            struct sf_binlog_writer_info *writer,
+            binlog_parse_line_func parse_line)
+    {
+        return binlog_loader_load_ex(subdir_name,
+                writer, parse_line, NULL);
+    }
 
 #ifdef __cplusplus
 }

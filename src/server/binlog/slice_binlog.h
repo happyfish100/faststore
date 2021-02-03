@@ -18,6 +18,7 @@
 #define _SLICE_BINLOG_H
 
 #include "fastcommon/sched_thread.h"
+#include "binlog_types.h"
 #include "../storage/object_block_index.h"
 
 #define SLICE_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE

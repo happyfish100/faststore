@@ -28,12 +28,16 @@
 int shared_thread_pool_init()
 {
     int result;
+    int limit1;
+    int limit2;
     int limit;
     const int max_idle_time = 60;
     const int min_idle_count = 0;
 
-    limit = FS_DATA_RECOVERY_THREADS_LIMIT * (2 +
+    limit1 = FS_DATA_RECOVERY_THREADS_LIMIT * (2 +
             RECOVERY_THREADS_PER_DATA_GROUP) + 4;
+    limit2 = DATA_THREAD_COUNT;
+    limit = FC_MAX(limit1, limit2);
     if ((result=fc_thread_pool_init(&THREAD_POOL, "shared_tpool", limit,
                     SF_G_THREAD_STACK_SIZE, max_idle_time, min_idle_count,
                     (bool *)&SF_G_CONTINUE_FLAG)) != 0)

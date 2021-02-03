@@ -25,6 +25,7 @@
 typedef struct {
     BinlogReadThreadResult *r;
     binlog_parse_line_func parse_line;
+    void *arg;
     int count;
 } BinlogParseContext;
 
@@ -47,7 +48,7 @@ static int parse_binlog(BinlogParseContext *ctx)
 
         line.str = line_start;
         line.len = line_end - line_start;
-        if ((result=ctx->parse_line(ctx->r, &line)) != 0) {
+        if ((result=ctx->parse_line(ctx->r, &line, ctx->arg)) != 0) {
             break;
         }
 
@@ -58,9 +59,9 @@ static int parse_binlog(BinlogParseContext *ctx)
     return result;
 }
 
-int binlog_loader_load(const char *subdir_name,
+int binlog_loader_load_ex(const char *subdir_name,
         struct sf_binlog_writer_info *writer,
-        binlog_parse_line_func parse_line)
+        binlog_parse_line_func parse_line, void *arg)
 {
     BinlogReadThreadContext read_thread_ctx;
     BinlogParseContext parse_ctx;
@@ -82,6 +83,7 @@ int binlog_loader_load(const char *subdir_name,
             "loading %s data ...", __LINE__, subdir_name);
 
     parse_ctx.parse_line = parse_line;
+    parse_ctx.arg = arg;
     total_count = 0;
     result = 0;
     while (SF_G_CONTINUE_FLAG) {

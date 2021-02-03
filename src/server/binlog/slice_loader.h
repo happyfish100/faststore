@@ -13,30 +13,17 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//shared_thread_pool.h
 
-#ifndef _SHARED_THREAD_POOL_H_
-#define _SHARED_THREAD_POOL_H_
+#ifndef _SLICE_LOADER_H
+#define _SLICE_LOADER_H
 
-#include "server_global.h"
+#include "sf/sf_binlog_writer.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int shared_thread_pool_init();
-void shared_thread_pool_destroy();
-
-static inline int shared_thread_pool_run(
-        fc_thread_pool_callback func, void *arg)
-{
-    return fc_thread_pool_run(&THREAD_POOL, func, arg);
-}
-
-static inline int shared_thread_pool_dealing_count()
-{
-    return fc_thread_pool_dealing_count(&THREAD_POOL);
-}
+    int slice_loader_load(struct sf_binlog_writer_info *slice_writer);
 
 #ifdef __cplusplus
 }
