@@ -50,8 +50,8 @@ int binlog_read_thread_init(BinlogReadThreadContext *ctx,
         return result;
     }
 
-    ctx->running = false;
-    ctx->continue_flag = true;
+    ctx->running = 0;
+    ctx->continue_flag = 1;
     if ((result=common_blocked_queue_init_ex(&ctx->queues.waiting,
                     BINLOG_READ_THREAD_BUFFER_COUNT)) != 0)
     {
@@ -82,16 +82,20 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
     int count;
     int i;
 
-    ctx->continue_flag = false;
+    FC_ATOMIC_SET(ctx->continue_flag, 0);
     common_blocked_queue_terminate(&ctx->queues.waiting);
     common_blocked_queue_terminate(&ctx->queues.done);
 
     count = 0;
-    while (ctx->running && count++ < 300) {
+    while (FC_ATOMIC_GET(ctx->running) && count++ < 300) {
+        if (count % 10 == 0) {
+            common_blocked_queue_terminate(&ctx->queues.waiting);
+            common_blocked_queue_terminate(&ctx->queues.done);
+        }
         fc_sleep_ms(10);
     }
 
-    if (ctx->running) {
+    if (FC_ATOMIC_GET(ctx->running)) {
         logWarning("file: "__FILE__", line: %d, "
                 "wait thread exit timeout", __LINE__);
     }
@@ -111,8 +115,8 @@ static void *binlog_read_thread_func(void *arg)
     BinlogReadThreadResult *r;
 
     ctx = (BinlogReadThreadContext *)arg;
-    ctx->running = true;
-    while (ctx->continue_flag) {
+    FC_ATOMIC_SET(ctx->running, 1);
+    while (FC_ATOMIC_GET(ctx->continue_flag)) {
         r = (BinlogReadThreadResult *)common_blocked_queue_pop(
                 &ctx->queues.waiting);
         if (r == NULL) {
@@ -126,6 +130,6 @@ static void *binlog_read_thread_func(void *arg)
         common_blocked_queue_push(&ctx->queues.done, r);
     }
 
-    ctx->running = false;
+    FC_ATOMIC_SET(ctx->running, 0);
     return NULL;
 }

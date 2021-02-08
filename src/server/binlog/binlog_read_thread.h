@@ -32,8 +32,8 @@ typedef struct binlog_read_thread_result {
 
 typedef struct binlog_read_thread_context {
     ServerBinlogReader reader;
-    volatile bool continue_flag;
-    bool running;
+    volatile char continue_flag;
+    volatile char running;
     pthread_t tid;
     BinlogReadThreadResult results[BINLOG_READ_THREAD_BUFFER_COUNT];
     struct {
