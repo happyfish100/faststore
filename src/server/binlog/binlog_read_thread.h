@@ -34,7 +34,6 @@ typedef struct binlog_read_thread_context {
     ServerBinlogReader reader;
     volatile char continue_flag;
     volatile char running;
-    pthread_t tid;
     BinlogReadThreadResult results[BINLOG_READ_THREAD_BUFFER_COUNT];
     struct {
         struct common_blocked_queue waiting;

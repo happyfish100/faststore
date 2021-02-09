@@ -35,7 +35,8 @@ int shared_thread_pool_init()
     const int min_idle_count = 0;
 
     limit1 = FS_DATA_RECOVERY_THREADS_LIMIT * (2 +
-            RECOVERY_THREADS_PER_DATA_GROUP) + 4;
+            RECOVERY_THREADS_PER_DATA_GROUP +
+            CLUSTER_SERVER_ARRAY.count) + 4;
     limit2 = DATA_THREAD_COUNT;
     limit = FC_MAX(limit1, limit2);
     if ((result=fc_thread_pool_init(&THREAD_POOL, "shared_tpool", limit,

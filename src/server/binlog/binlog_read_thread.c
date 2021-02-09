@@ -32,10 +32,12 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
+#include "../shared_thread_pool.h"
 #include "binlog_func.h"
 #include "binlog_read_thread.h"
 
-static void *binlog_read_thread_func(void *arg);
+static void binlog_read_thread_func(BinlogReadThreadContext *ctx,
+        void *thread_data);
 
 int binlog_read_thread_init(BinlogReadThreadContext *ctx,
         const char *subdir_name, struct sf_binlog_writer_info *writer,
@@ -73,8 +75,8 @@ int binlog_read_thread_init(BinlogReadThreadContext *ctx,
         binlog_read_thread_return_result_buffer(ctx, ctx->results + i);
     }
 
-    return fc_create_thread(&ctx->tid, binlog_read_thread_func,
-        ctx, SF_G_THREAD_STACK_SIZE);
+    return shared_thread_pool_run((fc_thread_pool_callback)
+            binlog_read_thread_func, ctx);
 }
 
 void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
@@ -100,8 +102,7 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
                 "wait thread exit timeout", __LINE__);
     }
     for (i=0; i<BINLOG_READ_THREAD_BUFFER_COUNT; i++) {
-        free(ctx->results[i].buffer.buff);
-        ctx->results[i].buffer.buff = NULL;
+        fc_free_buffer(&ctx->results[i].buffer);
     }
 
     common_blocked_queue_destroy(&ctx->queues.waiting);
@@ -109,12 +110,11 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
     binlog_reader_destroy(&ctx->reader);
 }
 
-static void *binlog_read_thread_func(void *arg)
+static void binlog_read_thread_func(BinlogReadThreadContext *ctx,
+        void *thread_data)
 {
-    BinlogReadThreadContext *ctx;
     BinlogReadThreadResult *r;
 
-    ctx = (BinlogReadThreadContext *)arg;
     FC_ATOMIC_SET(ctx->running, 1);
     while (FC_ATOMIC_GET(ctx->continue_flag)) {
         r = (BinlogReadThreadResult *)common_blocked_queue_pop(
@@ -131,5 +131,4 @@ static void *binlog_read_thread_func(void *arg)
     }
 
     FC_ATOMIC_SET(ctx->running, 0);
-    return NULL;
 }
