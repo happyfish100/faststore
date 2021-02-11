@@ -90,13 +90,7 @@ typedef struct {
     int data_group_id;
 } FSClusterStatFilter;
 
-typedef struct {
-    int64_t total_count;
-    int64_t next_version;
-    int waiting_count;
-    int max_waitings;
-} FSBinlogWriterStat;
-
 typedef SFSpaceStat FSClusterSpaceStat;
+typedef SFBinlogWriterStat FSBinlogWriterStat;
 
 #endif
