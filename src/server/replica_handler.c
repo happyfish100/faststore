@@ -997,6 +997,9 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 result = du_handler_deal_get_readable_server(task,
                         REPLICA_GROUP_INDEX);
                 break;
+            case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
+                result = du_handler_deal_get_group_servers(task);
+                break;
             case FS_REPLICA_PROTO_RPC_REQ:
                 if ((result=replica_deal_rpc_req(task)) == 0) {
                     TASK_ARG->context.need_response = false;

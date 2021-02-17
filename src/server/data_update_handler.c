@@ -767,3 +767,45 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
     TASK_ARG->context.response_done = true;
     return 0;
 }
+
+int du_handler_deal_get_group_servers(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
+    SFProtoGetGroupServersReq *req;
+    SFProtoGetGroupServersRespBodyHeader *body_header;
+    SFProtoGetGroupServersRespBodyPart *body_part;
+
+    if ((result=server_expect_body_length(task,
+                    sizeof(SFProtoGetGroupServersReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (SFProtoGetGroupServersReq *)REQUEST.body;
+    data_group_id = buff2int(req->group_id);
+    if ((group=fs_get_data_group(data_group_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d not exist", data_group_id);
+        return ENOENT;
+    }
+
+    body_header = (SFProtoGetGroupServersRespBodyHeader *)REQUEST.body;
+    body_part = (SFProtoGetGroupServersRespBodyPart *)(body_header + 1);
+    end = group->data_server_array.servers + group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<end; ds++, body_part++) {
+        int2buff(ds->cs->server->id, body_part->server_id);
+        body_part->is_master = FC_ATOMIC_GET(ds->is_master);
+        body_part->is_active = (FC_ATOMIC_GET(ds->status) ==
+                FS_DS_STATUS_ACTIVE) ? 1 : 0;
+    }
+    short2buff(group->data_server_array.count, body_header->count);
+
+    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_GROUP_SERVERS_RESP;
+    TASK_ARG->context.response_done = true;
+    return 0;
+}

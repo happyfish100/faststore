@@ -633,6 +633,9 @@ int service_deal_task(struct fast_task_info *task, const int stage)
                 result = sf_server_deal_rebind_channel(task,
                         &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
                 break;
+            case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
+                result = du_handler_deal_get_group_servers(task);
+                break;
             default:
                 RESPONSE.error.length = sprintf(
                         RESPONSE.error.message,

@@ -66,6 +66,8 @@ int du_handler_deal_client_join(struct fast_task_info *task);
 int du_handler_deal_get_readable_server(struct fast_task_info *task,
         const int group_index);
 
+int du_handler_deal_get_group_servers(struct fast_task_info *task);
+
 static inline void du_handler_set_slice_op_error_msg(struct fast_task_info *
         task, FSSliceOpContext *op_ctx, const char *caption, const int result)
 {
