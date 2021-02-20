@@ -92,10 +92,6 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_READABLE_SERVER_REQ";
         case FS_COMMON_PROTO_GET_READABLE_SERVER_RESP:
             return "GET_READABLE_SERVER_RESP";
-        case FS_SERVICE_PROTO_GET_LEADER_REQ:
-            return "GET_LEADER_REQ";
-        case FS_SERVICE_PROTO_GET_LEADER_RESP:
-            return "GET_LEADER_RESP";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
             return "GET_SERVER_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP:

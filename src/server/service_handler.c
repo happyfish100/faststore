@@ -271,7 +271,7 @@ static int service_deal_get_leader(struct fast_task_info *task)
     short2buff(addr->conn.port, resp->port);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
-    RESPONSE.header.cmd = FS_SERVICE_PROTO_GET_LEADER_RESP;
+    RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_LEADER_RESP;
     TASK_ARG->context.response_done = true;
     return 0;
 }
@@ -604,7 +604,7 @@ int service_deal_task(struct fast_task_info *task, const int stage)
                 result = du_handler_deal_get_readable_server(task,
                         SERVICE_GROUP_INDEX);
                 break;
-            case FS_SERVICE_PROTO_GET_LEADER_REQ:
+            case SF_SERVICE_PROTO_GET_LEADER_REQ:
                 result = service_deal_get_leader(task);
                 break;
             case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:

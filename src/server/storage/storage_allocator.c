@@ -63,7 +63,7 @@ static int init_allocator_context(FSStorageAllocatorContext *allocator_ctx,
     return 0;
 }
 
-int aptr_array_alloc_init(void *element, void *args)
+static int aptr_array_alloc_init(void *element, void *args)
 {
     FSTrunkAllocatorPtrArray *aptr_array;
     aptr_array = (FSTrunkAllocatorPtrArray *)element;

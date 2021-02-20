@@ -217,7 +217,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc)
 {
-    const FSConnectionParameters *connection_params;
+    const SFConnectionParameters *connection_params;
     ConnectionInfo *conn;
     IdempotencyClientChannel *old_channel;
     FSBlockSliceKeyInfo new_key;
@@ -239,7 +239,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     start_time = get_current_time_us();
     */
 
-    if ((conn=client_ctx->conn_manager.get_master_connection(client_ctx,
+    if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
                         bs_key->block.hash_code), &result)) == NULL)
     {
@@ -248,12 +248,12 @@ int fs_client_slice_write(FSClientContext *client_ctx,
 
     //conn_time_used += get_current_time_us() - start_time;
 
-    connection_params = client_ctx->conn_manager.get_connection_params(
-            client_ctx, conn);
+    connection_params = client_ctx->cm.ops.get_connection_params(
+            &client_ctx->cm, conn);
 
     sf_init_net_retry_interval_context(&net_retry_ctx,
-            &client_ctx->net_retry_cfg.interval_mm,
-            &client_ctx->net_retry_cfg.network);
+            &client_ctx->common_cfg.net_retry_cfg.interval_mm,
+            &client_ctx->common_cfg.net_retry_cfg.network);
 
     *inc_alloc = *write_bytes = 0;
     new_key = *bs_key;
@@ -304,7 +304,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                     if ((conn_result=sf_proto_rebind_idempotency_channel(
                                     conn, connection_params->channel->id,
                                     connection_params->channel->key,
-                                    client_ctx->network_timeout)) == 0)
+                                    client_ctx->common_cfg.network_timeout)) == 0)
                     {
                         continue;
                     }
@@ -312,7 +312,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             }
 
             SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
-                    net_retry_cfg.network.times, ++i, result);
+                    common_cfg.net_retry_cfg.network.times, ++i, result);
 
             /*
             logInfo("file: "__FILE__", line: %d, func: %s, "
@@ -320,17 +320,17 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                     __LINE__, __FUNCTION__, result, i);
                     */
 
-            SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, conn_result);
-            if ((conn=client_ctx->conn_manager.get_master_connection(
-                            client_ctx, FS_CLIENT_DATA_GROUP_INDEX(
+            SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, conn_result);
+            if ((conn=client_ctx->cm.ops.get_master_connection(
+                            &client_ctx->cm, FS_CLIENT_DATA_GROUP_INDEX(
                                 client_ctx, bs_key->block.hash_code),
                             &result)) == NULL)
             {
                 return SF_UNIX_ERRNO(result, EIO);
             }
 
-            connection_params = client_ctx->conn_manager.
-                get_connection_params(client_ctx, conn);
+            connection_params = client_ctx->cm.ops.
+                get_connection_params(&client_ctx->cm, conn);
             if (connection_params->channel != old_channel) {
                 break;
             }
@@ -371,7 +371,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         sf_reset_net_retry_interval(&net_retry_ctx);
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
 
     /*
     time_used = get_current_time_us() - start_time;
@@ -397,7 +397,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
     int i;
     SFNetRetryIntervalContext net_retry_ctx;
 
-    if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
+    if ((conn=client_ctx->cm.ops.get_readable_connection(&client_ctx->cm,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
                         hash_code), &result)) == NULL)
     {
@@ -405,8 +405,8 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
     }
 
     sf_init_net_retry_interval_context(&net_retry_ctx,
-            &client_ctx->net_retry_cfg.interval_mm,
-            &client_ctx->net_retry_cfg.network);
+            &client_ctx->common_cfg.net_retry_cfg.interval_mm,
+            &client_ctx->common_cfg.net_retry_cfg.network);
 
     *read_bytes = 0;
     new_key = *bs_key;
@@ -421,7 +421,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
             break;
         }
 
-        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->
+        SF_NET_RETRY_CHECK_AND_SLEEP(net_retry_ctx, client_ctx->common_cfg.
                 net_retry_cfg.network.times, ++i, result);
 
         /*
@@ -430,8 +430,8 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
                 __LINE__, __FUNCTION__, result, i);
                 */
 
-        SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
-        if ((conn=client_ctx->conn_manager.get_readable_connection(client_ctx,
+        SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+        if ((conn=client_ctx->cm.ops.get_readable_connection(&client_ctx->cm,
                         FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
                             hash_code), &result)) == NULL)
         {
@@ -445,7 +445,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
     }
 
     if (conn != NULL) {
-        SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+        SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
     }
 
     if (result == 0) {
@@ -463,33 +463,32 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
     */
 }
 
-#define GET_MASTER_CONNECTION(client_ctx, arg1, result)        \
-    client_ctx->conn_manager.get_master_connection(client_ctx, \
-            arg1, result)
+#define GET_MASTER_CONNECTION(cm, arg1, result)        \
+    (cm)->ops.get_master_connection(cm, arg1, result)
 
-#define GET_LEADER_CONNECTION(client_ctx, arg1, result)        \
-    client_ctx->conn_manager.get_leader_connection(client_ctx, \
-            arg1, result)
+#define GET_LEADER_CONNECTION(cm, arg1, result)        \
+    (cm)->ops.get_leader_connection(cm, arg1, result)
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
         const int req_cmd, const int resp_cmd,
         const int enoent_log_level, int *inc_alloc)
 {
-    const FSConnectionParameters *connection_params;
+    const SFConnectionParameters *connection_params;
 
-    SF_CLIENT_IDEMPOTENCY_UPDATE_WRAPPER(client_ctx, GET_MASTER_CONNECTION,
-            FS_CLIENT_DATA_GROUP_INDEX(client_ctx, hash_code),
-            fs_client_proto_bs_operate, key, req_cmd, resp_cmd,
-            enoent_log_level, inc_alloc);
+    SF_CLIENT_IDEMPOTENCY_UPDATE_WRAPPER(client_ctx, &client_ctx->cm,
+            GET_MASTER_CONNECTION, FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
+                hash_code), fs_client_proto_bs_operate, key, req_cmd,
+            resp_cmd, enoent_log_level, inc_alloc);
 }
 
 int fs_client_server_group_space_stat(FSClientContext *client_ctx,
         FCServerInfo *server, FSClientServerSpaceStat *stats,
         const int size, int *count)
 {
-    SF_CLIENT_IDEMPOTENCY_QUERY_WRAPPER(client_ctx, GET_LEADER_CONNECTION,
-            server, fs_client_proto_server_group_space_stat,
+    SF_CLIENT_IDEMPOTENCY_QUERY_WRAPPER(client_ctx, &client_ctx->cm,
+            GET_LEADER_CONNECTION, server,
+            fs_client_proto_server_group_space_stat,
             stats, size, count);
 }
 

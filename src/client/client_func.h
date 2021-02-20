@@ -59,11 +59,11 @@ static inline int fs_client_load_from_file_ex(FSClientContext *client_ctx,
 }
 
 int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
-        const FSConnectionManager *conn_manager);
+        const SFConnectionManager *conn_manager);
 
 static inline int fs_client_init_ex(FSClientContext *client_ctx,
         const char *config_filename, const char *section_name,
-        const FSConnectionManager *conn_manager)
+        const SFConnectionManager *conn_manager)
 {
     IniFullContext ini_ctx;
 

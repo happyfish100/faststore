@@ -52,8 +52,6 @@
 
 #define FS_SERVICE_PROTO_GET_MASTER_REQ           51
 #define FS_SERVICE_PROTO_GET_MASTER_RESP          52
-#define FS_SERVICE_PROTO_GET_LEADER_REQ           55
-#define FS_SERVICE_PROTO_GET_LEADER_RESP          56
 
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61

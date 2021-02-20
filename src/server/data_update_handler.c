@@ -802,7 +802,7 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
         body_part->is_active = (FC_ATOMIC_GET(ds->status) ==
                 FS_DS_STATUS_ACTIVE) ? 1 : 0;
     }
-    short2buff(group->data_server_array.count, body_header->count);
+    int2buff(group->data_server_array.count, body_header->count);
 
     RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
     RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_GROUP_SERVERS_RESP;

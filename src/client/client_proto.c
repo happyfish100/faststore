@@ -68,18 +68,18 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
 
         if ((result=tcpsenddata_nb(conn->sock, out_buff,
                         sizeof(FSProtoHeader) + body_front_len,
-                        client_ctx->network_timeout)) != 0)
+                        client_ctx->common_cfg.network_timeout)) != 0)
         {
             break;
         }
 
-        if ((result=tcpsenddata_nb(conn->sock, (char *)data, bs_key->
-                        slice.length, client_ctx->network_timeout)) != 0)
+        if ((result=tcpsenddata_nb(conn->sock, (char *)data, bs_key->slice.
+                        length, client_ctx->common_cfg.network_timeout)) != 0)
         {
             break;
         }
 
-        if ((result=sf_recv_response(conn, &response, client_ctx->
+        if ((result=sf_recv_response(conn, &response, client_ctx->common_cfg.
                         network_timeout, FS_SERVICE_PROTO_SLICE_WRITE_RESP,
                         (char *)&resp, sizeof(FSProtoSliceUpdateResp))) != 0)
         {
@@ -102,7 +102,7 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
         const int resp_cmd, const FSBlockSliceKeyInfo *bs_key,
         char *buff, int *read_bytes)
 {
-    const FSConnectionParameters *connection_params;
+    const SFConnectionParameters *connection_params;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoServiceSliceReadReq)
         + sizeof(FSProtoReplicaSliceReadReq)];
     FSProtoHeader *proto_header;
@@ -133,8 +133,8 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
     SF_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
     proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
 
-    connection_params = client_ctx->conn_manager.get_connection_params(
-            client_ctx, conn);
+    connection_params = client_ctx->cm.ops.
+        get_connection_params(&client_ctx->cm, conn);
 
     result = 0;
     hole_start = buff_offet = 0;
@@ -151,15 +151,15 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
         int2buff(curr_len, proto_bs->slice_size.length);
 
         response.error.length = 0;
-        if ((result=sf_send_and_recv_response_header(conn,
-                        out_buff, sizeof(FSProtoHeader) + body_len,
-                        &response, client_ctx->network_timeout)) != 0)
+        if ((result=sf_send_and_recv_response_header(conn, out_buff,
+                        sizeof(FSProtoHeader) + body_len, &response,
+                        client_ctx->common_cfg.network_timeout)) != 0)
         {
             break;
         }
 
         if ((result=sf_check_response(conn, &response, client_ctx->
-                        network_timeout, resp_cmd)) != 0)
+                        common_cfg.network_timeout, resp_cmd)) != 0)
         {
             if (result == ENOENT) {  //ignore errno ENOENT
                 bytes = 0;
@@ -177,7 +177,7 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
             }
 
             if ((result=tcprecvdata_nb_ex(conn->sock, buff + buff_offet,
-                            response.header.body_len, client_ctx->
+                            response.header.body_len, client_ctx->common_cfg.
                             network_timeout, &bytes)) != 0)
             {
                 response.error.length = snprintf(response.error.message,
@@ -260,8 +260,8 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(FSProtoHeader) + body_len, &response,
-                    client_ctx->network_timeout, resp_cmd, (char *)&resp,
-                    sizeof(FSProtoSliceUpdateResp))) == 0)
+                    client_ctx->common_cfg.network_timeout, resp_cmd,
+                    (char *)&resp, sizeof(FSProtoSliceUpdateResp))) == 0)
     {
         *inc_alloc = buff2int(resp.inc_alloc);
     } else {
@@ -306,7 +306,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(FSProtoHeader) + body_len,
-                    &response, client_ctx->network_timeout,
+                    &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_BLOCK_DELETE_RESP, (char *)&resp,
                     sizeof(FSProtoSliceUpdateResp))) == 0)
     {
@@ -321,7 +321,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
 }
 
 int fs_client_proto_join_server(FSClientContext *client_ctx,
-        ConnectionInfo *conn, FSConnectionParameters *conn_params)
+        ConnectionInfo *conn, SFConnectionParameters *conn_params)
 {
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoClientJoinReq)];
     FSProtoHeader *proto_header;
@@ -352,7 +352,7 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     SF_PROTO_SET_HEADER(proto_header, FS_COMMON_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, client_ctx->network_timeout,
+                    &response, client_ctx->common_cfg.network_timeout,
                     FS_COMMON_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {
@@ -374,8 +374,8 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
     FSProtoGetServerResp server_resp;
     char out_buff[sizeof(FSProtoHeader) + 4];
 
-    conn = client_ctx->conn_manager.get_connection(client_ctx,
-            data_group_index, &result);
+    conn = client_ctx->cm.ops.get_connection(
+            &client_ctx->cm, data_group_index, &result);
     if (conn == NULL) {
         return result;
     }
@@ -385,7 +385,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
     SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_MASTER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, client_ctx->network_timeout,
+                    &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_GET_MASTER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
@@ -397,7 +397,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
         master->conn.port = buff2short(server_resp.port);
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
     return result;
 }
 
@@ -413,8 +413,8 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     char out_buff[sizeof(FSProtoHeader) +
         sizeof(FSProtoGetReadableServerReq)];
 
-    conn = client_ctx->conn_manager.get_connection(client_ctx,
-            data_group_index, &result);
+    conn = client_ctx->cm.ops.get_connection(
+            &client_ctx->cm, data_group_index, &result);
     if (conn == NULL) {
         return result;
     }
@@ -422,11 +422,11 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     header = (FSProtoHeader *)out_buff;
     req = (FSProtoGetReadableServerReq *)(header + 1);
     int2buff(data_group_index + 1, req->data_group_id);
-    req->read_rule = client_ctx->read_rule;
+    req->read_rule = client_ctx->common_cfg.read_rule;
     SF_PROTO_SET_HEADER(header, FS_COMMON_PROTO_GET_READABLE_SERVER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, client_ctx->network_timeout,
+                    &response, client_ctx->common_cfg.network_timeout,
                     FS_COMMON_PROTO_GET_READABLE_SERVER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
@@ -438,35 +438,7 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
         server->conn.port = buff2short(server_resp.port);
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
-    return result;
-}
-
-int fs_client_proto_get_leader(FSClientContext *client_ctx,
-        ConnectionInfo *conn, FSClientServerEntry *leader)
-{
-    int result;
-    FSProtoHeader *header;
-    SFResponseInfo response;
-    FSProtoGetServerResp server_resp;
-    char out_buff[sizeof(FSProtoHeader)];
-
-    header = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_GET_LEADER_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
-    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, client_ctx->network_timeout,
-                    FS_SERVICE_PROTO_GET_LEADER_RESP, (char *)&server_resp,
-                    sizeof(FSProtoGetServerResp))) != 0)
-    {
-        sf_log_network_error(&response, conn, result);
-    } else {
-        leader->server_id = buff2int(server_resp.server_id);
-        memcpy(leader->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
-        *(leader->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
-        leader->conn.port = buff2short(server_resp.port);
-    }
-
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
     return result;
 }
 
@@ -491,8 +463,8 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     int result;
     int calc_size;
 
-    if ((conn=client_ctx->conn_manager.get_spec_connection(
-                    client_ctx, spec_conn, &result)) == NULL)
+    if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
+                    spec_conn, &result)) == NULL)
     {
         return result;
     }
@@ -509,8 +481,8 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
 
     in_buff = fixed_buff;
     if ((result=sf_send_and_check_response_header(conn, out_buff,
-                    sizeof(out_buff), &response, client_ctx->network_timeout,
-                    FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
+                    sizeof(out_buff), &response, client_ctx->common_cfg.
+                    network_timeout, FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
         if (response.header.body_len > sizeof(fixed_buff)) {
             in_buff = (char *)fc_malloc(response.header.body_len);
@@ -523,7 +495,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
 
         if (result == 0) {
             result = tcprecvdata_nb(conn->sock, in_buff, response.header.
-                    body_len, client_ctx->network_timeout);
+                    body_len, client_ctx->common_cfg.network_timeout);
         }
     }
 
@@ -582,7 +554,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         }
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
     if (in_buff != fixed_buff) {
         if (in_buff != NULL) {
             free(in_buff);
@@ -614,9 +586,9 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
     response.error.length = 0;
     do {
         if ((result=sf_send_and_recv_response_ex1(conn, out_buff,
-                        sizeof(out_buff), &response, client_ctx->network_timeout,
-                        FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP, in_buff,
-                        sizeof(in_buff), &body_len)) != 0)
+                        sizeof(out_buff), &response, client_ctx->common_cfg.
+                        network_timeout, FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP,
+                        in_buff, sizeof(in_buff), &body_len)) != 0)
         {
             break;
         }
@@ -681,8 +653,8 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     FSProtoServiceStatResp stat_resp;
     int result;
 
-    if ((conn=client_ctx->conn_manager.get_spec_connection(
-                    client_ctx, spec_conn, &result)) == NULL)
+    if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
+                    spec_conn, &result)) == NULL)
     {
         return result;
     }
@@ -694,14 +666,14 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     int2buff(data_group_id, req->data_group_id);
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
-                    &response, client_ctx->network_timeout,
+                    &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_SERVICE_STAT_RESP,
                     (char *)&stat_resp, sizeof(FSProtoServiceStatResp))) != 0)
     {
         sf_log_network_error(&response, conn, result);
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(client_ctx, conn, result);
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
     if (result != 0) {
         return result;
     }

@@ -218,13 +218,18 @@ int binlog_replay_init()
         return result;
     }
 
-    g_fs_client_vars.client_ctx.connect_timeout = SF_G_CONNECT_TIMEOUT;
-    g_fs_client_vars.client_ctx.network_timeout = SF_G_NETWORK_TIMEOUT;
-    snprintf(g_fs_client_vars.base_path, sizeof(g_fs_client_vars.base_path),
+    g_fs_client_vars.client_ctx.common_cfg.connect_timeout =
+        SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.client_ctx.common_cfg.network_timeout =
+        SF_G_NETWORK_TIMEOUT;
+    g_fs_client_vars.client_ctx.common_cfg.read_rule =
+        sf_data_read_rule_master_only;
+    snprintf(g_fs_client_vars.base_path,
+            sizeof(g_fs_client_vars.base_path),
             "%s", SF_G_BASE_PATH);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
     if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.client_ctx,
-                    &g_fs_client_vars.client_ctx.conn_manager)) != 0)
+                    &g_fs_client_vars.client_ctx.cm)) != 0)
     {
         return result;
     }
