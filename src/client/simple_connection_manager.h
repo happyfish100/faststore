@@ -24,15 +24,16 @@ extern "C" {
 
 int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         SFConnectionManager *cm, const int max_count_per_entry,
-        const int max_idle_time);
+        const int max_idle_time, const bool bg_thread_enabled);
 
 static inline int fs_simple_connection_manager_init(
-        FSClientContext *client_ctx, SFConnectionManager *cm)
+        FSClientContext *client_ctx, SFConnectionManager *cm,
+        const bool bg_thread_enabled)
 {
     const int max_count_per_entry = 0;
     const int max_idle_time = 1 * 3600;
-    return fs_simple_connection_manager_init_ex(client_ctx,
-            cm, max_count_per_entry, max_idle_time);
+    return fs_simple_connection_manager_init_ex(client_ctx, cm,
+            max_count_per_entry, max_idle_time, bg_thread_enabled);
 }
 
 void fs_simple_connection_manager_destroy(SFConnectionManager *cm);

@@ -209,6 +209,7 @@ void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai)
 int binlog_replay_init()
 {
     int result;
+    const bool bg_thread_enabled = false;
 
     if ((result=init_task_allocator_array(&replay_global_vars.
                     allocator_array, FS_DATA_RECOVERY_THREADS_LIMIT,
@@ -228,8 +229,9 @@ int binlog_replay_init()
             sizeof(g_fs_client_vars.base_path),
             "%s", SF_G_BASE_PATH);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
-    if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.client_ctx,
-                    &g_fs_client_vars.client_ctx.cm)) != 0)
+    if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.
+                    client_ctx, &g_fs_client_vars.client_ctx.cm,
+                    bg_thread_enabled)) != 0)
     {
         return result;
     }

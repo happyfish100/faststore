@@ -146,7 +146,7 @@ int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
 }
 
 int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
-        const SFConnectionManager *conn_manager)
+        const SFConnectionManager *cm, const bool bg_thread_enabled)
 {
     int result;
 
@@ -155,15 +155,15 @@ int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
         return result;
     }
 
-    if (conn_manager == NULL) {
+    if (cm == NULL) {
         if ((result=fs_simple_connection_manager_init(client_ctx,
-                        &client_ctx->cm)) != 0)
+                        &client_ctx->cm, bg_thread_enabled)) != 0)
         {
             return result;
         }
         client_ctx->is_simple_conn_mananger = true;
-    } else if (conn_manager != &client_ctx->cm) {
-        client_ctx->cm = *conn_manager;
+    } else if (cm != &client_ctx->cm) {
+        client_ctx->cm = *cm;
         client_ctx->is_simple_conn_mananger = false;
     } else {
         client_ctx->is_simple_conn_mananger = false;

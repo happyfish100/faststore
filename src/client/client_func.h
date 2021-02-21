@@ -29,7 +29,8 @@ extern "C" {
             filename, NULL)
 
 #define fs_client_init(filename) \
-    fs_client_init_ex((&g_fs_client_vars.client_ctx), filename, NULL, NULL)
+    fs_client_init_ex((&g_fs_client_vars.client_ctx), \
+            filename, NULL, NULL, true)
 
 #define fs_client_destroy() \
     fs_client_destroy_ex((&g_fs_client_vars.client_ctx))
@@ -59,16 +60,16 @@ static inline int fs_client_load_from_file_ex(FSClientContext *client_ctx,
 }
 
 int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
-        const SFConnectionManager *conn_manager);
+        const SFConnectionManager *cm, const bool bg_thread_enabled);
 
 static inline int fs_client_init_ex(FSClientContext *client_ctx,
         const char *config_filename, const char *section_name,
-        const SFConnectionManager *conn_manager)
+        const SFConnectionManager *cm, const bool bg_thread_enabled)
 {
     IniFullContext ini_ctx;
 
     FAST_INI_SET_FULL_CTX(ini_ctx, config_filename, section_name);
-    return fs_client_init_ex1(client_ctx, &ini_ctx, conn_manager);
+    return fs_client_init_ex1(client_ctx, &ini_ctx, cm, bg_thread_enabled);
 }
 
 /**

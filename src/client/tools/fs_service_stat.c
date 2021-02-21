@@ -122,7 +122,9 @@ int main(int argc, char *argv[])
     log_init();
     //g_log_context.log_level = LOG_DEBUG;
 
-    if ((result=fs_client_init(config_filename)) != 0) {
+    if ((result=fs_client_init_ex(&g_fs_client_vars.client_ctx,
+                    config_filename, NULL, NULL, false)) != 0)
+    {
         return result;
     }
 

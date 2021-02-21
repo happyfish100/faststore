@@ -76,18 +76,19 @@ static int init_data_group_array(FSClientContext *client_ctx,
 
 int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         SFConnectionManager *cm, const int max_count_per_entry,
-        const int max_idle_time)
+        const int max_idle_time, const bool bg_thread_enabled)
 {
     int server_count;
     int result;
 
     server_count = FC_SID_SERVER_COUNT(client_ctx->
             cluster_cfg.ptr->server_cfg);
-    if ((result=sf_connection_manager_init(cm, &client_ctx->common_cfg,
+    if ((result=sf_connection_manager_init_ex(cm, &client_ctx->common_cfg,
                     FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
                     client_ctx->cluster_cfg.group_index, server_count,
                     max_count_per_entry, max_idle_time,
-                    connect_done_callback, client_ctx)) != 0)
+                    connect_done_callback, client_ctx,
+                    bg_thread_enabled)) != 0)
     {
         return result;
     }
@@ -96,7 +97,7 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
-    return 0;
+    return sf_connection_manager_start(cm);
 }
 
 void fs_simple_connection_manager_destroy(SFConnectionManager *cm)
