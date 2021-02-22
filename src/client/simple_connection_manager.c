@@ -83,7 +83,8 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
 
     server_count = FC_SID_SERVER_COUNT(client_ctx->
             cluster_cfg.ptr->server_cfg);
-    if ((result=sf_connection_manager_init_ex(cm, &client_ctx->common_cfg,
+    if ((result=sf_connection_manager_init_ex(cm, "FastStore",
+                    &client_ctx->common_cfg,
                     FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
                     client_ctx->cluster_cfg.group_index, server_count,
                     max_count_per_entry, max_idle_time,
