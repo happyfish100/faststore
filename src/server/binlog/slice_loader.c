@@ -213,7 +213,9 @@ static int slice_parse_line(BinlogReadThreadResult *r, string_t *line,
     SLICE_PARSE_INT_EX(bkey.oid, "object ID",
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET,
+            (op_type == SLICE_BINLOG_OP_TYPE_DEL_BLOCK ?
+             '\n' : ' '), 0);
     fs_calc_block_hashcode(&bkey);
 
     thread_ctx = ctx_array->contexts + bkey.hash_code % ctx_array->count;
