@@ -420,8 +420,9 @@ static void select_master_thread_run(void *arg, void *thread_data)
         }
 
         FC_ATOMIC_DEC(master_election_ctx.waiting_count);
-        result = master_election_select_master(group);
         __sync_bool_compare_and_swap(&group->election.in_queue, 1, 0);
+
+        result = master_election_select_master(group);
         if (result == EAGAIN) {
             master_election_push_to_delay_queue(group);
         }
