@@ -25,7 +25,7 @@
 extern "C" {
 #endif
 
-int server_recovery_init();
+int server_recovery_init(const char *config_filename);
 void server_recovery_destroy();
 void server_recovery_terminate();
 

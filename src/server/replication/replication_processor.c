@@ -394,8 +394,8 @@ static int deal_replication_connectings(FSServerContext *server_ctx)
                 logError("file: "__FILE__", line: %d, "
                         "%dth connect to replication peer: %d, %s:%u fail, "
                         "time used: %ds, errno: %d, error info: %s",
-                        __LINE__, replication->peer->server->id,
-                        replication->connection_info.fail_count + 1,
+                        __LINE__, replication->connection_info.fail_count + 1,
+                        replication->peer->server->id,
                         replication->connection_info.conn.ip_addr,
                         replication->connection_info.conn.port, (int)
                         (g_current_time - replication->connection_info.start_time),

@@ -51,11 +51,11 @@
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
 
-int data_recovery_init()
+int data_recovery_init(const char *config_filename)
 {
     int result;
 
-    if ((result=binlog_replay_init()) != 0) {
+    if ((result=binlog_replay_init(config_filename)) != 0) {
         return result;
     }
 

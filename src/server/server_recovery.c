@@ -24,7 +24,7 @@
 #include "server_global.h"
 #include "server_recovery.h"
 
-int server_recovery_init()
+int server_recovery_init(const char *config_filename)
 {
     int result;
 
@@ -32,7 +32,7 @@ int server_recovery_init()
         return result;
     }
 
-    if ((result=data_recovery_init()) != 0) {
+    if ((result=data_recovery_init(config_filename)) != 0) {
         return result;
     }
 

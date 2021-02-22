@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
             return result;
         }
 
-        if ((result=server_recovery_init()) != 0) {
+        if ((result=server_recovery_init(config_filename)) != 0) {
             break;
         }
 

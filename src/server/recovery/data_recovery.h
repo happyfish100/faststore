@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-int data_recovery_init();
+int data_recovery_init(const char *config_filename);
 void data_recovery_destroy();
 
 int data_recovery_start(FSClusterDataServerInfo *ds);
