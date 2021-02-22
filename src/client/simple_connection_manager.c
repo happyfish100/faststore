@@ -98,7 +98,7 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         return result;
     }
 
-    return sf_connection_manager_start(cm);
+    return sf_connection_manager_prepare(cm);
 }
 
 void fs_simple_connection_manager_destroy(SFConnectionManager *cm)
