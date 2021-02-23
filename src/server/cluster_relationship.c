@@ -1390,6 +1390,9 @@ static void *cluster_thread_entrance(void *arg)
                 sleep_seconds = 1 + (int)((double)rand()
                         * (double)MAX_SLEEP_SECONDS / RAND_MAX);
             } else {
+                if (mconn.sock >= 0) {
+                    conn_pool_disconnect_server(&mconn);
+                }
                 sleep_seconds = 1;
             }
         } else {

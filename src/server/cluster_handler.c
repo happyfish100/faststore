@@ -347,7 +347,9 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         return result;
     }
 
-    if ((peer=CLUSTER_PEER) == NULL) {
+    if (((peer=CLUSTER_PEER) == NULL) || (SERVER_TASK_TYPE !=
+                FS_SERVER_TASK_TYPE_RELATIONSHIP))
+    {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "please join first");
