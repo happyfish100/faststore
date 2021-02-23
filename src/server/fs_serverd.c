@@ -47,6 +47,7 @@
 #include "cluster_handler.h"
 #include "replica_handler.h"
 #include "cluster_relationship.h"
+#include "cluster_topology.h"
 #include "data_thread.h"
 #include "server_storage.h"
 #include "server_binlog.h"
@@ -181,6 +182,10 @@ int main(int argc, char *argv[])
         }
 
         if ((result=cluster_relationship_init()) != 0) {
+            break;
+        }
+
+        if ((result=cluster_topology_init()) != 0) {
             break;
         }
 

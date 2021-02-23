@@ -28,6 +28,8 @@
 extern "C" {
 #endif
 
+int cluster_topology_init();
+
 int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx);
 
 static inline int cluster_topology_add_notify_ctx(

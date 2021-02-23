@@ -39,6 +39,8 @@
 #include "cluster_relationship.h"
 #include "cluster_topology.h"
 
+static int max_events_per_pkg;
+
 static FSClusterDataServerInfo *find_data_group_server(
         const int gindex, FSClusterServerInfo *cs)
 {
@@ -55,6 +57,18 @@ static FSClusterDataServerInfo *find_data_group_server(
     }
 
     return NULL;
+}
+
+int cluster_topology_init()
+{
+    int header_size;
+
+    header_size = sizeof(FSProtoHeader) + sizeof(
+            FSProtoPushDataServerStatusHeader);
+    max_events_per_pkg = (g_sf_global_vars.min_buff_size - header_size) /
+        sizeof(FSProtoPushDataServerStatusBodyPart);
+
+    return 0;
 }
 
 int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
@@ -177,6 +191,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *ds_end;
     FSDataServerChangeEvent *event;
+    bool notify;
 
     gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
@@ -188,7 +203,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
                 event->source = FS_EVENT_SOURCE_CS_LEADER;
                 event->type = FS_EVENT_TYPE_STATUS_CHANGE |
                     FS_EVENT_TYPE_DV_CHANGE | FS_EVENT_TYPE_MASTER_CHANGE;
-                fc_queue_push(&cs->notify_ctx.queue, event);
+                fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
             }
         }
     }
@@ -196,6 +211,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
 
 static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 {
+    struct fc_queue_info qinfo;
     FSDataServerChangeEvent *event;
     FSClusterServerInfo *cs;
     FSClusterDataServerInfo *ds;
@@ -220,16 +236,17 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         return EAGAIN;
     }
 
-    event = (FSDataServerChangeEvent *)fc_queue_try_pop_all(&ctx->queue);
-    if (event == NULL) {
+    fc_queue_pop_to_queue(&ctx->queue, &qinfo);
+    if (qinfo.head == NULL) {
         return 0;
     }
 
+    event = (FSDataServerChangeEvent *)qinfo.head;
     header = (FSProtoHeader *)ctx->task->data;
     req_header = (FSProtoPushDataServerStatusHeader *)(header + 1);
     bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
-    while (event != NULL) {
+    do {
         //event_source = event->source;
         //event_type = event->type;
         in_queue = &event->in_queue;
@@ -244,17 +261,27 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         long2buff(FC_ATOMIC_GET(ds->data.version), body_part->data_version);
 
         /*
-        logInfo("push to target server id: %d (ctx: %p), event "
-                "source: %c, type: %d, {data group id: %d, "
-                "data server id: %d, is_master: %d, "
-                "status: %d, data_version: %"PRId64"}, "
-                "cluster version: %"PRId64, ctx->server_id, ctx,
-                event_source, event_type, ds->dg->id, ds->cs->server->id,
-                body_part->is_master, body_part->status,
-                ds->data.version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
-                */
+           logInfo("push to target server id: %d (ctx: %p), event "
+           "source: %c, type: %d, {data group id: %d, "
+           "data server id: %d, is_master: %d, "
+           "status: %d, data_version: %"PRId64"}, "
+           "cluster version: %"PRId64, ctx->server_id, ctx,
+           event_source, event_type, ds->dg->id, ds->cs->server->id,
+           body_part->is_master, body_part->status,
+           ds->data.version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
+         */
 
         ++body_part;
+        if (body_part - bp_start == max_events_per_pkg) {
+            break;
+        }
+    } while (event != NULL);
+
+    if (event != NULL) {
+        bool notify;
+
+        qinfo.head = event;
+        fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
     }
 
     long2buff(__sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
