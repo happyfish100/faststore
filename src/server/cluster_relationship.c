@@ -579,6 +579,20 @@ static void cluster_relationship_deactivate_all_servers()
     }
 }
 
+static void cluster_relationship_clear_old_leader(
+        FSClusterServerInfo *new_leader)
+{
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if (cs->is_leader && (cs != new_leader)) {
+            cs->is_leader = false;
+        }
+    }
+}
+
 static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
 {
     FSClusterServerInfo *old_leader;
@@ -612,6 +626,9 @@ static int cluster_relationship_set_leader(FSClusterServerInfo *new_leader)
     if (new_leader != old_leader) {
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
                 old_leader, new_leader);
+
+        //clear other server's is_leader field
+        cluster_relationship_clear_old_leader(new_leader);
 
         if (LEADER_ELECTION.retry_count > 0) {
             time_used = get_current_time_ms() - LEADER_ELECTION.start_time_ms;

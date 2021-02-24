@@ -124,7 +124,9 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
 
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
-        if (cs->is_leader || (!notify_self && ds->cs == cs)) {
+        if ((cs == CLUSTER_MYSELF_PTR) ||
+                (!notify_self && ds->cs == cs))
+        {
             continue;
         }
 
