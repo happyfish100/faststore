@@ -203,7 +203,7 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
                 "unexpect data server status: %d (%s) or "
                 "catch up: %d", data_group_id, server_id, status,
                 fs_get_server_status_caption(status), catch_up);
-        TASK_ARG->context.log_level = LOG_DEBUG;
+        TASK_CTX.common.log_level = LOG_DEBUG;
         return EAGAIN;
     }
 
@@ -254,7 +254,7 @@ static int fetch_binlog_output(struct fast_task_info *task, char *buff,
 
     RESPONSE.header.cmd = resp_cmd;
     RESPONSE.header.body_len = body_header_size + read_bytes;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -384,7 +384,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                     "version: %"PRId64" larger than the last of my binlog "
                     "file, my current data version: %"PRId64, data_group_id,
                     server_id, last_data_version, my_data_version);
-            TASK_ARG->context.log_level = LOG_WARNING;
+            TASK_CTX.common.log_level = LOG_WARNING;
         }
 
         replica_release_reader(task, false);
@@ -401,7 +401,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, slave id: %d, the replica connection "
                     "NOT established!", data_group_id, server_id);
-            TASK_ARG->context.log_level = LOG_WARNING;
+            TASK_CTX.common.log_level = LOG_WARNING;
             return EBUSY;
         }
 
@@ -512,7 +512,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, slave id: %d, the replica connection "
                 "NOT established!", data_group_id, server_id);
-        TASK_ARG->context.log_level = LOG_WARNING;
+        TASK_CTX.common.log_level = LOG_WARNING;
         return EBUSY;
     }
 
@@ -522,7 +522,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
                 "data group id: %d, slave id: %d, the replication channel "
                 "changed from verson %u to %u", data_group_id, server_id,
                 repl_version, current_version);
-        TASK_ARG->context.log_level = LOG_WARNING;
+        TASK_CTX.common.log_level = LOG_WARNING;
         return EBUSY;
     }
 
@@ -968,7 +968,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
             }
         }
     } else {
-        handler_init_task_context(task);
+        sf_proto_init_task_context(task, &TASK_CTX.common);
 
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
@@ -977,18 +977,18 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 break;
             case SF_PROTO_ACTIVE_TEST_RESP:
                 result = replica_check_replication_task(task);
-                TASK_ARG->context.need_response = false;
+                TASK_CTX.common.need_response = false;
                 break;
             case SF_PROTO_ACK:
                 result = sf_proto_deal_ack(task, &REQUEST, &RESPONSE);
-                TASK_ARG->context.need_response = false;
+                TASK_CTX.common.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
                 result = replica_deal_join_server_req(task);
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
                 result = replica_deal_join_server_resp(task);
-                TASK_ARG->context.need_response = false;
+                TASK_CTX.common.need_response = false;
                 break;
             case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
                 result = du_handler_deal_client_join(task);
@@ -1002,7 +1002,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 break;
             case FS_REPLICA_PROTO_RPC_REQ:
                 if ((result=replica_deal_rpc_req(task)) == 0) {
-                    TASK_ARG->context.need_response = false;
+                    TASK_CTX.common.need_response = false;
                 } else if (result > 0) {
                     result *= -1;  //force close connection
                 }
@@ -1013,7 +1013,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                         result *= -1;  //force close connection
                     }
                 }
-                TASK_ARG->context.need_response = false;
+                TASK_CTX.common.need_response = false;
                 break;
             case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ:
                 result = replica_deal_fetch_binlog_first(task);
@@ -1039,7 +1039,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = result;
-        return handler_deal_task_done(task);
+        return sf_proto_deal_task_done(task, &TASK_CTX.common);
     }
 }
 

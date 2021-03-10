@@ -210,7 +210,7 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
     int2buff(inc_alloc, resp->inc_alloc);
 
     RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
 }
 
 void du_handler_idempotency_request_finish(struct fast_task_info *task,
@@ -258,10 +258,10 @@ void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
                 OP_CTX_INFO.bs_key.slice.offset,
                 OP_CTX_INFO.bs_key.slice.length,
                 op_ctx->result, STRERROR(op_ctx->result));
-        TASK_ARG->context.log_level = LOG_NOTHING;
+        TASK_CTX.common.log_level = LOG_NOTHING;
     } else {
         RESPONSE.header.body_len = op_ctx->done_bytes;
-        TASK_ARG->context.response_done = true;
+        TASK_CTX.common.response_done = true;
     }
 
     RESPONSE_STATUS = op_ctx->result;
@@ -313,7 +313,7 @@ static void master_data_update_done_notify(FSDataOperation *op)
                 "%s", STRERROR(op->ctx->result));
 
         log_data_operation_error(task, op);
-        TASK_ARG->context.log_level = LOG_NOTHING;
+        TASK_CTX.common.log_level = LOG_NOTHING;
     } else {
         switch (op->operation) {
             case DATA_OPERATION_SLICE_WRITE:
@@ -649,7 +649,7 @@ int du_handler_deal_client_join(struct fast_task_info *task)
             join_resp->buffer_size);
     RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);
     RESPONSE.header.cmd = FS_COMMON_PROTO_CLIENT_JOIN_RESP;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -764,7 +764,7 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
     RESPONSE.header.cmd = FS_COMMON_PROTO_GET_READABLE_SERVER_RESP;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -806,6 +806,6 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
 
     RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
     RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_GROUP_SERVERS_RESP;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }

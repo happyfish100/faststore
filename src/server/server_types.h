@@ -125,8 +125,8 @@
 
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
-#define REQUEST           TASK_CTX.request
-#define RESPONSE          TASK_CTX.response
+#define REQUEST           TASK_CTX.common.request
+#define RESPONSE          TASK_CTX.common.response
 #define RESPONSE_STATUS   RESPONSE.header.status
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
@@ -339,11 +339,7 @@ typedef struct fs_replication {
 } FSReplication;
 
 typedef struct {
-    SFRequestInfo request;
-    SFResponseInfo response;
-    bool response_done;
-    char log_level;   //level for error log
-    bool need_response;
+    SFCommonTaskContext common;
     int task_type;
     union {
         struct {
@@ -372,8 +368,6 @@ typedef struct {
 } FSServerTaskContext;
 
 typedef struct server_task_arg {
-    int64_t req_start_time;
-
     FSServerTaskContext context;
 } FSServerTaskArg;
 

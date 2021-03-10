@@ -43,6 +43,7 @@
 #include "server_types.h"
 #include "server_global.h"
 #include "server_func.h"
+#include "common_handler.h"
 #include "service_handler.h"
 #include "cluster_handler.h"
 #include "replica_handler.h"
@@ -226,7 +227,7 @@ int main(int argc, char *argv[])
             return result;
         }
 
-        fs_proto_init();
+        common_handler_init();
         //sched_print_all_entries();
 
         sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,

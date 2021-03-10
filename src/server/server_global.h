@@ -118,8 +118,9 @@ typedef struct server_global_vars {
 #define DATA_PATH_STR         DATA_PATH.str
 #define DATA_PATH_LEN         DATA_PATH.len
 
-#define SLOW_LOG_CFG          g_server_global_vars.slow_log.cfg
-#define SLOW_LOG_CTX          g_server_global_vars.slow_log.ctx
+#define SLOW_LOG              g_server_global_vars.slow_log
+#define SLOW_LOG_CFG          SLOW_LOG.cfg
+#define SLOW_LOG_CTX          SLOW_LOG.ctx
 
 #define THREAD_POOL           g_server_global_vars.thread_pool
 

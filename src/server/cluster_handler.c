@@ -166,7 +166,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerStatusResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -248,7 +248,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
     RESPONSE.header.body_len = sizeof(FSProtoJoinLeaderResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
-    TASK_ARG->context.response_done = true;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -288,7 +288,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
                 "peer id: %d, leader version: %"PRId64" != mine: %"PRId64,
                 CLUSTER_PEER->server->id, leader_version,
                 CLUSTER_MYSELF_PTR->leader_version);
-        TASK_ARG->context.log_level = LOG_WARNING;
+        TASK_CTX.common.log_level = LOG_WARNING;
         return SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT;
     }
 
@@ -455,7 +455,7 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
                         "ds_server_id: %d, invalid old status: %d (%s)",
                         data_group_id, my_server_id, ds_server_id,
                         old_status, fs_get_server_status_caption(old_status));
-                TASK_ARG->context.log_level = LOG_WARNING;
+                TASK_CTX.common.log_level = LOG_WARNING;
                 return EINVAL;
             }
         }
@@ -552,7 +552,7 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
 
 int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
 {
-    handler_init_task_context(task);
+    sf_proto_init_task_context(task, &TASK_CTX.common);
     switch (REQUEST.header.cmd) {
         case SF_PROTO_ACTIVE_TEST_REQ:
             RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
@@ -563,7 +563,7 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
             break;
     }
 
-    return handler_deal_task_done(task);
+    return sf_proto_deal_task_done(task, &TASK_CTX.common);
 }
 
 int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
@@ -582,7 +582,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             }
         }
     } else {
-        handler_init_task_context(task);
+        sf_proto_init_task_context(task, &TASK_CTX.common);
 
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
@@ -591,7 +591,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 break;
             case SF_PROTO_ACK:
                 result = sf_proto_deal_ack(task, &REQUEST, &RESPONSE);
-                TASK_ARG->context.need_response = false;
+                TASK_CTX.common.need_response = false;
                 break;
             case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
                 result = cluster_deal_get_server_status(task);
@@ -627,7 +627,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = (result > 0 ? -1 * result : result);
-        return handler_deal_task_done(task);
+        return sf_proto_deal_task_done(task, &TASK_CTX.common);
     }
 }
 
