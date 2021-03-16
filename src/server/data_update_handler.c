@@ -595,8 +595,8 @@ int du_handler_deal_client_join(struct fast_task_info *task)
     FSProtoClientJoinReq *req;
     FSProtoClientJoinResp *join_resp;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoClientJoinReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoClientJoinReq))) != 0)
     {
         return result;
     }
@@ -725,8 +725,8 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
     FSProtoGetServerResp *resp;
     const FCAddressInfo *addr;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoGetReadableServerReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoGetReadableServerReq))) != 0)
     {
         return result;
     }
@@ -779,8 +779,8 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
     SFProtoGetGroupServersRespBodyHeader *body_header;
     SFProtoGetGroupServersRespBodyPart *body_part;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(SFProtoGetGroupServersReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        SFProtoGetGroupServersReq))) != 0)
     {
         return result;
     }

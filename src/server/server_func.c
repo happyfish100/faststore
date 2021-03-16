@@ -262,7 +262,7 @@ static int load_data_path_config(IniContext *ini_context, const char *filename)
             return errno != 0 ? errno : EPERM;
         }
         
-        SF_CHOWN_RETURN_ON_ERROR(DATA_PATH_STR, geteuid(), getegid());
+        SF_CHOWN_TO_RUNBY_RETURN_ON_ERROR(DATA_PATH_STR);
     }
 
     return 0;

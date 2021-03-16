@@ -110,8 +110,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
     FSProtoServiceStatReq *req;
     FSProtoServiceStatResp *stat_resp;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoServiceStatReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoServiceStatReq))) != 0)
     {
         return result;
     }
@@ -164,8 +164,8 @@ static int service_deal_slice_read(struct fast_task_info *task)
     OP_CTX_INFO.deal_done = false;
     OP_CTX_INFO.is_update = false;
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_READ_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoServiceSliceReadReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoServiceSliceReadReq))) != 0)
     {
         return result;
     }
@@ -210,7 +210,7 @@ static int service_deal_get_master(struct fast_task_info *task)
     FSClusterDataServerInfo *master;
     const FCAddressInfo *addr;
 
-    if ((result=server_expect_body_length(task, 4)) != 0) {
+    if ((result=server_expect_body_length(4)) != 0) {
         return result;
     }
 
@@ -249,7 +249,7 @@ static int service_deal_get_leader(struct fast_task_info *task)
     FSClusterServerInfo *leader;
     const FCAddressInfo *addr;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_expect_body_length(0)) != 0) {
         return result;
     }
 
@@ -295,8 +295,8 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     char *p;
     const FCAddressInfo *addr;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoClusterStatReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoClusterStatReq))) != 0)
     {
         return result;
     }
@@ -392,7 +392,7 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
     FSClusterServerInfo *cs;
     FSClusterServerInfo *end;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_expect_body_length(0)) != 0) {
         return result;
     }
 

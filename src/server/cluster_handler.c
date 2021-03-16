@@ -119,8 +119,8 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     FSProtoGetServerStatusReq *req;
     FSProtoGetServerStatusResp *resp;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoGetServerStatusReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoGetServerStatusReq))) != 0)
     {
         return result;
     }
@@ -179,8 +179,8 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     FSClusterServerInfo *peer;
     FSServerContext *server_ctx;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoJoinLeaderReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoJoinLeaderReq))) != 0)
     {
         return result;
     }
@@ -341,8 +341,8 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     FSClusterServerInfo *peer;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;
-    if ((result=server_check_min_body_length(task,
-                    sizeof(FSProtoPingLeaderReqHeader))) != 0)
+    if ((result=server_check_min_body_length(sizeof(
+                        FSProtoPingLeaderReqHeader))) != 0)
     {
         return result;
     }
@@ -402,8 +402,8 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     bool notify_self;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoReportDSStatusReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReportDSStatusReq))) != 0)
     {
         return result;
     }
@@ -487,8 +487,8 @@ static int cluster_deal_report_disk_space(struct fast_task_info *task)
     FSClusterServerSpaceStat stat;
 
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoReportDiskSpaceReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReportDiskSpaceReq))) != 0)
     {
         return result;
     }
@@ -522,7 +522,7 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
     int leader_id;
     FSClusterServerInfo *leader;
 
-    if ((result=server_expect_body_length(task, 4)) != 0) {
+    if ((result=server_expect_body_length(4)) != 0) {
         return result;
     }
 

@@ -307,7 +307,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     int result;
     bool is_online;
 
-    if ((result=server_check_min_body_length(task, sizeof(*rheader))) != 0) {
+    if ((result=server_check_min_body_length(sizeof(*rheader))) != 0) {
         return result;
     }
 
@@ -445,7 +445,7 @@ static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
 {
     int result;
 
-    if ((result=server_expect_body_length(task, 0)) != 0) {
+    if ((result=server_expect_body_length(0)) != 0) {
         return result;
     }
 
@@ -476,8 +476,8 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
     int result;
 
     RESPONSE.header.cmd = FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoReplicaActiveConfirmReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReplicaActiveConfirmReq))) != 0)
     {
         return result;
     }
@@ -539,8 +539,8 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     FSClusterServerInfo *peer;
     FSReplication *replication;
 
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoJoinServerReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoJoinServerReq))) != 0)
     {
         return result;
     }
@@ -775,7 +775,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=server_check_min_body_length(task,
+    if ((result=server_check_min_body_length(
                     sizeof(FSProtoReplicaRPCReqBodyHeader) +
                     sizeof(FSProtoReplicaRPCReqBodyPart))) != 0)
     {
@@ -826,7 +826,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=server_check_min_body_length(task,
+    if ((result=server_check_min_body_length(
                     sizeof(FSProtoReplicaRPCRespBodyHeader) +
                     sizeof(FSProtoReplicaRPCRespBodyPart))) != 0)
     {
@@ -887,8 +887,8 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     OP_CTX_INFO.deal_done = false;
     OP_CTX_INFO.is_update = false;
     RESPONSE.header.cmd = FS_REPLICA_PROTO_SLICE_READ_RESP;
-    if ((result=server_expect_body_length(task,
-                    sizeof(FSProtoReplicaSliceReadReq))) != 0)
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReplicaSliceReadReq))) != 0)
     {
         return result;
     }
