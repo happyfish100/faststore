@@ -277,6 +277,7 @@ static void server_log_configs()
     char sz_service_config[128];
     char sz_cluster_config[128];
     char sz_replica_config[128];
+    char sz_auth_config[1024];
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
@@ -289,6 +290,9 @@ static void server_log_configs()
             sz_cluster_config, sizeof(sz_cluster_config));
     sf_context_config_to_string(&REPLICA_SF_CTX,
             sz_replica_config, sizeof(sz_replica_config));
+
+    fcfs_auth_for_server_cfg_to_string(&AUTH_CTX,
+            sz_auth_config, sizeof(sz_auth_config));
 
     snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, data_path = %s, data_threads = %d, "
@@ -311,10 +315,11 @@ static void server_log_configs()
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s", g_fs_global_vars.version.major,
+            "replica: {%s}, %s, %s", g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
             sz_global_config, sz_slowlog_config, sz_service_config,
-            sz_cluster_config, sz_replica_config, sz_server_config);
+            sz_cluster_config, sz_replica_config, sz_server_config,
+            sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }

@@ -26,18 +26,23 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename] [-i oid=1] "
+    fprintf(stderr, "Usage: %s [-c config_filename=%s] [-i oid=1] "
             "[-O block_offset=0] [-o slice_offset=0] "
-            "[-l slice_length=0 for auto] <filename>\n", argv[0]);
+            "[-l slice_length=0 for auto] "
+            "[-n namespace or poolname=fs] <filename>\n",
+            argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
 }
 
 int main(int argc, char *argv[])
 {
-    const char *config_filename = "/etc/fastcfs/fstore/client.conf";
+    const bool publish = false;
+    const char *config_filename = FS_CLIENT_DEFAULT_CONFIG_FILENAME;
+    string_t poolname;
 	int ch;
 	int result;
     int64_t file_size;
     int blk_offset_remain;
+    char *ns;
     char *slice_filename;
     char *endptr;
     FSBlockSliceKeyInfo bs_key;
@@ -56,13 +61,16 @@ int main(int argc, char *argv[])
     bs_key.block.offset = 0;
     bs_key.slice.offset = 0;
     bs_key.slice.length = 0;
-    while ((ch=getopt(argc, argv, "hc:i:O:o:l:")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:i:O:o:l:n:")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
                 break;
             case 'c':
                 config_filename = optarg;
+                break;
+            case 'n':
+                ns = optarg;
                 break;
             case 'i':
                 bs_key.block.oid = strtol(optarg, &endptr, 10);
@@ -116,7 +124,11 @@ int main(int argc, char *argv[])
         bs_key.slice.length = FS_FILE_BLOCK_SIZE - bs_key.slice.offset;
     }
 
-    if ((result=fs_client_init(config_filename)) != 0) {
+    FC_SET_STRING(poolname, ns);
+    if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.client_ctx,
+                    &g_fcfs_auth_client_vars.client_ctx, config_filename,
+                    NULL, NULL, false, &poolname, publish)) != 0)
+    {
         return result;
     }
 

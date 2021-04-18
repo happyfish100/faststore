@@ -28,6 +28,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         IniFullContext *ini_ctx)
 {
     char *pBasePath;
+    char cluster_full_filename[PATH_MAX];
     int result;
 
     pBasePath = iniGetStrValue(NULL, "base_path", ini_ctx->context);
@@ -70,13 +71,20 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     sf_load_read_rule_config(&client_ctx->common_cfg.read_rule, ini_ctx);
 
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
-                    cluster_cfg.ptr, ini_ctx)) != 0)
+                    cluster_cfg.ptr, ini_ctx,cluster_full_filename,
+                    sizeof(cluster_full_filename))) != 0)
     {
         return result;
     }
 
     if ((result=sf_load_net_retry_config(&client_ctx->
                     common_cfg.net_retry_cfg, ini_ctx)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fcfs_auth_load_config(&client_ctx->auth,
+                    cluster_full_filename)) != 0)
     {
         return result;
     }
@@ -115,11 +123,12 @@ void fs_client_log_config_ex(FSClientContext *client_ctx,
 }
 
 int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
-        IniFullContext *ini_ctx)
+        FCFSAuthClientContext *auth_ctx, IniFullContext *ini_ctx)
 {
     IniContext iniContext;
     int result;
 
+    client_ctx->auth.ctx = auth_ctx;
     if (ini_ctx->context == NULL) {
         if ((result=iniLoadFromFile(ini_ctx->filename, &iniContext)) != 0) {
             logError("file: "__FILE__", line: %d, "
@@ -145,13 +154,16 @@ int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
     return result;
 }
 
-int fs_client_init_ex1(FSClientContext *client_ctx, IniFullContext *ini_ctx,
+int fs_client_init_ex1(FSClientContext *client_ctx,
+        FCFSAuthClientContext *auth_ctx, IniFullContext *ini_ctx,
         const SFConnectionManager *cm, const bool bg_thread_enabled)
 {
     int result;
 
     client_ctx->cluster_cfg.ptr = &client_ctx->cluster_cfg.holder;
-    if ((result=fs_client_load_from_file_ex1(client_ctx, ini_ctx)) != 0) {
+    if ((result=fs_client_load_from_file_ex1(client_ctx,
+                    auth_ctx, ini_ctx)) != 0)
+    {
         return result;
     }
 

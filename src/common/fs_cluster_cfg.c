@@ -1203,10 +1203,10 @@ int fs_cluster_cfg_get_assoc_group_info(FSClusterConfig *cluster_cfg,
 }
 
 int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
-        IniFullContext *ini_ctx)
+        IniFullContext *ini_ctx, char *cluster_full_filename,
+        const int size)
 {
     char *cluster_cfg_filename;
-    char cluster_full_filename[PATH_MAX];
 
     cluster_cfg_filename = iniGetStrValue(ini_ctx->section_name,
             "cluster_config_filename", ini_ctx->context);
@@ -1226,7 +1226,7 @@ int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
     }
 
     resolve_path(ini_ctx->filename, cluster_cfg_filename,
-            cluster_full_filename, sizeof(cluster_full_filename));
+            cluster_full_filename, size);
     return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename);
 }
 

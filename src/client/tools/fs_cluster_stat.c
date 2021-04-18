@@ -26,8 +26,7 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename="
-            "/etc/fastcfs/fstore/client.conf]\n"
+    fprintf(stderr, "Usage: %s [-c config_filename=%s]\n"
             "\t[-g data_group_id=0] 0 for all groups\n"
             "\t[-s server_id] specify the server id\n"
             "\t[-H ip:port] specify the server ip and port\n"
@@ -42,7 +41,8 @@ static void usage(char *argv[])
             "eg. list all active data servers:\n"
             "%s -A\n\nlist all master data servers:\n"
             "%s -M\n\nlist all data servers of data group 1:\n"
-            "%s -g 1\n\n", argv[0], argv[0], argv[0], argv[0]);
+            "%s -g 1\n\n", argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME,
+            argv[0], argv[0], argv[0]);
 }
 
 static void output(FSClientClusterStatEntry *stats, const int count)
@@ -82,7 +82,9 @@ static void output(FSClientClusterStatEntry *stats, const int count)
 int main(int argc, char *argv[])
 {
 #define CLUSTER_MAX_STAT_COUNT  256
-    const char *config_filename = "/etc/fastcfs/fstore/client.conf";
+    const bool publish = false;
+    const char *config_filename = FS_CLIENT_DEFAULT_CONFIG_FILENAME;
+    const string_t poolname = {NULL, 0};
 	int ch;
     int server_id;
     int alloc_size;
@@ -163,9 +165,10 @@ int main(int argc, char *argv[])
     log_init();
     //g_log_context.log_level = LOG_DEBUG;
 
-
-    if ((result=fs_client_init_ex(&g_fs_client_vars.client_ctx,
-                    config_filename, NULL, NULL, false)) != 0)
+    if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.
+                    client_ctx, &g_fcfs_auth_client_vars.client_ctx,
+                    config_filename, NULL, NULL, false, &poolname,
+                    publish)) != 0)
     {
         return result;
     }

@@ -21,8 +21,11 @@
 #include "sf/sf_configs.h"
 #include "sf/sf_connection_manager.h"
 #include "sf/idempotency/client/client_types.h"
+#include "fastcfs/auth/client_types.h"
 #include "fs_types.h"
 #include "fs_cluster_cfg.h"
+
+#define FS_CLIENT_DEFAULT_CONFIG_FILENAME "/etc/fastcfs/fstore/client.conf"
 
 struct idempotency_client_channel;
 struct fs_client_context;
@@ -67,6 +70,7 @@ typedef struct fs_client_context {
     bool auth_enabled;
     SFClientCommonConfig common_cfg;
     SFConnectionManager cm;
+    FCFSAuthClientFullContext auth;
 } FSClientContext;
 
 

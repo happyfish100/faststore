@@ -2,7 +2,7 @@
 
 COMPILE = $(CC) $(CFLAGS)
 INC_PATH = -I/usr/local/include -I../../common -I../../include
-LIB_PATH = -L.. $(LIBS) -lfsclient -lfastcommon
+LIB_PATH = -L.. $(LIBS) -lfsclient -lfastcommon -lserverframe -lfcfsauthclient
 TARGET_PATH = $(TARGET_PREFIX)/bin
 
 STATIC_OBJS =

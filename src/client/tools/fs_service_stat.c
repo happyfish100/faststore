@@ -26,9 +26,9 @@
 
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename] "
-            "[-s server_id] [-g data_group_id=0] "
-            "host[:port]\n", argv[0]);
+    fprintf(stderr, "Usage: %s [-c config_filename=%s] "
+            "[-s server_id] [-g data_group_id=0] host[:port]\n",
+            argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
 }
 
 static void output(FSClientServiceStat *stat)
@@ -64,7 +64,9 @@ static void output(FSClientServiceStat *stat)
 
 int main(int argc, char *argv[])
 {
-    const char *config_filename = "/etc/fastcfs/fdir/client.conf";
+    const bool publish = false;
+    const char *config_filename = FS_CLIENT_DEFAULT_CONFIG_FILENAME;
+    const string_t poolname = {NULL, 0};
 	int ch;
     int server_id;
     int data_group_id;
@@ -122,8 +124,9 @@ int main(int argc, char *argv[])
     log_init();
     //g_log_context.log_level = LOG_DEBUG;
 
-    if ((result=fs_client_init_ex(&g_fs_client_vars.client_ctx,
-                    config_filename, NULL, NULL, false)) != 0)
+    if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.client_ctx,
+                    &g_fcfs_auth_client_vars.client_ctx, config_filename,
+                    NULL, NULL, false, &poolname, publish)) != 0)
     {
         return result;
     }

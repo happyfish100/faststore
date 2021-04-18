@@ -37,37 +37,27 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
         int *inc_alloc)
 {
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(SFProtoIdempotencyAdditionalHeader) +
+        SF_PROTO_UPDATE_EXTRA_BODY_SIZE +
         sizeof(FSProtoSliceWriteReqHeader)];
     FSProtoHeader *proto_header;
     FSProtoSliceWriteReqHeader *req_header;
     SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int body_front_len;
+    int front_bytes;
 
-    proto_header = (FSProtoHeader *)out_buff;
-    body_front_len = sizeof(FSProtoSliceWriteReqHeader);
-    if (req_id > 0) {
-        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
-                    (proto_header + 1))->req_id);
-        body_front_len += sizeof(SFProtoIdempotencyAdditionalHeader);
-        req_header = (FSProtoSliceWriteReqHeader *)((char *)(proto_header
-                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
-    } else {
-        req_header = (FSProtoSliceWriteReqHeader *)(proto_header + 1);
-    }
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff, proto_header,
+            req_header, req_id, front_bytes);
     proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
 
     response.error.length = 0;
     do {
         SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_SLICE_WRITE_REQ,
-                body_front_len + bs_key->slice.length);
+                front_bytes + bs_key->slice.length - sizeof(FSProtoHeader));
         int2buff(bs_key->slice.offset, req_header->bs.slice_size.offset);
         int2buff(bs_key->slice.length, req_header->bs.slice_size.length);
 
-        if ((result=tcpsenddata_nb(conn->sock, out_buff,
-                        sizeof(FSProtoHeader) + body_front_len,
+        if ((result=tcpsenddata_nb(conn->sock, out_buff, front_bytes,
                         client_ctx->common_cfg.network_timeout)) != 0)
         {
             break;
@@ -103,14 +93,16 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
         char *buff, int *read_bytes)
 {
     const SFConnectionParameters *connection_params;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoServiceSliceReadReq)
-        + sizeof(FSProtoReplicaSliceReadReq)];
-    FSProtoHeader *proto_header;
+    char out_buff[sizeof(FSProtoHeader) +
+        SF_PROTO_QUERY_EXTRA_BODY_SIZE +
+        sizeof(FSProtoServiceSliceReadReq) +
+        sizeof(FSProtoReplicaSliceReadReq)];
+    FSProtoHeader *header;
     SFResponseInfo response;
     FSProtoServiceSliceReadReq *sreq;
     FSProtoReplicaSliceReadReq *rreq;
     FSProtoBlockSlice *proto_bs;
-    int body_len;
+    int out_bytes;
     int hole_start;
     int hole_len;
     int buff_offet;
@@ -119,18 +111,18 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
     int bytes;
     int result;
 
-    proto_header = (FSProtoHeader *)out_buff;
     if (req_cmd == FS_SERVICE_PROTO_SLICE_READ_REQ) {
-        body_len = sizeof(FSProtoServiceSliceReadReq);
-        sreq = (FSProtoServiceSliceReadReq *)(proto_header + 1);
+        SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+                header, sreq, 0, out_bytes);
         proto_bs = &sreq->bs;
     } else {
-        body_len = sizeof(FSProtoReplicaSliceReadReq);
-        rreq = (FSProtoReplicaSliceReadReq *)(proto_header + 1);
+        SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+                header, rreq, 0, out_bytes);
         int2buff(slave_id, rreq->slave_id);
         proto_bs = &rreq->bs;
     }
-    SF_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
+    SF_PROTO_SET_HEADER(header, req_cmd,
+            out_bytes - sizeof(FSProtoHeader));
     proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
 
     connection_params = client_ctx->cm.ops.
@@ -152,8 +144,8 @@ int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
 
         response.error.length = 0;
         if ((result=sf_send_and_recv_response_header(conn, out_buff,
-                        sizeof(FSProtoHeader) + body_len, &response,
-                        client_ctx->common_cfg.network_timeout)) != 0)
+                        out_bytes, &response, client_ctx->common_cfg.
+                        network_timeout)) != 0)
         {
             break;
         }
@@ -224,33 +216,24 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
 {
     const FSBlockSliceKeyInfo *bs_key;
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(SFProtoIdempotencyAdditionalHeader) +
+        SF_PROTO_UPDATE_EXTRA_BODY_SIZE +
         sizeof(FSProtoSliceAllocateReq)];
-    FSProtoHeader *proto_header;
+    FSProtoHeader *header;
     FSProtoSliceAllocateReq *req;
     SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int body_len;
+    int out_bytes;
 
     if (req_cmd == FS_SERVICE_PROTO_BLOCK_DELETE_REQ) {
         return fs_client_proto_block_delete(client_ctx, conn, req_id,
                 (const FSBlockKey *)key, enoent_log_level, inc_alloc);
     }
 
-    proto_header = (FSProtoHeader *)out_buff;
-    body_len = sizeof(FSProtoSliceAllocateReq);
-    if (req_id > 0) {
-        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
-                    (proto_header + 1))->req_id);
-        body_len += sizeof(SFProtoIdempotencyAdditionalHeader);
-        req = (FSProtoSliceAllocateReq *)((char *)(proto_header
-                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
-    } else {
-        req = (FSProtoSliceAllocateReq *)(proto_header + 1);
-    }
-
-    SF_PROTO_SET_HEADER(proto_header, req_cmd, body_len);
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+            header, req, req_id, out_bytes);
+    SF_PROTO_SET_HEADER(header, req_cmd,
+            out_bytes - sizeof(FSProtoHeader));
 
     bs_key = (const FSBlockSliceKeyInfo *)key;
     proto_pack_block_key(&bs_key->block, &req->bs.bkey);
@@ -259,9 +242,9 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
 
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
-                    sizeof(FSProtoHeader) + body_len, &response,
-                    client_ctx->common_cfg.network_timeout, resp_cmd,
-                    (char *)&resp, sizeof(FSProtoSliceUpdateResp))) == 0)
+                    out_bytes, &response, client_ctx->common_cfg.
+                    network_timeout, resp_cmd, (char *)&resp,
+                    sizeof(FSProtoSliceUpdateResp))) == 0)
     {
         *inc_alloc = buff2int(resp.inc_alloc);
     } else {
@@ -279,33 +262,23 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         int *dec_alloc)
 {
     char out_buff[sizeof(FSProtoHeader) +
-        sizeof(SFProtoIdempotencyAdditionalHeader) +
+        SF_PROTO_UPDATE_EXTRA_BODY_SIZE +
         sizeof(FSProtoBlockDeleteReq)];
-    FSProtoHeader *proto_header;
+    FSProtoHeader *header;
     FSProtoBlockDeleteReq *req;
     SFResponseInfo response;
     FSProtoSliceUpdateResp resp;
     int result;
-    int body_len;
+    int out_bytes;
 
-    proto_header = (FSProtoHeader *)out_buff;
-    body_len = sizeof(FSProtoBlockDeleteReq);
-    if (req_id > 0) {
-        long2buff(req_id, ((SFProtoIdempotencyAdditionalHeader *)
-                    (proto_header + 1))->req_id);
-        body_len += sizeof(SFProtoIdempotencyAdditionalHeader);
-        req = (FSProtoBlockDeleteReq *)((char *)(proto_header
-                    + 1) + sizeof(SFProtoIdempotencyAdditionalHeader));
-    } else {
-        req = (FSProtoBlockDeleteReq *)(proto_header + 1);
-    }
-
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+            header, req, req_id, out_bytes);
+    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
+            out_bytes - sizeof(FSProtoHeader));
     proto_pack_block_key(bkey, &req->bkey);
-    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
-            body_len);
+
     response.error.length = 0;
-    if ((result=sf_send_and_recv_response(conn, out_buff,
-                    sizeof(FSProtoHeader) + body_len,
+    if ((result=sf_send_and_recv_response(conn, out_buff, out_bytes,
                     &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_BLOCK_DELETE_RESP, (char *)&resp,
                     sizeof(FSProtoSliceUpdateResp))) == 0)
@@ -453,7 +426,9 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     FSProtoClusterStatRespBodyPart *body_end;
     FSClientClusterStatEntry *stat;
     ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoClusterStatReq)];
+    char out_buff[sizeof(FSProtoHeader) +
+        SF_PROTO_QUERY_EXTRA_BODY_SIZE +
+        sizeof(FSProtoClusterStatReq)];
     char fixed_buff[16 * 1024];
     char *in_buff;
     char *p;
@@ -461,6 +436,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     int *gid_end;
     SFResponseInfo response;
     int result;
+    int out_bytes;
     int calc_size;
 
     if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
@@ -469,20 +445,21 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         return result;
     }
 
-    header = (FSProtoHeader *)out_buff;
-    req = (FSProtoClusterStatReq *)(header + 1);
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+            header, req, 0, out_bytes);
+
     req->filter_by = filter->filter_by;
     req->op_type = filter->op_type;
     req->status = filter->status;
     req->is_master = filter->is_master;
     int2buff(filter->data_group_id, req->data_group_id);
     SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_CLUSTER_STAT_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
+            out_bytes - sizeof(FSProtoHeader));
 
     in_buff = fixed_buff;
-    if ((result=sf_send_and_check_response_header(conn, out_buff,
-                    sizeof(out_buff), &response, client_ctx->common_cfg.
-                    network_timeout, FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
+    if ((result=sf_send_and_check_response_header(conn, out_buff, out_bytes,
+                    &response, client_ctx->common_cfg.network_timeout,
+                    FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
         if (response.header.body_len > sizeof(fixed_buff)) {
             in_buff = (char *)fc_malloc(response.header.body_len);
@@ -568,27 +545,32 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
         ConnectionInfo *conn, FSClientServerSpaceStat *stats,
         const int size, int *count)
 {
-    char out_buff[sizeof(FSProtoHeader)];
+    char out_buff[sizeof(FSProtoHeader) +
+        SF_PROTO_QUERY_EXTRA_BODY_SIZE];
     char in_buff[4 * 1024];
     FSProtoHeader *proto_header;
+    SFProtoEmptyBodyReq *req;
     FSProtoDiskSpaceStatRespBodyHeader *body_header;
     FSProtoDiskSpaceStatRespBodyPart *body_part;
     FSClientServerSpaceStat *ps;
     FSClientServerSpaceStat *send;
     SFResponseInfo response;
+    int out_bytes;
     int body_len;
     int min_blen;
     int expect_len;
     int result;
 
-    proto_header = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ, 0);
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+            proto_header, req, 0, out_bytes);
+    SF_PROTO_SET_HEADER(proto_header, FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ,
+            out_bytes - sizeof(FSProtoHeader));
     response.error.length = 0;
     do {
-        if ((result=sf_send_and_recv_response_ex1(conn, out_buff,
-                        sizeof(out_buff), &response, client_ctx->common_cfg.
-                        network_timeout, FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP,
-                        in_buff, sizeof(in_buff), &body_len)) != 0)
+        if ((result=sf_send_and_recv_response_ex1(conn, out_buff, out_bytes,
+                        &response, client_ctx->common_cfg.network_timeout,
+                        FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP, in_buff,
+                        sizeof(in_buff), &body_len)) != 0)
         {
             break;
         }
@@ -647,10 +629,13 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
 {
     FSProtoHeader *header;
     ConnectionInfo *conn;
-    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoServiceStatReq)];
+    char out_buff[sizeof(FSProtoHeader) +
+        SF_PROTO_QUERY_EXTRA_BODY_SIZE +
+        sizeof(FSProtoServiceStatReq)];
     FSProtoServiceStatReq *req;
     SFResponseInfo response;
     FSProtoServiceStatResp stat_resp;
+    int out_bytes;
     int result;
 
     if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
@@ -659,13 +644,14 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
         return result;
     }
 
-    header = (FSProtoHeader *)out_buff;
-    req = (FSProtoServiceStatReq *)(header + 1);
+    SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
+            header, req, 0, out_bytes);
     SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_SERVICE_STAT_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
+            out_bytes - sizeof(FSProtoHeader));
+
     int2buff(data_group_id, req->data_group_id);
     response.error.length = 0;
-    if ((result=sf_send_and_recv_response(conn, out_buff, sizeof(out_buff),
+    if ((result=sf_send_and_recv_response(conn, out_buff, out_bytes,
                     &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_SERVICE_STAT_RESP,
                     (char *)&stat_resp, sizeof(FSProtoServiceStatResp))) != 0)

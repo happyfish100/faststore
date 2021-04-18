@@ -2,7 +2,7 @@
 
 COMPILE = $(CC) $(CFLAGS)
 INC_PATH = -I../common
-LIB_PATH = $(LIBS) -lfastcommon -lserverframe
+LIB_PATH = $(LIBS) -lfastcommon -lserverframe -lfcfsauthclient
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
 FAST_SHARED_OBJS = ../common/fs_global.lo ../common/fs_proto.lo \
