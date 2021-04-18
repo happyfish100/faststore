@@ -40,6 +40,7 @@
 #include "sf/sf_configs.h"
 #include "sf/idempotency/server/server_channel.h"
 #include "sf/idempotency/server/server_handler.h"
+#include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
@@ -135,7 +136,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     }
     ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
 
-    stat_resp = (FSProtoServiceStatResp *)REQUEST.body;
+    stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
@@ -187,7 +188,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
 
     sf_hold_task(task);
     OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
-    OP_CTX_INFO.buff = REQUEST.body;
+    OP_CTX_INFO.buff = SF_PROTO_RESP_BODY(task);
     OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
     if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
                     DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX)) != 0)
@@ -227,7 +228,7 @@ static int service_deal_get_master(struct fast_task_info *task)
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)REQUEST.body;
+    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
     addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
                 master->cs->server), task->client_ip);
 
@@ -261,7 +262,7 @@ static int service_deal_get_leader(struct fast_task_info *task)
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)REQUEST.body;
+    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
     addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
                 leader->server), task->client_ip);
 
@@ -319,7 +320,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         gend = gstart + 1;
     }
 
-    body_header = (FSProtoClusterStatRespBodyHeader *)REQUEST.body;
+    body_header = (FSProtoClusterStatRespBodyHeader *)SF_PROTO_RESP_BODY(task);
     p = (char *)(body_header + 1);
     for (group=gstart; group<gend; group++) {
         int2buff(group->id, p);
@@ -377,7 +378,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 
     int2buff(gend - gstart, body_header->dg_count);
     int2buff(body_part - part_start, body_header->ds_count);
-    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;
     TASK_CTX.common.response_done = true;
     return 0;
@@ -396,9 +397,9 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
         return result;
     }
 
-    body_header = (FSProtoDiskSpaceStatRespBodyHeader *)REQUEST.body;
-    part_start = (FSProtoDiskSpaceStatRespBodyPart *)(REQUEST.body +
-            sizeof(FSProtoDiskSpaceStatRespBodyHeader));
+    body_header = (FSProtoDiskSpaceStatRespBodyHeader *)
+        SF_PROTO_RESP_BODY(task);
+    part_start = (FSProtoDiskSpaceStatRespBodyPart *)(body_header + 1);
     body_part = part_start;
 
 	end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
@@ -410,7 +411,7 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
     }
 
     int2buff(body_part - part_start, body_header->count);
-    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP;
     TASK_CTX.common.response_done = true;
     return 0;
@@ -458,14 +459,12 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         }
 
         IDEMPOTENCY_REQUEST = request;
-        OP_CTX_INFO.body = REQUEST.body +
-            sizeof(SFProtoIdempotencyAdditionalHeader);
-        OP_CTX_INFO.body_len = REQUEST.header.body_len -
-            sizeof(SFProtoIdempotencyAdditionalHeader);
-    } else {
-        OP_CTX_INFO.body = REQUEST.body;
-        OP_CTX_INFO.body_len = REQUEST.header.body_len;
+        REQUEST.body += sizeof(SFProtoIdempotencyAdditionalHeader);
+        REQUEST.header.body_len -= sizeof(SFProtoIdempotencyAdditionalHeader);
     }
+
+    OP_CTX_INFO.body = REQUEST.body;
+    OP_CTX_INFO.body_len = REQUEST.header.body_len;
 
     TASK_CTX.which_side = FS_WHICH_SIDE_MASTER;
     OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
@@ -547,6 +546,134 @@ static inline int service_deal_block_delete(struct fast_task_info *task)
     return result;
 }
 
+static int service_check_priv(struct fast_task_info *task)
+{
+    FCFSAuthValidatePriviledgeType priv_type;
+    int64_t the_priv;
+
+    switch (REQUEST.header.cmd) {
+            case SF_PROTO_ACTIVE_TEST_REQ:
+            case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
+            case FS_SERVICE_PROTO_GET_MASTER_REQ:
+            case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
+            case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
+            case SF_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
+            case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
+            case SF_SERVICE_PROTO_REBIND_CHANNEL_REQ:
+            case SF_SERVICE_PROTO_GET_LEADER_REQ:
+            case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
+            case SF_SERVER_TASK_TYPE_CHANNEL_HOLDER:
+            case SF_SERVER_TASK_TYPE_CHANNEL_USER:
+                return 0;
+
+            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+                priv_type = fcfs_auth_validate_priv_type_pool_fstore;
+                the_priv = FCFS_AUTH_POOL_ACCESS_WRITE;
+                break;
+
+            case FS_SERVICE_PROTO_SLICE_READ_REQ:
+                priv_type = fcfs_auth_validate_priv_type_pool_fstore;
+                the_priv = FCFS_AUTH_POOL_ACCESS_READ;
+                break;
+
+            case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
+            case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
+            case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
+                priv_type = fcfs_auth_validate_priv_type_user;
+                the_priv = FCFS_AUTH_USER_PRIV_MONITOR_CLUSTER;
+                break;
+            default:
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "unkown cmd: %d", REQUEST.header.cmd);
+                return -EINVAL;
+    }
+
+    return fcfs_auth_for_server_check_priv(AUTH_CLIENT_CTX,
+            &REQUEST, &RESPONSE, priv_type, the_priv);
+}
+
+static int service_process(struct fast_task_info *task)
+{
+    int result;
+    switch (REQUEST.header.cmd) {
+        case SF_PROTO_ACTIVE_TEST_REQ:
+            RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
+            result = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
+            break;
+        case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
+            result = du_handler_deal_client_join(task);
+            break;
+        case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
+            result = service_deal_service_stat(task);
+            break;
+        case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+            result = service_deal_slice_write(task);
+            break;
+        case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+            result = service_deal_slice_allocate(task);
+            break;
+        case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+            result = service_deal_slice_delete(task);
+            break;
+        case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+            result = service_deal_block_delete(task);
+            break;
+        case FS_SERVICE_PROTO_SLICE_READ_REQ:
+            result = service_deal_slice_read(task);
+            break;
+        case FS_SERVICE_PROTO_GET_MASTER_REQ:
+            result = service_deal_get_master(task);
+            break;
+        case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
+            result = du_handler_deal_get_readable_server(task,
+                    SERVICE_GROUP_INDEX);
+            break;
+        case SF_SERVICE_PROTO_GET_LEADER_REQ:
+            result = service_deal_get_leader(task);
+            break;
+        case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
+            result = service_deal_cluster_stat(task);
+            break;
+        case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
+            result = service_deal_disk_space_stat(task);
+            break;
+        case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
+            if ((result=sf_server_deal_setup_channel(task,
+                            &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL,
+                            &RESPONSE)) == 0)
+            {
+                TASK_CTX.common.response_done = true;
+            }
+            break;
+        case SF_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
+            result = sf_server_deal_close_channel(task,
+                    &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
+            break;
+        case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
+            result = sf_server_deal_report_req_receipt(task,
+                    SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL, &RESPONSE);
+            break;
+        case SF_SERVICE_PROTO_REBIND_CHANNEL_REQ:
+            result = sf_server_deal_rebind_channel(task,
+                    &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
+            break;
+        case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
+            result = du_handler_deal_get_group_servers(task);
+            break;
+        default:
+            RESPONSE.error.length = sprintf(
+                    RESPONSE.error.message,
+                    "unkown cmd: %d", REQUEST.header.cmd);
+            result = -EINVAL;
+            break;
+    }
+
+    return result;
+}
+
 int service_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
@@ -570,78 +697,12 @@ int service_deal_task(struct fast_task_info *task, const int stage)
         }
     } else {
         sf_proto_init_task_context(task, &TASK_CTX.common);
-
-        switch (REQUEST.header.cmd) {
-            case SF_PROTO_ACTIVE_TEST_REQ:
-                RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-                result = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
-                break;
-            case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
-                result = du_handler_deal_client_join(task);
-                break;
-            case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
-                result = service_deal_service_stat(task);
-                break;
-            case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-                result = service_deal_slice_write(task);
-                break;
-            case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-                result = service_deal_slice_allocate(task);
-                break;
-            case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-                result = service_deal_slice_delete(task);
-                break;
-            case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-                result = service_deal_block_delete(task);
-                break;
-            case FS_SERVICE_PROTO_SLICE_READ_REQ:
-                result = service_deal_slice_read(task);
-                break;
-            case FS_SERVICE_PROTO_GET_MASTER_REQ:
-                result = service_deal_get_master(task);
-                break;
-            case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
-                result = du_handler_deal_get_readable_server(task,
-                        SERVICE_GROUP_INDEX);
-                break;
-            case SF_SERVICE_PROTO_GET_LEADER_REQ:
-                result = service_deal_get_leader(task);
-                break;
-            case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
-                result = service_deal_cluster_stat(task);
-                break;
-            case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
-                result = service_deal_disk_space_stat(task);
-                break;
-            case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
-                if ((result=sf_server_deal_setup_channel(task,
-                                &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL,
-                                &RESPONSE)) == 0)
-                {
-                    TASK_CTX.common.response_done = true;
-                }
-                break;
-            case SF_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
-                result = sf_server_deal_close_channel(task,
-                        &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
-                break;
-            case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
-                result = sf_server_deal_report_req_receipt(task,
-                        SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL, &RESPONSE);
-                break;
-            case SF_SERVICE_PROTO_REBIND_CHANNEL_REQ:
-                result = sf_server_deal_rebind_channel(task,
-                        &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
-                break;
-            case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
-                result = du_handler_deal_get_group_servers(task);
-                break;
-            default:
-                RESPONSE.error.length = sprintf(
-                        RESPONSE.error.message,
-                        "unkown cmd: %d", REQUEST.header.cmd);
-                result = -EINVAL;
-                break;
+        if (AUTH_ENABLED) {
+            if ((result=service_check_priv(task)) == 0) {
+                result = service_process(task);
+            }
+        } else {
+            result = service_process(task);
         }
     }
 

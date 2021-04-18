@@ -22,12 +22,14 @@
 #include "fastcommon/thread_pool.h"
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
+#include "fastcfs/auth/client_types.h"
 #include "common/fs_global.h"
 #include "server_types.h"
 #include "storage/storage_config.h"
 
 typedef struct server_global_vars {
     struct {
+        FCFSAuthClientFullContext auth;
         FSClusterServerInfo *myself;
         volatile FSClusterServerInfo *leader;
         struct {
@@ -79,6 +81,9 @@ typedef struct server_global_vars {
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars.cluster.config.ctx.server_cfg
+#define AUTH_CTX              g_server_global_vars.cluster.auth
+#define AUTH_CLIENT_CTX       AUTH_CTX.ctx
+#define AUTH_ENABLED          AUTH_CTX.enabled
 
 #define MASTER_ELECTION_FAILOVER g_server_global_vars.cluster. \
     config.master_election.failover

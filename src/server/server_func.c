@@ -25,6 +25,7 @@
 #include "fastcommon/local_ip_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_binlog.h"
@@ -177,11 +178,11 @@ static int load_master_election_config(const char *filename)
     return 0;
 }
 
-static int load_cluster_config(IniContext *ini_context, const char *filename)
+static int load_cluster_config(IniContext *ini_context, const char *filename,
+        char *full_cluster_filename, const int size)
 {
     int result;
     char *cluster_config_filename;
-    char full_cluster_filename[PATH_MAX];
 
     cluster_config_filename = iniGetStrValue(NULL,
             "cluster_config_filename", ini_context);
@@ -193,7 +194,7 @@ static int load_cluster_config(IniContext *ini_context, const char *filename)
     }
 
     resolve_path(filename, cluster_config_filename,
-            full_cluster_filename, sizeof(full_cluster_filename));
+            full_cluster_filename, size);
     if ((result=fs_cluster_cfg_load_from_ini(&CLUSTER_CONFIG_CTX,
             ini_context, filename)) != 0)
     {
@@ -366,6 +367,7 @@ int server_load_config(const char *filename)
 {
     IniContext ini_context;
     IniFullContext full_ini_ctx;
+    char full_cluster_filename[PATH_MAX];
     int result;
 
     if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
@@ -439,7 +441,10 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if ((result=load_cluster_config(&ini_context, filename)) != 0) {
+    if ((result=load_cluster_config(&ini_context, filename,
+                    full_cluster_filename, sizeof(
+                        full_cluster_filename))) != 0)
+    {
         return result;
     }
 
@@ -449,6 +454,13 @@ int server_load_config(const char *filename)
 
     if ((result=sf_load_slow_log_config(filename, &ini_context,
                     &SLOW_LOG_CTX, &SLOW_LOG_CFG)) != 0)
+    {
+        return result;
+    }
+
+    fcfs_auth_client_init_full_ctx(&AUTH_CTX);
+    if ((result=fcfs_auth_for_server_init(&AUTH_CTX, &full_ini_ctx,
+                    full_cluster_filename)) != 0)
     {
         return result;
     }

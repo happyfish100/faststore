@@ -206,7 +206,7 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
         const int inc_alloc)
 {
     FSProtoSliceUpdateResp *resp;
-    resp = (FSProtoSliceUpdateResp *)REQUEST.body;
+    resp = (FSProtoSliceUpdateResp *)SF_PROTO_RESP_BODY(task);
     int2buff(inc_alloc, resp->inc_alloc);
 
     RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
@@ -643,7 +643,7 @@ int du_handler_deal_client_join(struct fast_task_info *task)
         SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_CHANNEL_USER;
     }
 
-    join_resp = (FSProtoClientJoinResp *)REQUEST.body;
+    join_resp = (FSProtoClientJoinResp *)SF_PROTO_RESP_BODY(task);
     int2buff(g_sf_global_vars.min_buff_size -
             FS_TASK_BUFFER_FRONT_PADDING_SIZE,
             join_resp->buffer_size);
@@ -753,7 +753,7 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)REQUEST.body;
+    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
     addr = fc_server_get_address_by_peer(&(ds->cs->server->
                 group_addrs[group_index].address_array), task->client_ip);
 
@@ -793,7 +793,8 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
         return ENOENT;
     }
 
-    body_header = (SFProtoGetGroupServersRespBodyHeader *)REQUEST.body;
+    body_header = (SFProtoGetGroupServersRespBodyHeader *)
+        SF_PROTO_RESP_BODY(task);
     body_part = (SFProtoGetGroupServersRespBodyPart *)(body_header + 1);
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++, body_part++) {
@@ -804,7 +805,7 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
     }
     int2buff(group->data_server_array.count, body_header->count);
 
-    RESPONSE.header.body_len = (char *)body_part - REQUEST.body;
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
     RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_GROUP_SERVERS_RESP;
     TASK_CTX.common.response_done = true;
     return 0;

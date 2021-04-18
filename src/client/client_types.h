@@ -64,6 +64,7 @@ typedef struct fs_client_context {
     bool inited;
     bool is_simple_conn_mananger;
     bool idempotency_enabled;
+    bool auth_enabled;
     SFClientCommonConfig common_cfg;
     SFConnectionManager cm;
 } FSClientContext;

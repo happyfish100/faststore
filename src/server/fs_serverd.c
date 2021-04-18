@@ -38,6 +38,7 @@
 #include "sf/sf_nio.h"
 #include "sf/sf_service.h"
 #include "sf/sf_util.h"
+#include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
 #include "common/fs_types.h"
 #include "server_types.h"
@@ -225,6 +226,10 @@ int main(int argc, char *argv[])
 
         if ((result=trunk_prealloc_init()) != 0) {
             return result;
+        }
+
+        if ((result=fcfs_auth_for_server_start(&AUTH_CTX)) != 0) {
+            break;
         }
 
         common_handler_init();
