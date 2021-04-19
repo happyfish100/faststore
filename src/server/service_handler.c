@@ -430,7 +430,7 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         int result;
 
         request = sf_server_update_prepare_and_check(
-                task, &SERVER_CTX->service.request_allocator,
+                &REQUEST, &SERVER_CTX->service.request_allocator,
                 IDEMPOTENCY_CHANNEL, &RESPONSE, &result);
         if (request != NULL) {
             if (result != 0) {

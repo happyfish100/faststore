@@ -287,9 +287,9 @@ static int send_join_server_package(FSReplication *replication)
     int2buff(REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             req->replica_channels_between_two_servers);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
-            FS_CLUSTER_CONFIG_SIGN_LEN);
+            SF_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
-            FS_CLUSTER_CONFIG_SIGN_LEN);
+            SF_CLUSTER_CONFIG_SIGN_LEN);
     if ((result=tcpsenddata_nb(replication->connection_info.conn.sock,
                     out_buff, sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
     {

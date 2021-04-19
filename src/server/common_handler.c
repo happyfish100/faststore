@@ -77,8 +77,8 @@ static int handler_check_config_sign(struct fast_task_info *task,
         const char *caption)
 {
     if (memcmp(config_sign, my_sign, sign_len) != 0) {
-        char peer_hex[2 * FS_CLUSTER_CONFIG_SIGN_LEN + 1];
-        char my_hex[2 * FS_CLUSTER_CONFIG_SIGN_LEN + 1];
+        char peer_hex[2 * SF_CLUSTER_CONFIG_SIGN_LEN + 1];
+        char my_hex[2 * SF_CLUSTER_CONFIG_SIGN_LEN + 1];
 
         bin2hex((const char *)config_sign, sign_len, peer_hex);
         bin2hex((const char *)my_sign, sign_len, my_hex);
@@ -99,14 +99,14 @@ int handler_check_config_signs(struct fast_task_info *task,
     int result;
     if ((result=handler_check_config_sign(task, server_id,
                     config_signs->servers, SERVERS_CONFIG_SIGN_BUF,
-                    FS_CLUSTER_CONFIG_SIGN_LEN, "servers")) != 0)
+                    SF_CLUSTER_CONFIG_SIGN_LEN, "servers")) != 0)
     {
         return result;
     }
 
     if ((result=handler_check_config_sign(task, server_id,
                     config_signs->cluster, CLUSTER_CONFIG_SIGN_BUF,
-                    FS_CLUSTER_CONFIG_SIGN_LEN, "cluster")) != 0)
+                    SF_CLUSTER_CONFIG_SIGN_LEN, "cluster")) != 0)
     {
         return result;
     }

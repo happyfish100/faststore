@@ -60,8 +60,6 @@
 
 #define FS_BLOCK_HASH_CODE(blk) (blk).hash_code
 
-#define FS_CLUSTER_CONFIG_SIGN_LEN  16
-
 typedef struct fs_block_key {
     int64_t oid;    //object id
     int64_t offset; //aligned by block size
@@ -85,8 +83,8 @@ typedef struct {
 } FSCounterTripple;
 
 typedef struct {
-    unsigned char servers[FS_CLUSTER_CONFIG_SIGN_LEN];
-    unsigned char cluster[FS_CLUSTER_CONFIG_SIGN_LEN];
+    unsigned char servers[SF_CLUSTER_CONFIG_SIGN_LEN];
+    unsigned char cluster[SF_CLUSTER_CONFIG_SIGN_LEN];
 } FSClusterMD5Digests;
 
 typedef struct {
