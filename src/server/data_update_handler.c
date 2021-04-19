@@ -592,6 +592,8 @@ int du_handler_deal_client_join(struct fast_task_info *task)
     int data_group_count;
     int file_block_size;
     int flags;
+    int my_auth_enabled;
+    int req_auth_enabled;
     FSProtoClientJoinReq *req;
     FSProtoClientJoinResp *join_resp;
 
@@ -613,8 +615,32 @@ int du_handler_deal_client_join(struct fast_task_info *task)
     }
     if (file_block_size != FS_FILE_BLOCK_SIZE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "file block size: %d != mine: %d",
+                "client file block size: %d != mine: %d",
                 file_block_size, FS_FILE_BLOCK_SIZE);
+        return EINVAL;
+    }
+
+    my_auth_enabled = (AUTH_ENABLED ? 1 : 0);
+    req_auth_enabled = (req->auth_enabled ? 1 : 0);
+    if (req_auth_enabled != my_auth_enabled) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "client auth enabled: %d != mine: %d",
+                req_auth_enabled, my_auth_enabled);
+        return EINVAL;
+    }
+
+    if (memcmp(req->cluster_cfg_signs.servers, SERVERS_CONFIG_SIGN_BUF,
+                FS_CLUSTER_CONFIG_SIGN_LEN) != 0)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "client's servers.conf is not consistent with mine");
+        return EINVAL;
+    }
+    if (memcmp(req->cluster_cfg_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
+                FS_CLUSTER_CONFIG_SIGN_LEN) != 0)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "client's cluster.conf is not consistent with mine");
         return EINVAL;
     }
 

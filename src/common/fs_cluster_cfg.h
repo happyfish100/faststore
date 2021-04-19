@@ -69,6 +69,7 @@ typedef struct {
     int cluster_group_index;
     int replica_group_index;
     int service_group_index;
+    FSClusterMD5Digests md5_digests;
 } FSClusterConfig;
 
 #define FS_SERVER_GROUP_COUNT(cluster_cfg) \
@@ -175,7 +176,7 @@ extern "C" {
 
     void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg);
 
-    int fc_cluster_cfg_to_string(FSClusterConfig *cluster_cfg,
+    int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg,
             FastBuffer *buffer);
 
 #ifdef __cplusplus

@@ -39,11 +39,6 @@ typedef struct server_global_vars {
                 char policy;
                 int timeouts;   //in seconds
             } master_election;
-
-            struct {
-                unsigned char servers[16];
-                unsigned char cluster[16];
-            } md5_digests;
         } config;
 
         FSClusterServerArray server_array;
@@ -175,11 +170,10 @@ typedef struct server_global_vars {
 #define SERVICE_GROUP_ADDRESS_FIRST_PORT(server) \
     SERVICE_GROUP_ADDRESS_FIRST_PTR(server)->conn.port
 
-#define SERVERS_CONFIG_SIGN_BUF g_server_global_vars.cluster.config.md5_digests.servers
-#define SERVERS_CONFIG_SIGN_LEN 16
-
-#define CLUSTER_CONFIG_SIGN_BUF g_server_global_vars.cluster.config.md5_digests.cluster
-#define CLUSTER_CONFIG_SIGN_LEN 16
+#define CLUSTER_CONFIG_MD5_SIGNS g_server_global_vars. \
+    cluster.config.ctx.md5_digests
+#define SERVERS_CONFIG_SIGN_BUF  CLUSTER_CONFIG_MD5_SIGNS.servers
+#define CLUSTER_CONFIG_SIGN_BUF  CLUSTER_CONFIG_MD5_SIGNS.cluster
 
 #ifdef __cplusplus
 extern "C" {

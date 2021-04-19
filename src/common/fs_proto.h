@@ -97,7 +97,11 @@ typedef struct fs_proto_client_join_req {
         char channel_id[4];
         char key[4];
     } idempotency;
-    char padding[4];
+
+    char auth_enabled;
+    char padding[3];
+
+    FSClusterMD5Digests cluster_cfg_signs;
 } FSProtoClientJoinReq;
 
 typedef struct fs_proto_client_join_resp {

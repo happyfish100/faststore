@@ -21,7 +21,6 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
-#include "fastcommon/md5.h"
 #include "fastcommon/local_ip_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
@@ -79,27 +78,6 @@ static void log_cluster_server_config()
     fast_buffer_destroy(&buffer);
 
     //fc_server_to_log(&SERVER_CONFIG_CTX);
-}
-
-static int calc_cluster_config_sign()
-{
-    FastBuffer buffer;
-    int result;
-
-    if ((result=fast_buffer_init_ex(&buffer, 4096)) != 0) {
-        return result;
-    }
-    fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
-    my_md5_buffer(buffer.data, buffer.length, SERVERS_CONFIG_SIGN_BUF);
-
-    fast_buffer_reset(&buffer);
-    fc_cluster_cfg_to_string(&CLUSTER_CONFIG_CTX, &buffer);
-    my_md5_buffer(buffer.data, buffer.length, CLUSTER_CONFIG_SIGN_BUF);
-
-    //logInfo("cluster config:\n%.*s", buffer.length, buffer.data);
-
-    fast_buffer_destroy(&buffer);
-    return 0;
 }
 
 static int load_master_election_config(const char *filename)
@@ -206,10 +184,6 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
-        return result;
-    }
-
-    if ((result=calc_cluster_config_sign()) != 0) {
         return result;
     }
 

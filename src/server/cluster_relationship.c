@@ -121,9 +121,9 @@ static int proto_get_server_status(ConnectionInfo *conn,
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     req->is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR ? 1 : 0);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
-            CLUSTER_CONFIG_SIGN_LEN);
+            FS_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
-            SERVERS_CONFIG_SIGN_LEN);
+            FS_CLUSTER_CONFIG_SIGN_LEN);
     response.error.length = 0;
 	if ((result=sf_send_and_recv_response(conn, out_buff,
 			sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
@@ -162,9 +162,9 @@ static int proto_join_leader(FSClusterServerInfo *leader, ConnectionInfo *conn)
     req = (FSProtoJoinLeaderReq *)(out_buff + sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
-            CLUSTER_CONFIG_SIGN_LEN);
+            FS_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
-            SERVERS_CONFIG_SIGN_LEN);
+            FS_CLUSTER_CONFIG_SIGN_LEN);
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,

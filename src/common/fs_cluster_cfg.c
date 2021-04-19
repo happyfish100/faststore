@@ -16,6 +16,7 @@
 #include <limits.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fastcommon/md5.h"
 #include "fs_global.h"
 #include "fs_cluster_cfg.h"
 
@@ -788,6 +789,27 @@ static int find_group_indexes_in_cluster_config(FSClusterConfig *cluster_cfg,
     return 0;
 }
 
+static int cluster_calc_config_signs(FSClusterConfig *cluster_cfg)
+{
+    FastBuffer buffer;
+    int result;
+
+    if ((result=fast_buffer_init_ex(&buffer, 4096)) != 0) {
+        return result;
+    }
+    fc_server_to_config_string(&cluster_cfg->server_cfg, &buffer);
+    my_md5_buffer(buffer.data, buffer.length,
+            cluster_cfg->md5_digests.servers);
+
+    fast_buffer_reset(&buffer);
+    fs_cluster_cfg_to_string(cluster_cfg, &buffer);
+    my_md5_buffer(buffer.data, buffer.length,
+            cluster_cfg->md5_digests.cluster);
+
+    fast_buffer_destroy(&buffer);
+    return 0;
+}
+
 int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         const char *cluster_filename)
 {
@@ -834,6 +856,9 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         return result;
     }
 
+    if ((result=cluster_calc_config_signs(cluster_cfg)) != 0) {
+        return result;
+    }
     return find_group_indexes_in_cluster_config(
             cluster_cfg, cluster_filename);
 }
@@ -916,7 +941,7 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
     }
 }
 
-int fc_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
+int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
 {
     int result;
     FSServerGroup *sgroup;

@@ -321,6 +321,9 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
     int2buff(FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             req->data_group_count);
     int2buff(FS_FILE_BLOCK_SIZE, req->file_block_size);
+    req->auth_enabled = (client_ctx->auth.enabled ? 1 : 0);
+    memcpy(&req->cluster_cfg_signs, &client_ctx->cluster_cfg.ptr->
+            md5_digests, sizeof(req->cluster_cfg_signs));
 
     SF_PROTO_SET_HEADER(proto_header, FS_COMMON_PROTO_CLIENT_JOIN_REQ,
             sizeof(FSProtoClientJoinReq));
