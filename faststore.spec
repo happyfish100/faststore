@@ -18,12 +18,12 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires: libfastcommon-devel >= 1.0.49
 BuildRequires: libserverframe-devel >= 1.1.6
-BuildRequires: FastCFS-auth-devel = %{version}-%{release}
+BuildRequires: FastCFS-auth-devel >= 2.0.0
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
 Requires: libfastcommon >= 1.0.49
 Requires: libserverframe >= 1.1.6
-Requires: FastCFS-auth-client = %{version}-%{release}
-Requires: FastCFS-auth-config = %{version}-%{release}
+Requires: FastCFS-auth-client >= 2.0.0
+Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreServer} = %{version}-%{release}
 Requires: %{FastStoreClient} = %{version}-%{release}
 
@@ -34,16 +34,16 @@ commit version: %{CommitVersion}
 %package -n %{FastStoreServer}
 Requires: libfastcommon >= 1.0.49
 Requires: libserverframe >= 1.1.6
-Requires: FastCFS-auth-client = %{version}-%{release}
-Requires: FastCFS-auth-config = %{version}-%{release}
+Requires: FastCFS-auth-client >= 2.0.0
+Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
 Requires: libfastcommon >= 1.0.49
 Requires: libserverframe >= 1.1.6
-Requires: FastCFS-auth-client = %{version}-%{release}
-Requires: FastCFS-auth-config = %{version}-%{release}
+Requires: FastCFS-auth-client >= 2.0.0
+Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore client library and tools
 
