@@ -107,9 +107,11 @@ static int storage_config_calc_path_spaces(FSStoragePathInfo *path_info)
                 sbuf.f_bavail) / (double)sbuf.f_blocks;
     }
 
+    /*
     logInfo("used ratio: %.2f%%, prealloc_space.trunk_count: %d",
             100 * path_info->space_stat.used_ratio,
             path_info->prealloc_space.trunk_count);
+            */
 
     __sync_bool_compare_and_swap(&path_info->space_stat.
             last_stat_time, 0, g_current_time);

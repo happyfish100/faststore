@@ -1457,7 +1457,8 @@ static int init_my_data_group_array()
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
     int bytes;
-    int data_group_id;
+    int group_id;
+    int group_index;
     int i;
 
     id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
@@ -1470,13 +1471,14 @@ static int init_my_data_group_array()
     }
 
     for (i=0; i<id_array->count; i++) {
-        data_group_id = id_array->ids[i];
-        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - 1);
+        group_id = id_array->ids[i];
+        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
         end = data_group->data_server_array.servers +
             data_group->data_server_array.count;
         for (ds=data_group->data_server_array.servers; ds<end; ds++) {
             if (ds->cs == CLUSTER_MYSELF_PTR) {
-                MY_DATA_GROUP_ARRAY.groups[i].data_group_id = data_group_id;
+                MY_DATA_GROUP_ARRAY.groups[i].data_group_id = group_id;
                 MY_DATA_GROUP_ARRAY.groups[i].ds = ds;
                 break;
             }
@@ -1484,7 +1486,7 @@ static int init_my_data_group_array()
         if (ds == end) {
             logError("file: "__FILE__", line: %d, "
                     "data group id: %d, NOT found me, my server id: %d",
-                    __LINE__, data_group_id, CLUSTER_MYSELF_PTR->server->id);
+                    __LINE__, group_id, CLUSTER_MYSELF_PTR->server->id);
             return ENOENT;
         }
     }
