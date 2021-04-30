@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        result = sf_service_init_ex2(&CLUSTER_SF_CTX,
+        result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, cluster_deal_task_partly,
                 cluster_task_finish_cleanup, cluster_recv_timeout_callback,
@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
                 cluster_thread_loop_callback);
         sf_set_deal_task_func_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
-        result = sf_service_init_ex2(&REPLICA_SF_CTX,
+        result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
                 sf_proto_set_body_length, replica_deal_task,
@@ -252,7 +252,7 @@ int main(int argc, char *argv[])
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
 
-        result = sf_service_init_ex2(&g_sf_context,
+        result = sf_service_init_ex2(&g_sf_context, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, service_deal_task,
                 service_task_finish_cleanup, NULL, 1000,

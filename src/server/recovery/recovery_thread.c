@@ -222,6 +222,10 @@ static void *recovery_thread_entrance(void *arg)
 {
     FSClusterDataServerInfo *ds;
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "data-recovery");
+#endif
+
     while (SF_G_CONTINUE_FLAG) {
         ds = (FSClusterDataServerInfo *)common_blocked_queue_pop(
                 &recovery_thread_ctx.queue);
@@ -249,7 +253,7 @@ int recovery_thread_init()
     }
 
     if ((result=fc_thread_pool_init(&recovery_thread_ctx.tpool,
-                    "data recovery", limit, SF_G_THREAD_STACK_SIZE,
+                    "recovery", limit, SF_G_THREAD_STACK_SIZE,
                     max_idle_time, min_idle_count, (bool *)
                     &SF_G_CONTINUE_FLAG)) != 0)
     {

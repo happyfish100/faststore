@@ -140,6 +140,10 @@ static void *combine_handler_thread_func(void *arg)
 {
     FSAPISliceEntry *head;
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "write-combine");
+#endif
+
     while (SF_G_CONTINUE_FLAG) {
         head = (FSAPISliceEntry *)fc_queue_pop_all(
                 &g_combine_handler_ctx.queue);
@@ -173,6 +177,6 @@ int combine_handler_init(const int thread_limit,
         return result;
     }
 
-    return fc_create_thread(&tid, combine_handler_thread_func, NULL,
-            SF_G_THREAD_STACK_SIZE);
+    return fc_create_thread(&tid, combine_handler_thread_func,
+            NULL, SF_G_THREAD_STACK_SIZE);
 }

@@ -25,10 +25,15 @@
 #include "trunk_fd_cache.h"
 #include "trunk_io_thread.h"
 
-#define IO_THREAD_ROLE_WRITER   'W'
-#define IO_THREAD_ROLE_READER   'R'
+#define IO_THREAD_ROLE_WRITER   'w'
+#define IO_THREAD_ROLE_READER   'r'
 
 typedef struct trunk_io_thread_context {
+    struct {
+        short path;
+        short thread;
+    } indexes;
+    int role;
     TrunkIOBuffer *head;
     TrunkIOBuffer *tail;
     pthread_mutex_t lock;
@@ -38,7 +43,6 @@ typedef struct trunk_io_thread_context {
         TrunkFDCacheContext context;
         TrunkIdFDPair pair;
     } fd_cache;
-    int role;
 } TrunkIOThreadContext;
 
 typedef struct trunk_io_thread_context_array {
@@ -130,7 +134,7 @@ static int init_thread_context(TrunkIOThreadContext *ctx)
 }
 
 static int init_thread_contexts(TrunkIOThreadContextArray *ctx_array,
-        const int role)
+        const int path_index, const int role)
 {
     int result;
     TrunkIOThreadContext *ctx;
@@ -138,6 +142,12 @@ static int init_thread_contexts(TrunkIOThreadContextArray *ctx_array,
     
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
+        ctx->indexes.path = path_index;
+        if (ctx_array->count == 1) {
+            ctx->indexes.thread = -1;
+        } else {
+            ctx->indexes.thread = ctx - ctx_array->contexts;
+        }
         ctx->role = role;
         if ((result=init_thread_context(ctx)) != 0) {
             return result;
@@ -167,7 +177,7 @@ static int init_path_contexts(FSStoragePathArray *parray)
 
         path_ctx->writes.contexts = thread_ctxs;
         path_ctx->writes.count = p->write_thread_count;
-        if ((result=init_thread_contexts(&path_ctx->writes,
+        if ((result=init_thread_contexts(&path_ctx->writes, p->store.index,
                         IO_THREAD_ROLE_WRITER)) != 0)
         {
             return result;
@@ -175,7 +185,7 @@ static int init_path_contexts(FSStoragePathArray *parray)
 
         path_ctx->reads.contexts = thread_ctxs + p->write_thread_count;
         path_ctx->reads.count = p->read_thread_count;
-        if ((result=init_thread_contexts(&path_ctx->reads,
+        if ((result=init_thread_contexts(&path_ctx->reads, p->store.index,
                         IO_THREAD_ROLE_READER)) != 0)
         {
             return result;
@@ -537,6 +547,22 @@ static void *trunk_io_thread_func(void *arg)
     int result;
 
     ctx = (TrunkIOThreadContext *)arg;
+
+#ifdef OS_LINUX
+    {
+        int len;
+        char thread_name[16];
+
+        len = snprintf(thread_name, sizeof(thread_name),
+                "io-p%02d-%c", ctx->indexes.path, ctx->role);
+        if (ctx->indexes.thread >= 0) {
+            snprintf(thread_name + len, sizeof(thread_name) - len,
+                    "[%d]", ctx->indexes.thread);
+        }
+        prctl(PR_SET_NAME, thread_name);
+    }
+#endif
+
     while (SF_G_CONTINUE_FLAG) {
         pthread_mutex_lock(&ctx->lock);
         if (ctx->head == NULL) {

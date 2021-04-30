@@ -1394,6 +1394,10 @@ static void *cluster_thread_entrance(void *arg)
     FSClusterServerInfo *leader;
     ConnectionInfo mconn;  //leader connection
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "relationship");
+#endif
+
     memset(&mconn, 0, sizeof(mconn));
     mconn.sock = -1;
     storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);

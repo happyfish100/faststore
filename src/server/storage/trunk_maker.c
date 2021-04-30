@@ -42,6 +42,7 @@ typedef struct trunk_maker_task {
 } TrunkMakerTask;
 
 typedef struct trunk_maker_thread_info {
+    int index;
     struct {
         int result;
         pthread_lock_cond_pair_t lcp; //for notify
@@ -393,6 +394,16 @@ static void *trunk_maker_thread_func(void *arg)
 
     thread = (TrunkMakerThreadInfo *)arg;
     thread->running = true;
+
+#ifdef OS_LINUX
+    {
+        char thread_name[16];
+        snprintf(thread_name, sizeof(thread_name),
+                "trunk-maker[%d]", thread->index);
+        prctl(PR_SET_NAME, thread_name);
+    }
+#endif
+
     while (SF_G_CONTINUE_FLAG) {
         head = (TrunkMakerTask *)fc_queue_pop_all(&thread->queue);
         if (head == NULL) {
@@ -431,6 +442,7 @@ int trunk_maker_init()
     end = tmaker_ctx.thread_array.threads +
         tmaker_ctx.thread_array.count;
     for (thread=tmaker_ctx.thread_array.threads; thread<end; thread++) {
+        thread->index = thread - tmaker_ctx.thread_array.threads;
         thread->allocate.result = -1;
         if ((result=init_pthread_lock_cond_pair(&thread->allocate.lcp)) != 0) {
             return result;

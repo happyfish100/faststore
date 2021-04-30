@@ -39,7 +39,7 @@ int shared_thread_pool_init()
             CLUSTER_SERVER_ARRAY.count) + 4;
     limit2 = DATA_THREAD_COUNT;
     limit = FC_MAX(limit1, limit2);
-    if ((result=fc_thread_pool_init(&THREAD_POOL, "shared_tpool", limit,
+    if ((result=fc_thread_pool_init(&THREAD_POOL, "shared-pool", limit,
                     SF_G_THREAD_STACK_SIZE, max_idle_time, min_idle_count,
                     (bool *)&SF_G_CONTINUE_FLAG)) != 0)
     {

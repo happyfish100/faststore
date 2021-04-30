@@ -43,6 +43,7 @@ typedef struct fs_data_operation {
 
 typedef struct fs_data_thread_context {
     bool notify_done;
+    int index;
     pthread_lock_cond_pair_t lc_pair;
     struct fc_queue queue;
     struct fast_mblock_man allocator;

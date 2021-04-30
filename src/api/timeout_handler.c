@@ -77,6 +77,10 @@ static void *timeout_handler_thread_func(void *arg)
     LockedTimerEntry head;
     int count;
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "timeout");
+#endif
+
     __sync_add_and_fetch(&g_timer_ms_ctx.running_threads, 1);
 
     last_time_ticks = 0;
@@ -124,6 +128,6 @@ int timeout_handler_init(const int precision_ms, const int max_timeout_ms,
 int timeout_handler_start()
 {
     pthread_t tid;
-    return fc_create_thread(&tid, timeout_handler_thread_func, NULL,
-            SF_G_THREAD_STACK_SIZE);
+    return fc_create_thread(&tid, timeout_handler_thread_func,
+            NULL, SF_G_THREAD_STACK_SIZE);
 }

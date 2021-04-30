@@ -446,7 +446,7 @@ int trunk_prealloc_init()
 
     limit = STORAGE_CFG.trunk_prealloc_threads;
     if ((result=fc_thread_pool_init(&prealloc_ctx.thread_pool,
-                    "prealloc_trunks", limit, SF_G_THREAD_STACK_SIZE,
+                    "prealloc", limit, SF_G_THREAD_STACK_SIZE,
                     max_idle_time, min_idle_count,
                     (bool *)&SF_G_CONTINUE_FLAG)) != 0)
     {
