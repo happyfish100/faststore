@@ -24,6 +24,9 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+    int slice_op_init();
+
     static inline int fs_init_slice_op_ctx(FSSliceSNPairArray *parray)
     {
         parray->alloc = FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT;

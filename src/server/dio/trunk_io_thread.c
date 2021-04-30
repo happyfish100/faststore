@@ -40,8 +40,8 @@ typedef struct trunk_io_thread_context {
     pthread_cond_t cond;
     struct fast_mblock_man mblock;
     union {
-        TrunkFDCacheContext context;
-        TrunkIdFDPair pair;
+        TrunkFDCacheContext context; //for read
+        TrunkIdFDPair pair;   //for write
     } fd_cache;
 } TrunkIOThreadContext;
 

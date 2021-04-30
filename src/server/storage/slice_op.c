@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
+#include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "../common/fs_proto.h"
 #include "../server_global.h"
@@ -26,6 +27,13 @@
 #include "../binlog/replica_binlog.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
+
+static pthread_mutex_t slice_write_lock;  //for write in order
+
+int slice_op_init()
+{
+    return init_pthread_lock(&slice_write_lock);
+}
 
 static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
         const int capacity)
@@ -270,7 +278,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-int fs_slice_write(FSSliceOpContext *op_ctx)
+static inline int do_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
@@ -314,6 +322,17 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
             ps += length;
         }
     }
+
+    return result;
+}
+
+int fs_slice_write(FSSliceOpContext *op_ctx)
+{
+    int result;
+
+    PTHREAD_MUTEX_LOCK(&slice_write_lock);
+    result = do_slice_write(op_ctx);
+    PTHREAD_MUTEX_UNLOCK(&slice_write_lock);
 
     return result;
 }
