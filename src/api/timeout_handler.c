@@ -78,7 +78,7 @@ static void *timeout_handler_thread_func(void *arg)
     int count;
 
 #ifdef OS_LINUX
-    prctl(PR_SET_NAME, "timeout");
+    prctl(PR_SET_NAME, "ms-timer");
 #endif
 
     __sync_add_and_fetch(&g_timer_ms_ctx.running_threads, 1);

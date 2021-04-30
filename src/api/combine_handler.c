@@ -169,7 +169,7 @@ int combine_handler_init(const int thread_limit,
 
     g_combine_handler_ctx.continue_flag = true;
     if ((result=fc_thread_pool_init(&g_combine_handler_ctx.
-                    thread_pool, "merged slice dealer",
+                    thread_pool, "slice-merge",
                     thread_limit, SF_G_THREAD_STACK_SIZE,
                     max_idle_time, min_idle_count, (bool *)
                     &g_combine_handler_ctx.continue_flag)) != 0)
