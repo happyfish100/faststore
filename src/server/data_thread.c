@@ -36,6 +36,9 @@
 #include "server_replication.h"
 #include "data_thread.h"
 
+#define DATA_THREAD_ROLE_MASTER  'm'
+#define DATA_THREAD_ROLE_SLAVE   's'
+
 #define DATA_THREAD_RUNNING_COUNT g_data_thread_vars.running_count
 
 FSDataThreadVariables g_data_thread_vars;
@@ -66,7 +69,7 @@ static inline int init_thread_ctx(FSDataThreadContext *context)
 }
 
 static int init_data_thread_array(FSDataThreadArray *thread_array,
-        const int count)
+        const int count, const int role)
 {
     int result;
     int thread_count;
@@ -85,7 +88,12 @@ static int init_data_thread_array(FSDataThreadArray *thread_array,
     for (context=thread_array->contexts;
             context<end; context++)
     {
-        context->index = context - thread_array->contexts;
+        if (count == 1) {
+            context->index = -1;
+        } else {
+            context->index = context - thread_array->contexts;
+        }
+        context->role = role;
         if ((result=init_thread_ctx(context)) != 0) {
             return result;
         }
@@ -106,13 +114,13 @@ int data_thread_init()
     int n;
 
     count = (DATA_THREAD_COUNT + 1) / 2;
-    if ((result=init_data_thread_array(&g_data_thread_vars.
-                    thread_arrays.master, count)) != 0)
+    if ((result=init_data_thread_array(&g_data_thread_vars.thread_arrays.
+                    master, count, DATA_THREAD_ROLE_MASTER)) != 0)
     {
         return result;
     }
-    if ((result=init_data_thread_array(&g_data_thread_vars.
-                    thread_arrays.slave, count)) != 0)
+    if ((result=init_data_thread_array(&g_data_thread_vars.thread_arrays.
+                    slave, count, DATA_THREAD_ROLE_SLAVE)) != 0)
     {
         return result;
     }
@@ -304,8 +312,15 @@ static void *data_thread_func(void *arg)
 #ifdef OS_LINUX
     {
         char thread_name[16];
-        snprintf(thread_name, sizeof(thread_name),
-                "data[%d]", thread_ctx->index);
+        int len;
+
+        len = snprintf(thread_name, sizeof(thread_name), "data-%s",
+                (thread_ctx->role == DATA_THREAD_ROLE_MASTER ?
+                 "master" : "slave"));
+        if (thread_ctx->index >= 0) {
+            snprintf(thread_name + len, sizeof(thread_name) - len,
+                    "[%d]", thread_ctx->index);
+        }
         prctl(PR_SET_NAME, thread_name);
     }
 #endif
