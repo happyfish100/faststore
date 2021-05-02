@@ -100,11 +100,11 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
             trunk->util.last_used_bytes = __sync_fetch_and_add(
                     &trunk->used.bytes, 0);
             result = uniq_skiplist_insert(allocator->trunks.
-                    by_size, trunk);
+                    by_size.skiplist, trunk);
             break;
         case FS_TRUNK_UTIL_EVENT_UPDATE:
             if ((node=uniq_skiplist_find_node_ex(allocator->trunks.
-                            by_size, trunk, &prev)) == NULL)
+                            by_size.skiplist, trunk, &prev)) == NULL)
             {
                 result = ENOENT;
                 break;
@@ -112,18 +112,18 @@ static int deal_trunk_util_change_event(FSTrunkAllocator *allocator,
 
             result = 0;
             previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
-            if (previous != allocator->trunks.by_size->top) {
+            if (previous != allocator->trunks.by_size.skiplist->top) {
                 last_used_bytes = __sync_fetch_and_add(&trunk->used.bytes, 0);
                 if (fs_compare_trunk_by_size_id((FSTrunkFileInfo *)
                             previous->data, last_used_bytes,
                             trunk->id_info.id) > 0)
                 {
                     uniq_skiplist_delete_node(allocator->trunks.
-                            by_size, prev, node);
+                            by_size.skiplist, prev, node);
 
                     trunk->util.last_used_bytes = last_used_bytes;
                     result = uniq_skiplist_insert(allocator->trunks.
-                            by_size, trunk);
+                            by_size.skiplist, trunk);
                 }
             }
             break;
@@ -250,8 +250,8 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         deal_trunk_util_change_events(task->allocator);
     }
 
-    if ((trunk=(FSTrunkFileInfo *)uniq_skiplist_get_first(
-                    task->allocator->trunks.by_size)) == NULL)
+    if ((trunk=(FSTrunkFileInfo *)uniq_skiplist_get_first(task->
+                    allocator->trunks.by_size.skiplist)) == NULL)
     {
         return ENOENT;
     }
@@ -304,7 +304,7 @@ static int do_reclaim_trunk(TrunkMakerThreadInfo *thread,
         trunk->free_start = 0;
         PTHREAD_MUTEX_UNLOCK(&task->allocator->freelist.lcp.lock);
 
-        uniq_skiplist_delete(task->allocator->trunks.by_size, trunk);
+        uniq_skiplist_delete(task->allocator->trunks.by_size.skiplist, trunk);
         *freelist_type = trunk_allocator_add_to_freelist(task->allocator, trunk);
     } else {
         fs_set_trunk_status(trunk, FS_TRUNK_STATUS_NONE); //rollback status

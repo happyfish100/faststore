@@ -35,8 +35,8 @@ typedef struct {
 } StoreSubdirInfo;
 
 typedef struct {
-    UniqSkiplist *all;
-    UniqSkiplist *freelist;
+    UniqSkiplistPair all;
+    UniqSkiplistPair freelist;
     pthread_mutex_t lock;
 } SortedSubdirs;
 
@@ -51,10 +51,6 @@ typedef struct {
     int64_t last_trunk_id;
     int64_t last_subdir_id;
     SortedSubdirArray subdir_array;
-    struct {
-        UniqSkiplistFactory all;
-        UniqSkiplistFactory freelist;
-    } factories;
     struct fast_mblock_man subdir_allocator;
 } TrunkIdInfoContext;
 
@@ -165,8 +161,11 @@ static int alloc_sorted_subdirs()
 
 static int init_sorted_subdirs(FSStoragePathArray *parray)
 {
+    const int init_level_count = 4;
+    const int max_level_count = 16;
+    const int min_alloc_elements_once = 8;
+    const int delay_free_seconds = 0;
     int result;
-    const int init_level_count = 8;
     FSStoragePathInfo *p;
     FSStoragePathInfo *end;
     SortedSubdirs *sorted_subdirs;
@@ -174,16 +173,20 @@ static int init_sorted_subdirs(FSStoragePathArray *parray)
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
         sorted_subdirs = id_info_context.subdir_array.subdirs + p->store.index;
-        sorted_subdirs->all = uniq_skiplist_new(&id_info_context.
-                factories.all, init_level_count);
-        if (sorted_subdirs->all == NULL) {
-            return ENOMEM;
+        if ((result=uniq_skiplist_init_pair(&sorted_subdirs->all,
+                        init_level_count, max_level_count,
+                        compare_by_id, id_info_free_func,
+                        min_alloc_elements_once, delay_free_seconds)) != 0)
+        {
+            return result;
         }
 
-        sorted_subdirs->freelist = uniq_skiplist_new(&id_info_context.
-                factories.freelist, init_level_count);
-        if (sorted_subdirs->freelist == NULL) {
-            return ENOMEM;
+        if ((result=uniq_skiplist_init_pair(&sorted_subdirs->freelist,
+                        init_level_count, max_level_count, compare_by_id,
+                        NULL, min_alloc_elements_once,
+                        delay_free_seconds)) != 0)
+        {
+            return result;
         }
 
         if ((result=init_pthread_lock(&sorted_subdirs->lock)) != 0) {
@@ -233,25 +236,8 @@ static int setup_sync_to_file_task()
 
 int trunk_id_info_init()
 {
-    const int max_level_count = 16;
     const int alloc_elements_once = 8 * 1024;
     int result;
-
-    if ((result=uniq_skiplist_init_ex(&id_info_context.factories.all,
-                    max_level_count, compare_by_id,
-                    id_info_free_func, alloc_elements_once,
-                    SKIPLIST_DEFAULT_MIN_ALLOC_ELEMENTS_ONCE, 0)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=uniq_skiplist_init_ex(&id_info_context.factories.freelist,
-                    max_level_count, compare_by_id,
-                    NULL, alloc_elements_once,
-                    SKIPLIST_DEFAULT_MIN_ALLOC_ELEMENTS_ONCE, 0)) != 0)
-    {
-        return result;
-    }
 
     if ((result=fast_mblock_init_ex1(&id_info_context.subdir_allocator,
                     "subdir_info", sizeof(StoreSubdirInfo),
@@ -302,19 +288,19 @@ int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
     target.file_count = 1;
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
-    if (sorted_subdirs->all == NULL) {
+    if (sorted_subdirs->all.skiplist == NULL) {
         return ENOENT;
     }
 
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
         subdir = (StoreSubdirInfo *)uniq_skiplist_find(
-                sorted_subdirs->all, &target);
+                sorted_subdirs->all.skiplist, &target);
         if (subdir != NULL) {
             subdir->file_count++;
             if (subdir->file_count >= STORAGE_CFG.max_trunk_files_per_subdir) {
                 uniq_skiplist_delete(sorted_subdirs->
-                        freelist, subdir);
+                        freelist.skiplist, subdir);
             }
         } else {
             subdir = (StoreSubdirInfo *)fast_mblock_alloc_object(
@@ -325,13 +311,13 @@ int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info)
             }
             *subdir = target;
             if ((result=uniq_skiplist_insert(sorted_subdirs->
-                            all, subdir)) != 0)
+                            all.skiplist, subdir)) != 0)
             {
                 break;
             }
             if (subdir->file_count < STORAGE_CFG.max_trunk_files_per_subdir) {
                 result = uniq_skiplist_insert(sorted_subdirs->
-                        freelist, subdir);
+                        freelist.skiplist, subdir);
             }
         }
     } while (0);
@@ -351,18 +337,18 @@ int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info)
     target.file_count = 1;
     result = 0;
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
-    if (sorted_subdirs->all == NULL) {
+    if (sorted_subdirs->all.skiplist == NULL) {
         return ENOENT;
     }
 
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     do {
         subdir = (StoreSubdirInfo *)uniq_skiplist_find(
-                sorted_subdirs->all, &target);
+                sorted_subdirs->all.skiplist, &target);
         if (subdir != NULL) {
             if (subdir->file_count >= STORAGE_CFG.max_trunk_files_per_subdir) {
                 uniq_skiplist_insert(sorted_subdirs->
-                        freelist, subdir);
+                        freelist.skiplist, subdir);
             }
             subdir->file_count--;
         }
@@ -378,13 +364,13 @@ int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info)
     StoreSubdirInfo *sd_info;
 
     sorted_subdirs = id_info_context.subdir_array.subdirs + path_index;
-    if (sorted_subdirs->all == NULL) {
+    if (sorted_subdirs->all.skiplist == NULL) {
         return ENOENT;
     }
 
     PTHREAD_MUTEX_LOCK(&sorted_subdirs->lock);
     sd_info = (StoreSubdirInfo *)uniq_skiplist_get_first(
-                sorted_subdirs->freelist);
+                sorted_subdirs->freelist.skiplist);
     PTHREAD_MUTEX_UNLOCK(&sorted_subdirs->lock);
 
     if (sd_info != NULL) {

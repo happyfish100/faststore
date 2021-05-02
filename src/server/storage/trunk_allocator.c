@@ -29,9 +29,6 @@
 
 TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
 
-#define G_ID_SKIPLIST_FACTORY   g_trunk_allocator_vars.skiplist_factories.by_id
-#define G_SIZE_SKIPLIST_FACTORY g_trunk_allocator_vars.skiplist_factories.by_size
-
 static int compare_trunk_by_id(const FSTrunkFileInfo *t1,
         const FSTrunkFileInfo *t2)
 {
@@ -70,36 +67,11 @@ static inline void push_trunk_util_change_event(FSTrunkAllocator *allocator,
 
 int trunk_allocator_init()
 {
-    int alloc_skiplist_once;
-    const int min_alloc_elements_once = 4;
-    const int delay_free_seconds = 0;
-    const bool bidirection = true;
     int result;
 
     if ((result=fast_mblock_init_ex1(&G_TRUNK_ALLOCATOR,
                     "trunk_file_info", sizeof(FSTrunkFileInfo),
                     16384, 0, NULL, NULL, true)) != 0)
-    {
-        return result;
-    }
-
-    alloc_skiplist_once = STORAGE_CFG.store_path.count +
-        STORAGE_CFG.write_cache.count;
-    if ((result=uniq_skiplist_init_ex(&G_ID_SKIPLIST_FACTORY,
-                    FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT,
-                    (skiplist_compare_func)compare_trunk_by_id,
-                    trunk_free_func, alloc_skiplist_once,
-                    min_alloc_elements_once,
-                    FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=uniq_skiplist_init_ex2(&G_SIZE_SKIPLIST_FACTORY,
-                    FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT, (skiplist_compare_func)
-                    compare_trunk_by_size_id, NULL,
-                    alloc_skiplist_once, min_alloc_elements_once,
-                    delay_free_seconds, bidirection)) != 0)
     {
         return result;
     }
@@ -110,6 +82,9 @@ int trunk_allocator_init()
 int trunk_allocator_init_instance(FSTrunkAllocator *allocator,
         FSStoragePathInfo *path_info)
 {
+    const int min_alloc_elements_once = 4;
+    const int delay_free_seconds = 0;
+    const bool bidirection = true;
     int result;
 
     if ((result=trunk_freelist_init(&allocator->freelist)) != 0) {
@@ -120,22 +95,29 @@ int trunk_allocator_init_instance(FSTrunkAllocator *allocator,
         return result;
     }
 
-    if ((allocator->trunks.by_id=uniq_skiplist_new(&G_ID_SKIPLIST_FACTORY,
-            FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT)) == NULL)
+    if ((result=uniq_skiplist_init_pair(&allocator->trunks.by_id,
+                    FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT,
+                    FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT,
+                    (skiplist_compare_func)compare_trunk_by_id,
+                    trunk_free_func, min_alloc_elements_once,
+                    FS_TRUNK_SKIPLIST_DELAY_FREE_SECONDS)) != 0)
     {
-        return ENOMEM;
+        return result;
+    }
+
+    if ((result=uniq_skiplist_init_pair_ex(&allocator->trunks.by_size,
+                    FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT,
+                    FS_TRUNK_SKIPLIST_MAX_LEVEL_COUNT, (skiplist_compare_func)
+                    compare_trunk_by_size_id, NULL, min_alloc_elements_once,
+                    delay_free_seconds, bidirection)) != 0)
+    {
+        return result;
     }
 
     if ((result=fc_queue_init(&allocator->reclaim.queue, (long)
                     (&((FSTrunkFileInfo *)NULL)->util.next))) != 0)
     {
         return result;
-    }
-
-    if ((allocator->trunks.by_size=uniq_skiplist_new(&G_SIZE_SKIPLIST_FACTORY,
-                    FS_TRUNK_SKIPLIST_INIT_LEVEL_COUNT)) == NULL)
-    {
-        return ENOMEM;
     }
 
     allocator->path_info = path_info;
@@ -171,7 +153,8 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
 
     PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
     FC_INIT_LIST_HEAD(&trunk_info->used.slice_head);
-    result = uniq_skiplist_insert(allocator->trunks.by_id, trunk_info);
+    result = uniq_skiplist_insert(allocator->
+            trunks.by_id.skiplist, trunk_info);
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
 
     if (result != 0) {
@@ -195,7 +178,7 @@ int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id)
 
     target.id_info.id = id;
     PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
-    result = uniq_skiplist_delete(allocator->trunks.by_id, &target);
+    result = uniq_skiplist_delete(allocator->trunks.by_id.skiplist, &target);
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
 
     return result;
@@ -229,8 +212,8 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
 
     target.id_info.id = slice->space.id_info.id;
     PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
-    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
-                    allocator->trunks.by_id, &target)) == NULL)
+    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(allocator->
+                    trunks.by_id.skiplist, &target)) == NULL)
     {
         logError("file: "__FILE__", line: %d, "
                 "store path index: %d, trunk id: %"PRId64" not exist",
@@ -265,8 +248,8 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
 
     target.id_info.id = slice->space.id_info.id;
     PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
-    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(
-                    allocator->trunks.by_id, &target)) == NULL)
+    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(allocator->
+                    trunks.by_id.skiplist, &target)) == NULL)
     {
         logError("file: "__FILE__", line: %d, "
                 "store path index: %d, trunk id: %"PRId64" not exist",
@@ -331,7 +314,7 @@ void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)
     UniqSkiplistIterator it;
     FSTrunkFileInfo *trunk_info;
 
-    uniq_skiplist_iterator(allocator->trunks.by_id, &it);
+    uniq_skiplist_iterator(allocator->trunks.by_id.skiplist, &it);
     while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
         allocator->path_info->trunk_stat.total += trunk_info->size;
         allocator->path_info->trunk_stat.used += trunk_info->used.bytes;

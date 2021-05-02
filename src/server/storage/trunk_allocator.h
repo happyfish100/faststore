@@ -54,8 +54,8 @@ typedef struct {
 typedef struct fs_trunk_allocator {
     FSStoragePathInfo *path_info;
     struct {
-        UniqSkiplist *by_id;   //order by id
-        UniqSkiplist *by_size; //order by used size and id
+        UniqSkiplistPair by_id;   //order by id
+        UniqSkiplistPair by_size; //order by used size and id
         pthread_mutex_t lock;
     } trunks;
     FSTrunkFreelist freelist; //trunk freelist pool
@@ -64,6 +64,7 @@ typedef struct fs_trunk_allocator {
         time_t last_trigger_time; //caller trigger create trunk
         int creating_trunks;  //counter for creating (prealloc or reclaim) trunk
         int waiting_callers;  //caller count for waiting available trunk
+        volatile int64_t current_version; //for trunk space alloc
     } allocate; //for allocate space
 
     struct {
@@ -77,10 +78,6 @@ typedef struct fs_trunk_allocator {
 typedef struct {
     bool data_load_done;
     struct fast_mblock_man trunk_allocator;
-    struct {
-        UniqSkiplistFactory by_id;
-        UniqSkiplistFactory by_size;
-    } skiplist_factories;
 } TrunkAllocatorGlobalVars;
 
 #ifdef __cplusplus
