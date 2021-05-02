@@ -58,11 +58,6 @@ OBHashtable g_ob_hashtable = {0, 0, NULL};
         bucket = (htable)->buckets + bucket_index; \
     } while (0)
 
-#define OB_INDEX_SHARED_CTX_LOCK(htable, ctx)   \
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock)
-
-#define OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx) \
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock)
 
 static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         const FSBlockKey *bkey, const bool create_flag, OBEntry **pprev)
@@ -137,9 +132,9 @@ OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
     OBEntry *ob;
     OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
 
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry(ctx, bucket, bkey, false);
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return ob;
 }
@@ -149,12 +144,12 @@ OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
     OBEntry *ob;
 
     OB_INDEX_SET_BUCKET_AND_CTX(&g_ob_hashtable, *bkey);
-    OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry(ctx, bucket, bkey, false);
     if (ob != NULL) {
         ++(ob->reclaiming_count);
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(&g_ob_hashtable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return ob;
 }
@@ -162,11 +157,11 @@ OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
 void ob_index_reclaim_unlock(OBEntry *ob)
 {
     OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, ob->bkey);
-    OB_INDEX_SHARED_CTX_LOCK(&g_ob_hashtable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     if (--(ob->reclaiming_count) == 0) {
         pthread_cond_broadcast(&ctx->lcp.cond);
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(&g_ob_hashtable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 }
 
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
@@ -176,9 +171,9 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry(ctx, bucket, bkey, true);
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     if (ob == NULL) {
         slice = NULL;
@@ -601,7 +596,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             */
 
     OB_INDEX_SET_HASHTABLE_CTX(htable, slice->ob->bkey);
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
 
     CHECK_AND_WAIT_RECLAIM_DONE(ctx, slice->ob);
     result = add_slice(htable, ctx, slice->ob, slice, inc_alloc);
@@ -611,7 +606,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
         }
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return result;
 }
@@ -766,7 +761,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     int count;
 
     OB_INDEX_SET_BUCKET_AND_CTX(htable, bs_key->block);
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry_ex(ctx, bucket, &bs_key->block, false, &previous);
     if (ob == NULL) {
         *dec_alloc = 0;
@@ -784,7 +779,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
             }
         }
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return result;
 }
@@ -802,7 +797,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
 
     *dec_alloc = 0;
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
     if (ob != NULL) {
         CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
@@ -827,7 +822,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     } else {
         result = ENOENT;
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     return result;
 }
@@ -1050,7 +1045,7 @@ int ob_index_get_slices_ex(OBHashtable *htable,
             __LINE__, __FUNCTION__, bs_key->block.oid, bs_key->block.offset);
             */
 
-    OB_INDEX_SHARED_CTX_LOCK(htable, ctx);
+    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
     ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
@@ -1058,7 +1053,7 @@ int ob_index_get_slices_ex(OBHashtable *htable,
         CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
         result = get_slices(ctx, ob, bs_key, sarray);
     }
-    OB_INDEX_SHARED_CTX_UNLOCK(htable, ctx);
+    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);
