@@ -58,7 +58,9 @@ typedef struct server_global_vars {
         volatile uint64_t slice_binlog_sn;  //slice binlog sn
     } data;
 
-    FSStorageConfig storage_cfg;
+    struct {
+        FSStorageConfig cfg;
+    } storage;
 
     struct {
         int channels_between_two_servers;
@@ -109,7 +111,7 @@ typedef struct server_global_vars {
 #define CLUSTER_SF_CTX        g_server_global_vars.cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars.replica.sf_context
 
-#define STORAGE_CFG           g_server_global_vars.storage_cfg
+#define STORAGE_CFG           g_server_global_vars.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
 #define DATA_THREAD_COUNT     g_server_global_vars.data.thread_count

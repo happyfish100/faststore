@@ -59,10 +59,12 @@ static inline void push_trunk_util_event_force(FSTrunkAllocator *allocator,
 
 #define TRUNK_ALLOC_SPACE(trunk, space_info, alloc_size) \
     do { \
-        space_info->store = &trunk->allocator->path_info->store; \
-        space_info->id_info = trunk->id_info;   \
-        space_info->offset = trunk->free_start; \
-        space_info->size = alloc_size;         \
+        space_info->space.store = &trunk->allocator->path_info->store; \
+        space_info->space.id_info = trunk->id_info;   \
+        space_info->space.offset = trunk->free_start; \
+        space_info->space.size = alloc_size;          \
+        space_info->version = __sync_add_and_fetch(&trunk->  \
+                allocator->allocate.current_version, 1); \
         trunk->free_start += alloc_size;  \
         __sync_sub_and_fetch(&trunk->allocator->path_info-> \
                 trunk_stat.avail, alloc_size);  \
@@ -175,15 +177,14 @@ static int waiting_avail_trunk(struct fs_trunk_allocator *allocator,
     return result;
 }
 
-int trunk_freelist_alloc_space(struct fs_trunk_allocator
-            *allocator, FSTrunkFreelist *freelist,
-        const uint32_t blk_hc, const int size,
-        FSTrunkSpaceInfo *spaces, int *count, const bool is_normal)
+int trunk_freelist_alloc_space(struct fs_trunk_allocator *allocator,
+        FSTrunkFreelist *freelist, const uint32_t blk_hc, const int size,
+        FSTrunkSpaceWithVersion *spaces, int *count, const bool is_normal)
 {
     int aligned_size;
     int result;
     int remain_bytes;
-    FSTrunkSpaceInfo *space_info;
+    FSTrunkSpaceWithVersion *space_info;
     FSTrunkFileInfo *trunk_info;
 
     aligned_size = MEM_ALIGN(size);

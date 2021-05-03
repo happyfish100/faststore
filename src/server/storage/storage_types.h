@@ -47,13 +47,19 @@ typedef struct {
 typedef struct {
     FSStorePath *store;
     FSTrunkIdInfo id_info;
-    int64_t offset; //offset of the trunk file
-    int64_t size;   //alloced space size
+    int64_t offset;  //offset of the trunk file
+    int64_t size;    //alloced space size
 } FSTrunkSpaceInfo;
+
+typedef struct {
+    FSTrunkSpaceInfo space;
+    int64_t version; //for write in order
+} FSTrunkSpaceWithVersion;
 
 typedef struct {
     struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
+    int64_t version; //for write in order
 } FSSliceSNPair;
 
 typedef struct {

@@ -91,7 +91,8 @@ extern "C" {
 
     static inline int storage_allocator_normal_alloc_ex(
             const uint32_t blk_hc, const int size,
-            FSTrunkSpaceInfo *spaces, int *count, const bool is_normal)
+            FSTrunkSpaceWithVersion *spaces,
+            int *count, const bool is_normal)
     {
         FSTrunkAllocatorPtrArray *avail_array;
         FSTrunkAllocator **allocator;
@@ -116,7 +117,7 @@ extern "C" {
     }
 
     static inline int storage_allocator_reclaim_alloc(const uint32_t blk_hc,
-            const int size, FSTrunkSpaceInfo *spaces, int *count)
+            const int size, FSTrunkSpaceWithVersion *spaces, int *count)
     {
         const bool is_normal = false;
         int result;

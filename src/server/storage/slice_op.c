@@ -209,7 +209,7 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         FSSliceSNPair *slice_sn_pairs, int *slice_count)
 {
     int result;
-    FSTrunkSpaceInfo spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
+    FSTrunkSpaceWithVersion spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
 
     if (reclaim_alloc) {
         result = storage_allocator_reclaim_alloc(
@@ -240,15 +240,16 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
 
     if (*slice_count == 1) {
         slice_sn_pairs[0].slice = alloc_init_slice(&bs_key->block,
-                spaces + 0, slice_type, bs_key->slice.offset,
+                &spaces[0].space, slice_type, bs_key->slice.offset,
                 bs_key->slice.length);
         if (slice_sn_pairs[0].slice == NULL) {
             return ENOMEM;
         }
+        slice_sn_pairs[0].version = spaces[0].version;
 
         /*
         logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
-                0, spaces[0].offset, spaces[0].size);
+                0, spaces[0].space.offset, spaces[0].space.size);
                 */
     } else {
         int offset;
@@ -259,15 +260,17 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
             slice_sn_pairs[i].slice = alloc_init_slice(&bs_key->block,
-                    spaces + i, slice_type, offset, (spaces[i].size <
-                        remain ?  spaces[i].size : remain));
+                    &spaces[i].space, slice_type, offset,
+                    (spaces[i].space.size < remain ?
+                     spaces[i].space.size : remain));
             if (slice_sn_pairs[i].slice == NULL) {
                 return ENOMEM;
             }
+            slice_sn_pairs[i].version = spaces[i].version;
 
             /*
             logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
-                    i, spaces[i].offset, spaces[i].size);
+                    i, spaces[i].space.offset, spaces[i].space.size);
                     */
 
             offset += slice_sn_pairs[i].slice->ssize.length;
@@ -300,8 +303,9 @@ static inline int do_slice_write(FSSliceOpContext *op_ctx)
     op_ctx->counter = op_ctx->update.sarray.count;
     if (op_ctx->update.sarray.count == 1) {
         result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            op_ctx->update.sarray.slice_sn_pairs[0].slice,
-                            op_ctx->info.buff, slice_write_done, op_ctx);
+                op_ctx->update.sarray.slice_sn_pairs[0].version,
+                op_ctx->update.sarray.slice_sn_pairs[0].slice,
+                op_ctx->info.buff, slice_write_done, op_ctx);
     } else {
         int length;
         char *ps;
@@ -314,8 +318,8 @@ static inline int do_slice_write(FSSliceOpContext *op_ctx)
         {
             length = slice_sn_pair->slice->ssize.length;
             if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
-                            slice_sn_pair->slice, ps, slice_write_done,
-                            op_ctx)) != 0)
+                            slice_sn_pair->version, slice_sn_pair->slice,
+                            ps, slice_write_done, op_ctx)) != 0)
             {
                 break;
             }
@@ -580,6 +584,7 @@ static void slice_read_done(struct trunk_io_buffer *record, const int result)
 
 int fs_slice_read(FSSliceOpContext *op_ctx)
 {
+    const int64_t version = 0;
     int result;
     int offset;
     int hole_len;
@@ -629,7 +634,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             memset(ps, 0, (*pp)->ssize.length);
             do_read_done(*pp, op_ctx, 0);
         } else if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,
-                        *pp, ps, slice_read_done, op_ctx)) != 0)
+                        version, *pp, ps, slice_read_done, op_ctx)) != 0)
         {
             ob_index_free_slice(*pp);
             break;
