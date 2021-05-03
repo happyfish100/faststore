@@ -57,6 +57,7 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    ns = "fs";
     bs_key.block.oid = 1;
     bs_key.block.offset = 0;
     bs_key.slice.offset = 0;

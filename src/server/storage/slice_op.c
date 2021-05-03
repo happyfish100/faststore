@@ -334,9 +334,9 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 {
     int result;
 
-    PTHREAD_MUTEX_LOCK(&slice_write_lock);
+    //PTHREAD_MUTEX_LOCK(&slice_write_lock);
     result = do_slice_write(op_ctx);
-    PTHREAD_MUTEX_UNLOCK(&slice_write_lock);
+    //PTHREAD_MUTEX_UNLOCK(&slice_write_lock);
 
     return result;
 }

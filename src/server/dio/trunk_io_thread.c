@@ -315,7 +315,6 @@ int trunk_io_thread_push(const int type, const int64_t version,
     iob->data.len = 0;
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
-
     fc_queue_push(&thread_ctx->queue, iob);
     return 0;
 }
@@ -591,9 +590,11 @@ static int batch_write(TrunkIOThreadContext *ctx)
         fast_mblock_free_object(&ctx->mblock, *iob);
     }
 
-    logInfo("batch_write count: %d, success: %d, bytes: %d",
-            ctx->write.iovb_array.count, ctx->write.iovb_array.success,
-            ctx->write.iovb_array.bytes);
+    if (ctx->write.iovb_array.count > 1) {
+        logInfo("batch_write count: %d, success: %d, bytes: %d",
+                ctx->write.iovb_array.count, ctx->write.iovb_array.success,
+                ctx->write.iovb_array.bytes);
+    }
 
     ctx->write.iovb_array.count = 0;
     ctx->write.iovb_array.bytes = 0;
@@ -695,6 +696,11 @@ static void deal_request_skiplist(TrunkIOThreadContext *ctx)
         if (iob == NULL) {
             break;
         }
+
+        /*
+        logInfo("iob: %p, write: %d, version: %"PRId64,
+                iob, iob->type == FS_IO_TYPE_WRITE_SLICE, iob->version);
+                */
 
         switch (iob->type) {
             case FS_IO_TYPE_CREATE_TRUNK:
@@ -809,6 +815,10 @@ static void trunk_io_reader_run(TrunkIOThreadContext *ctx)
             logError("file: "__FILE__", line: %d, "
                     "slice read fail, result: %d",
                     __LINE__, result);
+        }
+
+        if (iob->notify.func != NULL) {
+            iob->notify.func(iob, result);
         }
         fast_mblock_free_object(&ctx->mblock, iob);
     }
