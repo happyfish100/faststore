@@ -501,10 +501,12 @@ static int do_write_slices(TrunkIOThreadContext *ctx)
             return result;
         }
 
+        /*
         get_trunk_filename(&first->slice->space, trunk_filename,
                 sizeof(trunk_filename));
         logInfo("trunk file: %s, lseek to offset: %"PRId64,
                 trunk_filename, first->slice->space.offset);
+                */
     }
 
     remain = ctx->write.iovb_array.bytes;
@@ -590,11 +592,13 @@ static int batch_write(TrunkIOThreadContext *ctx)
         fast_mblock_free_object(&ctx->mblock, *iob);
     }
 
+    /*
     if (ctx->write.iovb_array.count > 1) {
         logInfo("batch_write count: %d, success: %d, bytes: %d",
                 ctx->write.iovb_array.count, ctx->write.iovb_array.success,
                 ctx->write.iovb_array.bytes);
     }
+    */
 
     ctx->write.iovb_array.count = 0;
     ctx->write.iovb_array.bytes = 0;

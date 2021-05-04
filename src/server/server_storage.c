@@ -28,10 +28,6 @@ int server_storage_init()
 {
     int result;
 
-    if ((result=slice_op_init()) != 0) {
-        return result;
-    }
-
     if ((result=storage_allocator_init()) != 0) {
         return result;
     }
