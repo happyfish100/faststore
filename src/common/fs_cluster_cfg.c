@@ -814,33 +814,23 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         const char *cluster_filename)
 {
     IniContext ini_context;
-    char full_filename[PATH_MAX];
-    char *server_config_filename;
     const int min_hosts_each_group = 1;
     const bool share_between_groups = true;
     int result;
 
     memset(cluster_cfg, 0, sizeof(FSClusterConfig));
-    if ((result=iniLoadFromFile(cluster_filename, &ini_context)) != 0) {
+    if ((result=iniLoadFromFile1(cluster_filename, &ini_context,
+                    FAST_INI_FLAGS_DISABLE_SAME_SECTION_MERGE)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
                 "load conf file \"%s\" fail, ret code: %d",
                 __LINE__, cluster_filename, result);
         return result;
     }
 
-    server_config_filename = iniGetStrValue(NULL,
-            "server_config_filename", &ini_context);
-    if (server_config_filename == NULL || *server_config_filename == '\0') {
-        logError("file: "__FILE__", line: %d, "
-                "config file: %s, item \"server_config_filename\" "
-                "not exist or empty", __LINE__, cluster_filename);
-        return ENOENT;
-    }
-
-    resolve_path(cluster_filename, server_config_filename,
-            full_filename, sizeof(full_filename));
-    if ((result=fc_server_load_from_file_ex(&cluster_cfg->server_cfg,
-                    full_filename, FS_SERVER_DEFAULT_CLUSTER_PORT,
+    if ((result=fc_server_load_from_ini_context_ex(&cluster_cfg->
+                    server_cfg, &ini_context, cluster_filename,
+                    FS_SERVER_DEFAULT_CLUSTER_PORT,
                     min_hosts_each_group, share_between_groups)) != 0)
     {
         return result;
