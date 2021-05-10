@@ -701,11 +701,6 @@ static void deal_request_skiplist(TrunkIOThreadContext *ctx)
             break;
         }
 
-        /*
-        logInfo("iob: %p, write: %d, version: %"PRId64,
-                iob, iob->type == FS_IO_TYPE_WRITE_SLICE, iob->version);
-                */
-
         switch (iob->type) {
             case FS_IO_TYPE_CREATE_TRUNK:
             case FS_IO_TYPE_DELETE_TRUNK:
@@ -839,7 +834,7 @@ static void *trunk_io_thread_func(void *arg)
         char thread_name[16];
 
         len = snprintf(thread_name, sizeof(thread_name),
-                "io-p%02d-%c", ctx->indexes.path, ctx->role);
+                "dio-p%02d-%c", ctx->indexes.path, ctx->role);
         if (ctx->indexes.thread >= 0) {
             snprintf(thread_name + len, sizeof(thread_name) - len,
                     "[%d]", ctx->indexes.thread);
