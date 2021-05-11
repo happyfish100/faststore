@@ -430,7 +430,7 @@ static int do_create_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
         return result;
     }
 
-    if (ftruncate(fd, iob->space.size) == 0) {
+    if (fc_fallocate(fd, iob->space.size) == 0) {
         result = trunk_binlog_write(FS_IO_TYPE_CREATE_TRUNK,
                 iob->space.store->index, &iob->space.id_info,
                 iob->space.size);
@@ -442,8 +442,6 @@ static int do_create_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
     }
 
     close(fd);
-
-
     return result;
 }
 
