@@ -259,7 +259,6 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     new_key = *bs_key;
     remain = bs_key->slice.length;
 
-
     while (remain > 0) {
         if (remain <= connection_params->buffer_size) {
             bytes = remain;
