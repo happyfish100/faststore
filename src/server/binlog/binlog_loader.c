@@ -20,6 +20,7 @@
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
 #include "../server_global.h"
+#include "../storage/object_block_index.h"
 #include "binlog_loader.h"
 
 typedef struct {
@@ -115,11 +116,25 @@ int binlog_loader_load_ex(const char *subdir_name,
 
     binlog_read_thread_terminate(&read_thread_ctx);
     if (result == 0) {
+        char extra_buff[128];
+        int64_t ob_count;
+        int64_t slice_count;
+
         end_time = get_current_time_ms();
+        long_to_comma_str(end_time - start_time, time_buff);
+
+        if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME) == 0) {
+            ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
+            sprintf(extra_buff, ", output object count: %"PRId64", "
+                    "slice count: %"PRId64, ob_count, slice_count);
+        } else {
+            *extra_buff = '\0';
+        }
+
         logInfo("file: "__FILE__", line: %d, "
-                "load %s data done. record count: %"PRId64", "
-                "time used: %s ms", __LINE__, subdir_name, total_count,
-                long_to_comma_str(end_time - start_time, time_buff));
+                "load %s data done. record count: %"PRId64"%s, "
+                "time used: %s ms", __LINE__, subdir_name,
+                total_count, extra_buff, time_buff);
     } else {
         logError("file: "__FILE__", line: %d, "
                 "result: %d", __LINE__, result);
