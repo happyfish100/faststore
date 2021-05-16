@@ -618,8 +618,8 @@ static int init_htables(DataRecoveryContext *ctx)
     } else if (slice_capacity > STORAGE_CFG.object_block.hashtable_capacity) {
         slice_capacity = STORAGE_CFG.object_block.hashtable_capacity;
     }
-    if ((result=ob_index_init_htable_ex(&dedup_ctx->htables.create,
-                    slice_capacity, false)) != 0)
+    if ((result=ob_index_init_htable_ex(&dedup_ctx->
+                    htables.create, slice_capacity)) != 0)
     {
         return result;
     }
@@ -628,8 +628,8 @@ static int init_htables(DataRecoveryContext *ctx)
     if (deleted_capacity > 10240) {
         deleted_capacity = 10240;
     }
-    if ((result=ob_index_init_htable_ex(&dedup_ctx->htables.remove,
-                    deleted_capacity, false)) != 0)
+    if ((result=ob_index_init_htable_ex(&dedup_ctx->
+                    htables.remove, deleted_capacity)) != 0)
     {
         return result;
     }

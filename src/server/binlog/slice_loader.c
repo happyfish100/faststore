@@ -438,6 +438,10 @@ static void waiting_threads_finish(FSSliceLoaderThreadCtxArray *ctx_array)
 int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
 {
     int result;
+    int64_t slice_count;
+    int64_t start_time;
+    int64_t end_time;
+    char time_buff[32];
     FSSliceLoaderThreadCtxArray ctx_array;
 
     if ((result=init_thread_ctx_array(&ctx_array)) != 0) {
@@ -457,5 +461,15 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         destroy_thread_ctx_array(&ctx_array);
     }
 
+    if (result == 0) {
+        start_time = get_current_time_ms();
+        if ((result=ob_index_dump_slices_to_trunk(&slice_count)) == 0) {
+            end_time = get_current_time_ms();
+            long_to_comma_str(end_time - start_time, time_buff);
+            logInfo("file: "__FILE__", line: %d, "
+                    "%"PRId64" slices to trunk done, time used: %s ms",
+                    __LINE__, slice_count, time_buff);
+        }
+    }
     return result;
 }

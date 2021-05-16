@@ -38,6 +38,7 @@ static int parse_binlog(BinlogParseContext *ctx)
     char *buff_end;
     char *line_end;
 
+    result = 0;
     ctx->count = 0;
     line_start = ctx->r->buffer.buff;
     buff_end = ctx->r->buffer.buff + ctx->r->buffer.length;

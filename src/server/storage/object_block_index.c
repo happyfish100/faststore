@@ -287,8 +287,7 @@ static int init_ob_shared_ctx_array()
     return 0;
 }
 
-int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
-        const bool modify_sallocator)
+int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity)
 {
     int64_t bytes;
 
@@ -300,7 +299,7 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity,
     }
     memset(htable->buckets, 0, bytes);
 
-    htable->modify_sallocator = modify_sallocator;
+    htable->modify_sallocator = false;
     htable->modify_used_space = false;
     return 0;
 }
@@ -346,8 +345,8 @@ int ob_index_init()
         return result;
     }
 
-    return ob_index_init_htable_ex(&g_ob_hashtable, STORAGE_CFG.
-            object_block.hashtable_capacity, true);
+    return ob_index_init_htable_ex(&g_ob_hashtable,
+            STORAGE_CFG.object_block.hashtable_capacity);
 }
 
 void ob_index_destroy()
@@ -1072,4 +1071,41 @@ void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
         *ob_count += ctx->ob_allocator.info.element_used_count;
         *slice_count += ctx->slice_allocator.info.element_used_count;
     }
+}
+
+int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
+        int64_t *slice_count)
+{
+    int result;
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+    OBSliceEntry *slice;
+    UniqSkiplistIterator it;
+
+    *slice_count = 0;
+    end = htable->buckets + htable->capacity;
+    for (bucket=htable->buckets; bucket<end; bucket++) {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            uniq_skiplist_iterator(ob->slices, &it);
+            while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                if ((result=storage_allocator_add_slice(slice,
+                                htable->modify_used_space)) != 0)
+                {
+                    return result;
+                }
+                ++(*slice_count);
+            }
+
+            ob = ob->next;
+        } while (ob != NULL);
+    }
+
+    htable->modify_sallocator = true;
+    return 0;
 }

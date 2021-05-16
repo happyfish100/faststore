@@ -238,7 +238,7 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
                 "read_threads", ini_ctx->context, storage_cfg->
                 read_threads_per_path);
         if (parray->paths[i].read_thread_count <= 0) {
-            parray->paths[i].read_thread_count = 1;
+            parray->paths[i].read_thread_count = 2;
         }
 
         if ((result=iniGetPercentValue(ini_ctx, "prealloc_space",
@@ -310,9 +310,9 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     }
 
     storage_cfg->read_threads_per_path = iniGetIntValue(NULL,
-            "read_threads_per_path", ini_ctx->context, 1);
+            "read_threads_per_path", ini_ctx->context, 2);
     if (storage_cfg->read_threads_per_path <= 0) {
-        storage_cfg->read_threads_per_path = 1;
+        storage_cfg->read_threads_per_path = 2;
     }
 
     if ((result=iniGetPercentValue(ini_ctx, "prealloc_space_per_path",
