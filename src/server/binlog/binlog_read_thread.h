@@ -21,8 +21,7 @@
 #include "binlog_types.h"
 #include "binlog_reader.h"
 
-#define BINLOG_READ_THREAD_BUFFER_COUNT   2  //double buffers
-
+#define BINLOG_READ_DEFAULT_BUFFER_COUNT   2  //double buffers
 
 typedef struct binlog_read_thread_result {
     int err_no;
@@ -32,22 +31,29 @@ typedef struct binlog_read_thread_result {
 
 typedef struct binlog_read_thread_context {
     ServerBinlogReader reader;
+    int buffer_count;
     volatile char continue_flag;
     volatile char running;
-    BinlogReadThreadResult results[BINLOG_READ_THREAD_BUFFER_COUNT];
+    BinlogReadThreadResult *results;
     struct {
         struct common_blocked_queue waiting;
         struct common_blocked_queue done;
     } queues;
 } BinlogReadThreadContext;
 
+#define binlog_read_thread_init(ctx, subdir_name, \
+        writer, position, buffer_size) \
+    binlog_read_thread_init_ex(ctx, subdir_name, writer, position, \
+            buffer_size, BINLOG_READ_DEFAULT_BUFFER_COUNT)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int binlog_read_thread_init(BinlogReadThreadContext *ctx,
+int binlog_read_thread_init_ex(BinlogReadThreadContext *ctx,
         const char *subdir_name, struct sf_binlog_writer_info *writer,
-        const SFBinlogFilePosition *position, const int buffer_size);
+        const SFBinlogFilePosition *position, const int buffer_size,
+        const int buffer_count);
 
 static inline int binlog_read_thread_return_result_buffer(
         BinlogReadThreadContext *ctx, BinlogReadThreadResult *r)

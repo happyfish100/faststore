@@ -39,12 +39,19 @@
 static void binlog_read_thread_func(BinlogReadThreadContext *ctx,
         void *thread_data);
 
-int binlog_read_thread_init(BinlogReadThreadContext *ctx,
+int binlog_read_thread_init_ex(BinlogReadThreadContext *ctx,
         const char *subdir_name, struct sf_binlog_writer_info *writer,
-        const SFBinlogFilePosition *position, const int buffer_size)
+        const SFBinlogFilePosition *position, const int buffer_size,
+        const int buffer_count)
 {
     int result;
     int i;
+
+    ctx->results = (BinlogReadThreadResult *)fc_malloc(
+            sizeof(BinlogReadThreadResult) * buffer_count);
+    if (ctx->results == NULL) {
+        return ENOMEM;
+    }
 
     if ((result=binlog_reader_init(&ctx->reader, subdir_name,
                     writer, position)) != 0)
@@ -52,20 +59,21 @@ int binlog_read_thread_init(BinlogReadThreadContext *ctx,
         return result;
     }
 
+    ctx->buffer_count = buffer_count;
     ctx->running = 0;
     ctx->continue_flag = 1;
     if ((result=common_blocked_queue_init_ex(&ctx->queues.waiting,
-                    BINLOG_READ_THREAD_BUFFER_COUNT)) != 0)
+                    ctx->buffer_count)) != 0)
     {
         return result;
     }
     if ((result=common_blocked_queue_init_ex(&ctx->queues.done,
-                    BINLOG_READ_THREAD_BUFFER_COUNT)) != 0)
+                    ctx->buffer_count)) != 0)
     {
         return result;
     }
 
-    for (i=0; i<BINLOG_READ_THREAD_BUFFER_COUNT; i++) {
+    for (i=0; i<ctx->buffer_count; i++) {
         if ((result=fc_init_buffer(&ctx->results[i].buffer,
                         buffer_size)) != 0)
         {
@@ -101,13 +109,14 @@ void binlog_read_thread_terminate(BinlogReadThreadContext *ctx)
         logWarning("file: "__FILE__", line: %d, "
                 "wait thread exit timeout", __LINE__);
     }
-    for (i=0; i<BINLOG_READ_THREAD_BUFFER_COUNT; i++) {
+    for (i=0; i<ctx->buffer_count; i++) {
         fc_free_buffer(&ctx->results[i].buffer);
     }
 
     common_blocked_queue_destroy(&ctx->queues.waiting);
     common_blocked_queue_destroy(&ctx->queues.done);
     binlog_reader_destroy(&ctx->reader);
+    free(ctx->results);
 }
 
 static void binlog_read_thread_func(BinlogReadThreadContext *ctx,

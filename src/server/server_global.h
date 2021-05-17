@@ -29,6 +29,10 @@
 
 typedef struct server_global_vars {
     struct {
+        int cpu_count;
+    } system;
+
+    struct {
         FCFSAuthClientFullContext auth;
         FSClusterServerInfo *myself;
         volatile FSClusterServerInfo *leader;
@@ -75,6 +79,8 @@ typedef struct server_global_vars {
     FCThreadPool thread_pool;
 
 } FSServerGlobalVars;
+
+#define SYSTEM_CPU_COUNT      g_server_global_vars.system.cpu_count
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars.cluster.config.ctx.server_cfg

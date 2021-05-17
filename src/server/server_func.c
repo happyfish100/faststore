@@ -22,6 +22,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/local_ip_func.h"
+#include "fastcommon/system_info.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
@@ -445,6 +446,14 @@ int server_load_config(const char *filename)
     }
 
     iniFreeContext(&ini_context);
+    
+    if ((SYSTEM_CPU_COUNT=get_sys_cpu_count()) <= 0) {
+        logCrit("file: "__FILE__", line: %d, "
+                "get CPU count fail", __LINE__);
+        return EINVAL;
+    }
+
+    logInfo("cpu count: %d", SYSTEM_CPU_COUNT);
 
     g_server_global_vars.replica.active_test_interval = (int)
         ceil(SF_G_NETWORK_TIMEOUT / 2.00);

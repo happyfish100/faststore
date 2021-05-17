@@ -73,8 +73,26 @@
     } while (0)
 
 
-typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r, \
-        string_t *line, void *arg);
+typedef int (*binlog_parse_line_func)(BinlogReadThreadResult *r,
+        string_t *line);
+
+typedef struct {
+    BinlogReadThreadContext *read_thread_ctx;
+    BinlogReadThreadResult *r;
+    binlog_parse_line_func parse_line;
+    void *arg;
+    int64_t total_count;
+} BinlogLoaderContext;
+
+typedef int (*binlog_parse_buffer_func)(BinlogLoaderContext *ctx);
+typedef void (*binlog_read_done_func)(BinlogLoaderContext *ctx);
+
+typedef struct {
+    binlog_parse_buffer_func parse_buffer;
+    binlog_parse_line_func parse_line;
+    binlog_read_done_func read_done;
+    void *arg;
+} BinlogLoaderCallbacks;
 
 #ifdef __cplusplus
 extern "C" {
@@ -82,14 +100,23 @@ extern "C" {
 
     int binlog_loader_load_ex(const char *subdir_name,
             struct sf_binlog_writer_info *writer,
-            binlog_parse_line_func parse_line, void *arg);
+            BinlogLoaderCallbacks *callbacks,
+            const int buffer_count);
+
+    int binlog_loader_parse_buffer(BinlogLoaderContext *ctx);
 
     static inline int binlog_loader_load(const char *subdir_name,
             struct sf_binlog_writer_info *writer,
             binlog_parse_line_func parse_line)
     {
-        return binlog_loader_load_ex(subdir_name,
-                writer, parse_line, NULL);
+        BinlogLoaderCallbacks callbacks;
+
+        callbacks.parse_buffer = binlog_loader_parse_buffer;
+        callbacks.parse_line = parse_line;
+        callbacks.read_done = NULL;
+        callbacks.arg = NULL;
+        return binlog_loader_load_ex(subdir_name, writer,
+                &callbacks, BINLOG_READ_DEFAULT_BUFFER_COUNT);
     }
 
 #ifdef __cplusplus

@@ -43,7 +43,7 @@ static SFBinlogWriterContext binlog_writer;
     BINLOG_PARSE_INT_EX(FS_TRUNK_BINLOG_SUBDIR_NAME, var, #var, \
             index, endchr, min_val)
 
-static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line, void *arg)
+static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
 {
 #define MAX_FIELD_COUNT     8
 #define EXPECT_FIELD_COUNT  6

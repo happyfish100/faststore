@@ -23,14 +23,7 @@
 #include "../storage/object_block_index.h"
 #include "binlog_loader.h"
 
-typedef struct {
-    BinlogReadThreadResult *r;
-    binlog_parse_line_func parse_line;
-    void *arg;
-    int count;
-} BinlogParseContext;
-
-static int parse_binlog(BinlogParseContext *ctx)
+int binlog_loader_parse_buffer(BinlogLoaderContext *ctx)
 {
     int result;
     string_t line;
@@ -39,7 +32,6 @@ static int parse_binlog(BinlogParseContext *ctx)
     char *line_end;
 
     result = 0;
-    ctx->count = 0;
     line_start = ctx->r->buffer.buff;
     buff_end = ctx->r->buffer.buff + ctx->r->buffer.length;
     while (line_start < buff_end) {
@@ -50,24 +42,26 @@ static int parse_binlog(BinlogParseContext *ctx)
 
         line.str = line_start;
         line.len = line_end - line_start;
-        if ((result=ctx->parse_line(ctx->r, &line, ctx->arg)) != 0) {
+        if ((result=ctx->parse_line(ctx->r, &line)) != 0) {
             break;
         }
 
-        ctx->count++;
+        ctx->total_count++;
         line_start = line_end + 1;
     }
 
+    binlog_read_thread_return_result_buffer(
+            ctx->read_thread_ctx, ctx->r);
     return result;
 }
 
 int binlog_loader_load_ex(const char *subdir_name,
         struct sf_binlog_writer_info *writer,
-        binlog_parse_line_func parse_line, void *arg)
+        BinlogLoaderCallbacks *callbacks,
+        const int buffer_count)
 {
     BinlogReadThreadContext read_thread_ctx;
-    BinlogParseContext parse_ctx;
-    int64_t total_count;
+    BinlogLoaderContext parse_ctx;
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
@@ -75,8 +69,8 @@ int binlog_loader_load_ex(const char *subdir_name,
 
     start_time = get_current_time_ms();
 
-    if ((result=binlog_read_thread_init(&read_thread_ctx, subdir_name,
-                    writer, NULL, BINLOG_BUFFER_SIZE)) != 0)
+    if ((result=binlog_read_thread_init_ex(&read_thread_ctx, subdir_name,
+                    writer, NULL, BINLOG_BUFFER_SIZE, buffer_count)) != 0)
     {
         return result;
     }
@@ -84,9 +78,10 @@ int binlog_loader_load_ex(const char *subdir_name,
     logInfo("file: "__FILE__", line: %d, "
             "loading %s data ...", __LINE__, subdir_name);
 
-    parse_ctx.parse_line = parse_line;
-    parse_ctx.arg = arg;
-    total_count = 0;
+    parse_ctx.parse_line = callbacks->parse_line;
+    parse_ctx.arg = callbacks->arg;
+    parse_ctx.read_thread_ctx = &read_thread_ctx;
+    parse_ctx.total_count = 0;
     result = 0;
     while (SF_G_CONTINUE_FLAG) {
         if ((parse_ctx.r=binlog_read_thread_fetch_result(
@@ -97,9 +92,9 @@ int binlog_loader_load_ex(const char *subdir_name,
         }
 
         /*
-        logInfo("errno: %d, buffer length: %d", parse_ctx.r->err_no,
-                parse_ctx.r->buffer.length);
-                */
+           logInfo("errno: %d, buffer length: %d", parse_ctx.r->err_no,
+           parse_ctx.r->buffer.length);
+         */
         if (parse_ctx.r->err_no == ENOENT) {
             break;
         } else if (parse_ctx.r->err_no != 0) {
@@ -107,12 +102,13 @@ int binlog_loader_load_ex(const char *subdir_name,
             break;
         }
 
-        if ((result=parse_binlog(&parse_ctx)) != 0) {
+        if ((result=callbacks->parse_buffer(&parse_ctx)) != 0) {
             break;
         }
+    }
 
-        total_count += parse_ctx.count;
-        binlog_read_thread_return_result_buffer(&read_thread_ctx, parse_ctx.r);
+    if (callbacks->read_done != NULL) {
+        callbacks->read_done(&parse_ctx);
     }
 
     binlog_read_thread_terminate(&read_thread_ctx);
@@ -135,7 +131,7 @@ int binlog_loader_load_ex(const char *subdir_name,
         logInfo("file: "__FILE__", line: %d, "
                 "load %s data done. record count: %"PRId64"%s, "
                 "time used: %s ms", __LINE__, subdir_name,
-                total_count, extra_buff, time_buff);
+                parse_ctx.total_count, extra_buff, time_buff);
     } else {
         logError("file: "__FILE__", line: %d, "
                 "result: %d", __LINE__, result);
