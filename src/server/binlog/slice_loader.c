@@ -44,6 +44,8 @@
 #define MAX_BINLOG_FIELD_COUNT  16
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
 
+#define MBLOCK_BATCH_ALLOC_SIZE  1024
+
 struct slice_loader_context;
 
 typedef struct slice_binlog_record {
@@ -68,6 +70,7 @@ typedef struct slice_parse_thread_context {
     } notify;
     SliceRecordChain slices;  //for output
     struct fast_mblock_man record_allocator;  //element: SliceBinlogRecord
+    struct fast_mblock_node *freelist;  //for batch alloc
     BinlogReadThreadContext *read_thread_ctx;
     BinlogReadThreadResult *r;
     struct slice_loader_context *loader_ctx;
@@ -232,14 +235,14 @@ static inline int del_block_set_fields(SliceBinlogRecord *record,
 
 
 static int slice_parse_line(SliceParseThreadContext *thread_ctx,
-        BinlogReadThreadResult *r, string_t *line)
+        BinlogReadThreadResult *r, string_t *line,
+        SliceBinlogRecord *record)
 {
     int count;
     int result;
     int64_t line_count;
     string_t cols[MAX_BINLOG_FIELD_COUNT];
     char binlog_filename[PATH_MAX];
-    SliceBinlogRecord *record;
     FSBlockKey bkey;
     char op_type;
     char *endptr;
@@ -265,12 +268,6 @@ static int slice_parse_line(SliceParseThreadContext *thread_ctx,
             (op_type == SLICE_BINLOG_OP_TYPE_DEL_BLOCK ?
              '\n' : ' '), 0);
     fs_calc_block_hashcode(&bkey);
-
-    record = (SliceBinlogRecord *)fast_mblock_alloc_object(
-            &thread_ctx->record_allocator);
-    if (record == NULL) {
-        return ENOMEM;
-    }
 
     record->op_type = op_type;
     record->bs_key.block = bkey;
@@ -440,17 +437,49 @@ static inline void deal_records(SliceDataThreadContext *thread_ctx,
         SliceBinlogRecord *head)
 {
     SliceBinlogRecord *record;
-    do {
-        record = head;
-        head = head->next;
+    struct fast_mblock_node *node;
+    struct fast_mblock_man *prev_allocator;
+    struct fast_mblock_chain chain;
+    int count;
 
+    if (slice_loader_deal_record(head) != 0) {
+        SF_G_CONTINUE_FLAG = false;
+        return;
+    }
+
+    count = 1;
+    prev_allocator = head->allocator;
+    chain.head = chain.tail = fast_mblock_to_node_ptr(head);
+    thread_ctx->done_count++;
+    record = head->next;
+    while (record != NULL) {
         if (slice_loader_deal_record(record) != 0) {
             SF_G_CONTINUE_FLAG = false;
             return;
         }
-        fast_mblock_free_object(record->allocator, record);
+
+        ++count;
+        node = fast_mblock_to_node_ptr(record);
+        if (record->allocator != prev_allocator ||
+                count == MBLOCK_BATCH_ALLOC_SIZE)
+        {
+            chain.tail->next = NULL;
+            fast_mblock_batch_free(prev_allocator, &chain);
+
+            count = 1;
+            prev_allocator = record->allocator;
+            chain.head = node;
+        } else {
+            chain.tail->next = node;
+        }
+        chain.tail = node;
+
         thread_ctx->done_count++;
-    } while (head != NULL);
+        record = record->next;
+    }
+
+    chain.tail->next = NULL;
+    fast_mblock_batch_free(prev_allocator, &chain);
 }
 
 static int parse_buffer(SliceParseThreadContext *thread_ctx)
@@ -460,6 +489,8 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
     char *line_start;
     char *buff_end;
     char *line_end;
+    struct fast_mblock_node *node;
+    SliceBinlogRecord *record;
 
     result = 0;
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
@@ -473,8 +504,21 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
 
         line.str = line_start;
         line.len = line_end - line_start;
-        if ((result=slice_parse_line(thread_ctx,
-                        thread_ctx->r, &line)) != 0)
+
+        if (thread_ctx->freelist == NULL) {
+            thread_ctx->freelist = fast_mblock_batch_alloc(
+                    &thread_ctx->record_allocator,
+                    MBLOCK_BATCH_ALLOC_SIZE);
+            if (thread_ctx->freelist == NULL) {
+                result = ENOMEM;
+                break;
+            }
+        }
+        node = thread_ctx->freelist;
+        thread_ctx->freelist = thread_ctx->freelist->next;
+        record = (SliceBinlogRecord *)node->data;
+        if ((result=slice_parse_line(thread_ctx, thread_ctx->r,
+                        &line, record)) != 0)
         {
             break;
         }
@@ -500,8 +544,10 @@ static void slice_parse_thread_run(SliceParseThreadContext *thread_ctx,
             loader_ctx->parse_continue_flag)
     {
         PTHREAD_MUTEX_LOCK(&thread_ctx->notify.lcp.lock);
-        pthread_cond_wait(&thread_ctx->notify.lcp.cond,
-                &thread_ctx->notify.lcp.lock);
+        if (thread_ctx->r == NULL) {
+            pthread_cond_wait(&thread_ctx->notify.lcp.cond,
+                    &thread_ctx->notify.lcp.lock);
+        }
         PTHREAD_MUTEX_UNLOCK(&thread_ctx->notify.lcp.lock);
 
         if (thread_ctx->r != NULL) {
@@ -573,6 +619,7 @@ static int init_parse_thread_context(SliceParseThreadContext *thread_ctx)
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
     thread_ctx->read_thread_ctx = NULL;
     thread_ctx->r = NULL;
+    thread_ctx->freelist = NULL;
     return 0;
 }
 
@@ -662,11 +709,11 @@ static int init_thread_ctx_array(SliceLoaderContext *ctx)
     int data_threads;
     int result;
 
-    parse_threads = SYSTEM_CPU_COUNT / 3;
+    parse_threads = SYSTEM_CPU_COUNT / 4;
     if (parse_threads == 0) {
         parse_threads = 1;
     }
-    data_threads = parse_threads * 2;
+    data_threads = parse_threads * 3;
 
     result = init_parse_thread_ctx_array(ctx, &ctx->
             parse_thread_array, parse_threads);
