@@ -387,18 +387,18 @@ static int proto_active_confirm(ConnectionInfo *conn,
         DataRecoveryContext *ctx, const bool last_retry)
 {
     int result;
+    FSProtoHeader *header;
     SFResponseInfo response;
     FSProtoReplicaActiveConfirmReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaActiveConfirmReq)];
 
-    req = (FSProtoReplicaActiveConfirmReq *)
-        (out_buff + sizeof(FSProtoHeader));
+    header = (FSProtoHeader *)out_buff;
+    req = (FSProtoReplicaActiveConfirmReq *)(header + 1);
     int2buff(ctx->ds->dg->id, req->data_group_id);
     int2buff(CLUSTER_MYSELF_PTR->server->id, req->server_id);
     int2buff(ctx->master_repl_version, req->repl_version);
-    SF_PROTO_SET_HEADER((FSProtoHeader *)out_buff,
-            FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
+    SF_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ,
             sizeof(FSProtoReplicaActiveConfirmReq));
 
     response.error.length = 0;

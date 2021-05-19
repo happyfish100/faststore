@@ -748,7 +748,9 @@ static void deal_request_skiplist(TrunkIOThreadContext *ctx)
                 return;
         }
 
-        if (uniq_skiplist_delete(ctx->write.sl_pair->skiplist, iob) != 0) {
+        if ((result=uniq_skiplist_delete(ctx->write.
+                        sl_pair->skiplist, iob)) != 0)
+        {
             logCrit("file: "__FILE__", line: %d, "
                     "uniq_skiplist_delete fail, result: %d",
                     __LINE__, result);
