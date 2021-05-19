@@ -158,7 +158,8 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
         resp->is_leader = 0;
     }
 
-    resp->leader_hint = MYSELF_IS_LEADER;
+    resp->leader_hint = (MYSELF_IS_LEADER ? 1 : 0);
+    resp->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
     int2buff(CLUSTER_MY_SERVER_ID, resp->server_id);
     int2buff(g_sf_global_vars.up_time, resp->up_time);
     int2buff(fs_get_last_shutdown_time(), resp->last_shutdown_time);

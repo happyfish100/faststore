@@ -174,7 +174,8 @@ typedef struct fs_proto_get_server_status_resp {
     char last_shutdown_time[4];
     char is_leader;
     char leader_hint;
-    char padding[2];
+    char force_election;
+    char padding[1];
 } FSProtoGetServerStatusResp;
 
 typedef struct fs_proto_report_ds_status_req {

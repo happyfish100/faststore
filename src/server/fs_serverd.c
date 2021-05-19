@@ -59,6 +59,10 @@
 #include "dio/trunk_io_thread.h"
 #include "shared_thread_pool.h"
 
+#define FORCE_LEADER_ELECTION_OPTION_STR  "--force-leader-election"
+#define FORCE_LEADER_ELECTION_OPTION_LEN  (sizeof( \
+            FORCE_LEADER_ELECTION_OPTION_STR) - 1)
+
 static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
 static int setup_mblock_stat_task();
@@ -74,24 +78,54 @@ static int init_nio_task(struct fast_task_info *task)
     return fs_init_slice_op_ctx(slice_sn_parray);
 }
 
+static void parse_cmd_options(int argc, char *argv[])
+{
+    char **pp;
+    char **end;
+    int len;
+    char next_ch;
+
+    end = argv + argc;
+    for (pp=argv + 1; pp<end; pp++) {
+        len = strlen(*pp);
+        if (len < FORCE_LEADER_ELECTION_OPTION_LEN) {
+            continue;
+        }
+
+        if (memcmp(*pp, FORCE_LEADER_ELECTION_OPTION_STR,
+                    FORCE_LEADER_ELECTION_OPTION_LEN) == 0)
+        {
+            next_ch = *(*pp + FORCE_LEADER_ELECTION_OPTION_LEN);
+            if (next_ch == '\0' || next_ch == '=') {
+                FORCE_LEADER_ELECTION = true;
+                break;
+            }
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
     const char *config_filename;
     char *action;
     char g_pid_filename[MAX_PATH_SIZE];
+    char option[128];
     pthread_t schedule_tid;
     int wait_count;
     bool stop;
     int result;
 
+    sprintf(option, "%s: force leader election",
+            FORCE_LEADER_ELECTION_OPTION_STR);
     stop = false;
     if (argc < 2) {
-        sf_usage(argv[0]);
+        sf_usage_ex(argv[0], option);
         return 1;
     }
 
-    config_filename = sf_parse_daemon_mode_and_action(argc, argv,
-            &g_fs_global_vars.version, &daemon_mode, &action);
+    config_filename = sf_parse_daemon_mode_and_action_ex(
+            argc, argv, &g_fs_global_vars.version,
+            &daemon_mode, &action, "start", option);
     if (config_filename == NULL) {
         return 0;
     }
@@ -122,6 +156,8 @@ int main(int argc, char *argv[])
         log_destroy();
         return 0;
     }
+
+    parse_cmd_options(argc, argv);
 
     sf_enable_exit_on_oom();
     srand(time(NULL));

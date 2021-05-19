@@ -39,6 +39,10 @@ typedef struct server_global_vars {
         struct {
             FSClusterConfig ctx;
             struct {
+                bool force;
+            } leader_election;
+
+            struct {
                 bool failover;
                 char policy;
                 int timeouts;   //in seconds
@@ -88,11 +92,14 @@ typedef struct server_global_vars {
 #define AUTH_CLIENT_CTX       AUTH_CTX.ctx
 #define AUTH_ENABLED          AUTH_CTX.enabled
 
-#define MASTER_ELECTION_FAILOVER g_server_global_vars.cluster. \
+#define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
+    config.leader_election.force
+
+#define MASTER_ELECTION_FAILOVER  g_server_global_vars.cluster. \
     config.master_election.failover
-#define MASTER_ELECTION_POLICY g_server_global_vars.cluster.   \
+#define MASTER_ELECTION_POLICY  g_server_global_vars.cluster.   \
     config.master_election.policy
-#define MASTER_ELECTION_TIMEOUTS g_server_global_vars.cluster. \
+#define MASTER_ELECTION_TIMEOUTS  g_server_global_vars.cluster. \
     config.master_election.timeouts
 
 #define CLUSTER_MYSELF_PTR    g_server_global_vars.cluster.myself

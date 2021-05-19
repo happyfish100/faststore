@@ -45,6 +45,7 @@ typedef struct fs_cluster_server_status {
     FSClusterServerInfo *cs;
     char is_leader;
     char leader_hint;
+    char force_election;
     int server_id;
     int up_time;
     int last_shutdown_time;
@@ -139,6 +140,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
     resp = (FSProtoGetServerStatusResp *)in_body;
     server_status->is_leader = resp->is_leader;
     server_status->leader_hint = resp->leader_hint;
+    server_status->force_election = resp->force_election;
     server_status->server_id = buff2int(resp->server_id);
     server_status->up_time = buff2int(resp->up_time);
     server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
@@ -258,6 +260,11 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
+    sub = (int)status1->force_election - (int)status2->force_election;
+    if (sub != 0) {
+        return sub;
+    }
+
     sub = ALIGN_TIME(status2->up_time) - ALIGN_TIME(status1->up_time);
     if (sub != 0) {
         return sub;
@@ -285,10 +292,12 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
     if (server_status->cs == CLUSTER_MYSELF_PTR) {
         server_status->is_leader = (CLUSTER_MYSELF_PTR ==
                 CLUSTER_LEADER_ATOM_PTR ? 1 : 0);
-        server_status->leader_hint = MYSELF_IS_LEADER;
+        server_status->leader_hint = (MYSELF_IS_LEADER ? 1 : 0);
+        server_status->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
         server_status->up_time = g_sf_global_vars.up_time;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
-        server_status->version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
+        server_status->version = __sync_add_and_fetch(
+                &CLUSTER_CURRENT_VERSION, 0);
         server_status->last_shutdown_time = fs_get_last_shutdown_time();
         return 0;
     } else {
@@ -794,8 +803,9 @@ static int cluster_select_leader()
         }
 
         ++i;
-        if (server_status.up_time - server_status.last_shutdown_time > 3600 &&
-                g_current_time - server_status.up_time < 300)
+        if ((server_status.up_time - server_status.last_shutdown_time > 3600
+                    && g_current_time - server_status.up_time < 600) &&
+                !FORCE_LEADER_ELECTION)
         {
             sprintf(prompt, "the candidate leader server id: %d, "
                     "does not match the selection rule because it's "
@@ -805,7 +815,12 @@ static int cluster_select_leader()
                     server_status.cs->server->id, (int)(server_status.up_time -
                         server_status.last_shutdown_time));
         } else {
-            *prompt = '\0';
+            if (FORCE_LEADER_ELECTION) {
+                sprintf(prompt, "force_leader_election: %d, ",
+                        FORCE_LEADER_ELECTION);
+            } else {
+                *prompt = '\0';
+            }
             if (i == 5) {
                 break;
             }
