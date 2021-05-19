@@ -94,10 +94,23 @@ typedef struct slice_data_thread_ctx_array {
     int count;
 } SliceDataThreadCtxArray;
 
+typedef struct slice_dump_thread_context {
+    int64_t slice_count;
+    int64_t start_index;
+    int64_t end_index;
+    struct slice_loader_context *loader_ctx;
+} SliceDumpThreadContext;
+
+typedef struct slice_dump_thread_ctx_array {
+    SliceDumpThreadContext *contexts;
+    int count;
+} SliceDumpThreadCtxArray;
+
 typedef struct slice_loader_context {
     struct {
         volatile int parse;
         volatile int data;
+        volatile int dump;
     } thread_counts;
     volatile bool parse_continue_flag;
     volatile bool data_continue_flag;
@@ -841,13 +854,140 @@ static void slice_binlog_read_done(BinlogLoaderContext *ctx)
             &slice_ctx->data_thread_array);
 }
 
-int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
+static void slice_dump_thread_run(SliceDumpThreadContext *thread_ctx,
+        void *thread_data)
+{
+    __sync_add_and_fetch(&thread_ctx->loader_ctx->thread_counts.dump, 1);
+    if (ob_index_dump_slices_to_trunk(thread_ctx->start_index,
+                thread_ctx->end_index, &thread_ctx->slice_count) != 0)
+    {
+        sf_terminate_myself();
+    }
+    __sync_sub_and_fetch(&thread_ctx->loader_ctx->thread_counts.dump, 1);
+}
+
+static int init_dump_thread_ctx_array(SliceLoaderContext *loader_ctx,
+        SliceDumpThreadCtxArray *ctx_array, int64_t *slice_count)
+{
+#define MIN_SLICES_PER_THREAD  200000
+    int result;
+    int bytes;
+    int thread_count;
+    int64_t buckets_per_thread;
+    int64_t ob_count;
+    int64_t total_slice_count;
+    int64_t start_index;
+    SliceDumpThreadContext *ctx;
+    SliceDumpThreadContext *end;
+
+    ob_index_get_ob_and_slice_counts(&ob_count, &total_slice_count);
+    if (total_slice_count == 0) {
+        ctx_array->contexts = NULL;
+        ctx_array->count = 0;
+        return 0;
+    }
+
+    thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
+        MIN_SLICES_PER_THREAD;
+    if (thread_count > SYSTEM_CPU_COUNT) {
+        thread_count = SYSTEM_CPU_COUNT;
+    }
+
+    if (thread_count == 1) {
+        ctx_array->count = 0;
+        ctx_array->contexts = NULL;
+        return ob_index_dump_slices_to_trunk(0,
+                g_ob_hashtable.capacity, slice_count);
+    }
+
+    bytes = sizeof(SliceDumpThreadContext) * thread_count;
+    ctx_array->contexts = (SliceDumpThreadContext *)fc_malloc(bytes);
+    if (ctx_array->contexts == NULL) {
+        return ENOMEM;
+    }
+
+    buckets_per_thread = (g_ob_hashtable.capacity +
+            thread_count - 1) / thread_count; 
+    end = ctx_array->contexts + thread_count;
+    for (ctx=ctx_array->contexts, start_index=0; ctx<end; ctx++) {
+        ctx->slice_count = 0;
+        ctx->start_index = start_index;
+        ctx->end_index = start_index + buckets_per_thread;
+        if (ctx->end_index > g_ob_hashtable.capacity) {
+            ctx->end_index = g_ob_hashtable.capacity;
+        }
+        ctx->loader_ctx = loader_ctx;
+        if ((result=shared_thread_pool_run((fc_thread_pool_callback)
+                        slice_dump_thread_run, ctx)) != 0)
+        {
+            return result;
+        }
+
+        start_index += buckets_per_thread;
+    }
+
+    ctx_array->count = thread_count;
+    return 0;
+}
+
+static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
 {
     int result;
+    SliceDumpThreadCtxArray dump_thread_array;
+    SliceDumpThreadContext *ctx;
+    SliceDumpThreadContext *end;
     int64_t slice_count;
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
+
+    start_time = get_current_time_ms();
+    slice_count = 0;
+    if ((result=init_dump_thread_ctx_array(loader_ctx,
+                    &dump_thread_array, &slice_count)) != 0)
+    {
+        return result;
+    }
+
+    if (dump_thread_array.count > 0) {
+        fc_sleep_ms(100);
+        while (SF_G_CONTINUE_FLAG) {
+            if (__sync_add_and_fetch(&loader_ctx->
+                        thread_counts.dump, 0) == 0)
+            {
+                break;
+            }
+
+            fc_sleep_ms(10);
+        }
+
+        slice_count = 0;
+        end = dump_thread_array.contexts + dump_thread_array.count;
+        for (ctx=dump_thread_array.contexts; ctx<end; ctx++) {
+            /*
+            logInfo("thread %d. slice_count: %"PRId64,
+                    (int)(ctx-dump_thread_array.contexts) + 1,
+                    ctx->slice_count);
+                    */
+
+            slice_count += ctx->slice_count;
+        }
+
+        free(dump_thread_array.contexts);
+    }
+
+    end_time = get_current_time_ms();
+    long_to_comma_str(end_time - start_time, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "dump %"PRId64" slices to trunk done, time used: %s ms",
+            __LINE__, slice_count, time_buff);
+
+    return result;
+}
+
+int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
+{
+    int result;
     SliceLoaderContext ctx;
     BinlogLoaderCallbacks callbacks;
 
@@ -856,6 +996,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     ctx.dealing_threads = 0;
     ctx.thread_counts.parse = 0;
     ctx.thread_counts.data = 0;
+    ctx.thread_counts.dump = 0;
     if ((result=init_thread_ctx_array(&ctx)) != 0) {
         return result;
     }
@@ -873,19 +1014,12 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         }
     }
 
-    if (SF_G_CONTINUE_FLAG) {
-        destroy_loader_context(&ctx);
+    if (result == 0) {
+        result = slice_dump_slices_to_trunk(&ctx);
     }
 
-    if (result == 0) {
-        start_time = get_current_time_ms();
-        if ((result=ob_index_dump_slices_to_trunk(&slice_count)) == 0) {
-            end_time = get_current_time_ms();
-            long_to_comma_str(end_time - start_time, time_buff);
-            logInfo("file: "__FILE__", line: %d, "
-                    "%"PRId64" slices to trunk done, time used: %s ms",
-                    __LINE__, slice_count, time_buff);
-        }
+    if (SF_G_CONTINUE_FLAG) {
+        destroy_loader_context(&ctx);
     }
     return result;
 }

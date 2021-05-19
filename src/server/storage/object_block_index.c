@@ -1073,7 +1073,83 @@ void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
     }
 }
 
+static int init_slice_ptr_array(OBSlicePtrArray *sarray, const int alloc)
+{
+    sarray->slices = (OBSliceEntry **)fc_malloc(
+            sizeof(OBSliceEntry *) * alloc);
+    if (sarray->slices == NULL) {
+        return ENOMEM;
+    }
+
+    sarray->alloc = alloc;
+    sarray->count = 0;
+    return 0;
+}
+
+static int realloc_slice_ptr_array(OBSlicePtrArray *sarray)
+{
+    int new_alloc;
+    OBSliceEntry **new_slices;
+
+    new_alloc = sarray->alloc * 2;
+    new_slices = (OBSliceEntry **)fc_malloc(
+            sizeof(OBSliceEntry *) * new_alloc);
+    if (new_slices == NULL) {
+        return ENOMEM;
+    }
+
+    memcpy(new_slices, sarray->slices, sizeof(
+                OBSliceEntry *) * sarray->count);
+    free(sarray->slices);
+
+    sarray->slices = new_slices;
+    sarray->alloc = new_alloc;
+    return 0;
+}
+
+static int compare_slice_by_trunk_id(OBSliceEntry **slice1,
+        OBSliceEntry **slice2)
+{
+    int sub;
+
+    sub = (int)(*slice1)->space.store->index -
+        (int)(*slice2)->space.store->index;
+    if (sub != 0) {
+        return sub;
+    }
+
+    return fc_compare_int64((*slice1)->space.id_info.id,
+            (*slice2)->space.id_info.id);
+}
+
+static int add_slices_to_trunk(OBSlicePtrArray *sarray)
+{
+    int result;
+    OBSliceEntry **first;
+    OBSliceEntry **slice;
+    OBSliceEntry **end;
+
+    qsort(sarray->slices, sarray->count, sizeof(OBSliceEntry *), (int (*)
+                (const void *, const void *))compare_slice_by_trunk_id);
+    first = sarray->slices;
+    end = sarray->slices + sarray->count;
+    for (slice=sarray->slices+1; slice<end; slice++) {
+        if (compare_slice_by_trunk_id(slice, first) != 0) {
+            if ((result=trunk_allocator_batch_add_slices(
+                            first, slice - first)) != 0)
+            {
+                return result;
+            }
+
+            first = slice;
+        }
+    }
+
+    return trunk_allocator_batch_add_slices(first, slice - first);
+}
+
 int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
+        const int64_t start_index, const int64_t end_index,
         int64_t *slice_count)
 {
     int result;
@@ -1082,10 +1158,15 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
     OBEntry *ob;
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
+    OBSlicePtrArray sarray;
 
-    *slice_count = 0;
-    end = htable->buckets + htable->capacity;
-    for (bucket=htable->buckets; bucket<end; bucket++) {
+    if ((result=init_slice_ptr_array(&sarray, 128 * 1024)) != 0) {
+        *slice_count = 0;
+        return result;
+    }
+
+    end = htable->buckets + end_index;
+    for (bucket=htable->buckets+start_index; bucket<end; bucket++) {
         if (*bucket == NULL) {
             continue;
         }
@@ -1094,18 +1175,26 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
         do {
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if ((result=storage_allocator_add_slice(slice,
-                                htable->modify_used_space)) != 0)
-                {
-                    return result;
+                if (sarray.count == sarray.alloc) {
+                    if ((result=realloc_slice_ptr_array(&sarray)) != 0) {
+                        *slice_count = 0;
+                        return result;
+                    }
                 }
-                ++(*slice_count);
+
+                sarray.slices[sarray.count++] = slice;
             }
 
             ob = ob->next;
         } while (ob != NULL);
     }
 
+    if (sarray.count > 0) {
+        result = add_slices_to_trunk(&sarray);
+    }
+
+    *slice_count = sarray.count;
+    free(sarray.slices);
     htable->modify_sallocator = true;
-    return 0;
+    return result;
 }

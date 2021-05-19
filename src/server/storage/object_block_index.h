@@ -47,8 +47,9 @@ extern "C" {
     ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.  \
             hashtable_capacity)
 
-#define ob_index_dump_slices_to_trunk(slice_count) \
-    ob_index_dump_slices_to_trunk_ex(&g_ob_hashtable, slice_count)
+#define ob_index_dump_slices_to_trunk(start_index, end_index, slice_count) \
+    ob_index_dump_slices_to_trunk_ex(&g_ob_hashtable, \
+            start_index, end_index, slice_count)
 
     int ob_index_init();
     void ob_index_destroy();
@@ -135,6 +136,7 @@ extern "C" {
             int64_t *slice_count);
 
     int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
+            const int64_t start_index, const int64_t end_index,
             int64_t *slice_count);
 
 #ifdef __cplusplus

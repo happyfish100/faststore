@@ -391,7 +391,6 @@ int storage_allocator_prealloc_trunk_freelists()
 {
     int result;
 
-    g_trunk_allocator_vars.data_load_done = true;
     ob_index_enable_modify_used_space();
 
     if ((result=deal_allocator_on_ready(&g_allocator_mgr->write_cache)) != 0) {

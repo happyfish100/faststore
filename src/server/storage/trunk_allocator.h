@@ -76,7 +76,6 @@ typedef struct fs_trunk_allocator {
 } FSTrunkAllocator;
 
 typedef struct {
-    bool data_load_done;
     struct fast_mblock_man trunk_allocator;
 } TrunkAllocatorGlobalVars;
 
@@ -107,6 +106,10 @@ extern "C" {
 
     int trunk_allocator_add_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);
+
+    //the store path index and trunk id must be same
+    int trunk_allocator_batch_add_slices(OBSliceEntry **slices,
+            const int64_t count);
 
     int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);

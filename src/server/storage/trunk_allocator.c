@@ -27,7 +27,7 @@
 #include "storage_allocator.h"
 #include "trunk_allocator.h"
 
-TrunkAllocatorGlobalVars g_trunk_allocator_vars = {false};
+TrunkAllocatorGlobalVars g_trunk_allocator_vars;
 
 static int compare_trunk_by_id(const FSTrunkFileInfo *t1,
         const FSTrunkFileInfo *t2)
@@ -221,17 +221,58 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
                 slice->space.id_info.id);
         result = ENOENT;
     } else {
-        /* for loading slice binlog */
-        if (!g_trunk_allocator_vars.data_load_done &&
-                slice->space.offset + slice->space.size >
-                trunk_info->free_start)
-        {
-            trunk_info->free_start = slice->space.offset + slice->space.size;
-        }
-
         trunk_info->used.bytes += slice->space.size;
         trunk_info->used.count++;
         fc_list_add_tail(&slice->dlink, &trunk_info->used.slice_head);
+        result = 0;
+    }
+    PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
+
+    return result;
+}
+
+int trunk_allocator_batch_add_slices(OBSliceEntry **slices,
+        const int64_t count)
+{
+    int result;
+    FSTrunkAllocator *allocator;
+    OBSliceEntry **slice;
+    OBSliceEntry **end;
+    FSTrunkFileInfo target;
+    FSTrunkFileInfo *trunk_info;
+
+    if (count <= 0) {
+        return 0;
+    }
+
+    allocator = g_allocator_mgr->allocator_ptr_array.
+        allocators[slices[0]->space.store->index];
+    target.id_info.id = slices[0]->space.id_info.id;
+    PTHREAD_MUTEX_LOCK(&allocator->trunks.lock);
+    if ((trunk_info=(FSTrunkFileInfo *)uniq_skiplist_find(allocator->
+                    trunks.by_id.skiplist, &target)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "store path index: %d, trunk id: %"PRId64" not exist",
+                __LINE__, allocator->path_info->store.index,
+                slices[0]->space.id_info.id);
+        result = ENOENT;
+    } else {
+        end = slices + count;
+        for (slice=slices; slice<end; slice++) {
+            /* for loading slice binlog */
+            if ((*slice)->space.offset + (*slice)->space.size >
+                    trunk_info->free_start)
+            {
+                trunk_info->free_start = (*slice)->space.offset +
+                    (*slice)->space.size;
+            }
+
+            trunk_info->used.bytes += (*slice)->space.size;
+            trunk_info->used.count++;
+            fc_list_add_tail(&(*slice)->dlink, &trunk_info->used.slice_head);
+        }
+
         result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
@@ -261,10 +302,8 @@ int trunk_allocator_delete_slice(FSTrunkAllocator *allocator,
         trunk_info->used.count--;
         fc_list_del_init(&slice->dlink);
 
-        if (g_trunk_allocator_vars.data_load_done) {
-            push_trunk_util_change_event(allocator, trunk_info,
-                    FS_TRUNK_UTIL_EVENT_UPDATE);
-        }
+        push_trunk_util_change_event(allocator, trunk_info,
+                FS_TRUNK_UTIL_EVENT_UPDATE);
         result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&allocator->trunks.lock);
