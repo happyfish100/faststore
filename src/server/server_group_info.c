@@ -49,6 +49,7 @@ typedef struct {
 
 static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
 static time_t last_shutdown_time = 0;
+static uint64_t last_synced_version = 0;
 static int last_refresh_file_time = 0;
 
 static int server_group_info_write_to_file(const uint64_t current_version);
@@ -709,6 +710,29 @@ static int load_group_servers_from_ini(const char *group_filename,
     return 0;
 }
 
+#define server_group_info_set_file_mtime() \
+    server_group_info_set_file_mtime_ex(g_current_time)
+
+static int server_group_info_set_file_mtime_ex(const time_t t)
+{
+    char full_filename[PATH_MAX];
+    struct timeval times[2];
+
+    times[0].tv_sec = t;
+    times[0].tv_usec = 0;
+    times[1].tv_sec = t;
+    times[1].tv_usec = 0;
+
+    get_server_group_filename(full_filename, sizeof(full_filename));
+    if (utimes(full_filename, times) < 0) {
+        logError("file: "__FILE__", line: %d, "
+                "utimes file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, full_filename, errno, STRERROR(errno));
+        return errno != 0 ? errno : EPERM;
+    }
+    return 0;
+}
+
 static int get_server_group_info_file_mtime(time_t *mtime)
 {
     char full_filename[PATH_MAX];
@@ -737,7 +761,14 @@ static int load_server_groups()
     get_server_group_filename(full_filename, sizeof(full_filename));
     if (access(full_filename, F_OK) != 0) {
         if (errno == ENOENT) {
-            return server_group_info_write_to_file(CLUSTER_CURRENT_VERSION);
+            if ((result=server_group_info_write_to_file(
+                            CLUSTER_CURRENT_VERSION)) != 0)
+            {
+                return result;
+            }
+
+            return server_group_info_set_file_mtime_ex(
+                    g_current_time - 86400);
         }
     }
 
@@ -798,6 +829,7 @@ int server_group_info_init(const char *cluster_config_filename)
     localtime_r(&t, &tm_current);
     tm_current.tm_sec = 0;
     last_refresh_file_time = mktime(&tm_current);
+    last_synced_version = CLUSTER_CURRENT_VERSION;
 
     return init_cluster_notify_contexts();
 }
@@ -861,31 +893,14 @@ time_t fs_get_last_shutdown_time()
     return last_shutdown_time;
 }
 
-static int server_group_info_set_file_mtime()
-{
-    char full_filename[PATH_MAX];
-    struct timeval times[2];
-
-    times[0].tv_sec = g_current_time;
-    times[0].tv_usec = 0;
-    times[1].tv_sec = g_current_time;
-    times[1].tv_usec = 0;
-
-    get_server_group_filename(full_filename, sizeof(full_filename));
-    if (utimes(full_filename, times) < 0) {
-        logError("file: "__FILE__", line: %d, "
-                "utimes file \"%s\" fail, errno: %d, error info: %s",
-                __LINE__, full_filename, errno, STRERROR(errno));
-        return errno != 0 ? errno : EPERM;
-    }
-    return 0;
-}
-
 static int server_group_info_sync_to_file(void *args)
 {
-    static uint64_t last_synced_version = 0;
     uint64_t current_version;
     int result;
+
+    if (CLUSTER_LEADER_ATOM_PTR == NULL) {
+        return 0;
+    }
 
     current_version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
     if (last_synced_version == current_version) {
