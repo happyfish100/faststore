@@ -120,6 +120,15 @@
 #define FS_EVENT_SOURCE_MASTER_OFFLINE  'm'
 #define FS_EVENT_SOURCE_CS_LEADER       'L'
 
+#define FS_FORCE_ELECTION_SHORT_OPTION_STR  "-f"
+#define FS_FORCE_ELECTION_SHORT_OPTION_LEN  (sizeof( \
+            FS_FORCE_ELECTION_SHORT_OPTION_STR) - 1)
+
+#define FS_FORCE_ELECTION_LONG_OPTION_STR  "--force-leader-election"
+#define FS_FORCE_ELECTION_LONG_OPTION_LEN  (sizeof( \
+            FS_FORCE_ELECTION_LONG_OPTION_STR) - 1)
+
+
 #define FS_TASK_BUFFER_FRONT_PADDING_SIZE  (sizeof(FSProtoHeader) + \
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \
         sizeof(FSProtoReplicaRPCReqBodyPart))

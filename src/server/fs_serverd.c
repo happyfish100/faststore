@@ -59,10 +59,6 @@
 #include "dio/trunk_io_thread.h"
 #include "shared_thread_pool.h"
 
-#define FORCE_LEADER_ELECTION_OPTION_STR  "--force-leader-election"
-#define FORCE_LEADER_ELECTION_OPTION_LEN  (sizeof( \
-            FORCE_LEADER_ELECTION_OPTION_STR) - 1)
-
 static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
 static int setup_mblock_stat_task();
@@ -80,28 +76,15 @@ static int init_nio_task(struct fast_task_info *task)
 
 static void parse_cmd_options(int argc, char *argv[])
 {
-    char **pp;
-    char **end;
-    int len;
-    char next_ch;
+    string_t short_option;
+    string_t long_option;
 
-    end = argv + argc;
-    for (pp=argv + 1; pp<end; pp++) {
-        len = strlen(*pp);
-        if (len < FORCE_LEADER_ELECTION_OPTION_LEN) {
-            continue;
-        }
-
-        if (memcmp(*pp, FORCE_LEADER_ELECTION_OPTION_STR,
-                    FORCE_LEADER_ELECTION_OPTION_LEN) == 0)
-        {
-            next_ch = *(*pp + FORCE_LEADER_ELECTION_OPTION_LEN);
-            if (next_ch == '\0' || next_ch == '=') {
-                FORCE_LEADER_ELECTION = true;
-                break;
-            }
-        }
-    }
+    FC_SET_STRING_EX(short_option, FS_FORCE_ELECTION_SHORT_OPTION_STR,
+            FS_FORCE_ELECTION_SHORT_OPTION_LEN);
+    FC_SET_STRING_EX(long_option, FS_FORCE_ELECTION_LONG_OPTION_STR,
+            FS_FORCE_ELECTION_LONG_OPTION_LEN);
+    sf_parse_cmd_option_bool(argc, argv, &short_option,
+            &long_option, &FORCE_LEADER_ELECTION);
 }
 
 int main(int argc, char *argv[])
@@ -115,8 +98,9 @@ int main(int argc, char *argv[])
     bool stop;
     int result;
 
-    sprintf(option, "%s: force leader election",
-            FORCE_LEADER_ELECTION_OPTION_STR);
+    sprintf(option, "%s | %s: force leader election",
+            FS_FORCE_ELECTION_SHORT_OPTION_STR,
+            FS_FORCE_ELECTION_LONG_OPTION_STR);
     stop = false;
     if (argc < 2) {
         sf_usage_ex(argv[0], option);
