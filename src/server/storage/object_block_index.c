@@ -244,6 +244,7 @@ static int init_ob_shared_ctx_array()
     const int min_alloc_elements_once = 2;
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link
+    const bool allocator_use_lock = false;
     OBSharedContext *ctx;
     OBSharedContext *end;
 
@@ -259,7 +260,7 @@ static int init_ob_shared_ctx_array()
         if ((result=uniq_skiplist_init_ex2(&ctx->factory, max_level_count,
                         slice_compare, slice_free_func, alloc_skiplist_once,
                         min_alloc_elements_once, delay_free_seconds,
-                        bidirection)) != 0)
+                        bidirection, allocator_use_lock)) != 0)
         {
             return result;
         }
