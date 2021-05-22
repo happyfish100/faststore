@@ -383,7 +383,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
 
             deleted = ob;
             ob = ob->next;
-            fast_mblock_free_object(ob->allocator, deleted);
+            fast_mblock_free_object(deleted->allocator, deleted);
         } while (ob != NULL);
 
         PTHREAD_MUTEX_UNLOCK(&lcp->lock);
