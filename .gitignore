@@ -39,6 +39,7 @@ src/client/tools/fs_service_stat
 src/client/tools/fs_write
 src/client/tools/fs_read
 src/client/tools/fs_delete
+src/client/tools/fstore_list_servers
 src/client/tests/test_slice_rw
 src/api/test_otid_htable
 

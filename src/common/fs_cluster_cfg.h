@@ -83,7 +83,7 @@ extern "C" {
 #endif
 
     int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
-            const char *cluster_filename);
+            const char *cluster_filename, const bool calc_signs);
 
     int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
             IniFullContext *ini_ctx, char *cluster_full_filename,

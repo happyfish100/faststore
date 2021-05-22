@@ -7,7 +7,8 @@ TARGET_PATH = $(TARGET_PREFIX)/bin
 
 STATIC_OBJS =
 
-ALL_PRGS = fs_cluster_stat fs_service_stat fs_write fs_read fs_delete
+ALL_PRGS = fs_cluster_stat fs_service_stat fs_write fs_read fs_delete \
+           fstore_list_servers
 
 all: $(STATIC_OBJS) $(ALL_PRGS)
 

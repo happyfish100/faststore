@@ -811,7 +811,7 @@ static int cluster_calc_config_signs(FSClusterConfig *cluster_cfg)
 }
 
 int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
-        const char *cluster_filename)
+        const char *cluster_filename, const bool calc_signs)
 {
     IniContext ini_context;
     const int min_hosts_each_group = 1;
@@ -846,8 +846,10 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         return result;
     }
 
-    if ((result=cluster_calc_config_signs(cluster_cfg)) != 0) {
-        return result;
+    if (calc_signs) {
+        if ((result=cluster_calc_config_signs(cluster_cfg)) != 0) {
+            return result;
+        }
     }
     return find_group_indexes_in_cluster_config(
             cluster_cfg, cluster_filename);
@@ -1243,7 +1245,7 @@ int fs_cluster_cfg_load_from_ini_ex1(FSClusterConfig *cluster_cfg,
 
     resolve_path(ini_ctx->filename, cluster_cfg_filename,
             cluster_full_filename, size);
-    return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename);
+    return fs_cluster_cfg_load(cluster_cfg, cluster_full_filename, true);
 }
 
 const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(

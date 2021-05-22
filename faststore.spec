@@ -119,6 +119,7 @@ mkdir -p /opt/fastcfs/fstore
 /usr/bin/fs_delete
 /usr/bin/fs_read
 /usr/bin/fs_write
+/usr/bin/fstore_list_servers
 
 %files -n %{FastStoreDevel}
 %defattr(-,root,root,-)
