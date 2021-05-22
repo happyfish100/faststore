@@ -27,9 +27,20 @@
 #define SLICE_ARRAY_FIXED_COUNT  64
 
 typedef struct {
+    UniqSkiplistFactory factory;
+    struct fast_mblock_man ob;     //for ob_entry
+    struct fast_mblock_man slice;  //for slice_entry
+} OBSharedAllocator;
+
+typedef struct {
     int count;
-    OBSharedContext *contexts;
-} OBSharedContextArray;
+    pthread_lock_cond_pair_t *pairs;   //for lock and notify
+} OBSharedLockArray;
+
+typedef struct {
+    int count;
+    OBSharedAllocator *allocators;
+} OBSharedAllocatorArray;
 
 typedef struct {
     int alloc;
@@ -38,29 +49,43 @@ typedef struct {
     OBSliceEntry *fixed[SLICE_ARRAY_FIXED_COUNT];
 } OBSlicePtrSmartArray;
 
-static OBSharedContextArray ob_shared_ctx_array = {0, NULL};
+typedef struct {
+    OBSharedLockArray lock_array;
+    OBSharedAllocatorArray allocator_array;
+} OBSharedContext;
+
+static OBSharedContext ob_shared_ctx = {{0, NULL}, {0, NULL}};
 
 OBHashtable g_ob_hashtable = {0, 0, NULL};
 
-#define OB_INDEX_SET_HASHTABLE_CTX(htable, bkey) \
+#define OB_INDEX_SET_HASHTABLE_LOCK(htable, bkey) \
     int64_t bucket_index;  \
-    OBSharedContext *ctx;  \
+    pthread_lock_cond_pair_t *lcp; \
     do {  \
         bucket_index = FS_BLOCK_HASH_CODE(bkey) % (htable)->capacity; \
-        ctx = ob_shared_ctx_array.contexts + bucket_index %   \
-            ob_shared_ctx_array.count;  \
+        lcp = ob_shared_ctx.lock_array.pairs + bucket_index %   \
+            ob_shared_ctx.lock_array.count;  \
     } while (0)
 
-#define OB_INDEX_SET_BUCKET_AND_CTX(htable, bkey) \
+
+#define OB_INDEX_SET_HASHTABLE_ALLOCATOR(bkey) \
+    OBSharedAllocator *allocator;  \
+    do {  \
+        allocator = ob_shared_ctx.allocator_array.allocators + \
+            FS_BLOCK_HASH_CODE(bkey) % ob_shared_ctx.allocator_array.count; \
+    } while (0)
+
+
+#define OB_INDEX_SET_BUCKET_AND_LOCK(htable, bkey) \
     OBEntry **bucket;   \
-    OB_INDEX_SET_HASHTABLE_CTX(htable, bkey);  \
+    OB_INDEX_SET_HASHTABLE_LOCK(htable, bkey);  \
     do {  \
         bucket = (htable)->buckets + bucket_index; \
     } while (0)
 
 
-static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
-        const FSBlockKey *bkey, const bool create_flag, OBEntry **pprev)
+static OBEntry *get_ob_entry_ex(OBEntry **bucket, const FSBlockKey *bkey,
+        const bool create_flag, OBEntry **pprev)
 {
     const int init_level_count = 2;
     OBEntry *previous;
@@ -71,9 +96,6 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
         pprev = &previous;
     }
     if (*bucket == NULL) {
-        if (!create_flag) {
-            return NULL;
-        }
         *pprev = NULL;
     } else {
         cmpr = ob_index_compare_block_key(bkey, &(*bucket)->bkey);
@@ -95,46 +117,46 @@ static OBEntry *get_ob_entry_ex(OBSharedContext *ctx, OBEntry **bucket,
                 *pprev = (*pprev)->next;
             }
         }
+    }
 
-        if (!create_flag) {
+    if (!create_flag) {
+        return NULL;
+    } else {
+        OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
+        ob = (OBEntry *)fast_mblock_alloc_object(&allocator->ob);
+        if (ob == NULL) {
             return NULL;
         }
-    }
+        ob->slices = uniq_skiplist_new(&allocator->factory, init_level_count);
+        if (ob->slices == NULL) {
+            fast_mblock_free_object(&allocator->ob, ob);
+            return NULL;
+        }
 
-    ob = (OBEntry *)fast_mblock_alloc_object(&ctx->ob_allocator);
-    if (ob == NULL) {
-        return NULL;
+        ob->bkey = *bkey;
+        if (*pprev == NULL) {
+            ob->next = *bucket;
+            *bucket = ob;
+        } else {
+            ob->next = (*pprev)->next;
+            (*pprev)->next = ob;
+        }
+        return ob;
     }
-    ob->slices = uniq_skiplist_new(&ctx->factory, init_level_count);
-    if (ob->slices == NULL) {
-        fast_mblock_free_object(&ctx->ob_allocator, ob);
-        return NULL;
-    }
-
-    ob->bkey = *bkey;
-    if (*pprev == NULL) {
-        ob->next = *bucket;
-        *bucket = ob;
-    } else {
-        ob->next = (*pprev)->next;
-        (*pprev)->next = ob;
-    }
-
-    return ob;
 }
 
-#define get_ob_entry(ctx, bucket, bkey, create_flag)  \
-    get_ob_entry_ex(ctx, bucket, bkey, create_flag, NULL)
+#define get_ob_entry(bucket, bkey, create_flag)  \
+    get_ob_entry_ex(bucket, bkey, create_flag, NULL)
 
 OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
         const FSBlockKey *bkey)
 {
     OBEntry *ob;
-    OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
 
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry(ctx, bucket, bkey, false);
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry(bucket, bkey, false);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return ob;
 }
@@ -143,25 +165,25 @@ OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
 {
     OBEntry *ob;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(&g_ob_hashtable, *bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry(ctx, bucket, bkey, false);
+    OB_INDEX_SET_BUCKET_AND_LOCK(&g_ob_hashtable, *bkey);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry(bucket, bkey, false);
     if (ob != NULL) {
         ++(ob->reclaiming_count);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return ob;
 }
 
 void ob_index_reclaim_unlock(OBEntry *ob)
 {
-    OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, ob->bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
+    OB_INDEX_SET_HASHTABLE_LOCK(&g_ob_hashtable, ob->bkey);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
     if (--(ob->reclaiming_count) == 0) {
-        pthread_cond_broadcast(&ctx->lcp.cond);
+        pthread_cond_broadcast(&lcp->cond);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 }
 
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
@@ -170,16 +192,17 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     OBEntry *ob;
     OBSliceEntry *slice;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry(ctx, bucket, bkey, true);
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry(bucket, bkey, true);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     if (ob == NULL) {
         slice = NULL;
     } else {
+        OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
         slice = (OBSliceEntry *)fast_mblock_alloc_object(
-                &ctx->slice_allocator);
+                &allocator->slice);
         if (slice != NULL) {
             slice->ob = ob;
             if (init_refer > 0) {
@@ -196,9 +219,10 @@ void ob_index_free_slice(OBSliceEntry *slice)
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
         /*
         logInfo("free slice: %p, ref_count: %d, block "
-                "{oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+                "{oid: %"PRId64", offset: %"PRId64"}, alloctor: %p",
                 slice, __sync_add_and_fetch(&slice->ref_count, 0),
-                slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+                slice->ob->bkey.oid, slice->ob->bkey.offset,
+                slice->allocator);
                 */
 
         fast_mblock_free_object(slice->allocator, slice);
@@ -219,13 +243,19 @@ static void slice_free_func(void *ptr, const int delay_seconds)
     if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
         /*
            logInfo("free slice3: %p, ref_count: %d, block "
-           "{oid: %"PRId64", offset: %"PRId64"}, ctx: %p",
+           "{oid: %"PRId64", offset: %"PRId64"}, allocator: %p",
            slice, __sync_add_and_fetch(&slice->ref_count, 0),
-           slice->ob->bkey.oid, slice->ob->bkey.offset, ctx);
+           slice->ob->bkey.oid, slice->ob->bkey.offset, slice->allocator);
          */
 
         fast_mblock_free_object(slice->allocator, slice);
     }
+}
+
+static int ob_alloc_init(OBEntry *ob, struct fast_mblock_man *allocator)
+{
+    ob->allocator = allocator;
+    return 0;
 }
 
 static int slice_alloc_init(OBSliceEntry *slice,
@@ -235,7 +265,8 @@ static int slice_alloc_init(OBSliceEntry *slice,
     return 0;
 }
 
-static int init_ob_shared_ctx_array()
+static int init_ob_shared_allocator_array(
+        OBSharedAllocatorArray *allocator_array)
 {
     int result;
     int bytes;
@@ -244,20 +275,20 @@ static int init_ob_shared_ctx_array()
     const int min_alloc_elements_once = 2;
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link
-    const bool allocator_use_lock = false;
-    OBSharedContext *ctx;
-    OBSharedContext *end;
+    const bool allocator_use_lock = true;
+    OBSharedAllocator *allocator;
+    OBSharedAllocator *end;
 
-    ob_shared_ctx_array.count = STORAGE_CFG.object_block.shared_locks_count;
-    bytes = sizeof(OBSharedContext) * ob_shared_ctx_array.count;
-    ob_shared_ctx_array.contexts = (OBSharedContext *)fc_malloc(bytes);
-    if (ob_shared_ctx_array.contexts == NULL) {
+    allocator_array->count = STORAGE_CFG.object_block.shared_allocator_count;
+    bytes = sizeof(OBSharedAllocator) * allocator_array->count;
+    allocator_array->allocators = (OBSharedAllocator *)fc_malloc(bytes);
+    if (allocator_array->allocators == NULL) {
         return ENOMEM;
     }
 
-    end = ob_shared_ctx_array.contexts + ob_shared_ctx_array.count;
-    for (ctx=ob_shared_ctx_array.contexts; ctx<end; ctx++) {
-        if ((result=uniq_skiplist_init_ex2(&ctx->factory, max_level_count,
+    end = allocator_array->allocators + allocator_array->count;
+    for (allocator=allocator_array->allocators; allocator<end; allocator++) {
+        if ((result=uniq_skiplist_init_ex2(&allocator->factory, max_level_count,
                         slice_compare, slice_free_func, alloc_skiplist_once,
                         min_alloc_elements_once, delay_free_seconds,
                         bidirection, allocator_use_lock)) != 0)
@@ -265,22 +296,44 @@ static int init_ob_shared_ctx_array()
             return result;
         }
 
-        if ((result=fast_mblock_init_ex1(&ctx->ob_allocator,
-                        "ob_entry", sizeof(OBEntry), 4 * 1024,
-                        0, NULL, NULL, false)) != 0)
+        if ((result=fast_mblock_init_ex1(&allocator->ob,
+                        "ob_entry", sizeof(OBEntry), 16 * 1024, 0,
+                        (fast_mblock_alloc_init_func)ob_alloc_init,
+                        &allocator->ob, true)) != 0)
         {
             return result;
         }
 
-        if ((result=fast_mblock_init_ex1(&ctx->slice_allocator,
-                        "slice_entry", sizeof(OBSliceEntry), 16 * 1024, 0,
+        if ((result=fast_mblock_init_ex1(&allocator->slice,
+                        "slice_entry", sizeof(OBSliceEntry), 64 * 1024, 0,
                         (fast_mblock_alloc_init_func)slice_alloc_init,
-                        &ctx->slice_allocator, true)) != 0)
+                        &allocator->slice, true)) != 0)
         {
             return result;
         }
+    }
 
-        if ((result=init_pthread_lock_cond_pair(&ctx->lcp)) != 0) {
+    return 0;
+}
+
+static int init_ob_shared_lock_array(
+        OBSharedLockArray *lock_array)
+{
+    int result;
+    int bytes;
+    pthread_lock_cond_pair_t *lcp;
+    pthread_lock_cond_pair_t *end;
+
+    lock_array->count = STORAGE_CFG.object_block.shared_lock_count;
+    bytes = sizeof(pthread_lock_cond_pair_t) * lock_array->count;
+    lock_array->pairs = (pthread_lock_cond_pair_t *)fc_malloc(bytes);
+    if (lock_array->pairs == NULL) {
+        return ENOMEM;
+    }
+
+    end = lock_array->pairs + lock_array->count;
+    for (lcp=lock_array->pairs; lcp<end; lcp++) {
+        if ((result=init_pthread_lock_cond_pair(lcp)) != 0) {
             return result;
         }
     }
@@ -311,7 +364,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
     OBEntry **end;
     OBEntry *ob;
     OBEntry *deleted;
-    OBSharedContext *ctx;
+    pthread_lock_cond_pair_t *lcp;
 
     end = htable->buckets + htable->capacity;
     for (bucket=htable->buckets; bucket<end; bucket++) {
@@ -319,9 +372,10 @@ void ob_index_destroy_htable(OBHashtable *htable)
             continue;
         }
 
-        ctx = ob_shared_ctx_array.contexts + (bucket - htable->buckets) %
-            ob_shared_ctx_array.count;
-        PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
+        lcp = ob_shared_ctx.lock_array.pairs +
+            (bucket - htable->buckets) %
+            ob_shared_ctx.lock_array.count;
+        PTHREAD_MUTEX_LOCK(&lcp->lock);
 
         ob = *bucket;
         do {
@@ -329,10 +383,10 @@ void ob_index_destroy_htable(OBHashtable *htable)
 
             deleted = ob;
             ob = ob->next;
-            fast_mblock_free_object(&ctx->ob_allocator, deleted);
+            fast_mblock_free_object(ob->allocator, deleted);
         } while (ob != NULL);
 
-        PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+        PTHREAD_MUTEX_UNLOCK(&lcp->lock);
     }
 
     free(htable->buckets);
@@ -342,7 +396,14 @@ void ob_index_destroy_htable(OBHashtable *htable)
 int ob_index_init()
 {
     int result;
-    if ((result=init_ob_shared_ctx_array()) != 0) {
+    if ((result=init_ob_shared_allocator_array(&ob_shared_ctx.
+                    allocator_array)) != 0)
+    {
+        return result;
+    }
+    if ((result=init_ob_shared_lock_array(&ob_shared_ctx.
+                    lock_array)) != 0)
+    {
         return result;
     }
 
@@ -380,13 +441,14 @@ static inline int do_add_slice(OBHashtable *htable,
     }
 }
 
-static inline OBSliceEntry *slice_dup(OBSharedContext *ctx,
-        const OBSliceEntry *src, const int offset, const int length)
+static inline OBSliceEntry *slice_dup(const OBSliceEntry *src,
+        const int offset, const int length)
 {
     OBSliceEntry *slice;
     int extra_offset;
 
-    slice = (OBSliceEntry *)fast_mblock_alloc_object(&ctx->slice_allocator);
+    OB_INDEX_SET_HASHTABLE_ALLOCATOR(src->ob->bkey);
+    slice = (OBSliceEntry *)fast_mblock_alloc_object(&allocator->slice);
     if (slice == NULL) {
         return NULL;
     }
@@ -434,13 +496,12 @@ static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
     return 0;
 }
 
-static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
-        const OBSliceEntry *src_slice, const int offset,
-        const int length, OBSlicePtrSmartArray *array)
+static inline int dup_slice_to_smart_array(const OBSliceEntry *src_slice,
+        const int offset, const int length, OBSlicePtrSmartArray *array)
 {
     OBSliceEntry *new_slice;
 
-    new_slice = slice_dup(ctx, src_slice, offset, length);
+    new_slice = slice_dup(src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -464,8 +525,8 @@ static inline int dup_slice_to_smart_array(OBSharedContext *ctx,
     } while (0)
 
 
-static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
-        OBEntry *ob, OBSliceEntry *slice, int *inc_alloc)
+static int add_slice(OBHashtable *htable, OBEntry *ob,
+        OBSliceEntry *slice, int *inc_alloc)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -505,7 +566,7 @@ static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
                 return result;
             }
 
-            if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+            if ((result=dup_slice_to_smart_array(curr_slice,
                             curr_slice->ssize.offset, slice->ssize.offset -
                             curr_slice->ssize.offset, &add_slice_array)) != 0)
             {
@@ -514,7 +575,7 @@ static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
 
             new_space_start = curr_end;
             if (curr_end > slice_end) {
-                if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
+                if ((result=dup_slice_to_smart_array(curr_slice, slice_end,
                                 curr_end - slice_end, &add_slice_array)) != 0)
                 {
                     return result;
@@ -543,7 +604,7 @@ static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
             curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
             new_space_start = curr_end;
             if (curr_end > slice_end) {
-                if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                if ((result=dup_slice_to_smart_array(curr_slice,
                                 slice_end, curr_end - slice_end,
                                 &add_slice_array)) != 0)
                 {
@@ -574,11 +635,11 @@ static int add_slice(OBHashtable *htable, OBSharedContext *ctx,
     return do_add_slice(htable, ob, slice);
 }
 
-#define CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob) \
+#define CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob) \
     do {  \
         if (!is_reclaim) {  \
             while (ob->reclaiming_count > 0) {  \
-                pthread_cond_wait(&ctx->lcp.cond, &ctx->lcp.lock); \
+                pthread_cond_wait(&lcp->cond, &lcp->lock); \
             } \
         } \
     } while (0)
@@ -595,18 +656,18 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             slice->ob->bkey.oid, slice->ob->bkey.offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_CTX(htable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
+    OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
 
-    CHECK_AND_WAIT_RECLAIM_DONE(ctx, slice->ob);
-    result = add_slice(htable, ctx, slice->ob, slice, inc_alloc);
+    CHECK_AND_WAIT_RECLAIM_DONE(lcp, slice->ob);
+    result = add_slice(htable, slice->ob, slice, inc_alloc);
     if (result == 0) {
         __sync_add_and_fetch(&slice->ref_count, 1);
         if (sn != NULL) {
             *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return result;
 }
@@ -616,15 +677,15 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     int result;
     int inc_alloc;
 
-    OB_INDEX_SET_HASHTABLE_CTX(&g_ob_hashtable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    result = add_slice(&g_ob_hashtable, ctx, slice->ob, slice, &inc_alloc);
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    OB_INDEX_SET_HASHTABLE_LOCK(&g_ob_hashtable, slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    result = add_slice(&g_ob_hashtable, slice->ob, slice, &inc_alloc);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return result;
 }
 
-static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
+static int delete_slices(OBHashtable *htable, OBEntry *ob,
         const FSBlockSliceKeyInfo *bs_key, int *count, int *dec_alloc)
 {
     OBSliceEntry target;
@@ -665,7 +726,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
                 return result;
             }
 
-            if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+            if ((result=dup_slice_to_smart_array(curr_slice,
                             curr_slice->ssize.offset, bs_key->slice.offset -
                             curr_slice->ssize.offset, &add_slice_array)) != 0)
             {
@@ -673,7 +734,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
             }
 
             if (curr_end > slice_end) {
-                if ((result=dup_slice_to_smart_array(ctx, curr_slice, slice_end,
+                if ((result=dup_slice_to_smart_array(curr_slice, slice_end,
                                 curr_end - slice_end, &add_slice_array)) != 0)
                 {
                     return result;
@@ -701,7 +762,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
 
             curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
             if (curr_end > slice_end) {
-                if ((result=dup_slice_to_smart_array(ctx, curr_slice,
+                if ((result=dup_slice_to_smart_array(curr_slice,
                                 slice_end, curr_end - slice_end,
                                 &add_slice_array)) != 0)
                 {
@@ -739,7 +800,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
 }
 
 
-#define OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous) \
+#define OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous) \
     do {  \
         if (previous == NULL) {  \
             *bucket = ob->next;  \
@@ -747,7 +808,7 @@ static int delete_slices(OBHashtable *htable, OBSharedContext *ctx, OBEntry *ob,
             previous->next = ob->next;  \
         } \
         uniq_skiplist_free(ob->slices); \
-        fast_mblock_free_object(&ctx->ob_allocator, ob); \
+        fast_mblock_free_object(ob->allocator, ob); \
     } while (0)
 
 
@@ -760,18 +821,18 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     int result;
     int count;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(htable, bs_key->block);
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry_ex(ctx, bucket, &bs_key->block, false, &previous);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry_ex(bucket, &bs_key->block, false, &previous);
     if (ob == NULL) {
         *dec_alloc = 0;
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
-        result = delete_slices(htable, ctx, ob, bs_key, &count, dec_alloc);
+        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        result = delete_slices(htable, ob, bs_key, &count, dec_alloc);
         if (result == 0) {
             if (uniq_skiplist_empty(ob->slices)) {
-                OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous);
+                OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous);
             }
 
             if (sn != NULL) {
@@ -779,7 +840,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
             }
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return result;
 }
@@ -794,13 +855,13 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     UniqSkiplistIterator it;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(htable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
 
     *dec_alloc = 0;
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry_ex(ctx, bucket, bkey, false, &previous);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry_ex(bucket, bkey, false, &previous);
     if (ob != NULL) {
-        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
+        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
@@ -810,7 +871,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
             }
         }
 
-        OB_INDEX_DELETE_OB_ENTRY(ctx, bucket, ob, previous);
+        OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous);
         if (*dec_alloc > 0) {
             if (sn != NULL) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
@@ -822,7 +883,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     } else {
         result = ENOENT;
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return result;
 }
@@ -860,13 +921,12 @@ static int add_to_slice_ptr_array(OBSlicePtrArray *array,
     return 0;
 }
 
-static inline int dup_slice_to_array(OBSharedContext *ctx,
-        const OBSliceEntry *src_slice, const int offset,
-        const int length, OBSlicePtrArray *array)
+static inline int dup_slice_to_array(const OBSliceEntry *src_slice,
+        const int offset, const int length, OBSlicePtrArray *array)
 {
     OBSliceEntry *new_slice;
 
-    new_slice = slice_dup(ctx, src_slice, offset, length);
+    new_slice = slice_dup(src_slice, offset, length);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -919,8 +979,8 @@ static void print_skiplist(OBEntry *ob)
 }
 */
 
-static int get_slices(OBSharedContext *ctx, OBEntry *ob,
-        const FSBlockSliceKeyInfo *bs_key, OBSlicePtrArray *sarray)
+static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
+        OBSlicePtrArray *sarray)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -966,7 +1026,7 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
 
         if (curr_end > bs_key->slice.offset) {  //overlap
             length = FC_MIN(curr_end, slice_end) - bs_key->slice.offset;
-            if ((result=dup_slice_to_array(ctx, curr_slice, bs_key->
+            if ((result=dup_slice_to_array(curr_slice, bs_key->
                             slice.offset, length, sarray)) != 0)
             {
                 return result;
@@ -993,7 +1053,7 @@ static int get_slices(OBSharedContext *ctx, OBEntry *ob,
                 */
 
         if (curr_end > slice_end) {  //the last slice
-            if ((result=dup_slice_to_array(ctx, curr_slice, curr_slice->
+            if ((result=dup_slice_to_array(curr_slice, curr_slice->
                             ssize.offset, slice_end - curr_slice->
                             ssize.offset, sarray)) != 0)
             {
@@ -1036,7 +1096,7 @@ int ob_index_get_slices_ex(OBHashtable *htable,
     OBEntry *ob;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_CTX(htable, bs_key->block);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
     sarray->count = 0;
 
     /*
@@ -1045,15 +1105,15 @@ int ob_index_get_slices_ex(OBHashtable *htable,
             __LINE__, __FUNCTION__, bs_key->block.oid, bs_key->block.offset);
             */
 
-    PTHREAD_MUTEX_LOCK(&ctx->lcp.lock);
-    ob = get_ob_entry(ctx, bucket, &bs_key->block, false);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry(bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(ctx, ob);
-        result = get_slices(ctx, ob, bs_key, sarray);
+        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        result = get_slices(ob, bs_key, sarray);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lcp.lock);
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);
@@ -1063,14 +1123,17 @@ int ob_index_get_slices_ex(OBHashtable *htable,
 
 void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
 {
-    OBSharedContext *ctx;
-    OBSharedContext *end;
+    OBSharedAllocator *allocator;
+    OBSharedAllocator *end;
 
     *ob_count = *slice_count = 0;
-    end = ob_shared_ctx_array.contexts + ob_shared_ctx_array.count;
-    for (ctx=ob_shared_ctx_array.contexts; ctx<end; ctx++) {
-        *ob_count += ctx->ob_allocator.info.element_used_count;
-        *slice_count += ctx->slice_allocator.info.element_used_count;
+    end = ob_shared_ctx.allocator_array.allocators +
+        ob_shared_ctx.allocator_array.count;
+    for (allocator=ob_shared_ctx.allocator_array.allocators;
+            allocator<end; allocator++)
+    {
+        *ob_count += allocator->ob.info.element_used_count;
+        *slice_count += allocator->slice.info.element_used_count;
     }
 }
 

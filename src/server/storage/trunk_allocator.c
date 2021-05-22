@@ -318,9 +318,11 @@ static bool can_add_to_freelist(FSTrunkFileInfo *trunk_info)
 
     /*
     logInfo("file: "__FILE__", line: %d, "
-            "trunk id: %"PRId64", used bytes: %"PRId64", "
-            "free start: %"PRId64, __LINE__, trunk_info->id_info.id,
-            trunk_info->used.bytes, trunk_info->free_start);
+            "path index: %d, trunk id: %"PRId64", "
+            "used bytes: %"PRId64", free start: %"PRId64,
+            __LINE__, trunk_info->allocator->path_info->store.index,
+            trunk_info->id_info.id, trunk_info->used.bytes,
+            trunk_info->free_start);
             */
 
     if (trunk_info->free_start == 0) {

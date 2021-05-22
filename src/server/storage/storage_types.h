@@ -73,18 +73,12 @@ typedef enum ob_slice_type {
     OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
 } OBSliceType;
 
-typedef struct {
-    UniqSkiplistFactory factory;
-    struct fast_mblock_man ob_allocator;    //for ob_entry
-    struct fast_mblock_man slice_allocator; //for slice_entry
-    pthread_lock_cond_pair_t lcp;   //for lock and notify
-} OBSharedContext;
-
 typedef struct ob_entry {
     FSBlockKey bkey;
     int reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
+    struct fast_mblock_man *allocator; //for free
 } OBEntry;
 
 typedef struct {

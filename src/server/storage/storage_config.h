@@ -84,7 +84,8 @@ typedef struct {
     int trunk_prealloc_threads;
     int fd_cache_capacity_per_read_thread;
     struct {
-        int shared_locks_count;
+        int shared_lock_count;
+        int shared_allocator_count;
         int64_t hashtable_capacity;
     } object_block;
     double reclaim_trunks_on_path_usage;

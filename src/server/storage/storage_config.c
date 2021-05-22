@@ -292,15 +292,26 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->object_block.hashtable_capacity = 1403641;
     }
 
-    storage_cfg->object_block.shared_locks_count = iniGetIntValue(NULL,
-            "object_block_shared_locks_count", ini_ctx->context, 163);
-    if (storage_cfg->object_block.shared_locks_count <= 0) {
-        logWarning("file: "__FILE__", line: %d, "
-                "config file: %s, item \"object_block_shared_locks_count\": %d "
+    storage_cfg->object_block.shared_allocator_count = iniGetIntValue(NULL,
+            "object_block_shared_allocator_count", ini_ctx->context, 79);
+    if (storage_cfg->object_block.shared_allocator_count <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_allocator_count\": %d "
                 "is invalid, set to default: %d",
                 __LINE__, ini_ctx->filename, storage_cfg->
-                object_block.shared_locks_count, 163);
-        storage_cfg->object_block.shared_locks_count = 163;
+                object_block.shared_allocator_count, 79);
+        storage_cfg->object_block.shared_allocator_count = 79;
+    }
+
+    storage_cfg->object_block.shared_lock_count = iniGetIntValue(NULL,
+            "object_block_shared_lock_count", ini_ctx->context, 1361);
+    if (storage_cfg->object_block.shared_lock_count <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_lock_count\": %d "
+                "is invalid, set to default: %d",
+                __LINE__, ini_ctx->filename, storage_cfg->
+                object_block.shared_lock_count, 1361);
+        storage_cfg->object_block.shared_lock_count = 1361;
     }
 
     storage_cfg->write_threads_per_path = iniGetIntValue(NULL,
@@ -647,7 +658,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "read_threads_per_path: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
-            "object_block_shared_locks_count: %d, "
+            "object_block_shared_allocator_count: %d, "
+            "object_block_shared_lock_count: %d, "
             "prealloc_space: {ratio_per_path: %.2f%%, "
             "start_time: %02d:%02d, end_time: %02d:%02d }, "
             "trunk_prealloc_threads: %d, "
@@ -665,7 +677,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->read_threads_per_path,
             storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->object_block.hashtable_capacity,
-            storage_cfg->object_block.shared_locks_count,
+            storage_cfg->object_block.shared_allocator_count,
+            storage_cfg->object_block.shared_lock_count,
             storage_cfg->prealloc_space.ratio_per_path * 100.00,
             storage_cfg->prealloc_space.start_time.hour,
             storage_cfg->prealloc_space.start_time.minute,
