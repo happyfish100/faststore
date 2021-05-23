@@ -282,14 +282,14 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     }
 
     storage_cfg->object_block.hashtable_capacity = iniGetInt64Value(NULL,
-            "object_block_hashtable_capacity", ini_ctx->context, 1403641);
+            "object_block_hashtable_capacity", ini_ctx->context, 11229331);
     if (storage_cfg->object_block.hashtable_capacity <= 0) {
         logWarning("file: "__FILE__", line: %d, "
                 "config file: %s, item \"object_block_hashtable_capacity\": "
                 "%"PRId64" is invalid, set to default: %d",
                 __LINE__, ini_ctx->filename, storage_cfg->
-                object_block.hashtable_capacity, 1403641);
-        storage_cfg->object_block.hashtable_capacity = 1403641;
+                object_block.hashtable_capacity, 11229331);
+        storage_cfg->object_block.hashtable_capacity = 11229331;
     }
 
     storage_cfg->object_block.shared_allocator_count = iniGetIntValue(NULL,
