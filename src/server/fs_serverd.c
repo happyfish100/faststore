@@ -59,9 +59,12 @@
 #include "dio/trunk_io_thread.h"
 #include "shared_thread_pool.h"
 
-static bool daemon_mode = true;
 static int setup_server_env(const char *config_filename);
 static int setup_mblock_stat_task();
+
+static bool daemon_mode = true;
+static const char *config_filename;
+static char g_pid_filename[MAX_PATH_SIZE];
 
 static int init_nio_task(struct fast_task_info *task)
 {
@@ -87,21 +90,17 @@ static void parse_cmd_options(int argc, char *argv[])
             &long_option, &FORCE_LEADER_ELECTION);
 }
 
-int main(int argc, char *argv[])
+static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 {
-    const char *config_filename;
     char *action;
-    char g_pid_filename[MAX_PATH_SIZE];
     char option[128];
-    pthread_t schedule_tid;
-    int wait_count;
     bool stop;
     int result;
 
+    *continue_flag = false;
     sprintf(option, "%s | %s: force leader election",
             FS_FORCE_ELECTION_SHORT_OPTION_STR,
             FS_FORCE_ELECTION_LONG_OPTION_STR);
-    stop = false;
     if (argc < 2) {
         sf_usage_ex(argv[0], option);
         return 1;
@@ -127,6 +126,7 @@ int main(int argc, char *argv[])
     snprintf(g_pid_filename, sizeof(g_pid_filename), 
              "%s/serverd.pid", SF_G_BASE_PATH);
 
+    stop = false;
     result = process_action(g_pid_filename, action, &stop);
     if (result != 0) {
         if (result == EINVAL) {
@@ -142,6 +142,20 @@ int main(int argc, char *argv[])
     }
 
     parse_cmd_options(argc, argv);
+    *continue_flag = true;
+    return 0;
+}
+
+int main(int argc, char *argv[])
+{
+    pthread_t schedule_tid;
+    int wait_count;
+    int result;
+
+    result = process_cmdline(argc, argv, (bool *)&SF_G_CONTINUE_FLAG);
+    if (!SF_G_CONTINUE_FLAG) {
+        return result;
+    }
 
     sf_enable_exit_on_oom();
     srand(time(NULL));
