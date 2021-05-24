@@ -812,7 +812,7 @@ static int cluster_select_leader()
                     "restart interval: %d exceeds 3600, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the "
-                    "config file, or execute fs_serverd with option %s",
+                    "config file, or execute fs_serverd with option --%s",
                     server_status.cs->server->id, (int)(server_status.
                         up_time - server_status.last_shutdown_time),
                     FS_FORCE_ELECTION_LONG_OPTION_STR);

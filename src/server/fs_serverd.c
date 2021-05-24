@@ -77,38 +77,54 @@ static int init_nio_task(struct fast_task_info *task)
     return fs_init_slice_op_ctx(slice_sn_parray);
 }
 
-static void parse_cmd_options(int argc, char *argv[])
+static int parse_cmd_options(int argc, char *argv[])
 {
-    string_t short_option;
-    string_t long_option;
+    int ch;
+    const struct option longopts[] = {
+        {FS_FORCE_ELECTION_LONG_OPTION_STR, no_argument, NULL, 'f'},
+        SF_COMMON_LONG_OPTIONS,
+        {NULL, 0, NULL, 0}
+    };
 
-    FC_SET_STRING_EX(short_option, FS_FORCE_ELECTION_SHORT_OPTION_STR,
-            FS_FORCE_ELECTION_SHORT_OPTION_LEN);
-    FC_SET_STRING_EX(long_option, FS_FORCE_ELECTION_LONG_OPTION_STR,
-            FS_FORCE_ELECTION_LONG_OPTION_LEN);
-    sf_parse_cmd_option_bool(argc, argv, &short_option,
-            &long_option, &FORCE_LEADER_ELECTION);
+    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"f",
+                    longopts, NULL)) != -1)
+    {
+        switch (ch) {
+            case 'f':
+                FORCE_LEADER_ELECTION = true;
+                break;
+            case '?':
+                return EINVAL;
+            default:
+                break;
+        }
+    }
+
+    return 0;
 }
 
 static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 {
     char *action;
-    char option[128];
+    const SFCMDOption other_options[] = {
+        {{FS_FORCE_ELECTION_LONG_OPTION_STR,
+             FS_FORCE_ELECTION_LONG_OPTION_LEN}, 'f', false,
+        "-f | --"FS_FORCE_ELECTION_LONG_OPTION_STR
+            ": force leader election"},
+        {{NULL, 0}, 0, false, NULL}
+    };
     bool stop;
     int result;
 
     *continue_flag = false;
-    sprintf(option, "%s | %s: force leader election",
-            FS_FORCE_ELECTION_SHORT_OPTION_STR,
-            FS_FORCE_ELECTION_LONG_OPTION_STR);
     if (argc < 2) {
-        sf_usage_ex(argv[0], option);
+        sf_usage_ex(argv[0], other_options);
         return 1;
     }
 
     config_filename = sf_parse_daemon_mode_and_action_ex(
             argc, argv, &g_fs_global_vars.version,
-            &daemon_mode, &action, "start", option);
+            &daemon_mode, &action, "start", other_options);
     if (config_filename == NULL) {
         return 0;
     }
@@ -141,9 +157,11 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
         return 0;
     }
 
-    parse_cmd_options(argc, argv);
-    *continue_flag = true;
-    return 0;
+    if ((result=parse_cmd_options(argc, argv)) == 0) {
+        *continue_flag = true;
+    }
+
+    return result;
 }
 
 int main(int argc, char *argv[])
