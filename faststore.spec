@@ -6,7 +6,7 @@
 %define CommitVersion %(echo $COMMIT_VERSION)
 
 Name: faststore
-Version: 2.0.1
+Version: 2.1.0
 Release: 1%{?dist}
 Summary: a high performance distributed file storage service
 License: AGPL v3.0
@@ -16,12 +16,12 @@ Source: http://github.com/happyfish100/faststore/%{name}-%{version}.tar.gz
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n) 
 
-BuildRequires: libfastcommon-devel >= 1.0.50
-BuildRequires: libserverframe-devel >= 1.1.7
+BuildRequires: libfastcommon-devel >= 1.0.51
+BuildRequires: libserverframe-devel >= 1.1.8
 BuildRequires: FastCFS-auth-devel >= 2.0.0
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
-Requires: libfastcommon >= 1.0.50
-Requires: libserverframe >= 1.1.7
+Requires: libfastcommon >= 1.0.51
+Requires: libserverframe >= 1.1.8
 Requires: FastCFS-auth-client >= 2.0.0
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreServer} = %{version}-%{release}
@@ -32,16 +32,16 @@ a high performance distributed file storage service.
 commit version: %{CommitVersion}
 
 %package -n %{FastStoreServer}
-Requires: libfastcommon >= 1.0.50
-Requires: libserverframe >= 1.1.7
+Requires: libfastcommon >= 1.0.51
+Requires: libserverframe >= 1.1.8
 Requires: FastCFS-auth-client >= 2.0.0
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
-Requires: libfastcommon >= 1.0.50
-Requires: libserverframe >= 1.1.7
+Requires: libfastcommon >= 1.0.51
+Requires: libserverframe >= 1.1.8
 Requires: FastCFS-auth-client >= 2.0.0
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0
