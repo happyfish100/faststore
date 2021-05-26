@@ -249,7 +249,7 @@ int binlog_replay_init(const char *config_filename)
         sf_data_read_rule_master_only;
     snprintf(g_fs_client_vars.base_path,
             sizeof(g_fs_client_vars.base_path),
-            "%s", SF_G_BASE_PATH);
+            "%s", SF_G_BASE_PATH_STR);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
     g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
         client_ctx.cluster_cfg.ptr->replica_group_index;

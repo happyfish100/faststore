@@ -213,13 +213,13 @@ static int load_data_path_config(IniContext *ini_context, const char *filename)
             return ENOMEM;
         }
     } else {
-        DATA_PATH_LEN = strlen(SF_G_BASE_PATH) + strlen(data_path) + 1;
+        DATA_PATH_LEN = strlen(SF_G_BASE_PATH_STR) + strlen(data_path) + 1;
         DATA_PATH_STR = (char *)fc_malloc(DATA_PATH_LEN + 1);
         if (DATA_PATH_STR == NULL) {
             return ENOMEM;
         }
         DATA_PATH_LEN = sprintf(DATA_PATH_STR, "%s/%s",
-                SF_G_BASE_PATH, data_path);
+                SF_G_BASE_PATH_STR, data_path);
     }
     chopPath(DATA_PATH_STR);
 
