@@ -308,6 +308,9 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     TrunkReadPathContext *path_ctx;
     TrunkReadThreadContext *thread_ctx;
     TrunkReadIOBuffer *iob;
+#ifdef OS_LINUX
+    bool notify;
+#endif
 
     path_ctx = trunk_io_ctx.path_ctx_array.paths +
         slice->space.store->index;
@@ -322,7 +325,28 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     iob->buff = buff;
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
+
+#ifdef OS_LINUX
+    fc_queue_push_ex(&thread_ctx->queue, iob, &notify);
+    if (notify) {
+        int64_t n;
+        int result;
+
+        n = 1;
+        if (write(thread_ctx->notify.queue_efd,
+                    &n, sizeof(n)) != sizeof(n))
+        {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "write eventfd %d fail, errno: %d, error info: %s",
+                    __LINE__, thread_ctx->notify.queue_efd, result,
+                    STRERROR(result));
+        }
+    }
+#else
     fc_queue_push(&thread_ctx->queue, iob);
+#endif
+
     return 0;
 }
 
