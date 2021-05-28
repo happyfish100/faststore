@@ -121,7 +121,8 @@ static TrunkReadThreadContext *alloc_thread_contexts(const int count)
     return contexts;
 }
 
-static int init_thread_context(TrunkReadThreadContext *ctx)
+static int init_thread_context(TrunkReadThreadContext *ctx,
+        const FSStoragePathInfo *path_info)
 {
     int result;
     pthread_t tid;
@@ -145,8 +146,8 @@ static int init_thread_context(TrunkReadThreadContext *ctx)
     }
 
 
-    if ((result=trunk_fd_cache_init(&ctx->fd_cache,
-                    STORAGE_CFG.fd_cache_capacity_per_read_thread)) != 0)
+    if ((result=trunk_fd_cache_init(&ctx->fd_cache, STORAGE_CFG.
+                    fd_cache_capacity_per_read_thread)) != 0)
     {
         return result;
     }
@@ -192,14 +193,14 @@ static int init_thread_context(TrunkReadThreadContext *ctx)
         }
     }
 
-    ctx->iocbs.alloc = STORAGE_CFG.io_depth_per_read_thread;
+    ctx->iocbs.alloc = path_info->read_io_depth;
     ctx->iocbs.pp = (struct iocb **)fc_malloc(sizeof(
                 struct iocb *) * ctx->iocbs.alloc);
     if (ctx->iocbs.pp == NULL) {
         return ENOMEM;
     }
 
-    ctx->aio.max_event = STORAGE_CFG.io_depth_per_read_thread;
+    ctx->aio.max_event = path_info->read_io_depth;
     ctx->aio.events = (struct io_event *)fc_malloc(sizeof(
                 struct io_event) * ctx->aio.max_event);
     if (ctx->aio.events == NULL) {
@@ -207,9 +208,7 @@ static int init_thread_context(TrunkReadThreadContext *ctx)
     }
 
     ctx->aio.ctx = 0;
-    if (io_setup(STORAGE_CFG.io_depth_per_read_thread,
-                &ctx->aio.ctx) != 0)
-    {
+    if (io_setup(ctx->aio.max_event, &ctx->aio.ctx) != 0) {
         result = errno != 0 ? errno : ENOMEM;
         logError("file: "__FILE__", line: %d, "
                 "io_setup fail, errno: %d, error info: %s",
@@ -225,7 +224,7 @@ static int init_thread_context(TrunkReadThreadContext *ctx)
 }
 
 static int init_thread_contexts(TrunkReadThreadContextArray *ctx_array,
-        const int path_index)
+        const FSStoragePathInfo *path_info)
 {
     int result;
     TrunkReadThreadContext *ctx;
@@ -233,13 +232,13 @@ static int init_thread_contexts(TrunkReadThreadContextArray *ctx_array,
     
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
-        ctx->indexes.path = path_index;
+        ctx->indexes.path = path_info->store.index;
         if (ctx_array->count == 1) {
             ctx->indexes.thread = -1;
         } else {
             ctx->indexes.thread = ctx - ctx_array->contexts;
         }
-        if ((result=init_thread_context(ctx)) != 0) {
+        if ((result=init_thread_context(ctx, path_info)) != 0) {
             return result;
         }
     }
@@ -266,9 +265,7 @@ static int init_path_contexts(FSStoragePathArray *parray)
 
         path_ctx->reads.contexts = thread_ctxs;
         path_ctx->reads.count = p->read_thread_count;
-        if ((result=init_thread_contexts(&path_ctx->reads,
-                        p->store.index)) != 0)
-        {
+        if ((result=init_thread_contexts(&path_ctx->reads, p)) != 0) {
             return result;
         }
     }
@@ -413,8 +410,7 @@ static int consume_queue(TrunkReadThreadContext *ctx)
     int n;
     int result;
 
-    target_count = STORAGE_CFG.io_depth_per_read_thread -
-        ctx->aio.doing_count;
+    target_count = ctx->aio.max_event - ctx->aio.doing_count;
     if (target_count <= 0) {
         return 0;
     }
@@ -485,7 +481,7 @@ static int process_aio(TrunkReadThreadContext *ctx, int *count)
             }
 
             logCrit("file: "__FILE__", line: %d, "
-                    "epoll_wait fail, errno: %d, error info: %s",
+                    "io_getevents fail, errno: %d, error info: %s",
                     __LINE__, result, STRERROR(result));
             return result;
         } else {  //*count == 0
@@ -494,14 +490,17 @@ static int process_aio(TrunkReadThreadContext *ctx, int *count)
     }
 
     end = ctx->aio.events + *count;
-    for (event=0; event<end; event++) {
+    for (event=ctx->aio.events; event<end; event++) {
         iob = (TrunkReadIOBuffer *)event->data;
-        result = event->res2;
-        if (event->res != iob->slice->ssize.length) {
+        if (event->res == iob->slice->ssize.length) {
+            result = 0;
+        } else {
             trunk_fd_cache_delete(&ctx->fd_cache,
                     iob->slice->space.id_info.id);
 
-            if (result == 0) {
+            if (event->res < 0) {
+                result = -1 * event->res;
+            } else {
                 result = EBUSY;
             }
             get_trunk_filename(&iob->slice->space, trunk_filename,
@@ -551,7 +550,7 @@ static int deal_epoll_event(TrunkReadThreadContext *ctx,
     if (ev->data.fd == ctx->notify.queue_efd) {
         return consume_queue(ctx);
     } else {
-        full = (ctx->aio.doing_count >= STORAGE_CFG.io_depth_per_read_thread);
+        full = (ctx->aio.doing_count >= ctx->aio.max_event);
         if ((result=process_aio(ctx, &count)) == 0) {
             if (full && (count > 0)) {
                 return consume_queue(ctx);

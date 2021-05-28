@@ -238,7 +238,14 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
                 "read_threads", ini_ctx->context, storage_cfg->
                 read_threads_per_path);
         if (parray->paths[i].read_thread_count <= 0) {
-            parray->paths[i].read_thread_count = 2;
+            parray->paths[i].read_thread_count = 1;
+        }
+
+        parray->paths[i].read_io_depth = iniGetIntValue(section_name,
+                "read_io_depth", ini_ctx->context, storage_cfg->
+                io_depth_per_read_thread);
+        if (parray->paths[i].read_io_depth <= 0) {
+            parray->paths[i].read_io_depth = 64;
         }
 
         if ((result=iniGetPercentValue(ini_ctx, "prealloc_space",
@@ -645,13 +652,15 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
         long_to_comma_str(p->prealloc_space.value /
                 (1024 * 1024), prealloc_space_buff);
         logInfo("  path %d: %s, index: %d, write_threads: %d, "
-                "read_threads: %d, prealloc_space ratio: %.2f%%, "
+                "read_threads: %d, read_io_depth: %d, "
+                "prealloc_space ratio: %.2f%%, "
                 "reserved_space ratio: %.2f%%, "
                 "avail_space: %s MB, prealloc_space: %s MB, "
                 "reserved_space: %s MB",
                 (int)(p - parray->paths + 1), p->store.path.str,
                 p->store.index, p->write_thread_count,
-                p->read_thread_count, p->prealloc_space.ratio * 100.00,
+                p->read_thread_count, p->read_io_depth,
+                p->prealloc_space.ratio * 100.00,
                 p->reserved_space.ratio * 100.00,
                 avail_space_buff, prealloc_space_buff,
                 reserved_space_buff);

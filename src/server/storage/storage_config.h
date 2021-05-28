@@ -32,6 +32,7 @@ typedef struct {
     int write_thread_count;
     int read_thread_count;
     int prealloc_trunks;
+    int read_io_depth;
     struct {
         int64_t value;
         double ratio;
