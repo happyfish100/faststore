@@ -48,6 +48,7 @@ if [ "$uname" = "Linux" ]; then
   else
     LIBS="$LIBS -L/usr/lib"
   fi
+  LIBS="$LIBS -laio"
   CFLAGS="$CFLAGS"
 elif [ "$uname" = "FreeBSD" ] || [ "$uname" = "Darwin" ]; then
   LIBS="$LIBS -L/usr/lib"

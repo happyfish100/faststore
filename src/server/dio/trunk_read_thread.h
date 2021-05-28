@@ -17,6 +17,10 @@
 #ifndef _TRUNK_READ_THREAD_H
 #define _TRUNK_READ_THREAD_H
 
+#include "fastcommon/common_define.h"
+#ifdef OS_LINUX
+#include <libaio.h>
+#endif
 #include "../../common/fs_types.h"
 #include "../storage/storage_config.h"
 #include "../storage/object_block_index.h"
@@ -36,6 +40,11 @@ typedef struct trunk_read_io_buffer {
         trunk_read_io_notify_func func;
         void *arg;
     } notify;
+
+#ifdef OS_LINUX
+    struct iocb iocb;
+#endif
+
     struct trunk_read_io_buffer *next;
 } TrunkReadIOBuffer;
 
