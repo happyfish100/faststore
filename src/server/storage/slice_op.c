@@ -22,7 +22,8 @@
 #include "../common/fs_proto.h"
 #include "../server_global.h"
 #include "../data_thread.h"
-#include "../dio/trunk_io_thread.h"
+#include "../dio/trunk_write_thread.h"
+#include "../dio/trunk_read_thread.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
 #include "storage_allocator.h"
@@ -157,7 +158,8 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
     }
 }
 
-static void slice_write_done(struct trunk_io_buffer *record, const int result)
+static void slice_write_done(struct trunk_write_io_buffer
+        *record, const int result)
 {
     FSSliceOpContext *op_ctx;
 
@@ -295,7 +297,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     op_ctx->result = 0;
     op_ctx->counter = op_ctx->update.sarray.count;
     if (op_ctx->update.sarray.count == 1) {
-        result = io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
+        result = trunk_write_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
                 op_ctx->update.sarray.slice_sn_pairs[0].version,
                 op_ctx->update.sarray.slice_sn_pairs[0].slice,
                 op_ctx->info.buff, slice_write_done, op_ctx);
@@ -310,7 +312,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
             length = slice_sn_pair->slice->ssize.length;
-            if ((result=io_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
+            if ((result=trunk_write_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
                             slice_sn_pair->version, slice_sn_pair->slice,
                             ps, slice_write_done, op_ctx)) != 0)
             {
@@ -559,14 +561,15 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
     }
 }
 
-static void slice_read_done(struct trunk_io_buffer *record, const int result)
+static void slice_read_done(struct trunk_read_io_buffer
+        *record, const int result)
 {
-    do_read_done(record->slice, (FSSliceOpContext *)record->notify.arg, result);
+    do_read_done(record->slice, (FSSliceOpContext *)
+            record->notify.arg, result);
 }
 
 int fs_slice_read(FSSliceOpContext *op_ctx)
 {
-    const int64_t version = 0;
     int result;
     int offset;
     int hole_len;
@@ -615,8 +618,8 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
         if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {
             memset(ps, 0, (*pp)->ssize.length);
             do_read_done(*pp, op_ctx, 0);
-        } else if ((result=io_thread_push_slice_op(FS_IO_TYPE_READ_SLICE,
-                        version, *pp, ps, slice_read_done, op_ctx)) != 0)
+        } else if ((result=trunk_read_thread_push(*pp, ps,
+                        slice_read_done, op_ctx)) != 0)
         {
             ob_index_free_slice(*pp);
             break;

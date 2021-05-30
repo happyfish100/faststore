@@ -24,7 +24,6 @@
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../shared_thread_pool.h"
-#include "../dio/trunk_io_thread.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "binlog_loader.h"

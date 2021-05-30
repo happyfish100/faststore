@@ -24,7 +24,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../server_global.h"
-#include "../dio/trunk_io_thread.h"
+#include "../dio/trunk_write_thread.h"
 #include "storage_allocator.h"
 #include "trunk_reclaim.h"
 #include "trunk_maker.h"
@@ -157,7 +157,7 @@ static void deal_trunk_util_change_events(FSTrunkAllocator *allocator)
     }
 }
 
-static void create_trunk_done(struct trunk_io_buffer *record,
+static void create_trunk_done(struct trunk_write_io_buffer *record,
         const int result)
 {
     TrunkMakerThreadInfo *thread;
@@ -208,7 +208,7 @@ static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
     space.offset = 0;
     space.size = STORAGE_CFG.trunk_file_size;
 
-    if ((result=io_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK,
+    if ((result=trunk_write_thread_push_trunk_op(FS_IO_TYPE_CREATE_TRUNK,
                     &space, create_trunk_done, thread)) == 0)
     {
         PTHREAD_MUTEX_LOCK(&thread->allocate.lcp.lock);

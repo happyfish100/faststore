@@ -56,7 +56,8 @@
 #include "server_replication.h"
 #include "server_recovery.h"
 #include "storage/slice_op.h"
-#include "dio/trunk_io_thread.h"
+#include "dio/trunk_write_thread.h"
+#include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"
 
 static int setup_server_env(const char *config_filename);
@@ -231,7 +232,11 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=trunk_io_thread_init()) != 0) {
+        if ((result=trunk_write_thread_init()) != 0) {
+            break;
+        }
+
+        if ((result=trunk_read_thread_init()) != 0) {
             break;
         }
 
@@ -342,7 +347,7 @@ int main(int argc, char *argv[])
         pthread_kill(schedule_tid, SIGINT);
     }
 
-    trunk_io_thread_terminate();
+    trunk_write_thread_terminate();
     server_binlog_terminate();
     server_replication_terminate();
     server_recovery_terminate();

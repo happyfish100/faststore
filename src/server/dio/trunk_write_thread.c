@@ -25,11 +25,7 @@
 #include "sf/sf_func.h"
 #include "../server_global.h"
 #include "../binlog/trunk_binlog.h"
-#include "trunk_fd_cache.h"
-#include "trunk_io_thread.h"
-
-#define IO_THREAD_ROLE_WRITER   'w'
-#define IO_THREAD_ROLE_READER   'r'
+#include "trunk_write_thread.h"
 
 #define IO_THREAD_IOV_MAX     256
 #define IO_THREAD_BYTES_MAX   (64 * 1024 * 1024)
@@ -40,18 +36,14 @@ typedef struct write_file_handle {
     int fd;
 } WriteFileHandle;
 
-typedef struct trunk_io_thread_context {
+typedef struct trunk_write_thread_context {
     struct {
         short path;
         short thread;
     } indexes;
-    int role;
     struct fc_queue queue;
     struct fast_mblock_man mblock;
-    union {
-        TrunkFDCacheContext read_context; //for read
-        WriteFileHandle write_handle;     //for write
-    } fd_cache;
+    WriteFileHandle file_handle;
 
     struct {
         UniqSkiplistPair *sl_pair;
@@ -61,42 +53,41 @@ typedef struct trunk_io_thread_context {
             int bytes;   //total bytes of iov
             int success; //write success count
             struct iovec *iovs;
-            TrunkIOBuffer **iobs;
+            TrunkWriteIOBuffer **iobs;
         } iovb_array;
     } write;
-} TrunkIOThreadContext;
+} TrunkWriteThreadContext;
 
-typedef struct trunk_io_thread_context_array {
+typedef struct trunk_write_thread_context_array {
     int count;
-    TrunkIOThreadContext *contexts;
-} TrunkIOThreadContextArray;
+    TrunkWriteThreadContext *contexts;
+} TrunkWriteThreadContextArray;
 
-typedef struct trunk_io_path_context {
-    TrunkIOThreadContextArray writes;
-    TrunkIOThreadContextArray reads;
-} TrunkIOPathContext;
+typedef struct trunk_write_path_context {
+    TrunkWriteThreadContextArray writes;
+} TrunkWritePathContext;
 
-typedef struct trunk_io_path_contexts_array {
+typedef struct trunk_write_path_contexts_array {
     int count;
-    TrunkIOPathContext *paths;
-} TrunkIOPathContextArray;
+    TrunkWritePathContext *paths;
+} TrunkWritePathContextArray;
 
-typedef struct trunk_io_context {
-    TrunkIOPathContextArray path_ctx_array;
+typedef struct trunk_write_context {
+    TrunkWritePathContextArray path_ctx_array;
     UniqSkiplistFactory factory;
-} TrunkIOContext;
+} TrunkWriteContext;
 
-static TrunkIOContext trunk_io_ctx = {{0, NULL}};
+static TrunkWriteContext trunk_io_ctx = {{0, NULL}};
 
-static void *trunk_io_thread_func(void *arg);
+static void *trunk_write_thread_func(void *arg);
 
 static int alloc_path_contexts()
 {
     int bytes;
 
     trunk_io_ctx.path_ctx_array.count = STORAGE_CFG.max_store_path_index + 1;
-    bytes = sizeof(TrunkIOPathContext) * trunk_io_ctx.path_ctx_array.count;
-    trunk_io_ctx.path_ctx_array.paths = (TrunkIOPathContext *)fc_malloc(bytes);
+    bytes = sizeof(TrunkWritePathContext) * trunk_io_ctx.path_ctx_array.count;
+    trunk_io_ctx.path_ctx_array.paths = (TrunkWritePathContext *)fc_malloc(bytes);
     if (trunk_io_ctx.path_ctx_array.paths == NULL) {
         return ENOMEM;
     }
@@ -104,13 +95,13 @@ static int alloc_path_contexts()
     return 0;
 }
 
-static TrunkIOThreadContext *alloc_thread_contexts(const int count)
+static TrunkWriteThreadContext *alloc_thread_contexts(const int count)
 {
-    TrunkIOThreadContext *contexts;
+    TrunkWriteThreadContext *contexts;
     int bytes;
 
-    bytes = sizeof(TrunkIOThreadContext) * count;
-    contexts = (TrunkIOThreadContext *)fc_malloc(bytes);
+    bytes = sizeof(TrunkWriteThreadContext) * count;
+    contexts = (TrunkWriteThreadContext *)fc_malloc(bytes);
     if (contexts == NULL) {
         return NULL;
     }
@@ -120,10 +111,11 @@ static TrunkIOThreadContext *alloc_thread_contexts(const int count)
 
 static int compare_by_version(const void *p1, const void *p2)
 {
-    return ((TrunkIOBuffer *)p1)->version - ((TrunkIOBuffer *)p2)->version;
+    return (int64_t)((TrunkWriteIOBuffer *)p1)->version -
+        (int64_t)((TrunkWriteIOBuffer *)p2)->version;
 }
 
-static int init_write_context(TrunkIOThreadContext *ctx)
+static int init_write_context(TrunkWriteThreadContext *ctx)
 {
     const int init_level_count = 2;
     const int max_level_count = 8;
@@ -134,7 +126,7 @@ static int init_write_context(TrunkIOThreadContext *ctx)
 
     ctx->write.iovb_array.alloc = FC_MIN(IOV_MAX, IO_THREAD_IOV_MAX);
     buff = (char *)fc_malloc(sizeof(UniqSkiplistPair) +
-            (sizeof(struct iovec) + sizeof(TrunkIOBuffer *)) *
+            (sizeof(struct iovec) + sizeof(TrunkWriteIOBuffer *)) *
             ctx->write.iovb_array.alloc);
     if (buff == NULL) {
         return ENOMEM;
@@ -142,7 +134,7 @@ static int init_write_context(TrunkIOThreadContext *ctx)
 
     ctx->write.sl_pair = (UniqSkiplistPair *)buff;
     ctx->write.iovb_array.iovs = (struct iovec *)(ctx->write.sl_pair + 1);
-    ctx->write.iovb_array.iobs = (TrunkIOBuffer **)
+    ctx->write.iovb_array.iobs = (TrunkWriteIOBuffer **)
         (ctx->write.iovb_array.iovs + ctx->write.iovb_array.alloc);
     if ((result=uniq_skiplist_init_pair(ctx->write.sl_pair, init_level_count,
                     max_level_count, compare_by_version, NULL,
@@ -154,47 +146,39 @@ static int init_write_context(TrunkIOThreadContext *ctx)
     return 0;
 }
 
-static int init_thread_context(TrunkIOThreadContext *ctx)
+static int init_thread_context(TrunkWriteThreadContext *ctx)
 {
     int result;
     pthread_t tid;
 
-    if ((result=fast_mblock_init_ex1(&ctx->mblock, "trunk_io_buffer",
-                    sizeof(TrunkIOBuffer), 1024, 0, NULL, NULL, true)) != 0)
+    if ((result=fast_mblock_init_ex1(&ctx->mblock, "trunk_write_buffer",
+                    sizeof(TrunkWriteIOBuffer), 4 * 1024, 0, NULL,
+                    NULL, true)) != 0)
     {
         return result;
     }
 
     if ((result=fc_queue_init(&ctx->queue, (long)
-                    (&((TrunkIOBuffer *)NULL)->next))) != 0)
+                    (&((TrunkWriteIOBuffer *)NULL)->next))) != 0)
     {
         return result;
     }
 
-    if (ctx->role == IO_THREAD_ROLE_WRITER) {
-        ctx->fd_cache.write_handle.trunk_id = 0;
-        ctx->fd_cache.write_handle.fd = -1;
-        if ((result=init_write_context(ctx)) != 0) {
-            return result;
-        }
-    } else {
-        if ((result=trunk_fd_cache_init(&ctx->fd_cache.read_context,
-                        STORAGE_CFG.fd_cache_capacity_per_read_thread)) != 0)
-        {
-            return result;
-        }
+    ctx->file_handle.trunk_id = 0;
+    ctx->file_handle.fd = -1;
+    if ((result=init_write_context(ctx)) != 0) {
+        return result;
     }
-
-    return fc_create_thread(&tid, trunk_io_thread_func,
+    return fc_create_thread(&tid, trunk_write_thread_func,
             ctx, SF_G_THREAD_STACK_SIZE);
 }
 
-static int init_thread_contexts(TrunkIOThreadContextArray *ctx_array,
-        const int path_index, const int role)
+static int init_thread_contexts(TrunkWriteThreadContextArray *ctx_array,
+        const int path_index)
 {
     int result;
-    TrunkIOThreadContext *ctx;
-    TrunkIOThreadContext *end;
+    TrunkWriteThreadContext *ctx;
+    TrunkWriteThreadContext *end;
     
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
@@ -204,7 +188,6 @@ static int init_thread_contexts(TrunkIOThreadContextArray *ctx_array,
         } else {
             ctx->indexes.thread = ctx - ctx_array->contexts;
         }
-        ctx->role = role;
         if ((result=init_thread_context(ctx)) != 0) {
             return result;
         }
@@ -217,32 +200,23 @@ static int init_path_contexts(FSStoragePathArray *parray)
 {
     FSStoragePathInfo *p;
     FSStoragePathInfo *end;
-    TrunkIOThreadContext *thread_ctxs;
-    TrunkIOPathContext *path_ctx;
+    TrunkWriteThreadContext *thread_ctxs;
+    TrunkWritePathContext *path_ctx;
     int result;
-    int thread_count;
 
     end = parray->paths + parray->count;
     for (p=parray->paths; p<end; p++) {
         path_ctx = trunk_io_ctx.path_ctx_array.paths + p->store.index;
-        thread_count = p->write_thread_count + p->read_thread_count;
-        if ((thread_ctxs=alloc_thread_contexts(thread_count)) == NULL)
+        if ((thread_ctxs=alloc_thread_contexts(p->
+                        write_thread_count)) == NULL)
         {
             return ENOMEM;
         }
 
         path_ctx->writes.contexts = thread_ctxs;
         path_ctx->writes.count = p->write_thread_count;
-        if ((result=init_thread_contexts(&path_ctx->writes, p->store.index,
-                        IO_THREAD_ROLE_WRITER)) != 0)
-        {
-            return result;
-        }
-
-        path_ctx->reads.contexts = thread_ctxs + p->write_thread_count;
-        path_ctx->reads.count = p->read_thread_count;
-        if ((result=init_thread_contexts(&path_ctx->reads, p->store.index,
-                        IO_THREAD_ROLE_READER)) != 0)
+        if ((result=init_thread_contexts(&path_ctx->writes,
+                        p->store.index)) != 0)
         {
             return result;
         }
@@ -251,7 +225,7 @@ static int init_path_contexts(FSStoragePathArray *parray)
     return 0;
 }
 
-int trunk_io_thread_init()
+int trunk_write_thread_init()
 {
     int result;
 
@@ -273,28 +247,22 @@ int trunk_io_thread_init()
     return 0;
 }
 
-void trunk_io_thread_terminate()
+void trunk_write_thread_terminate()
 {
 }
 
-int trunk_io_thread_push(const int type, const int64_t version,
+int trunk_write_thread_push(const int type, const int64_t version,
         const int path_index, const uint64_t hash_code, void *entry,
-        char *buff, trunk_io_notify_func notify_func, void *notify_arg)
+        char *buff, trunk_write_io_notify_func notify_func, void *notify_arg)
 {
-    TrunkIOPathContext *path_ctx;
-    TrunkIOThreadContext *thread_ctx;
-    TrunkIOThreadContextArray *ctx_array;
-    TrunkIOBuffer *iob;
+    TrunkWritePathContext *path_ctx;
+    TrunkWriteThreadContext *thread_ctx;
+    TrunkWriteIOBuffer *iob;
 
     path_ctx = trunk_io_ctx.path_ctx_array.paths + path_index;
-    if (type == FS_IO_TYPE_READ_SLICE) {
-        ctx_array = &path_ctx->reads;
-    } else {
-        ctx_array = &path_ctx->writes;
-    }
-
-    thread_ctx = ctx_array->contexts + hash_code % ctx_array->count;
-    iob = (TrunkIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
+    thread_ctx = path_ctx->writes.contexts +
+        hash_code % path_ctx->writes.count;
+    iob = (TrunkWriteIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
     if (iob == NULL) {
         return ENOMEM;
     }
@@ -307,12 +275,7 @@ int trunk_io_thread_push(const int type, const int64_t version,
         iob->slice = (OBSliceEntry *)entry;
     }
 
-    if (buff != NULL) {
-        iob->data.str = buff;
-    } else {
-        iob->data.str = NULL;
-    }
-    iob->data.len = 0;
+    iob->buff = buff;
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
     fc_queue_push(&thread_ctx->queue, iob);
@@ -327,23 +290,23 @@ static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
             space->id_info.id);
 }
 
-static inline void clear_write_fd(TrunkIOThreadContext *ctx)
+static inline void clear_write_fd(TrunkWriteThreadContext *ctx)
 {
-    if (ctx->fd_cache.write_handle.fd >= 0) {
-        close(ctx->fd_cache.write_handle.fd);
-        ctx->fd_cache.write_handle.fd = -1;
-        ctx->fd_cache.write_handle.trunk_id = 0;
+    if (ctx->file_handle.fd >= 0) {
+        close(ctx->file_handle.fd);
+        ctx->file_handle.fd = -1;
+        ctx->file_handle.trunk_id = 0;
     }
 }
 
-static int get_write_fd(TrunkIOThreadContext *ctx,
+static int get_write_fd(TrunkWriteThreadContext *ctx,
         FSTrunkSpaceInfo *space, int *fd)
 {
     char trunk_filename[PATH_MAX];
     int result;
 
-    if (space->id_info.id == ctx->fd_cache.write_handle.trunk_id) {
-        *fd = ctx->fd_cache.write_handle.fd;
+    if (space->id_info.id == ctx->file_handle.trunk_id) {
+        *fd = ctx->file_handle.fd;
         return 0;
     }
 
@@ -357,43 +320,17 @@ static int get_write_fd(TrunkIOThreadContext *ctx,
         return result;
     }
 
-    if (ctx->fd_cache.write_handle.fd >= 0) {
-        close(ctx->fd_cache.write_handle.fd);
+    if (ctx->file_handle.fd >= 0) {
+        close(ctx->file_handle.fd);
     }
 
-    ctx->fd_cache.write_handle.trunk_id = space->id_info.id;
-    ctx->fd_cache.write_handle.fd = *fd;
-    ctx->fd_cache.write_handle.offset = 0;
+    ctx->file_handle.trunk_id = space->id_info.id;
+    ctx->file_handle.fd = *fd;
+    ctx->file_handle.offset = 0;
     return 0;
 }
 
-static int get_read_fd(TrunkIOThreadContext *ctx,
-        FSTrunkSpaceInfo *space, int *fd)
-{
-    char trunk_filename[PATH_MAX];
-    int result;
-
-    if ((*fd=trunk_fd_cache_get(&ctx->fd_cache.read_context,
-                    space->id_info.id)) >= 0)
-    {
-        return 0;
-    }
-
-    get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
-    *fd = open(trunk_filename, O_RDONLY);
-    if (*fd < 0) {
-        result = errno != 0 ? errno : EACCES;
-        logError("file: "__FILE__", line: %d, "
-                "open file \"%s\" fail, errno: %d, error info: %s",
-                __LINE__, trunk_filename, result, STRERROR(result));
-        return result;
-    }
-
-    trunk_fd_cache_add(&ctx->fd_cache.read_context, space->id_info.id, *fd);
-    return 0;
-}
-
-static int do_create_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
+static int do_create_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob)
 {
     char trunk_filename[PATH_MAX];
     int fd;
@@ -445,7 +382,7 @@ static int do_create_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
     return result;
 }
 
-static int do_delete_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
+static int do_delete_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob)
 {
     char trunk_filename[PATH_MAX];
     int result;
@@ -465,10 +402,10 @@ static int do_delete_trunk(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
     return result;
 }
 
-static int do_write_slices(TrunkIOThreadContext *ctx)
+static int do_write_slices(TrunkWriteThreadContext *ctx)
 {
     char trunk_filename[PATH_MAX];
-    TrunkIOBuffer *first;
+    TrunkWriteIOBuffer *first;
     struct iovec *iov;
     struct iovec *end;
     int fd;
@@ -485,7 +422,7 @@ static int do_write_slices(TrunkIOThreadContext *ctx)
         return result;
     }
 
-    if (ctx->fd_cache.write_handle.offset != first->slice->space.offset) {
+    if (ctx->file_handle.offset != first->slice->space.offset) {
         if (lseek(fd, first->slice->space.offset, SEEK_SET) < 0) {
             get_trunk_filename(&first->slice->space, trunk_filename,
                     sizeof(trunk_filename));
@@ -556,16 +493,16 @@ static int do_write_slices(TrunkIOThreadContext *ctx)
     }
 
     ctx->write.iovb_array.success = ctx->write.iovb_array.count;
-    ctx->fd_cache.write_handle.offset = first->slice->space.offset +
+    ctx->file_handle.offset = first->slice->space.offset +
         ctx->write.iovb_array.bytes;
     return 0;
 }
 
-static int batch_write(TrunkIOThreadContext *ctx)
+static int batch_write(TrunkWriteThreadContext *ctx)
 {
     int result;
-    TrunkIOBuffer **iob;
-    TrunkIOBuffer **end;
+    TrunkWriteIOBuffer **iob;
+    TrunkWriteIOBuffer **end;
 
     result = do_write_slices(ctx);
     iob = ctx->write.iovb_array.iobs;
@@ -603,57 +540,14 @@ static int batch_write(TrunkIOThreadContext *ctx)
     return result;
 }
 
-static int do_read_slice(TrunkIOThreadContext *ctx, TrunkIOBuffer *iob)
-{
-    int fd;
-    int remain;
-    int bytes;
-    int result;
-
-    if ((result=get_read_fd(ctx, &iob->slice->space, &fd)) != 0) {
-        return result;
-    }
-
-    remain = iob->slice->ssize.length;
-    while (remain > 0) {
-        if ((bytes=pread(fd, iob->data.str + iob->data.len, remain,
-                        iob->slice->space.offset + iob->data.len)) < 0)
-        {
-            char trunk_filename[PATH_MAX];
-
-            result = errno != 0 ? errno : EIO;
-            if (result == EINTR) {
-                continue;
-            }
-
-            trunk_fd_cache_delete(&ctx->fd_cache.read_context,
-                    iob->slice->space.id_info.id);
-
-            get_trunk_filename(&iob->slice->space, trunk_filename,
-                    sizeof(trunk_filename));
-            logError("file: "__FILE__", line: %d, "
-                    "read trunk file: %s fail, offset: %"PRId64", "
-                    "errno: %d, error info: %s", __LINE__, trunk_filename,
-                    iob->slice->space.offset + iob->data.len,
-                    result, STRERROR(result));
-            return result;
-        }
-
-        iob->data.len += bytes;
-        remain -= bytes;
-    }
-
-    return 0;
-}
-
-static inline int pop_to_request_skiplist(TrunkIOThreadContext *ctx,
+static inline int pop_to_request_skiplist(TrunkWriteThreadContext *ctx,
         const bool blocked)
 {
-    TrunkIOBuffer *head;
+    TrunkWriteIOBuffer *head;
     int count;
     int result;
 
-    if ((head=(TrunkIOBuffer *)fc_queue_pop_all_ex(
+    if ((head=(TrunkWriteIOBuffer *)fc_queue_pop_all_ex(
                     &ctx->queue, blocked)) == NULL)
     {
         return 0;
@@ -683,17 +577,17 @@ static inline int pop_to_request_skiplist(TrunkIOThreadContext *ctx,
      (last->slice->space.offset + last->slice->space.size ==  \
       current->slice->space.offset))
 
-static void deal_request_skiplist(TrunkIOThreadContext *ctx)
+static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
 {
-    TrunkIOBuffer *iob;
-    TrunkIOBuffer *last;
+    TrunkWriteIOBuffer *iob;
+    TrunkWriteIOBuffer *last;
     struct iovec *current;
     int io_count;
     int result;
 
     io_count = 0;
     while (1) {
-        iob = (TrunkIOBuffer *)uniq_skiplist_get_first(
+        iob = (TrunkWriteIOBuffer *)uniq_skiplist_get_first(
                 ctx->write.sl_pair->skiplist);
         if (iob == NULL) {
             break;
@@ -735,7 +629,7 @@ static void deal_request_skiplist(TrunkIOThreadContext *ctx)
 
                 current = ctx->write.iovb_array.iovs +
                     ctx->write.iovb_array.count;
-                current->iov_base = iob->data.str;
+                current->iov_base = iob->buff;
                 current->iov_len = iob->slice->space.size;
                 ctx->write.iovb_array.iobs[ctx->write.iovb_array.count] = iob;
                 ctx->write.iovb_array.bytes += iob->slice->space.size;
@@ -772,9 +666,27 @@ static void deal_request_skiplist(TrunkIOThreadContext *ctx)
     }
 }
 
-static void trunk_io_writer_run(TrunkIOThreadContext *ctx)
+static void *trunk_write_thread_func(void *arg)
 {
+    TrunkWriteThreadContext *ctx;
     int count;
+
+    ctx = (TrunkWriteThreadContext *)arg;
+#ifdef OS_LINUX
+    {
+        int len;
+        char thread_name[16];
+
+        len = snprintf(thread_name, sizeof(thread_name),
+                "dio-p%02d-w", ctx->indexes.path);
+        if (ctx->indexes.thread >= 0) {
+            snprintf(thread_name + len, sizeof(thread_name) - len,
+                    "[%d]", ctx->indexes.thread);
+        }
+        prctl(PR_SET_NAME, thread_name);
+    }
+#endif
+
     while (SF_G_CONTINUE_FLAG) {
         count = pop_to_request_skiplist(ctx,
                 ctx->write.iovb_array.count == 0);
@@ -790,63 +702,6 @@ static void trunk_io_writer_run(TrunkIOThreadContext *ctx)
         }
 
         deal_request_skiplist(ctx);
-    }
-}
-
-static void trunk_io_reader_run(TrunkIOThreadContext *ctx)
-{
-    TrunkIOBuffer *iob;
-    int result;
-
-    while (SF_G_CONTINUE_FLAG) {
-        if ((iob=(TrunkIOBuffer *)fc_queue_pop(&ctx->queue)) == NULL) {
-            continue;
-        }
-
-        if (iob->type != FS_IO_TYPE_READ_SLICE) {
-            logError("file: "__FILE__", line: %d, "
-                    "invalid IO type: %d", __LINE__, iob->type);
-            sf_terminate_myself();
-            break;
-        }
-
-        if ((result=do_read_slice(ctx, iob)) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "slice read fail, result: %d",
-                    __LINE__, result);
-        }
-
-        if (iob->notify.func != NULL) {
-            iob->notify.func(iob, result);
-        }
-        fast_mblock_free_object(&ctx->mblock, iob);
-    }
-}
-
-static void *trunk_io_thread_func(void *arg)
-{
-    TrunkIOThreadContext *ctx;
-
-    ctx = (TrunkIOThreadContext *)arg;
-#ifdef OS_LINUX
-    {
-        int len;
-        char thread_name[16];
-
-        len = snprintf(thread_name, sizeof(thread_name),
-                "dio-p%02d-%c", ctx->indexes.path, ctx->role);
-        if (ctx->indexes.thread >= 0) {
-            snprintf(thread_name + len, sizeof(thread_name) - len,
-                    "[%d]", ctx->indexes.thread);
-        }
-        prctl(PR_SET_NAME, thread_name);
-    }
-#endif
-
-    if (ctx->role == IO_THREAD_ROLE_WRITER) {
-        trunk_io_writer_run(ctx);
-    } else {
-        trunk_io_reader_run(ctx);
     }
 
     return NULL;

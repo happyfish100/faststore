@@ -77,6 +77,7 @@ typedef struct {
 
     int write_threads_per_path;
     int read_threads_per_path;
+    int io_depth_per_read_thread;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;

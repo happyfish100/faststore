@@ -14,8 +14,8 @@
  */
 
 
-#ifndef _TRUNK_IO_THREAD_H
-#define _TRUNK_IO_THREAD_H
+#ifndef _TRUNK_WRITE_THREAD_H
+#define _TRUNK_WRITE_THREAD_H
 
 #include "../../common/fs_types.h"
 #include "../storage/storage_config.h"
@@ -25,16 +25,15 @@
 
 #define FS_IO_TYPE_CREATE_TRUNK   'C'
 #define FS_IO_TYPE_DELETE_TRUNK   'D'
-#define FS_IO_TYPE_READ_SLICE     'R'
 #define FS_IO_TYPE_WRITE_SLICE    'W'
 
-struct trunk_io_buffer;
+struct trunk_write_io_buffer;
 
 //Note: the record can NOT be persisted
-typedef void (*trunk_io_notify_func)(struct trunk_io_buffer *record,
-        const int result);
+typedef void (*trunk_write_io_notify_func)(struct trunk_write_io_buffer
+        *record, const int result);
 
-typedef struct trunk_io_buffer {
+typedef struct trunk_write_io_buffer {
     int type;
 
     union {
@@ -43,43 +42,43 @@ typedef struct trunk_io_buffer {
     };
 
     int64_t version; //for write in order
-    string_t data;
+    char *buff;
     struct {
-        trunk_io_notify_func func;
+        trunk_write_io_notify_func func;
         void *arg;
     } notify;
-    struct trunk_io_buffer *next;
-} TrunkIOBuffer;
+    struct trunk_write_io_buffer *next;
+} TrunkWriteIOBuffer;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int trunk_io_thread_init();
-    void trunk_io_thread_terminate();
+    int trunk_write_thread_init();
+    void trunk_write_thread_terminate();
 
-    int trunk_io_thread_push(const int type, const int64_t version,
+    int trunk_write_thread_push(const int type, const int64_t version,
             const int path_index, const uint64_t hash_code, void *entry,
-            char *buff, trunk_io_notify_func notify_func, void *notify_arg);
+            char *buff, trunk_write_io_notify_func notify_func, void *notify_arg);
 
-    static inline int io_thread_push_trunk_op(const int type,
-            const FSTrunkSpaceInfo *space, trunk_io_notify_func
+    static inline int trunk_write_thread_push_trunk_op(const int type,
+            const FSTrunkSpaceInfo *space, trunk_write_io_notify_func
             notify_func, void *notify_arg)
     {
         FSTrunkAllocator *allocator;
         allocator = g_allocator_mgr->allocator_ptr_array.
             allocators[space->store->index];
-        return trunk_io_thread_push(type, __sync_add_and_fetch(&allocator->
+        return trunk_write_thread_push(type, __sync_add_and_fetch(&allocator->
                     allocate.current_version, 1), space->store->index,
                 space->id_info.id, (void *)space, NULL,
                 notify_func, notify_arg);
     }
 
-    static inline int io_thread_push_slice_op(const int type,
+    static inline int trunk_write_thread_push_slice_op(const int type,
             const int64_t version, OBSliceEntry *slice, char *buff,
-            trunk_io_notify_func notify_func, void *notify_arg)
+            trunk_write_io_notify_func notify_func, void *notify_arg)
     {
-        return trunk_io_thread_push(type, version, slice->space.
+        return trunk_write_thread_push(type, version, slice->space.
                 store->index, slice->space.id_info.id, slice,
                 buff, notify_func, notify_arg);
     }

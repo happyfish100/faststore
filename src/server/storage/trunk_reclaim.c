@@ -27,7 +27,6 @@
 #include "../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/binlog_types.h"
-#include "../dio/trunk_io_thread.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
 #include "trunk_reclaim.h"

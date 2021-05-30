@@ -321,9 +321,15 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     }
 
     storage_cfg->read_threads_per_path = iniGetIntValue(NULL,
-            "read_threads_per_path", ini_ctx->context, 2);
+            "read_threads_per_path", ini_ctx->context, 1);
     if (storage_cfg->read_threads_per_path <= 0) {
-        storage_cfg->read_threads_per_path = 2;
+        storage_cfg->read_threads_per_path = 1;
+    }
+
+    storage_cfg->io_depth_per_read_thread = iniGetIntValue(NULL,
+            "io_depth_per_read_thread", ini_ctx->context, 64);
+    if (storage_cfg->io_depth_per_read_thread <= 0) {
+        storage_cfg->io_depth_per_read_thread = 64;
     }
 
     if ((result=iniGetPercentValue(ini_ctx, "prealloc_space_per_path",
@@ -656,6 +662,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, write_threads_per_path: %d, "
             "read_threads_per_path: %d, "
+            "io_depth_per_read_thread: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_allocator_count: %d, "
@@ -675,6 +682,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "never_reclaim_on_trunk_usage: %.2f%%",
             storage_cfg->write_threads_per_path,
             storage_cfg->read_threads_per_path,
+            storage_cfg->io_depth_per_read_thread,
             storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->object_block.hashtable_capacity,
             storage_cfg->object_block.shared_allocator_count,

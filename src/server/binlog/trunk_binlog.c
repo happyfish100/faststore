@@ -22,7 +22,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_binlog_writer.h"
 #include "../server_global.h"
-#include "../dio/trunk_io_thread.h"
+#include "../dio/trunk_write_thread.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "binlog_loader.h"
