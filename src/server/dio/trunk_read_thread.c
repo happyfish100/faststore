@@ -335,9 +335,9 @@ static int get_read_fd(TrunkReadThreadContext *ctx,
 static inline int prepare_read_slice(TrunkReadThreadContext *ctx,
         TrunkReadIOBuffer *iob)
 {
-#define MEM_ALIGN_FLOOR(x, align_size) ((x) & (~align_size))
+#define MEM_ALIGN_FLOOR(x, align_size) ((x) & (~(align_size - 1)))
 #define MEM_ALIGN_CEIL(x, align_size) \
-    (((x) + (align_size - 1)) & (~align_size))
+    (((x) + (align_size - 1)) & (~(align_size - 1)))
 
     int64_t new_offset;
     int result;
@@ -526,10 +526,11 @@ static int process_aio(TrunkReadThreadContext *ctx)
                     sizeof(trunk_filename));
             logError("file: "__FILE__", line: %d, "
                     "read trunk file: %s fail, offset: %"PRId64", "
-                    "length: %d, errno: %d, error info: %s", __LINE__,
-                    trunk_filename, iob->slice->space.offset -
-                    iob->aligned.offset, iob->aligned.
-                    length, result, STRERROR(result));
+                    "expect length: %d, read return: %d, errno: %d, "
+                    "error info: %s", __LINE__, trunk_filename,
+                    iob->slice->space.offset - iob->aligned.offset,
+                    iob->aligned.length, (int)event->res, result,
+                    STRERROR(result));
         }
 
         if (iob->notify.func != NULL) {
