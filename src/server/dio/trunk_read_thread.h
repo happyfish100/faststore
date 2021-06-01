@@ -35,7 +35,13 @@ typedef void (*trunk_read_io_notify_func)(struct trunk_read_io_buffer
 
 typedef struct trunk_read_io_buffer {
     OBSliceEntry *slice;     //for slice op
-    char *buff;
+    char *data;
+    struct {
+        char *buff;
+        int offset;  //relative to data buffer
+        int length;  //read length
+        int alloc;   //alloc size
+    } aligned;
     struct {
         trunk_read_io_notify_func func;
         void *arg;
