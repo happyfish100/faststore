@@ -47,12 +47,6 @@ typedef struct trunk_read_thread_context {
     TrunkFDCacheContext fd_cache;
 
 #ifdef OS_LINUX
-    int epfd;  //epoll fd
-    struct {
-        int queue_efd; //event fd
-        int dio_efd;   //event fd
-    } notify;
-
     struct {
         int count;
         int alloc;
@@ -126,11 +120,6 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
 {
     int result;
     pthread_t tid;
-#ifdef OS_LINUX
-    struct epoll_event ev;
-    int efds[2];
-    int i;
-#endif
 
     if ((result=fast_mblock_init_ex1(&ctx->mblock, "trunk_read_buffer",
                     sizeof(TrunkReadIOBuffer), 1024, 0, NULL,
@@ -153,45 +142,6 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
     }
 
 #ifdef OS_LINUX
-    if ((ctx->epfd=epoll_create(DIO_MAX_EVENT_COUNT)) < 0) {
-        result = errno != 0 ? errno : ENOMEM;
-        logError("file: "__FILE__", line: %d, "
-                "epoll_create fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
-    if ((ctx->notify.queue_efd=eventfd(0, EFD_NONBLOCK)) < 0) {
-        result = errno != 0 ? errno : ENOMEM;
-        logError("file: "__FILE__", line: %d, "
-                "eventfd fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
-    if ((ctx->notify.dio_efd=eventfd(0, EFD_NONBLOCK)) < 0) {
-        result = errno != 0 ? errno : ENOMEM;
-        logError("file: "__FILE__", line: %d, "
-                "eventfd fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
-    }
-
-    efds[0] = ctx->notify.queue_efd;
-    efds[1] = ctx->notify.dio_efd;
-    for (i=0; i<2; i++) {
-        memset(&ev, 0, sizeof(ev));
-        ev.events = EPOLLIN | EPOLLET;
-        ev.data.ptr = NULL;
-        ev.data.fd = efds[i];
-        if (epoll_ctl(ctx->epfd, EPOLL_CTL_ADD, efds[i], &ev) != 0) {
-            result = errno != 0 ? errno : ENOMEM;
-            logError("file: "__FILE__", line: %d, "
-                    "epoll_ctl fail, errno: %d, error info: %s",
-                    __LINE__, result, STRERROR(result));
-            return result;
-        }
-    }
 
     ctx->iocbs.alloc = path_info->read_io_depth;
     ctx->iocbs.pp = (struct iocb **)fc_malloc(sizeof(
@@ -305,9 +255,6 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     TrunkReadPathContext *path_ctx;
     TrunkReadThreadContext *thread_ctx;
     TrunkReadIOBuffer *iob;
-#ifdef OS_LINUX
-    bool notify;
-#endif
 
     path_ctx = trunk_io_ctx.path_ctx_array.paths +
         slice->space.store->index;
@@ -323,27 +270,7 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
 
-#ifdef OS_LINUX
-    fc_queue_push_ex(&thread_ctx->queue, iob, &notify);
-    if (notify) {
-        int64_t n;
-        int result;
-
-        n = 1;
-        if (write(thread_ctx->notify.queue_efd,
-                    &n, sizeof(n)) != sizeof(n))
-        {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "write eventfd %d fail, errno: %d, error info: %s",
-                    __LINE__, thread_ctx->notify.queue_efd, result,
-                    STRERROR(result));
-        }
-    }
-#else
     fc_queue_push(&thread_ctx->queue, iob);
-#endif
-
     return 0;
 }
 
@@ -394,7 +321,6 @@ static inline int prepare_read_slice(TrunkReadThreadContext *ctx,
 
     io_prep_pread(&iob->iocb, fd, iob->buff, iob->slice->ssize.length,
             iob->slice->space.offset);
-    io_set_eventfd(&iob->iocb, ctx->notify.dio_efd);
     iob->iocb.data = iob;
     ctx->iocbs.pp[ctx->iocbs.count++] = &iob->iocb;
     return 0;
@@ -410,16 +336,12 @@ static int consume_queue(TrunkReadThreadContext *ctx)
     int n;
     int result;
 
-    target_count = ctx->aio.max_event - ctx->aio.doing_count;
-    if (target_count <= 0) {
-        return 0;
-    }
-
-    fc_queue_pop_to_queue(&ctx->queue, &qinfo);
+    fc_queue_pop_to_queue_ex(&ctx->queue, &qinfo, ctx->aio.doing_count == 0);
     if (qinfo.head == NULL) {
         return 0;
     }
 
+    target_count = ctx->aio.max_event - ctx->aio.doing_count;
     ctx->iocbs.count = 0;
     iob = (TrunkReadIOBuffer *)qinfo.head;
     do {
@@ -436,6 +358,10 @@ static int consume_queue(TrunkReadThreadContext *ctx)
                         ctx->iocbs.pp + count)) <= 0)
         {
             result = errno != 0 ? errno : ENOMEM;
+            if (result == EINTR) {
+                continue;
+            }
+
             logError("file: "__FILE__", line: %d, "
                     "io_submiti return %d != %d, "
                     "errno: %d, error info: %s",
@@ -455,41 +381,58 @@ static int consume_queue(TrunkReadThreadContext *ctx)
     return 0;
 }
 
-static int process_aio(TrunkReadThreadContext *ctx, int *count)
+static int process_aio(TrunkReadThreadContext *ctx)
 {
     struct timespec tms;
     TrunkReadIOBuffer *iob;
     struct io_event *event;
     struct io_event *end;
     char trunk_filename[PATH_MAX];
-    int i;
+    bool full;
+    int count;
     int result;
 
-    i = 0;
-    while (i < 3) {
-        tms.tv_sec = 0;
-        tms.tv_nsec = 0;
-        *count = io_getevents(ctx->aio.ctx, 1, ctx->aio.
-                max_event, ctx->aio.events, &tms);
-        if (*count > 0) {
-            break;
+    full = ctx->aio.doing_count >= ctx->aio.max_event;
+    while (1) {
+        if (full) {
+            tms.tv_sec = 1;
+            tms.tv_nsec = 0;
+        } else {
+            tms.tv_sec = 0;
+            if (ctx->aio.doing_count < 10) {
+                tms.tv_nsec = ctx->aio.doing_count * 1000 * 1000;
+            } else {
+                tms.tv_nsec = 10 * 1000 * 1000;
+            }
         }
-        if (*count < 0) {
+        count = io_getevents(ctx->aio.ctx, 1, ctx->aio.
+                max_event, ctx->aio.events, &tms);
+        if (count > 0) {
+            break;
+        } else if (count == 0) {  //timeout
+            if (full) {
+                continue;
+            } else {
+                return 0;
+            }
+        } else {
             result = errno != 0 ? errno : ENOMEM;
             if (result == EINTR) {
-                continue;
+                if (full) {
+                    continue;
+                } else {
+                    return 0;
+                }
             }
 
             logCrit("file: "__FILE__", line: %d, "
                     "io_getevents fail, errno: %d, error info: %s",
                     __LINE__, result, STRERROR(result));
             return result;
-        } else {  //*count == 0
-            i++;
         }
     }
 
-    end = ctx->aio.events + *count;
+    end = ctx->aio.events + count;
     for (event=ctx->aio.events; event<end; event++) {
         iob = (TrunkReadIOBuffer *)event->data;
         if (event->res == iob->slice->ssize.length) {
@@ -516,48 +459,24 @@ static int process_aio(TrunkReadThreadContext *ctx, int *count)
         }
         fast_mblock_free_object(&ctx->mblock, iob);
     }
-    ctx->aio.doing_count -= *count;
+    ctx->aio.doing_count -= count;
 
     return 0;
 }
 
-static int deal_epoll_event(TrunkReadThreadContext *ctx,
-        struct epoll_event *ev)
+static inline int process(TrunkReadThreadContext *ctx)
 {
     int result;
-    int count;
-    bool full;
-    uint64_t done_count;
 
-    while (1) {
-        if (read(ev->data.fd, &done_count, sizeof(done_count)) ==
-                sizeof(done_count))
-        {
-            break;
-        }
-
-        result = errno != 0 ? errno : ENOMEM;
-        if (result == EINTR) {
-            continue;
-        }
-
-        logCrit("file: "__FILE__", line: %d, "
-                "read fail, fd: %d, errno: %d, error info: %s",
-                __LINE__, ev->data.fd, result, STRERROR(result));
+    if ((result=consume_queue(ctx)) != 0) {
         return result;
     }
 
-    if (ev->data.fd == ctx->notify.queue_efd) {
-        return consume_queue(ctx);
-    } else {
-        full = (ctx->aio.doing_count >= ctx->aio.max_event);
-        if ((result=process_aio(ctx, &count)) == 0) {
-            if (full && (count > 0)) {
-                return consume_queue(ctx);
-            }
-        }
-        return result;
+    if (ctx->aio.doing_count <= 0) {
+        return 0;
     }
+
+    return process_aio(ctx);
 }
 
 #else
@@ -612,14 +531,11 @@ static int do_read_slice(TrunkReadThreadContext *ctx, TrunkReadIOBuffer *iob)
 static void *trunk_read_thread_func(void *arg)
 {
     TrunkReadThreadContext *ctx;
-    int result;
 #ifdef OS_LINUX
     int len;
-    int count;
-    int i;
     char thread_name[16];
-    struct epoll_event events[DIO_MAX_EVENT_COUNT];
 #else
+    int result;
     TrunkReadIOBuffer *iob;
 #endif
 
@@ -635,25 +551,9 @@ static void *trunk_read_thread_func(void *arg)
     prctl(PR_SET_NAME, thread_name);
 
     while (SF_G_CONTINUE_FLAG) {
-        count = epoll_wait(ctx->epfd, events, DIO_MAX_EVENT_COUNT, -1);
-        if (count < 0) {
-            result = errno != 0 ? errno : ENOMEM;
-            if (result == EINTR) {
-                continue;
-            }
-
-            logCrit("file: "__FILE__", line: %d, "
-                    "epoll_wait fail, errno: %d, error info: %s",
-                    __LINE__, result, STRERROR(result));
+        if (process(ctx) != 0) {
             sf_terminate_myself();
             break;
-        }
-
-        for (i=0; i<count; i++) {
-            if (deal_epoll_event(ctx, events + i) != 0) {
-                sf_terminate_myself();
-                break;
-            }
         }
     }
 

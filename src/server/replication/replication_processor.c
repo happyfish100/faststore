@@ -338,7 +338,8 @@ static void replication_queue_discard_all(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
 
-    fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
+    fc_queue_try_pop_to_queue(&replication->
+            context.caller.rpc_queue, &qinfo);
     if (qinfo.head != NULL) {
         discard_queue(replication, (ReplicationRPCEntry *)qinfo.head);
     }
@@ -465,7 +466,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int pkg_len;
     int result;
 
-    fc_queue_pop_to_queue(&replication->context.caller.rpc_queue, &qinfo);
+    fc_queue_try_pop_to_queue(&replication->
+            context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }

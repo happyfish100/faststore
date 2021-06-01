@@ -238,7 +238,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         return EAGAIN;
     }
 
-    fc_queue_pop_to_queue(&ctx->queue, &qinfo);
+    fc_queue_try_pop_to_queue(&ctx->queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }
