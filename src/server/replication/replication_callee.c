@@ -121,7 +121,8 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
         return 0;
     }
 
-    fc_queue_pop_to_queue(&replication->context.callee.done_queue, &qinfo);
+    fc_queue_try_pop_to_queue(&replication->
+            context.callee.done_queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }
