@@ -54,8 +54,12 @@ typedef struct {
         MemoryWatermark watermark;
     } memory;
 
+    struct fast_mblock_man mblock;  //element: AlignedReadBuffer
     struct {
         ReadBufferAllocator *allocators;
+        ReadBufferAllocator *middle;
+        ReadBufferAllocator *middle_plus_1;
+        ReadBufferAllocator *end;
         int count;
     } mpool;
 
