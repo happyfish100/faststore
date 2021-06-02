@@ -146,7 +146,6 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
         return result;
     }
 
-
     if (statfs(path_info->store.path.str, &stbuf) != 0) {
         result = errno != 0 ? errno : ENOMEM;
         logError("file: "__FILE__", line: %d, "
@@ -517,7 +516,7 @@ static int process_aio(TrunkReadThreadContext *ctx)
             trunk_fd_cache_delete(&ctx->fd_cache,
                     iob->slice->space.id_info.id);
 
-            if (event->res < 0) {
+            if ((int)event->res < 0) {
                 result = -1 * event->res;
             } else {
                 result = EBUSY;
