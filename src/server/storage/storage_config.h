@@ -19,6 +19,9 @@
 
 #include "../../common/fs_types.h"
 #include "../server_types.h"
+#ifdef OS_LINUX
+#include "../dio/read_buffer_pool.h"
+#endif
 
 typedef struct {
     volatile int64_t total;
@@ -98,6 +101,14 @@ typedef struct {
         TimeInfo start_time;
         TimeInfo end_time;
     } prealloc_space;
+
+#ifdef OS_LINUX
+    struct {
+        MemoryWatermark watermark;
+        int idle_ttl;
+        int reclaim_interval;
+    } read_buffer;  //for aio
+#endif
 
 } FSStorageConfig;
 

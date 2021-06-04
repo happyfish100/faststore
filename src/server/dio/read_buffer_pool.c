@@ -24,6 +24,28 @@
 #include "../server_global.h"
 #include "read_buffer_pool.h"
 
+/*
+static struct {
+    ReadBufferPool *pools;
+    int count;
+} g_rbpool_array = {NULL, 0};
+*/
+
+static struct {
+    ReadBufferPool **pools;
+    ReadBufferPool **end;
+    int idle_ttl;
+    int sleep_ms;
+    int alloc;
+    int count;
+} rbpool_ptr_array = {NULL, NULL, 0, 0, 0};
+
+int read_buffer_pool_init(const int path_count,
+        const MemoryWatermark *watermark)
+{
+    return 0;
+}
+
 static int aligned_buffer_alloc_init(AlignedReadBuffer *buffer,
         ReadBufferPool *pool)
 {
@@ -79,17 +101,55 @@ static int init_allocators(ReadBufferPool *pool)
     return 0;
 }
 
-int read_buffer_pool_init(ReadBufferPool *pool,
+static int add_to_global_pool_array(ReadBufferPool *pool)
+{
+    int new_alloc;
+    ReadBufferPool **new_pools;
+
+    if (rbpool_ptr_array.count > rbpool_ptr_array.alloc) {
+        if (rbpool_ptr_array.alloc == 0) {
+            new_alloc = 8;
+        } else {
+            new_alloc = 2 * rbpool_ptr_array.alloc;
+        }
+
+        new_pools = (ReadBufferPool **)fc_malloc(sizeof(
+                    ReadBufferPool *) * new_alloc);
+        if (new_pools == NULL) {
+            return ENOMEM;
+        }
+
+        if (rbpool_ptr_array.pools != NULL) {
+            memcpy(new_pools, rbpool_ptr_array.pools, sizeof(
+                        ReadBufferPool *) * rbpool_ptr_array.count);
+            free(rbpool_ptr_array.pools);
+        }
+
+        rbpool_ptr_array.pools = new_pools;
+        rbpool_ptr_array.alloc = new_alloc;
+    }
+
+    rbpool_ptr_array.pools[rbpool_ptr_array.count++] = pool;
+    rbpool_ptr_array.end = rbpool_ptr_array.pools + rbpool_ptr_array.count;
+    return 0;
+}
+
+int read_buffer_pool_create(ReadBufferPool *pool,
         const short path_index, const int block_size,
         const MemoryWatermark *watermark)
 {
+    int result;
+
     pool->path_index = path_index;
     pool->block_size = block_size;
     pool->memory.watermark = *watermark;
     pool->memory.alloc = 0;
     pool->memory.used = 0;
 
-    return init_allocators(pool);
+    if ((result=init_allocators(pool)) != 0) {
+        return result;
+    }
+    return add_to_global_pool_array(pool);
 }
 
 static inline ReadBufferAllocator *get_allocator(
@@ -128,7 +188,7 @@ static inline void free_aligned_buffer(ReadBufferPool *pool,
     FC_ATOMIC_DEC_EX(pool->memory.alloc, buffer->size);
 }
 
-static int reclaim_one_allocator(ReadBufferPool *pool,
+static int reclaim_allocator_by_size(ReadBufferPool *pool,
         ReadBufferAllocator *allocator, const int target_size,
         int *reclaim_bytes)
 {
@@ -158,21 +218,21 @@ static int reclaim(ReadBufferPool *pool, const int target_size,
     ReadBufferAllocator *allocator;
 
     *reclaim_bytes = 0;
-    for (allocator = pool->mpool.middle; allocator <
+    for (allocator = pool->mpool.middle_plus_1; allocator <
             pool->mpool.end; allocator++)
     {
-        if (reclaim_one_allocator(pool, allocator, target_size,
-                    reclaim_bytes) == 0)
+        if (reclaim_allocator_by_size(pool, allocator,
+                    target_size, reclaim_bytes) == 0)
         {
             return 0;
         }
     }
 
-    for (allocator = pool->mpool.middle-1; allocator >=
+    for (allocator = pool->mpool.middle; allocator >=
             pool->mpool.allocators; allocator--)
     {
-        if (reclaim_one_allocator(pool, allocator, target_size,
-                    reclaim_bytes) == 0)
+        if (reclaim_allocator_by_size(pool, allocator,
+                    target_size, reclaim_bytes) == 0)
         {
             return 0;
         }
@@ -267,5 +327,80 @@ void read_buffer_pool_free(ReadBufferPool *pool,
     fc_list_add(&buffer->dlink, &allocator->freelist);
     PTHREAD_MUTEX_UNLOCK(&allocator->lock);
 
-    FC_ATOMIC_DEC_EX(pool->memory.used, buffer->size);
+    FC_ATOMIC_DEC_EX(pool->memory.used, allocator->size);
+}
+
+static void reclaim_allocator_by_ttl(ReadBufferPool *pool,
+        ReadBufferAllocator *allocator)
+{
+    struct fc_list_head *pos;
+    AlignedReadBuffer *buffer;
+
+    PTHREAD_MUTEX_LOCK(&allocator->lock);
+    fc_list_for_each_prev(pos, &allocator->freelist) {
+        buffer = fc_list_entry(pos, AlignedReadBuffer, dlink);
+        if (g_current_time - buffer->last_access_time <=
+                rbpool_ptr_array.idle_ttl)
+        {
+            break;
+        }
+        free_aligned_buffer(pool, buffer);
+    }
+    PTHREAD_MUTEX_UNLOCK(&allocator->lock);
+}
+
+static void pool_reclaim(ReadBufferPool *pool)
+{
+    ReadBufferAllocator *allocator;
+
+    if (FC_ATOMIC_GET(pool->memory.alloc) <=
+            pool->memory.watermark.low)
+    {
+        fc_sleep_ms(rbpool_ptr_array.sleep_ms * pool->mpool.count);
+        return;
+    }
+
+    for (allocator=pool->mpool.allocators;
+            allocator<pool->mpool.end; allocator++)
+    {
+        fc_sleep_ms(rbpool_ptr_array.sleep_ms);
+        reclaim_allocator_by_ttl(pool, allocator);
+    }
+}
+
+static void *reclaim_thread_entrance(void *arg)
+{
+    ReadBufferPool **pool;
+
+    while (SF_G_CONTINUE_FLAG) {
+        for (pool=rbpool_ptr_array.pools; pool<rbpool_ptr_array.end; pool++) {
+            pool_reclaim(*pool);
+        }
+    }
+
+    return NULL;
+}
+
+int read_buffer_pool_start(const int idle_ttl,
+        const int reclaim_interval)
+{
+    ReadBufferPool **pool;
+    int allocator_count;
+    pthread_t tid;
+
+    allocator_count = 0;
+    for (pool=rbpool_ptr_array.pools; pool<rbpool_ptr_array.end; pool++) {
+        allocator_count += (*pool)->mpool.count;
+    }
+
+    if (allocator_count == 0) {
+        logError("file: "__FILE__", line: %d, "
+                "pool array is empty!", __LINE__);
+        return EINVAL;
+    }
+
+    rbpool_ptr_array.idle_ttl = idle_ttl;
+    rbpool_ptr_array.sleep_ms = reclaim_interval * 1000 / allocator_count;
+    return fc_create_thread(&tid, reclaim_thread_entrance,
+            NULL, SF_G_THREAD_STACK_SIZE);
 }

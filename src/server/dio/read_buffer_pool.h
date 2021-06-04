@@ -34,15 +34,15 @@ typedef struct aligned_read_buffer {
 } AlignedReadBuffer;
 
 typedef struct {
+    int64_t low;
+    int64_t high;
+} MemoryWatermark;
+
+typedef struct {
     int size;
     pthread_mutex_t lock;
     struct fc_list_head freelist;  //element: AlignedReadBuffer
 } ReadBufferAllocator;
-
-typedef struct {
-    int64_t low;
-    int64_t high;
-} MemoryWatermark;
 
 typedef struct {
     int block_size;
@@ -69,7 +69,10 @@ typedef struct {
 extern "C" {
 #endif
 
-    int read_buffer_pool_init(ReadBufferPool *pool,
+    int read_buffer_pool_init(const int path_count,
+            const MemoryWatermark *watermark);
+
+    int read_buffer_pool_create(ReadBufferPool *pool,
             const short path_index, const int block_size,
             const MemoryWatermark *watermark);
 
@@ -78,6 +81,9 @@ extern "C" {
 
     void read_buffer_pool_free(ReadBufferPool *pool,
             AlignedReadBuffer *buffer);
+
+    int read_buffer_pool_start(const int idle_ttl,
+            const int reclaim_interval);
 
 #ifdef __cplusplus
 }
