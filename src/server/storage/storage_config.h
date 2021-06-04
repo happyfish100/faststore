@@ -19,9 +19,6 @@
 
 #include "../../common/fs_types.h"
 #include "../server_types.h"
-#ifdef OS_LINUX
-#include "../dio/read_buffer_pool.h"
-#endif
 
 typedef struct {
     volatile int64_t total;
@@ -31,6 +28,9 @@ typedef struct {
 } FSTrunkSpaceStat;
 
 typedef struct {
+#ifdef OS_LINUX
+    int block_size;
+#endif
     FSStorePath store;
     int write_thread_count;
     int read_thread_count;
@@ -104,10 +104,19 @@ typedef struct {
 
 #ifdef OS_LINUX
     struct {
-        MemoryWatermark watermark;
-        int idle_ttl;
+        struct {
+            int64_t value;
+            double ratio;
+        } memory_watermark_low;
+
+        struct {
+            int64_t value;
+            double ratio;
+        } memory_watermark_high;
+
+        int max_idle_time;
         int reclaim_interval;
-    } read_buffer;  //for aio
+    } aio_read_buffer;
 #endif
 
 } FSStorageConfig;
@@ -124,6 +133,11 @@ extern "C" {
     void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss);
 
     void storage_config_to_log(FSStorageConfig *storage_cfg);
+
+    static inline int storage_config_path_count(FSStorageConfig *storage_cfg)
+    {
+        return storage_cfg->store_path.count + storage_cfg->write_cache.count;
+    }
 
 #ifdef __cplusplus
 }

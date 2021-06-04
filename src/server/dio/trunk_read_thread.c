@@ -38,6 +38,9 @@
 #include "../server_global.h"
 #include "../binlog/trunk_binlog.h"
 #include "trunk_fd_cache.h"
+#ifdef OS_LINUX
+#include "read_buffer_pool.h"
+#endif
 #include "trunk_read_thread.h"
 
 typedef struct trunk_read_thread_context {
@@ -123,7 +126,6 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
         const FSStoragePathInfo *path_info)
 {
     int result;
-    struct statfs stbuf;
     pthread_t tid;
 
     if ((result=fast_mblock_init_ex1(&ctx->mblock, "trunk_read_buffer",
@@ -146,19 +148,8 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
         return result;
     }
 
-    if (statfs(path_info->store.path.str, &stbuf) != 0) {
-        result = errno != 0 ? errno : ENOMEM;
-        logError("file: "__FILE__", line: %d, "
-                "statfs %s fail, errno: %d, error info: %s",
-                __LINE__, path_info->store.path.str,
-                result, STRERROR(result));
-        return result;
-    }
-
-    ctx->block_size = stbuf.f_bsize;
-    logInfo("block size======= %d", (int)stbuf.f_bsize);
-
 #ifdef OS_LINUX
+    ctx->block_size = path_info->block_size;
 
     ctx->iocbs.alloc = path_info->read_io_depth;
     ctx->iocbs.pp = (struct iocb **)fc_malloc(sizeof(
@@ -240,9 +231,52 @@ static int init_path_contexts(FSStoragePathArray *parray)
     return 0;
 }
 
+#ifdef OS_LINUX
+static int rbpool_init_start()
+{
+    SFMemoryWatermark memory_watermark;
+    FSStoragePathInfo **pp;
+    FSStoragePathInfo **end;
+    int path_count;
+    int result;
+
+    path_count = storage_config_path_count(&STORAGE_CFG);
+    memory_watermark.low = STORAGE_CFG.aio_read_buffer.
+        memory_watermark_low.value / path_count;
+    memory_watermark.high = STORAGE_CFG.aio_read_buffer.
+        memory_watermark_high.value / path_count;
+    if ((result=read_buffer_pool_init(STORAGE_CFG.paths_by_index.count,
+                    &memory_watermark)) != 0)
+    {
+        return result;
+    }
+
+    end = STORAGE_CFG.paths_by_index.paths +
+        STORAGE_CFG.paths_by_index.count;
+    for (pp=STORAGE_CFG.paths_by_index.paths; pp<end; pp++) {
+        if (*pp != NULL) {
+            if ((result=read_buffer_pool_create((*pp)->store.index,
+                            (*pp)->block_size)) != 0)
+            {
+                return result;
+            }
+        }
+    }
+
+    return read_buffer_pool_start(STORAGE_CFG.aio_read_buffer.max_idle_time,
+            STORAGE_CFG.aio_read_buffer.reclaim_interval);
+}
+#endif
+
 int trunk_read_thread_init()
 {
     int result;
+
+#ifdef OS_LINUX
+    if ((result=rbpool_init_start()) != 0) {
+        return result;
+    }
+#endif
 
     if ((result=alloc_path_contexts()) != 0) {
         return result;

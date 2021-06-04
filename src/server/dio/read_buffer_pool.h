@@ -33,57 +33,22 @@ typedef struct aligned_read_buffer {
     struct fc_list_head dlink;  //for freelist
 } AlignedReadBuffer;
 
-typedef struct {
-    int64_t low;
-    int64_t high;
-} MemoryWatermark;
-
-typedef struct {
-    int size;
-    pthread_mutex_t lock;
-    struct fc_list_head freelist;  //element: AlignedReadBuffer
-} ReadBufferAllocator;
-
-typedef struct {
-    int block_size;
-    short path_index;
-
-    struct {
-        volatile int64_t alloc;
-        volatile int64_t used;
-        MemoryWatermark watermark;
-    } memory;
-
-    struct fast_mblock_man mblock;  //element: AlignedReadBuffer
-    struct {
-        ReadBufferAllocator *allocators;
-        ReadBufferAllocator *middle;
-        ReadBufferAllocator *middle_plus_1;
-        ReadBufferAllocator *end;
-        int count;
-    } mpool;
-
-} ReadBufferPool;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
     int read_buffer_pool_init(const int path_count,
-            const MemoryWatermark *watermark);
+            const SFMemoryWatermark *watermark);
 
-    int read_buffer_pool_create(ReadBufferPool *pool,
-            const short path_index, const int block_size,
-            const MemoryWatermark *watermark);
-
-    AlignedReadBuffer *read_buffer_pool_alloc(ReadBufferPool *pool,
-            const int size);
-
-    void read_buffer_pool_free(ReadBufferPool *pool,
-            AlignedReadBuffer *buffer);
-
-    int read_buffer_pool_start(const int idle_ttl,
+    int read_buffer_pool_start(const int max_idle_time,
             const int reclaim_interval);
+
+    int read_buffer_pool_create(const short path_index, const int block_size);
+
+    AlignedReadBuffer *read_buffer_pool_alloc(
+            const short path_index, const int size);
+
+    void read_buffer_pool_free(AlignedReadBuffer *buffer);
 
 #ifdef __cplusplus
 }
