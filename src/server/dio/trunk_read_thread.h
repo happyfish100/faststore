@@ -26,6 +26,9 @@
 #include "../storage/object_block_index.h"
 #include "../storage/trunk_allocator.h"
 #include "../storage/storage_allocator.h"
+#ifdef OS_LINUX
+#include "read_buffer_pool.h"
+#endif
 
 struct trunk_read_io_buffer;
 
@@ -36,20 +39,16 @@ typedef void (*trunk_read_io_notify_func)(struct trunk_read_io_buffer
 typedef struct trunk_read_io_buffer {
     OBSliceEntry *slice;     //for slice op
     char *data;
-    struct {
-        char *buff;
-        int offset;  //relative to data buffer
-        int length;  //read length
-        int alloc;   //alloc size
-    } aligned;
+
+#ifdef OS_LINUX
+    AlignedReadBuffer *aligned_buffer;
+    struct iocb iocb;
+#endif
+
     struct {
         trunk_read_io_notify_func func;
         void *arg;
     } notify;
-
-#ifdef OS_LINUX
-    struct iocb iocb;
-#endif
 
     struct trunk_read_io_buffer *next;
 } TrunkReadIOBuffer;
