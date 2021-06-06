@@ -105,6 +105,14 @@ typedef struct ob_slice_ptr_array {
     OBSliceEntry **slices;
 } OBSlicePtrArray;
 
+#ifdef OS_LINUX
+typedef struct aio_buffer_ptr_array {
+    int alloc;
+    int count;
+    struct aligned_read_buffer **buffers;
+} AIOBufferPtrArray;
+#endif
+
 struct fs_cluster_data_server_info;
 struct fs_data_thread_context;
 typedef struct fs_slice_op_context {
@@ -138,6 +146,10 @@ typedef struct fs_slice_op_context {
     } update;  //for slice update
 
     struct ob_slice_ptr_array slice_ptr_array;
+
+#ifdef OS_LINUX
+    AIOBufferPtrArray aio_buffer_parray;
+#endif
 
 } FSSliceOpContext;
 

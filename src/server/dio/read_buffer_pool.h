@@ -22,8 +22,9 @@
 
 typedef struct aligned_read_buffer {
     char *buff;  //aligned by device block size
-    int offset;
-    int length;
+    int offset;  //data offset
+    int length;  //data length
+    int read_bytes;
     int size;
     struct {
         short path;

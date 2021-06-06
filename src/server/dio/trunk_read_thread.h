@@ -41,7 +41,7 @@ typedef struct trunk_read_io_buffer {
     char *data;
 
 #ifdef OS_LINUX
-    AlignedReadBuffer *aligned_buffer;
+    AlignedReadBuffer **aligned_buffer;
     struct iocb iocb;
 #endif
 
@@ -60,8 +60,33 @@ extern "C" {
     int trunk_read_thread_init();
     void trunk_read_thread_terminate();
 
+#ifdef OS_LINUX
+    int trunk_read_thread_push(OBSliceEntry *slice, AlignedReadBuffer
+            **aligned_buffer, trunk_read_io_notify_func notify_func,
+            void *notify_arg);
+
+    static inline AlignedReadBuffer *aligned_buffer_new(const short pindex,
+            const int offset, const int length, const int size)
+    {
+        AlignedReadBuffer *aligned_buffer;
+
+        aligned_buffer = read_buffer_pool_alloc(pindex, size);
+        if (aligned_buffer == NULL) {
+            return NULL;
+        }
+
+        aligned_buffer->offset = offset;
+        aligned_buffer->length = length;
+        aligned_buffer->read_bytes = size;
+        return aligned_buffer;
+    }
+
+#else
+
     int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
             trunk_read_io_notify_func notify_func, void *notify_arg);
+
+#endif
 
 #ifdef __cplusplus
 }

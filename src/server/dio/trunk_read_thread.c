@@ -298,8 +298,14 @@ void trunk_read_thread_terminate()
 {
 }
 
+#ifdef OS_LINUX
+    int trunk_read_thread_push(OBSliceEntry *slice, AlignedReadBuffer
+            **aligned_buffer, trunk_read_io_notify_func notify_func,
+            void *notify_arg)
+#else
 int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
             trunk_read_io_notify_func notify_func, void *notify_arg)
+#endif
 {
     TrunkReadPathContext *path_ctx;
     TrunkReadThreadContext *thread_ctx;
@@ -315,7 +321,11 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     }
 
     iob->slice = slice;
+#ifdef OS_LINUX
+    iob->aligned_buffer = aligned_buffer;
+#else
     iob->data = buff;
+#endif
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
 
@@ -372,43 +382,42 @@ static inline int prepare_read_slice(TrunkReadThreadContext *ctx,
 
     int64_t new_offset;
     int offset;
-    int length;
+    int read_bytes;
     int result;
     int fd;
 
     new_offset = MEM_ALIGN_FLOOR(iob->slice->
             space.offset, ctx->block_size);
-    length = MEM_ALIGN_CEIL(iob->slice->ssize.length, ctx->block_size);
+    read_bytes = MEM_ALIGN_CEIL(iob->slice->ssize.length, ctx->block_size);
     offset = iob->slice->space.offset - new_offset;
     if (offset > 0) {
-        if (new_offset + length < iob->slice->space.offset +
+        if (new_offset + read_bytes < iob->slice->space.offset +
                 iob->slice->ssize.length)
         {
-            length += ctx->block_size;
+            read_bytes += ctx->block_size;
         }
     }
 
-    iob->aligned_buffer = read_buffer_pool_alloc(
-            ctx->indexes.path, length);
-    if (iob->aligned_buffer == NULL) {
+    *(iob->aligned_buffer) = aligned_buffer_new(ctx->indexes.path,
+            offset, iob->slice->ssize.length, read_bytes);
+    if (*(iob->aligned_buffer) == NULL) {
         return ENOMEM;
     }
 
     /*
     logInfo("space.offset: %"PRId64", new_offset: %"PRId64", "
-            "offset: %d, length: %d, size: %d", iob->slice->space.offset,
-            new_offset, offset, length, iob->aligned_buffer->size);
+            "offset: %d, read_bytes: %d, size: %d", iob->slice->space.offset,
+            new_offset, offset, read_bytes, *(iob->aligned_buffer)->size);
             */
 
-    iob->aligned_buffer->offset = offset;
-    iob->aligned_buffer->length = length;
     if ((result=get_read_fd(ctx, &iob->slice->space, &fd)) != 0) {
-        read_buffer_pool_free(iob->aligned_buffer);
+        read_buffer_pool_free(*(iob->aligned_buffer));
+        *(iob->aligned_buffer) = NULL;
         return result;
     }
 
-    io_prep_pread(&iob->iocb, fd, iob->aligned_buffer->buff,
-            iob->aligned_buffer->length, new_offset);
+    io_prep_pread(&iob->iocb, fd, (*(iob->aligned_buffer))->buff,
+            (*(iob->aligned_buffer))->read_bytes, new_offset);
     iob->iocb.data = iob;
     ctx->iocbs.pp[ctx->iocbs.count++] = &iob->iocb;
     return 0;
@@ -523,10 +532,7 @@ static int process_aio(TrunkReadThreadContext *ctx)
     end = ctx->aio.events + count;
     for (event=ctx->aio.events; event<end; event++) {
         iob = (TrunkReadIOBuffer *)event->data;
-        if (event->res == iob->aligned_buffer->length) {
-            memcpy(iob->data, iob->aligned_buffer->buff +
-                    iob->aligned_buffer->offset,
-                    iob->slice->ssize.length);
+        if (event->res == (*(iob->aligned_buffer))->read_bytes) {
             result = 0;
         } else {
             trunk_fd_cache_delete(&ctx->fd_cache,
@@ -543,16 +549,12 @@ static int process_aio(TrunkReadThreadContext *ctx)
                     "read trunk file: %s fail, offset: %"PRId64", "
                     "expect length: %d, read return: %d, errno: %d, "
                     "error info: %s", __LINE__, trunk_filename,
-                    iob->slice->space.offset - iob->aligned_buffer->offset,
-                    iob->aligned_buffer->length, (int)event->res, result,
+                    iob->slice->space.offset - (*(iob->aligned_buffer))->offset,
+                    (*(iob->aligned_buffer))->read_bytes, (int)event->res, result,
                     STRERROR(result));
         }
 
-        if (iob->notify.func != NULL) {
-            iob->notify.func(iob, result);
-        }
-
-        read_buffer_pool_free(iob->aligned_buffer);
+        iob->notify.func(iob, result);
         fast_mblock_free_object(&ctx->mblock, iob);
     }
     ctx->aio.doing_count -= count;
