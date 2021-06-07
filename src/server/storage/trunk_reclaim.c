@@ -49,11 +49,18 @@ int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
     rctx->op_ctx.info.write_binlog.log_replica = false;
     rctx->op_ctx.info.data_version = 0;
     rctx->op_ctx.info.myself = NULL;
+
+#ifdef OS_LINUX
+    rctx->op_ctx.info.buffer_type = fs_buffer_type_array;
+    rctx->buffer_size = 0;
+    rctx->op_ctx.info.buff = NULL;
+#else
     rctx->buffer_size = 256 * 1024;
     rctx->op_ctx.info.buff = (char *)fc_malloc(rctx->buffer_size);
     if (rctx->op_ctx.info.buff == NULL) {
         return ENOMEM;
     }
+#endif
 
     if ((result=init_pthread_lock_cond_pair(&rctx->notify.lcp)) != 0) {
         return result;
@@ -240,6 +247,9 @@ static int migrate_prepare(TrunkReclaimContext *rctx,
 {
     rctx->op_ctx.info.bs_key = *bs_key;
     rctx->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(bs_key->block);
+
+#ifdef OS_LINUX
+#else
     if (rctx->buffer_size < bs_key->slice.length) {
         char *buff;
         int buffer_size;
@@ -257,6 +267,7 @@ static int migrate_prepare(TrunkReclaimContext *rctx,
         rctx->op_ctx.info.buff = buff;
         rctx->buffer_size = buffer_size;
     }
+#endif
 
     return 0;
 }

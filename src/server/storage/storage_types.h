@@ -113,8 +113,8 @@ typedef struct aio_buffer_ptr_array {
 } AIOBufferPtrArray;
 
 typedef enum {
-    fs_buffer_type_direct,
-    fs_buffer_type_array
+    fs_buffer_type_direct,  /* char *buff */
+    fs_buffer_type_array    /* aligned_read_buffer **array */
 } FSIOBufferType;
 #endif
 

@@ -310,6 +310,11 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
                 op_ctx->update.sarray.slice_sn_pairs[0].slice,
                 &op_ctx->iovec_array, slice_write_done, op_ctx);
     } else {
+        iovec_array_t iov_arr;
+        int slice_total_length;
+        int buffer_total_length;
+        int len;
+        int remain;
 
         if ((result=fc_check_realloc_iovec_array(&op_ctx->iovec_array,
                         op_ctx->aio_buffer_parray.count +
@@ -318,31 +323,54 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
             return result;
         }
 
-        iovc = op_ctx->iovec_array.iovs;
+        iov_arr.iovs = op_ctx->iovec_array.iovs;
+        aligned_buffer = op_ctx->aio_buffer_parray.buffers;
         aligned_bend = op_ctx->aio_buffer_parray.buffers +
             op_ctx->aio_buffer_parray.count;
-        for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
-                aligned_buffer<aligned_bend; aligned_buffer++)
-        {
-            FC_SET_IOVEC(*iovc, (*aligned_buffer)->buff +
-                    (*aligned_buffer)->offset,
-                    (*aligned_buffer)->length);
-        }
-        op_ctx->iovec_array.count = op_ctx->aio_buffer_parray.count;
 
-        //TODO
+        slice_total_length = buffer_total_length = 0;
         slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
             op_ctx->update.sarray.count;
         for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
+            slice_total_length += slice_sn_pair->slice->ssize.length;
+            iovc = iov_arr.iovs;
+            while (aligned_buffer < aligned_bend) {
+                buffer_total_length += (*aligned_buffer)->length;
+                if (buffer_total_length <= slice_total_length) {
+                    FC_SET_IOVEC(*iovc, (*aligned_buffer)->buff +
+                            (*aligned_buffer)->offset,
+                            (*aligned_buffer)->length);
+
+                    iovc++;
+                    aligned_buffer++;
+                    if (buffer_total_length == slice_total_length) {
+                        break;
+                    }
+                } else {
+                    remain = buffer_total_length - slice_total_length;
+                    len = (*aligned_buffer)->length - remain;
+                    FC_SET_IOVEC(*iovc, (*aligned_buffer)->buff +
+                            (*aligned_buffer)->offset, len);
+
+                    iovc++;
+                    (*aligned_buffer)->offset += len;
+                    (*aligned_buffer)->length = remain;
+                    buffer_total_length = slice_total_length;
+                    break;
+                }
+            }
+
+            iov_arr.count = iovc - iov_arr.iovs;
             if ((result=trunk_write_thread_push_slice_by_iovec(
                             slice_sn_pair->version, slice_sn_pair->slice,
-                            &op_ctx->iovec_array, slice_write_done,
-                            op_ctx)) != 0)
+                            &iov_arr, slice_write_done, op_ctx)) != 0)
             {
                 break;
             }
+
+            iov_arr.iovs = iovc;
         }
     }
 
@@ -752,7 +780,6 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             op_ctx->info.bs_key.slice.length);
             */
 
-    op_ctx->info.buffer_type = fs_buffer_type_array;
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
     op_ctx->counter = op_ctx->slice_ptr_array.count;
