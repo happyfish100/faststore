@@ -111,6 +111,11 @@ typedef struct aio_buffer_ptr_array {
     int count;
     struct aligned_read_buffer **buffers;
 } AIOBufferPtrArray;
+
+typedef enum {
+    fs_buffer_type_direct,
+    fs_buffer_type_array
+} FSIOBufferType;
 #endif
 
 struct fs_cluster_data_server_info;
@@ -136,6 +141,9 @@ typedef struct fs_slice_op_context {
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
         int body_len;
+#ifdef OS_LINUX
+        FSIOBufferType buffer_type;
+#endif
         char *body;
         char *buff;  //read or write buffer
     } info;
@@ -148,6 +156,7 @@ typedef struct fs_slice_op_context {
     struct ob_slice_ptr_array slice_ptr_array;
 
 #ifdef OS_LINUX
+    iovec_array_t iovec_array;
     AIOBufferPtrArray aio_buffer_parray;
 #endif
 

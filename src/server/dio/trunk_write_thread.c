@@ -27,7 +27,7 @@
 #include "../binlog/trunk_binlog.h"
 #include "trunk_write_thread.h"
 
-#define IO_THREAD_IOV_MAX     256
+#define IO_THREAD_IOB_MAX     256
 #define IO_THREAD_BYTES_MAX   (64 * 1024 * 1024)
 
 typedef struct write_file_handle {
@@ -45,17 +45,22 @@ typedef struct trunk_write_thread_context {
     struct fast_mblock_man mblock;
     WriteFileHandle file_handle;
 
+    UniqSkiplistPair *sl_pair;
     struct {
-        UniqSkiplistPair *sl_pair;
-        struct {
-            int alloc;
-            int count;
-            int bytes;   //total bytes of iov
-            int success; //write success count
-            struct iovec *iovs;
-            TrunkWriteIOBuffer **iobs;
-        } iovb_array;
-    } write;
+        int count;
+        struct iovec *iovs;
+    };
+
+    int iovec_bytes;
+    iovec_array_t iovec_array;
+
+    struct {
+        int alloc;
+        int count;
+        int success; //write success count
+        TrunkWriteIOBuffer **iobs;
+    } iob_array;
+
 } TrunkWriteThreadContext;
 
 typedef struct trunk_write_thread_context_array {
@@ -87,7 +92,8 @@ static int alloc_path_contexts()
 
     trunk_io_ctx.path_ctx_array.count = STORAGE_CFG.max_store_path_index + 1;
     bytes = sizeof(TrunkWritePathContext) * trunk_io_ctx.path_ctx_array.count;
-    trunk_io_ctx.path_ctx_array.paths = (TrunkWritePathContext *)fc_malloc(bytes);
+    trunk_io_ctx.path_ctx_array.paths = (TrunkWritePathContext *)
+        fc_malloc(bytes);
     if (trunk_io_ctx.path_ctx_array.paths == NULL) {
         return ENOMEM;
     }
@@ -124,19 +130,19 @@ static int init_write_context(TrunkWriteThreadContext *ctx)
     char *buff;
     int result;
 
-    ctx->write.iovb_array.alloc = FC_MIN(IOV_MAX, IO_THREAD_IOV_MAX);
-    buff = (char *)fc_malloc(sizeof(UniqSkiplistPair) +
-            (sizeof(struct iovec) + sizeof(TrunkWriteIOBuffer *)) *
-            ctx->write.iovb_array.alloc);
-    if (buff == NULL) {
-        return ENOMEM;
+    if ((result=fc_check_realloc_iovec_array(&ctx->
+                    iovec_array, IOV_MAX)) != 0)
+    {
+        return result;
     }
 
-    ctx->write.sl_pair = (UniqSkiplistPair *)buff;
-    ctx->write.iovb_array.iovs = (struct iovec *)(ctx->write.sl_pair + 1);
-    ctx->write.iovb_array.iobs = (TrunkWriteIOBuffer **)
-        (ctx->write.iovb_array.iovs + ctx->write.iovb_array.alloc);
-    if ((result=uniq_skiplist_init_pair(ctx->write.sl_pair, init_level_count,
+    ctx->iob_array.alloc = FC_MIN(IOV_MAX, IO_THREAD_IOB_MAX);
+    buff = (char *)fc_malloc( sizeof(UniqSkiplistPair) +
+            sizeof(TrunkWriteIOBuffer *) * ctx->iob_array.alloc);
+    ctx->sl_pair = (UniqSkiplistPair *)buff;
+    ctx->iob_array.iobs = (TrunkWriteIOBuffer **)(ctx->sl_pair + 1);
+
+    if ((result=uniq_skiplist_init_pair(ctx->sl_pair, init_level_count,
                     max_level_count, compare_by_version, NULL,
                     min_alloc_elements_once, delay_free_seconds)) != 0)
     {
@@ -253,7 +259,7 @@ void trunk_write_thread_terminate()
 
 int trunk_write_thread_push(const int type, const int64_t version,
         const int path_index, const uint64_t hash_code, void *entry,
-        char *buff, trunk_write_io_notify_func notify_func, void *notify_arg)
+        void *data, trunk_write_io_notify_func notify_func, void *notify_arg)
 {
     TrunkWritePathContext *path_ctx;
     TrunkWriteThreadContext *thread_ctx;
@@ -275,7 +281,11 @@ int trunk_write_thread_push(const int type, const int64_t version,
         iob->slice = (OBSliceEntry *)entry;
     }
 
-    iob->buff = buff;
+    if (type == FS_IO_TYPE_WRITE_SLICE_BY_IOVEC) {
+        iob->iovec_array = *((iovec_array_t *)data);
+    } else {
+        iob->buff = (char *)data;
+    }
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
     fc_queue_push(&thread_ctx->queue, iob);
@@ -402,23 +412,69 @@ static int do_delete_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob
     return result;
 }
 
-static int do_write_slices(TrunkWriteThreadContext *ctx)
+static int write_iovec(TrunkWriteThreadContext *ctx, int fd,
+        struct iovec *iovec, int iovcnt, int *remain_bytes)
 {
-    char trunk_filename[PATH_MAX];
-    TrunkWriteIOBuffer *first;
     struct iovec *iov;
     struct iovec *end;
-    int fd;
-    int remain;
     int write_bytes;
-    int iovcnt;
     int iov_sum;
     int iov_remain;
     int result;
 
-    first = ctx->write.iovb_array.iobs[0];
+    iov = iovec;
+    end = iovec + iovcnt;
+    while (iovcnt > 0) {
+        if ((write_bytes=writev(fd, iov, iovcnt)) < 0) {
+            result = errno != 0 ? errno : EIO;
+            if (result == EINTR) {
+                continue;
+            }
+
+            return result;
+        }
+
+        *remain_bytes -= write_bytes;
+        if (*remain_bytes == 0) {
+            break;
+        }
+
+        iov_sum = 0;
+        do {
+            iov_sum += iov->iov_len;
+            iov_remain = iov_sum - write_bytes;
+            if (iov_remain == 0) {
+                iov++;
+                break;
+            } else if (iov_remain > 0) {
+                iov->iov_base += (iov->iov_len - iov_remain);
+                iov->iov_len = iov_remain;
+                break;
+            }
+
+            iov++;
+        } while (iov < end);
+
+        iovcnt = end - iov;
+    }
+
+    return 0;
+}
+
+static int do_write_slices(TrunkWriteThreadContext *ctx)
+{
+    char trunk_filename[PATH_MAX];
+    TrunkWriteIOBuffer *first;
+    struct iovec *iovec;
+    int iovcnt;
+    int fd;
+    int remain_count;
+    int remain_bytes;
+    int result;
+
+    first = ctx->iob_array.iobs[0];
     if ((result=get_write_fd(ctx, &first->slice->space, &fd)) != 0) {
-        ctx->write.iovb_array.success = 0;
+        ctx->iob_array.success = 0;
         return result;
     }
 
@@ -432,7 +488,7 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
                     "errno: %d, error info: %s", __LINE__, trunk_filename,
                     first->slice->space.offset, result, STRERROR(result));
             clear_write_fd(ctx);
-            ctx->write.iovb_array.success = 0;
+            ctx->iob_array.success = 0;
             return result;
         }
 
@@ -444,57 +500,44 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
                 */
     }
 
-    remain = ctx->write.iovb_array.bytes;
-    iov = ctx->write.iovb_array.iovs;
-    iovcnt = ctx->write.iovb_array.count;
-    end = iov + iovcnt;
-    while (iovcnt > 0) {
-        if ((write_bytes=writev(fd, iov, iovcnt)) < 0) {
-            result = errno != 0 ? errno : EIO;
-            if (result == EINTR) {
-                continue;
-            }
-
-            clear_write_fd(ctx);
-
-            get_trunk_filename(&first->slice->space, trunk_filename,
-                    sizeof(trunk_filename));
-            logError("file: "__FILE__", line: %d, "
-                    "write to trunk file: %s fail, offset: %"PRId64", "
-                    "errno: %d, error info: %s", __LINE__, trunk_filename,
-                    first->slice->space.offset + (ctx->write.iovb_array.
-                        bytes - remain), result, STRERROR(result));
-            ctx->write.iovb_array.success = iov - ctx->write.iovb_array.iovs;
-            return result;
-        }
-
-        remain -= write_bytes;
-        if (remain == 0) {
-            break;
-        }
-
-        iov_sum = 0;
-        while (1) {
-            iov_sum += iov->iov_len;
-            iov_remain = iov_sum - write_bytes;
-            if (iov_remain == 0) {
-                iov++;
-                break;
-            } else if (iov_remain > 0) {
-                iov->iov_base += (iov->iov_len - iov_remain);
-                iov->iov_len = iov_remain;
+    remain_bytes = ctx->iovec_bytes;
+    if (ctx->iovec_array.count <= IOV_MAX) {
+        result = write_iovec(ctx, fd, ctx->iovec_array.iovs,
+                ctx->iovec_array.count, &remain_bytes);
+    } else {
+        iovec = ctx->iovec_array.iovs;
+        remain_count = ctx->iovec_array.count;
+        while (remain_count > 0) {
+            iovcnt = (remain_count < IOV_MAX ? remain_count : IOV_MAX);
+            if ((result=write_iovec(ctx, fd, iovec, iovcnt,
+                            &remain_bytes)) != 0)
+            {
                 break;
             }
 
-            iov++;
+            remain_count -= iovcnt;
+            iovec += iovcnt;
         }
-
-        iovcnt = end - iov;
     }
 
-    ctx->write.iovb_array.success = ctx->write.iovb_array.count;
+    if (result != 0) {
+        clear_write_fd(ctx);
+
+        get_trunk_filename(&first->slice->space, trunk_filename,
+                sizeof(trunk_filename));
+        logError("file: "__FILE__", line: %d, "
+                "write to trunk file: %s fail, offset: %"PRId64", "
+                "errno: %d, error info: %s", __LINE__, trunk_filename,
+                first->slice->space.offset + (ctx->iovec_bytes -
+                    remain_bytes), result, STRERROR(result));
+        ctx->file_handle.offset = -1;
+        ctx->iob_array.success = 0;
+        return result;
+    }
+
+    ctx->iob_array.success = ctx->iob_array.count;
     ctx->file_handle.offset = first->slice->space.offset +
-        ctx->write.iovb_array.bytes;
+        ctx->iovec_bytes;
     return 0;
 }
 
@@ -505,9 +548,9 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     TrunkWriteIOBuffer **end;
 
     result = do_write_slices(ctx);
-    iob = ctx->write.iovb_array.iobs;
-    if (ctx->write.iovb_array.success > 0) {
-        end = ctx->write.iovb_array.iobs + ctx->write.iovb_array.success;
+    iob = ctx->iob_array.iobs;
+    if (ctx->iob_array.success > 0) {
+        end = ctx->iob_array.iobs + ctx->iob_array.success;
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, 0);
@@ -518,25 +561,27 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     }
 
     if (result != 0) {
-        end = ctx->write.iovb_array.iobs + ctx->write.iovb_array.count;
+        end = ctx->iob_array.iobs + ctx->iob_array.count;
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, result);
             }
+
+            fast_mblock_free_object(&ctx->mblock, *iob);
         }
-        fast_mblock_free_object(&ctx->mblock, *iob);
     }
 
     /*
-    if (ctx->write.iovb_array.count > 1) {
+    if (ctx->iob_array.count > 1) {
         logInfo("batch_write count: %d, success: %d, bytes: %d",
-                ctx->write.iovb_array.count, ctx->write.iovb_array.success,
-                ctx->write.iovb_array.bytes);
+                ctx->iob_array.count, ctx->iob_array.success,
+                ctx->iovec_bytes);
     }
     */
 
-    ctx->write.iovb_array.count = 0;
-    ctx->write.iovb_array.bytes = 0;
+    ctx->iovec_bytes = 0;
+    ctx->iovec_array.count = 0;
+    ctx->iob_array.count = 0;
     return result;
 }
 
@@ -556,8 +601,8 @@ static inline int pop_to_request_skiplist(TrunkWriteThreadContext *ctx,
     count = 0;
     do {
         ++count;
-        if ((result=uniq_skiplist_insert(ctx->write.
-                        sl_pair->skiplist, head)) != 0)
+        if ((result=uniq_skiplist_insert(ctx->sl_pair->
+                        skiplist, head)) != 0)
         {
             logCrit("file: "__FILE__", line: %d, "
                     "uniq_skiplist_insert fail, result: %d",
@@ -582,13 +627,14 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
     TrunkWriteIOBuffer *iob;
     TrunkWriteIOBuffer *last;
     struct iovec *current;
+    int inc_count;
     int io_count;
     int result;
 
     io_count = 0;
     while (1) {
         iob = (TrunkWriteIOBuffer *)uniq_skiplist_get_first(
-                ctx->write.sl_pair->skiplist);
+                ctx->sl_pair->skiplist);
         if (iob == NULL) {
             break;
         }
@@ -596,7 +642,7 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
         switch (iob->type) {
             case FS_IO_TYPE_CREATE_TRUNK:
             case FS_IO_TYPE_DELETE_TRUNK:
-                if (ctx->write.iovb_array.count > 0) {
+                if (ctx->iovec_array.count > 0) {
                     batch_write(ctx);
                     ++io_count;
                 }
@@ -612,28 +658,63 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
                 }
                 ++io_count;
                 break;
-            case FS_IO_TYPE_WRITE_SLICE:
-                if (ctx->write.iovb_array.count > 0) {
-                    last = ctx->write.iovb_array.iobs[
-                        ctx->write.iovb_array.count - 1];
+            case FS_IO_TYPE_WRITE_SLICE_BY_BUFF:
+            case FS_IO_TYPE_WRITE_SLICE_BY_IOVEC:
+                if (ctx->iob_array.count > 0) {
+                    last = ctx->iob_array.iobs[ctx->iob_array.count - 1];
                     if (!(IOB_IS_SUCCESSIVE(last, iob) &&
-                                (ctx->write.iovb_array.count <
-                                 ctx->write.iovb_array.alloc) &&
-                                (ctx->write.iovb_array.bytes <
-                                 IO_THREAD_BYTES_MAX)))
+                                (ctx->iob_array.count < ctx->iob_array.alloc) &&
+                                (ctx->iovec_array.count < IOV_MAX) &&
+                                (ctx->iovec_bytes < IO_THREAD_BYTES_MAX)))
                     {
                         batch_write(ctx);
                         ++io_count;
                     }
                 }
 
-                current = ctx->write.iovb_array.iovs +
-                    ctx->write.iovb_array.count;
-                current->iov_base = iob->buff;
-                current->iov_len = iob->slice->space.size;
-                ctx->write.iovb_array.iobs[ctx->write.iovb_array.count] = iob;
-                ctx->write.iovb_array.bytes += iob->slice->space.size;
-                ctx->write.iovb_array.count++;
+                inc_count = (iob->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF ?
+                        1 : iob->iovec_array.count);
+                if ((result=fc_check_realloc_iovec_array(&ctx->iovec_array,
+                                ctx->iovec_array.count + inc_count)) != 0)
+                {
+                    return;
+                }
+
+                if (iob->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF) {
+                    current = ctx->iovec_array.iovs +
+                        ctx->iovec_array.count++;
+                    current->iov_base = iob->buff;
+                    current->iov_len = iob->slice->space.size;
+                } else if (iob->iovec_array.count == 1) {  //fast path
+                    current = ctx->iovec_array.iovs +
+                        ctx->iovec_array.count++;
+                    current->iov_base = iob->iovec_array.iovs[0].iov_base;
+                    current->iov_len = iob->slice->space.size;
+                } else {
+                    struct iovec *dest;
+                    struct iovec *src;
+                    struct iovec *end;
+                    int total;
+                    int padding;
+
+                    total = 0;
+                    dest = ctx->iovec_array.iovs;
+                    end = iob->iovec_array.iovs + iob->iovec_array.count;
+                    for (src=iob->iovec_array.iovs; src<end; src++) {
+                        *dest++ = *src;
+                        total += src->iov_len;
+                    }
+
+                    padding = iob->slice->space.size - total;
+                    if (padding > 0) {
+                        (dest - 1)->iov_len += padding;
+                    }
+
+                    ctx->iovec_array.count += iob->iovec_array.count;
+                }
+
+                ctx->iob_array.iobs[ctx->iob_array.count++] = iob;
+                ctx->iovec_bytes += iob->slice->space.size;
                 break;
             default:
                 logError("file: "__FILE__", line: %d, "
@@ -642,8 +723,8 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
                 return;
         }
 
-        if ((result=uniq_skiplist_delete(ctx->write.
-                        sl_pair->skiplist, iob)) != 0)
+        if ((result=uniq_skiplist_delete(ctx->sl_pair->
+                        skiplist, iob)) != 0)
         {
             logCrit("file: "__FILE__", line: %d, "
                     "uniq_skiplist_delete fail, result: %d",
@@ -659,7 +740,7 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
         }
     }
 
-    if (ctx->write.iovb_array.count > 0) {
+    if (ctx->iovec_array.count > 0) {
         if (io_count == 0) {
             batch_write(ctx);
         }
@@ -689,13 +770,13 @@ static void *trunk_write_thread_func(void *arg)
 
     while (SF_G_CONTINUE_FLAG) {
         count = pop_to_request_skiplist(ctx,
-                ctx->write.iovb_array.count == 0);
+                ctx->iovec_array.count == 0);
         if (count < 0) {  //error
             continue;
         }
 
         if (count == 0) {
-            if (ctx->write.iovb_array.count > 0) {
+            if (ctx->iovec_array.count > 0) {
                 batch_write(ctx);
             }
             continue;

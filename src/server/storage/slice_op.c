@@ -276,6 +276,80 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
+#ifdef OS_LINUX
+static int write_iovec_array(FSSliceOpContext *op_ctx)
+{
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+    AlignedReadBuffer **aligned_buffer;
+    AlignedReadBuffer **aligned_bend;
+    struct iovec *iovc;
+    int result;
+
+    if (op_ctx->update.sarray.count == 1) {
+        if ((result=fc_check_realloc_iovec_array(&op_ctx->iovec_array,
+                        op_ctx->aio_buffer_parray.count)) != 0)
+        {
+            return result;
+        }
+
+        aligned_bend = op_ctx->aio_buffer_parray.buffers +
+            op_ctx->aio_buffer_parray.count;
+        for (aligned_buffer = op_ctx->aio_buffer_parray.buffers,
+                iovc = op_ctx->iovec_array.iovs; aligned_buffer <
+                aligned_bend; aligned_buffer++, iovc++)
+        {
+            FC_SET_IOVEC(*iovc, (*aligned_buffer)->buff +
+                    (*aligned_buffer)->offset,
+                    (*aligned_buffer)->length);
+        }
+        op_ctx->iovec_array.count = op_ctx->aio_buffer_parray.count;
+
+        result = trunk_write_thread_push_slice_by_iovec(
+                op_ctx->update.sarray.slice_sn_pairs[0].version,
+                op_ctx->update.sarray.slice_sn_pairs[0].slice,
+                &op_ctx->iovec_array, slice_write_done, op_ctx);
+    } else {
+
+        if ((result=fc_check_realloc_iovec_array(&op_ctx->iovec_array,
+                        op_ctx->aio_buffer_parray.count +
+                        op_ctx->update.sarray.count)) != 0)
+        {
+            return result;
+        }
+
+        iovc = op_ctx->iovec_array.iovs;
+        aligned_bend = op_ctx->aio_buffer_parray.buffers +
+            op_ctx->aio_buffer_parray.count;
+        for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
+                aligned_buffer<aligned_bend; aligned_buffer++)
+        {
+            FC_SET_IOVEC(*iovc, (*aligned_buffer)->buff +
+                    (*aligned_buffer)->offset,
+                    (*aligned_buffer)->length);
+        }
+        op_ctx->iovec_array.count = op_ctx->aio_buffer_parray.count;
+
+        //TODO
+        slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
+            op_ctx->update.sarray.count;
+        for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
+                slice_sn_pair<slice_sn_end; slice_sn_pair++)
+        {
+            if ((result=trunk_write_thread_push_slice_by_iovec(
+                            slice_sn_pair->version, slice_sn_pair->slice,
+                            &op_ctx->iovec_array, slice_write_done,
+                            op_ctx)) != 0)
+            {
+                break;
+            }
+        }
+    }
+
+    return result;
+}
+#endif
+
 int fs_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
@@ -296,8 +370,14 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 
     op_ctx->result = 0;
     op_ctx->counter = op_ctx->update.sarray.count;
+#ifdef OS_LINUX
+    if (op_ctx->info.buffer_type == fs_buffer_type_array) {
+        return write_iovec_array(op_ctx);
+    }
+#endif
+
     if (op_ctx->update.sarray.count == 1) {
-        result = trunk_write_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
+        result = trunk_write_thread_push_slice_by_buff(
                 op_ctx->update.sarray.slice_sn_pairs[0].version,
                 op_ctx->update.sarray.slice_sn_pairs[0].slice,
                 op_ctx->info.buff, slice_write_done, op_ctx);
@@ -312,7 +392,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
             length = slice_sn_pair->slice->ssize.length;
-            if ((result=trunk_write_thread_push_slice_op(FS_IO_TYPE_WRITE_SLICE,
+            if ((result=trunk_write_thread_push_slice_by_buff(
                             slice_sn_pair->version, slice_sn_pair->slice,
                             ps, slice_write_done, op_ctx)) != 0)
             {
@@ -672,6 +752,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             op_ctx->info.bs_key.slice.length);
             */
 
+    op_ctx->info.buffer_type = fs_buffer_type_array;
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
     op_ctx->counter = op_ctx->slice_ptr_array.count;
