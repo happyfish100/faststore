@@ -277,6 +277,12 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
 }
 
 #ifdef OS_LINUX
+
+void fs_release_task_aio_buffers(struct fast_task_info *task)
+{
+    fs_release_aio_buffers(&SLICE_OP_CTX);
+}
+
 static int write_iovec_array(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
@@ -665,30 +671,6 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
 
     ob_index_free_slice(slice);
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {
-#ifdef OS_LINUX
-        //TODO
-        if (op_ctx->result == 0) {
-            AlignedReadBuffer **aligned_buffer;
-            AlignedReadBuffer **end;
-            int total;
-
-            total = 0;
-            end = op_ctx->aio_buffer_parray.buffers +
-                op_ctx->aio_buffer_parray.count;
-            for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
-                    aligned_buffer<end; aligned_buffer++)
-            {
-                memcpy(op_ctx->info.buff + total, (*aligned_buffer)->
-                        buff + (*aligned_buffer)->offset,
-                        (*aligned_buffer)->length);
-                total += (*aligned_buffer)->length;
-                read_buffer_pool_free(*aligned_buffer);
-            }
-
-            logInfo("count: %d, bytes: %d, done_bytes: %d",
-                    op_ctx->aio_buffer_parray.count, total, op_ctx->done_bytes);
-        }
-#endif
         op_ctx->rw_done_callback(op_ctx, op_ctx->arg);
     }
 }

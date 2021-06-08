@@ -334,6 +334,11 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
     if (result == 0) {
         fs_write_finish(&rctx->op_ctx);  //for add slice index and cleanup
     }
+
+#ifdef OS_LINUX
+    fs_release_aio_buffers(&rctx->op_ctx);
+#endif
+
     if (rctx->op_ctx.result != 0) {
         log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
         return rctx->op_ctx.result;
