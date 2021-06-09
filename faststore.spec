@@ -16,6 +16,7 @@ Source: http://github.com/happyfish100/faststore/%{name}-%{version}.tar.gz
 
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n) 
 
+BuildRequires: libaio-devel
 BuildRequires: libfastcommon-devel >= 1.0.51
 BuildRequires: libserverframe-devel >= 1.1.8
 BuildRequires: FastCFS-auth-devel >= 2.0.0
@@ -32,6 +33,7 @@ a high performance distributed file storage service.
 commit version: %{CommitVersion}
 
 %package -n %{FastStoreServer}
+Requires: libaio
 Requires: libfastcommon >= 1.0.51
 Requires: libserverframe >= 1.1.8
 Requires: FastCFS-auth-client >= 2.0.0

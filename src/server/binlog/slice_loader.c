@@ -1016,6 +1016,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     if (result == 0) {
         result = slice_dump_slices_to_trunk(&ctx);
     }
+    g_ob_hashtable.modify_sallocator = true;
 
     if (SF_G_CONTINUE_FLAG) {
         destroy_loader_context(&ctx);
