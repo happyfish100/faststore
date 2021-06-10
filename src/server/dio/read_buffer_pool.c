@@ -107,7 +107,7 @@ static int init_allocators(ReadBufferPool *pool)
     ReadBufferAllocator *allocator;
 
     size = pool->block_size;
-    pool->mpool.count = 0;
+    pool->mpool.count = 1;
     while (size <= FS_FILE_BLOCK_SIZE) {
         pool->mpool.count++;
         size *= 2;
@@ -119,7 +119,7 @@ static int init_allocators(ReadBufferPool *pool)
         return ENOMEM;
     }
 
-    size = pool->block_size;
+    size = 0;
     pool->mpool.middle = allocator=pool->mpool.
         allocators + pool->mpool.count / 2;
     pool->mpool.middle_plus_1 = pool->mpool.middle + 1;
@@ -127,13 +127,13 @@ static int init_allocators(ReadBufferPool *pool)
     for (allocator=pool->mpool.allocators;
             allocator<pool->mpool.end; allocator++)
     {
-        allocator->size = size;
+        allocator->size = size + pool->block_size;
         if ((result=init_pthread_lock(&allocator->lock)) != 0) {
             return result;
         }
         FC_INIT_LIST_HEAD(&allocator->freelist);
 
-        size *= 2;
+        size = (size == 0 ? pool->block_size : size * 2);
     }
 
     if ((result=fast_mblock_init_ex1(&pool->mblock, "aligned-rdbuffer",
@@ -191,6 +191,9 @@ static inline ReadBufferAllocator *get_allocator(
         }
     }
 
+    logError("file: "__FILE__", line: %d, "
+            "alloc size: %d is too large, exceed: %d",
+            __LINE__, size, (end-1)->size);
     return NULL;
 }
 
