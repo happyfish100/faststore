@@ -56,7 +56,8 @@
 #include "server_replication.h"
 #include "server_recovery.h"
 #include "storage/slice_op.h"
-#include "dio/trunk_io_thread.h"
+#include "dio/trunk_write_thread.h"
+#include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"
 
 static int setup_server_env(const char *config_filename);
@@ -166,6 +167,7 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 
 int main(int argc, char *argv[])
 {
+    sf_release_buffer_callback release_buffer_callback;
     pthread_t schedule_tid;
     int wait_count;
     int result;
@@ -178,6 +180,12 @@ int main(int argc, char *argv[])
     sf_enable_exit_on_oom();
     srand(time(NULL));
     //fast_mblock_manager_init();
+
+#ifdef OS_LINUX
+    release_buffer_callback = fs_release_task_aio_buffers;
+#else
+    release_buffer_callback = NULL;
+#endif
 
     //sched_set_delay_params(300, 1024);
     do {
@@ -231,7 +239,11 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=trunk_io_thread_init()) != 0) {
+        if ((result=trunk_write_thread_init()) != 0) {
+            break;
+        }
+
+        if ((result=trunk_read_thread_init()) != 0) {
             break;
         }
 
@@ -252,7 +264,7 @@ int main(int argc, char *argv[])
                 sf_proto_set_body_length, cluster_deal_task_partly,
                 cluster_task_finish_cleanup, cluster_recv_timeout_callback,
                 1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task);
+                init_nio_task, release_buffer_callback);
         if (result != 0) {
             break;
         }
@@ -301,7 +313,7 @@ int main(int argc, char *argv[])
                 sf_proto_set_body_length, replica_deal_task,
                 replica_task_finish_cleanup, replica_recv_timeout_callback,
                 1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task);
+                init_nio_task, release_buffer_callback);
         if (result != 0) {
             break;
         }
@@ -313,7 +325,7 @@ int main(int argc, char *argv[])
                 sf_proto_set_body_length, service_deal_task,
                 service_task_finish_cleanup, NULL, 1000,
                 sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task);
+                init_nio_task, release_buffer_callback);
         if (result != 0) {
             break;
         }
@@ -342,7 +354,7 @@ int main(int argc, char *argv[])
         pthread_kill(schedule_tid, SIGINT);
     }
 
-    trunk_io_thread_terminate();
+    trunk_write_thread_terminate();
     server_binlog_terminate();
     server_replication_terminate();
     server_recovery_terminate();

@@ -235,6 +235,49 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
     }
 }
 
+#ifdef OS_LINUX
+int buffer_to_iovec_array(struct fast_task_info *task)
+{
+    AlignedReadBuffer **aligned_buffer;
+    AlignedReadBuffer **end;
+    struct iovec *iov;
+    int total;
+    int result;
+
+    if ((result=fc_check_realloc_iovec_array(&SLICE_OP_CTX.iovec_array,
+                    SLICE_OP_CTX.aio_buffer_parray.count + 1)) != 0)
+    {
+        return result;
+    }
+
+    iov = SLICE_OP_CTX.iovec_array.iovs;
+    FC_SET_IOVEC(*iov, task->data, sizeof(FSProtoHeader));
+    iov++;
+
+    total = 0;
+    end = SLICE_OP_CTX.aio_buffer_parray.buffers +
+        SLICE_OP_CTX.aio_buffer_parray.count;
+    for (aligned_buffer=SLICE_OP_CTX.aio_buffer_parray.buffers;
+            aligned_buffer<end; aligned_buffer++, iov++)
+    {
+        FC_SET_IOVEC(*iov, (*aligned_buffer)->buff +
+                (*aligned_buffer)->offset,
+                (*aligned_buffer)->length);
+
+        total += (*aligned_buffer)->length;
+    }
+
+    task->iovec_array.iovs = SLICE_OP_CTX.iovec_array.iovs;
+    task->iovec_array.count = iov - SLICE_OP_CTX.iovec_array.iovs;
+
+    /*
+    logInfo("buffer {count: %d, bytes: %d}, done_bytes: %d",
+            SLICE_OP_CTX.aio_buffer_parray.count, total, SLICE_OP_CTX.done_bytes);
+            */
+    return 0;
+}
+#endif
+
 void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
         struct fast_task_info *task)
 {
@@ -260,8 +303,18 @@ void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
                 op_ctx->result, STRERROR(op_ctx->result));
         TASK_CTX.common.log_level = LOG_NOTHING;
     } else {
-        RESPONSE.header.body_len = op_ctx->done_bytes;
-        TASK_CTX.common.response_done = true;
+
+#ifdef OS_LINUX
+        if ((op_ctx->result=buffer_to_iovec_array(task)) == 0) {
+#endif
+
+            RESPONSE.header.body_len = op_ctx->done_bytes;
+            TASK_CTX.common.response_done = true;
+
+#ifdef OS_LINUX
+        }
+#endif
+
     }
 
     RESPONSE_STATUS = op_ctx->result;

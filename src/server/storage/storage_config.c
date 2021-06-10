@@ -20,6 +20,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
+#include "fastcommon/system_info.h"
 #include "sf/sf_global.h"
 #include "../server_types.h"
 #include "../server_global.h"
@@ -238,7 +239,14 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
                 "read_threads", ini_ctx->context, storage_cfg->
                 read_threads_per_path);
         if (parray->paths[i].read_thread_count <= 0) {
-            parray->paths[i].read_thread_count = 2;
+            parray->paths[i].read_thread_count = 1;
+        }
+
+        parray->paths[i].read_io_depth = iniGetIntValue(section_name,
+                "read_io_depth", ini_ctx->context, storage_cfg->
+                io_depth_per_read_thread);
+        if (parray->paths[i].read_io_depth <= 0) {
+            parray->paths[i].read_io_depth = 64;
         }
 
         if ((result=iniGetPercentValue(ini_ctx, "prealloc_space",
@@ -265,6 +273,57 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
     parray->count = count;
     return 0;
 }
+
+#ifdef OS_LINUX
+static int load_aio_read_buffer_params(FSStorageConfig *storage_cfg,
+        IniFullContext *ini_ctx)
+{
+    int result;
+    int64_t total_memory;
+
+    ini_ctx->section_name = "aio-read-buffer";
+    if ((result=iniGetPercentValue(ini_ctx, "memory_watermark_low",
+                    &storage_cfg->aio_read_buffer.memory_watermark_low.
+                    ratio, 0.01)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=iniGetPercentValue(ini_ctx, "memory_watermark_high",
+                    &storage_cfg->aio_read_buffer.memory_watermark_high.
+                    ratio, 0.10)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
+        return result;
+    }
+
+    storage_cfg->aio_read_buffer.memory_watermark_low.value =
+        (int64_t)(total_memory * storage_cfg->aio_read_buffer.
+                memory_watermark_low.ratio);
+    storage_cfg->aio_read_buffer.memory_watermark_high.value =
+        (int64_t)(total_memory * storage_cfg->aio_read_buffer.
+                memory_watermark_high.ratio);
+
+    storage_cfg->aio_read_buffer.max_idle_time = iniGetIntValue(
+            ini_ctx->section_name, "max_idle_time",
+            ini_ctx->context, 300);
+    if (storage_cfg->aio_read_buffer.max_idle_time <= 0) {
+        storage_cfg->aio_read_buffer.max_idle_time = 300;
+    }
+
+    storage_cfg->aio_read_buffer.reclaim_interval = iniGetIntValue(
+            ini_ctx->section_name, "reclaim_interval",
+            ini_ctx->context, 60);
+    if (storage_cfg->aio_read_buffer.reclaim_interval <= 0) {
+        storage_cfg->aio_read_buffer.reclaim_interval = 60;
+    }
+
+    return 0;
+}
+#endif
 
 static int load_global_items(FSStorageConfig *storage_cfg,
         IniFullContext *ini_ctx)
@@ -321,9 +380,15 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     }
 
     storage_cfg->read_threads_per_path = iniGetIntValue(NULL,
-            "read_threads_per_path", ini_ctx->context, 2);
+            "read_threads_per_path", ini_ctx->context, 1);
     if (storage_cfg->read_threads_per_path <= 0) {
-        storage_cfg->read_threads_per_path = 2;
+        storage_cfg->read_threads_per_path = 1;
+    }
+
+    storage_cfg->io_depth_per_read_thread = iniGetIntValue(NULL,
+            "io_depth_per_read_thread", ini_ctx->context, 64);
+    if (storage_cfg->io_depth_per_read_thread <= 0) {
+        storage_cfg->io_depth_per_read_thread = 64;
     }
 
     if ((result=iniGetPercentValue(ini_ctx, "prealloc_space_per_path",
@@ -466,6 +531,12 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
         return result;
     }
   
+#ifdef OS_LINUX
+    if ((result=load_aio_read_buffer_params(storage_cfg, ini_ctx)) != 0) {
+        return result;
+    }
+#endif
+
     if ((result=load_paths(storage_cfg, ini_ctx,
                     "store-path", "store_path_count",
                     &storage_cfg->store_path, true)) != 0)
@@ -511,6 +582,14 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
             }
             ++(*change_count);
         }
+
+#ifdef OS_LINUX
+        if ((result=get_path_block_size(p->store.path.str,
+                        &p->block_size)) != 0)
+        {
+            return result;
+        }
+#endif
     }
 
     return 0;
@@ -639,16 +718,29 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
         long_to_comma_str(p->prealloc_space.value /
                 (1024 * 1024), prealloc_space_buff);
         logInfo("  path %d: %s, index: %d, write_threads: %d, "
-                "read_threads: %d, prealloc_space ratio: %.2f%%, "
+                "read_threads: %d, read_io_depth: %d, "
+                "prealloc_space ratio: %.2f%%, "
                 "reserved_space ratio: %.2f%%, "
                 "avail_space: %s MB, prealloc_space: %s MB, "
+#ifdef OS_LINUX
+                "reserved_space: %s MB, "
+                "device block size: %d",
+#else
                 "reserved_space: %s MB",
+#endif
                 (int)(p - parray->paths + 1), p->store.path.str,
                 p->store.index, p->write_thread_count,
-                p->read_thread_count, p->prealloc_space.ratio * 100.00,
+                p->read_thread_count, p->read_io_depth,
+                p->prealloc_space.ratio * 100.00,
                 p->reserved_space.ratio * 100.00,
                 avail_space_buff, prealloc_space_buff,
-                reserved_space_buff);
+#ifdef OS_LINUX
+                reserved_space_buff,
+                p->block_size
+#else
+                reserved_space_buff
+#endif
+                );
     }
 }
 
@@ -656,6 +748,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
 {
     logInfo("storage config, write_threads_per_path: %d, "
             "read_threads_per_path: %d, "
+            "io_depth_per_read_thread: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_allocator_count: %d, "
@@ -672,9 +765,18 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "end_time: %02d:%02d }, "  */
 #endif
             "reclaim_trunks_on_path_usage: %.2f%%, "
+#ifdef OS_LINUX
+            "never_reclaim_on_trunk_usage: %.2f%%, "
+            "memory_watermark_low: %.2f%%, "
+            "memory_watermark_high: %.2f%%, "
+            "max_idle_time: %d, "
+            "reclaim_interval: %d",
+#else
             "never_reclaim_on_trunk_usage: %.2f%%",
+#endif
             storage_cfg->write_threads_per_path,
             storage_cfg->read_threads_per_path,
+            storage_cfg->io_depth_per_read_thread,
             storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->object_block.hashtable_capacity,
             storage_cfg->object_block.shared_allocator_count,
@@ -697,7 +799,16 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->write_cache_to_hd.end_time.minute,
             */
             storage_cfg->reclaim_trunks_on_path_usage * 100.00,
-            storage_cfg->never_reclaim_on_trunk_usage * 100.00);
+#ifdef OS_LINUX
+            storage_cfg->never_reclaim_on_trunk_usage * 100.00,
+            storage_cfg->aio_read_buffer.memory_watermark_low.ratio,
+            storage_cfg->aio_read_buffer.memory_watermark_high.ratio,
+            storage_cfg->aio_read_buffer.max_idle_time,
+            storage_cfg->aio_read_buffer.reclaim_interval
+#else
+            storage_cfg->never_reclaim_on_trunk_usage * 100.00
+#endif
+            );
 
     log_paths(&storage_cfg->write_cache, "write cache paths");
     log_paths(&storage_cfg->store_path, "store paths");

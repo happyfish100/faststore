@@ -1259,6 +1259,5 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
 
     *slice_count = sarray.count;
     free(sarray.slices);
-    htable->modify_sallocator = true;
     return result;
 }

@@ -266,6 +266,9 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             break;
         case DATA_OPERATION_SLICE_WRITE:
             is_update = true;
+#ifdef OS_LINUX
+            op->ctx->info.buffer_type = fs_buffer_type_direct;
+#endif
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
             if ((result=fs_slice_write(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);

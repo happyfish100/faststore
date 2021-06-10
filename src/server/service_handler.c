@@ -189,16 +189,17 @@ static int service_deal_slice_read(struct fast_task_info *task)
     sf_hold_task(task);
     OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
     OP_CTX_INFO.buff = SF_PROTO_RESP_BODY(task);
-    OP_CTX_NOTIFY_FUNC = du_handler_slice_read_done_notify;
-    if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_READ,
-                    DATA_SOURCE_MASTER_SERVICE, task, &SLICE_OP_CTX)) != 0)
-    {
+    SLICE_OP_CTX.rw_done_callback = (fs_rw_done_callback_func)
+        du_handler_slice_read_done_callback;
+    SLICE_OP_CTX.arg = task;
+    if ((result=fs_slice_read(&SLICE_OP_CTX)) != 0) {
+        TASK_CTX.common.log_level = result == ENOENT ? LOG_DEBUG : LOG_ERR;
         du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX,
                 "slice read", result);
         sf_release_task(task);
         return result;
     }
-    
+
     return TASK_STATUS_CONTINUE;
 }
 

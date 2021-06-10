@@ -23,7 +23,6 @@
 #include "sf/sf_binlog_writer.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
-#include "../dio/trunk_io_thread.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "slice_loader.h"
