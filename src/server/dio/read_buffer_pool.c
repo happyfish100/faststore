@@ -105,6 +105,7 @@ static int init_allocators(ReadBufferPool *pool)
     int result;
     int size;
     ReadBufferAllocator *allocator;
+    ReadBufferAllocator *last;
 
     size = pool->block_size;
     pool->mpool.count = 1;
@@ -124,16 +125,25 @@ static int init_allocators(ReadBufferPool *pool)
         allocators + pool->mpool.count / 2;
     pool->mpool.middle_plus_1 = pool->mpool.middle + 1;
     pool->mpool.end = pool->mpool.allocators + pool->mpool.count;
+    last = pool->mpool.end - 1;
     for (allocator=pool->mpool.allocators;
             allocator<pool->mpool.end; allocator++)
     {
-        allocator->size = size + pool->block_size;
+        if (size == 0) {
+            allocator->size = pool->block_size;
+            size = pool->block_size;
+        } else {
+            if (allocator != last) {
+                allocator->size = size + pool->block_size;
+            } else {
+                allocator->size = size + 2 * pool->block_size;
+            }
+            size *= 2;
+        }
         if ((result=init_pthread_lock(&allocator->lock)) != 0) {
             return result;
         }
         FC_INIT_LIST_HEAD(&allocator->freelist);
-
-        size = (size == 0 ? pool->block_size : size * 2);
     }
 
     if ((result=fast_mblock_init_ex1(&pool->mblock, "aligned-rdbuffer",
