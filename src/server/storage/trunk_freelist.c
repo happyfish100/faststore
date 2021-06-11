@@ -187,7 +187,7 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator *allocator,
     FSTrunkSpaceWithVersion *space_info;
     FSTrunkFileInfo *trunk_info;
 
-    aligned_size = MEM_ALIGN(size);
+    aligned_size = MEM_ALIGN_CEIL(size, FS_SPACE_ALIGN_SIZE);
     space_info = spaces;
 
     PTHREAD_MUTEX_LOCK(&freelist->lcp.lock);

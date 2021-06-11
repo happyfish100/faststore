@@ -803,7 +803,6 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             if ((result=trunk_read_thread_push(*pp, aligned_buffer,
                             slice_read_done, op_ctx)) != 0)
             {
-                ob_index_free_slice(*pp);
                 break;
             }
         }
@@ -869,7 +868,6 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
         } else if ((result=trunk_read_thread_push(*pp, ps,
                         slice_read_done, op_ctx)) != 0)
         {
-            ob_index_free_slice(*pp);
             break;
         }
 

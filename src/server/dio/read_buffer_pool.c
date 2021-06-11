@@ -298,7 +298,9 @@ AlignedReadBuffer *read_buffer_pool_alloc(
     int reclaim_bytes;
 
     pool = rbpool_ctx.array.pools + path_index;
-    if ((allocator=get_allocator(pool, size)) == NULL) {
+    if ((allocator=get_allocator(pool, size +
+                    FS_SPACE_ALIGN_SIZE)) == NULL)
+    {
         return NULL;
     }
 
