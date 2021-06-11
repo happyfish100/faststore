@@ -801,8 +801,8 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->reclaim_trunks_on_path_usage * 100.00,
 #ifdef OS_LINUX
             storage_cfg->never_reclaim_on_trunk_usage * 100.00,
-            storage_cfg->aio_read_buffer.memory_watermark_low.ratio,
-            storage_cfg->aio_read_buffer.memory_watermark_high.ratio,
+            storage_cfg->aio_read_buffer.memory_watermark_low.ratio * 100.00,
+            storage_cfg->aio_read_buffer.memory_watermark_high.ratio * 100.00,
             storage_cfg->aio_read_buffer.max_idle_time,
             storage_cfg->aio_read_buffer.reclaim_interval
 #else

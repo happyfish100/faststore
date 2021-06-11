@@ -523,8 +523,8 @@ static int cluster_space_stat(FSClientContext *client_ctx,
         min_stat.total = min_stat.avail = min_stat.used = 0;
         end = stat_array.stats + stat_array.count;
         for (cur=stat_array.stats; cur<end; cur++) {
-            if ((cur->stat.total > 0) && ((min_stat.total == 0) ||
-                        (cur->stat.used > min_stat.used)))
+            if ((cur->stat.total > 0) && ((min_stat.avail == 0) ||
+                        (cur->stat.avail < min_stat.avail)))
             {
                 min_stat.total = cur->stat.total;
                 min_stat.avail = cur->stat.avail;
