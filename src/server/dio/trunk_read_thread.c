@@ -382,8 +382,7 @@ static inline int prepare_read_slice(TrunkReadThreadContext *ctx,
     int result;
     int fd;
 
-    new_offset = MEM_ALIGN_FLOOR(iob->slice->
-            space.offset, ctx->block_size);
+    new_offset = MEM_ALIGN_FLOOR(iob->slice->space.offset, ctx->block_size);
     read_bytes = MEM_ALIGN_CEIL(iob->slice->ssize.length, ctx->block_size);
     offset = iob->slice->space.offset - new_offset;
     if (offset > 0) {
