@@ -18,7 +18,7 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
-#include "fs_api_allocator.h"
+#include "../fs_api_allocator.h"
 #include "obid_htable.h"
 #include "otid_htable.h"
 #include "combine_handler.h"

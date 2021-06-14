@@ -16,8 +16,8 @@
 #ifndef _OBID_HTABLE_H
 #define _OBID_HTABLE_H
 
-#include "fs_api_types.h"
 #include "sf/sf_sharding_htable.h"
+#include "../fs_api_types.h"
 
 typedef struct fs_api_block_entry {
     SFShardingHashEntry hentry; //must be the first

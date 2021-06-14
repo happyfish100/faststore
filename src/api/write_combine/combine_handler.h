@@ -18,7 +18,7 @@
 
 #include "fastcommon/fc_queue.h"
 #include "fastcommon/thread_pool.h"
-#include "fs_api_types.h"
+#include "../fs_api_types.h"
 #include "timeout_handler.h"
 #include "obid_htable.h"
 

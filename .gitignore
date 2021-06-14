@@ -41,7 +41,7 @@ src/client/tools/fs_read
 src/client/tools/fs_delete
 src/client/tools/fstore_list_servers
 src/client/tests/test_slice_rw
-src/api/test_otid_htable
+src/api/write_combine/test_otid_htable
 
 # other
 logs

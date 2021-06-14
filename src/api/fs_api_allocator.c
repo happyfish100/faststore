@@ -15,8 +15,8 @@
 
 #include <stdlib.h>
 #include "fastcommon/shared_func.h"
-#include "timeout_handler.h"
 #include "fs_api_allocator.h"
+#include "write_combine/timeout_handler.h"
 
 FSAPIAllocatorCtxArray g_fs_api_allocator_array;
 

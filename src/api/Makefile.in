@@ -5,18 +5,22 @@ INC_PATH = -I../common -I../include
 LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon -lserverframe
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-API_SHARED_OBJS = fs_api.lo otid_htable.lo obid_htable.lo timeout_handler.lo \
-                  fs_api_allocator.lo combine_handler.lo
+API_SHARED_OBJS = fs_api.lo fs_api_allocator.lo write_combine/otid_htable.lo    \
+                  write_combine/obid_htable.lo write_combine/timeout_handler.lo \
+                  write_combine/combine_handler.lo
 
-API_STATIC_OBJS = fs_api.o otid_htable.o obid_htable.o timeout_handler.o \
-                  fs_api_allocator.o combine_handler.o
+API_STATIC_OBJS = fs_api.o fs_api_allocator.o write_combine/otid_htable.o     \
+                  write_combine/obid_htable.o write_combine/timeout_handler.o \
+                  write_combine/combine_handler.o
 
-HEADER_FILES = fs_api.h fs_api_types.h otid_htable.h obid_htable.h \
-               timeout_handler.h fs_api_allocator.h combine_handler.h
+ROOT_HEADER_FILES = fs_api.h fs_api_allocator.h fs_api_types.h
+
+WRITE_COMBINE_HEADER_FILES = write_combine/otid_htable.h write_combine/obid_htable.h \
+               write_combine/timeout_handler.h write_combine/combine_handler.h
 
 ALL_OBJS = $(API_STATIC_OBJS) $(API_SHARED_OBJS)
 
-ALL_PRGS = test_otid_htable
+ALL_PRGS = write_combine/test_otid_htable
 SHARED_LIBS = libfsapi.so
 STATIC_LIBS = libfsapi.a
 ALL_LIBS = $(SHARED_LIBS) $(STATIC_LIBS)
@@ -38,11 +42,12 @@ install:
 	mkdir -p $(TARGET_LIB)
 	mkdir -p $(TARGET_PREFIX)/lib
 	mkdir -p $(TARGET_PREFIX)/include/fastsore/api
+	mkdir -p $(TARGET_PREFIX)/include/fastsore/api/write_combine
 
 	install -m 755 $(SHARED_LIBS) $(TARGET_LIB)
-	install -m 644 $(HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api
+	install -m 644 $(ROOT_HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api
+	install -m 644 $(WRITE_COMBINE_HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api/write_combine
 	@BUILDROOT=$$(echo "$(TARGET_PREFIX)" | grep BUILDROOT); \
 	if [ -z "$$BUILDROOT" ] && [ ! -e $(TARGET_PREFIX)/lib/libfsapi.so ]; then ln -s $(TARGET_LIB)/libfsapi.so $(TARGET_PREFIX)/lib/libfsapi.so; fi
 clean:
 	rm -f $(ALL_OBJS) $(ALL_PRGS) $(ALL_LIBS)
-

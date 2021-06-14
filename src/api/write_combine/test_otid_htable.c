@@ -8,12 +8,12 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/shared_func.h"
 #include "sf/sf_global.h"
-#include "fs_api_allocator.h"
+#include "../fs_api_allocator.h"
+#include "../fs_api.h"
 #include "timeout_handler.h"
 #include "combine_handler.h"
 #include "otid_htable.h"
 #include "obid_htable.h"
-#include "fs_api.h"
 
 volatile int thread_count = 0;
 void *thread_run(void *arg)

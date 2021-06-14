@@ -14,7 +14,7 @@
  */
 
 #include <stdlib.h>
-#include "fs_api_allocator.h"
+#include "../fs_api_allocator.h"
 #include "timeout_handler.h"
 #include "combine_handler.h"
 #include "obid_htable.h"

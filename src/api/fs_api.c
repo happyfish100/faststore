@@ -14,8 +14,8 @@
  */
 
 #include <stdlib.h>
-#include "timeout_handler.h"
-#include "combine_handler.h"
+#include "write_combine/timeout_handler.h"
+#include "write_combine/combine_handler.h"
 #include "fs_api.h"
 
 FSAPIContext g_fs_api_ctx;

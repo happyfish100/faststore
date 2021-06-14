@@ -16,7 +16,7 @@
 #ifndef _TIMEOUT_HANDLER_H
 #define _TIMEOUT_HANDLER_H
 
-#include "fs_api_types.h"
+#include "../fs_api_types.h"
 
 typedef struct {
     int precision_ms;
