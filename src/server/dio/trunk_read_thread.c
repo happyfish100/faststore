@@ -376,18 +376,13 @@ static int get_read_fd(TrunkReadThreadContext *ctx,
 static inline int prepare_read_slice(TrunkReadThreadContext *ctx,
         TrunkReadIOBuffer *iob)
 {
-#define MEM_ALIGN_FLOOR(x, align_size) ((x) & (~(align_size - 1)))
-#define MEM_ALIGN_CEIL(x, align_size) \
-    (((x) + (align_size - 1)) & (~(align_size - 1)))
-
     int64_t new_offset;
     int offset;
     int read_bytes;
     int result;
     int fd;
 
-    new_offset = MEM_ALIGN_FLOOR(iob->slice->
-            space.offset, ctx->block_size);
+    new_offset = MEM_ALIGN_FLOOR(iob->slice->space.offset, ctx->block_size);
     read_bytes = MEM_ALIGN_CEIL(iob->slice->ssize.length, ctx->block_size);
     offset = iob->slice->space.offset - new_offset;
     if (offset > 0) {

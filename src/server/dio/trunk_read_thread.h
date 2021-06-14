@@ -66,18 +66,18 @@ extern "C" {
             void *notify_arg);
 
     static inline AlignedReadBuffer *aligned_buffer_new(const short pindex,
-            const int offset, const int length, const int size)
+            const int offset, const int length, const int read_bytes)
     {
         AlignedReadBuffer *aligned_buffer;
 
-        aligned_buffer = read_buffer_pool_alloc(pindex, size);
+        aligned_buffer = read_buffer_pool_alloc(pindex, read_bytes);
         if (aligned_buffer == NULL) {
             return NULL;
         }
 
         aligned_buffer->offset = offset;
         aligned_buffer->length = length;
-        aligned_buffer->read_bytes = size;
+        aligned_buffer->read_bytes = read_bytes;
         return aligned_buffer;
     }
 

@@ -698,7 +698,7 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
                     int padding;
 
                     total = 0;
-                    dest = ctx->iovec_array.iovs;
+                    dest = ctx->iovec_array.iovs + ctx->iovec_array.count;
                     end = iob->iovec_array.iovs + iob->iovec_array.count;
                     for (src=iob->iovec_array.iovs; src<end; src++) {
                         *dest++ = *src;

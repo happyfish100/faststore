@@ -241,7 +241,7 @@ int buffer_to_iovec_array(struct fast_task_info *task)
     AlignedReadBuffer **aligned_buffer;
     AlignedReadBuffer **end;
     struct iovec *iov;
-    int total;
+    //int total;
     int result;
 
     if ((result=fc_check_realloc_iovec_array(&SLICE_OP_CTX.iovec_array,
@@ -254,7 +254,7 @@ int buffer_to_iovec_array(struct fast_task_info *task)
     FC_SET_IOVEC(*iov, task->data, sizeof(FSProtoHeader));
     iov++;
 
-    total = 0;
+    //total = 0;
     end = SLICE_OP_CTX.aio_buffer_parray.buffers +
         SLICE_OP_CTX.aio_buffer_parray.count;
     for (aligned_buffer=SLICE_OP_CTX.aio_buffer_parray.buffers;
@@ -264,7 +264,7 @@ int buffer_to_iovec_array(struct fast_task_info *task)
                 (*aligned_buffer)->offset,
                 (*aligned_buffer)->length);
 
-        total += (*aligned_buffer)->length;
+        //total += (*aligned_buffer)->length;
     }
 
     task->iovec_array.iovs = SLICE_OP_CTX.iovec_array.iovs;

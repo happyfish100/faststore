@@ -30,6 +30,7 @@
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
 
+#define FS_SPACE_ALIGN_SIZE  8
 #define FS_TRUNK_BINLOG_MAX_RECORD_SIZE    128
 #define FS_TRUNK_BINLOG_SUBDIR_NAME      "trunk"
 

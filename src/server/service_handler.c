@@ -409,6 +409,13 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
         long2buff(cs->space_stat.total, body_part->total);
         long2buff(cs->space_stat.avail, body_part->avail);
         long2buff(cs->space_stat.used, body_part->used);
+
+        /*
+        logInfo("server id: %d, space_stat total: %"PRId64" MB, "
+                "avail: %"PRId64" MB, used: %"PRId64 "MB", cs->server->id,
+                cs->space_stat.total / (1024 * 1024), cs->space_stat.avail /
+                (1024 * 1024), cs->space_stat.used / (1024 * 1024));
+                */
     }
 
     int2buff(body_part - part_start, body_header->count);
