@@ -13,10 +13,7 @@ API_STATIC_OBJS = fs_api.o fs_api_allocator.o write_combine/otid_htable.o     \
                   write_combine/obid_htable.o write_combine/timeout_handler.o \
                   write_combine/combine_handler.o
 
-ROOT_HEADER_FILES = fs_api.h fs_api_allocator.h fs_api_types.h
-
-WRITE_COMBINE_HEADER_FILES = write_combine/otid_htable.h write_combine/obid_htable.h \
-               write_combine/timeout_handler.h write_combine/combine_handler.h
+HEADER_FILES = fs_api.h fs_api_allocator.h fs_api_types.h
 
 ALL_OBJS = $(API_STATIC_OBJS) $(API_SHARED_OBJS)
 
@@ -42,11 +39,10 @@ install:
 	mkdir -p $(TARGET_LIB)
 	mkdir -p $(TARGET_PREFIX)/lib
 	mkdir -p $(TARGET_PREFIX)/include/fastsore/api
-	mkdir -p $(TARGET_PREFIX)/include/fastsore/api/write_combine
+#mkdir -p $(TARGET_PREFIX)/include/fastsore/api/write_combine
 
 	install -m 755 $(SHARED_LIBS) $(TARGET_LIB)
-	install -m 644 $(ROOT_HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api
-	install -m 644 $(WRITE_COMBINE_HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api/write_combine
+	install -m 644 $(HEADER_FILES) $(TARGET_PREFIX)/include/fastsore/api
 	@BUILDROOT=$$(echo "$(TARGET_PREFIX)" | grep BUILDROOT); \
 	if [ -z "$$BUILDROOT" ] && [ ! -e $(TARGET_PREFIX)/lib/libfsapi.so ]; then ln -s $(TARGET_LIB)/libfsapi.so $(TARGET_PREFIX)/lib/libfsapi.so; fi
 clean:

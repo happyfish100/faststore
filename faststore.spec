@@ -127,7 +127,6 @@ mkdir -p /opt/fastcfs/fstore
 %defattr(-,root,root,-)
 /usr/include/faststore/client/*.h
 /usr/include/fastsore/api/*.h
-/usr/include/fastsore/api/write_combine/*.h
 
 %files -n %{FastStoreConfig}
 %defattr(-,root,root,-)

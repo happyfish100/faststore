@@ -19,8 +19,6 @@
 
 #include "fs_api_types.h"
 #include "fs_api_allocator.h"
-#include "write_combine/obid_htable.h"
-#include "write_combine/otid_htable.h"
 
 #ifdef __cplusplus
 extern "C" {

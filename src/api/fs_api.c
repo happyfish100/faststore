@@ -14,6 +14,8 @@
  */
 
 #include <stdlib.h>
+#include "write_combine/obid_htable.h"
+#include "write_combine/otid_htable.h"
 #include "write_combine/timeout_handler.h"
 #include "write_combine/combine_handler.h"
 #include "fs_api.h"
