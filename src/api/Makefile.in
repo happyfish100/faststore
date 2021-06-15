@@ -5,15 +5,17 @@ INC_PATH = -I../common -I../include
 LIB_PATH = -L../client $(LIBS) -lfsclient -lfdirclient -lfastcommon -lserverframe
 TARGET_LIB = $(TARGET_PREFIX)/$(LIB_VERSION)
 
-API_SHARED_OBJS = fs_api.lo fs_api_allocator.lo write_combine/otid_htable.lo    \
-                  write_combine/obid_htable.lo write_combine/timeout_handler.lo \
-                  write_combine/combine_handler.lo
+API_SHARED_OBJS = fs_api.lo fs_api_allocator.lo fs_api_buffer_pool.lo \
+                  write_combine/otid_htable.lo write_combine/obid_htable.lo \
+                  write_combine/timeout_handler.lo write_combine/combine_handler.lo \
+                  read_ahead/otid_htable.lo
 
-API_STATIC_OBJS = fs_api.o fs_api_allocator.o write_combine/otid_htable.o     \
-                  write_combine/obid_htable.o write_combine/timeout_handler.o \
-                  write_combine/combine_handler.o
+API_STATIC_OBJS = fs_api.o fs_api_allocator.o fs_api_buffer_pool.o \
+                  write_combine/otid_htable.o write_combine/obid_htable.o \
+                  write_combine/timeout_handler.o write_combine/combine_handler.o \
+                  read_ahead/otid_htable.o
 
-HEADER_FILES = fs_api.h fs_api_allocator.h fs_api_types.h
+HEADER_FILES = fs_api.h fs_api_allocator.h fs_api_buffer_pool.h fs_api_types.h
 
 ALL_OBJS = $(API_STATIC_OBJS) $(API_SHARED_OBJS)
 

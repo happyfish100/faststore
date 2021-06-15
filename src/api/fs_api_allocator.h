@@ -19,6 +19,7 @@
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/fast_mblock.h"
 #include "fs_api_types.h"
+#include "fs_api_buffer_pool.h"
 
 typedef struct fs_api_allocator_context {
     struct fast_mblock_man task_slice_pair; //element: FSAPIWaitingTaskSlicePair
@@ -29,6 +30,7 @@ typedef struct fs_api_allocator_context {
         volatile int64_t current_version;
     } slice;
     struct fast_mblock_man callback_arg;    //element: FSAPIWriteDoneCallbackArg
+    FSAPIBufferPool buffer_pool;
 } FSAPIAllocatorContext;
 
 typedef struct fs_api_allocator_ctx_array {

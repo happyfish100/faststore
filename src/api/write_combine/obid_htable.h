@@ -26,6 +26,18 @@ typedef struct fs_api_block_entry {
     } slices;
 } FSAPIBlockEntry;
 
+typedef struct fs_api_insert_slice_context {
+    FSAPIOperationContext *op_ctx;
+    FSAPIWriteBuffer *wbuffer;
+    struct {
+        int successive_count;
+        struct fs_wcombine_otid_entry *entry;
+        FSAPISliceEntry *old_slice;
+    } otid;
+    FSAPISliceEntry *slice;   //new created slice
+    FSAPIWaitingTask *waiting_task;
+} FSAPIInsertSliceContext;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

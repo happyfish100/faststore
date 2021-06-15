@@ -67,6 +67,8 @@ static int callback_arg_alloc_init(FSAPIWriteDoneCallbackArg
 static int init_allocator_context(FSAPIContext *api_ctx,
         FSAPIAllocatorContext *ctx)
 {
+    const int min_buffer_size = 4 * 1024;
+    const int max_buffer_size = 128 * 1024;
     int result;
     int element_size;
 
@@ -101,6 +103,12 @@ static int init_allocator_context(FSAPIContext *api_ctx,
                     "write_done_callback_arg", element_size, 1024, 0,
                     (fast_mblock_alloc_init_func)callback_arg_alloc_init,
                     &ctx->callback_arg, true)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fs_api_buffer_pool_init(&ctx->buffer_pool,
+            min_buffer_size, max_buffer_size)) != 0)
     {
         return result;
     }
