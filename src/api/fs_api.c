@@ -69,6 +69,10 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_MAX_THREAD_POOL_MAX_IDLE_TIME      86400
 #define FS_API_DEFAULT_THREAD_POOL_MAX_IDLE_TIME    300
 
+#define FS_API_MIN_PREREAD_MIN_SIZE      ( 1 * 1024)
+#define FS_API_MAX_PREREAD_MIN_SIZE      (64 * 1024)
+#define FS_API_DEFAULT_PREREAD_MIN_SIZE  ( 4 * 1024)
+
 #define FS_API_MIN_PREREAD_MAX_SIZE      ( 16 * 1024)
 #define FS_API_MAX_PREREAD_MAX_SIZE      (256 * 1024)
 #define FS_API_DEFAULT_PREREAD_MAX_SIZE  (128 * 1024)
@@ -166,9 +170,23 @@ static void fs_api_config_load_read_ahead(FSAPIContext *api_ctx,
     api_ctx->read_ahead.enabled = iniGetBoolValue(ini_ctx->section_name,
             "enabled", ini_ctx->context, true);
 
+    api_ctx->read_ahead.preread_min_size = iniGetByteCorrectValue(ini_ctx,
+            "preread_min_size", FS_API_DEFAULT_PREREAD_MIN_SIZE,
+            FS_API_MIN_PREREAD_MIN_SIZE, FS_API_MAX_PREREAD_MIN_SIZE);
+
     api_ctx->read_ahead.preread_max_size = iniGetByteCorrectValue(ini_ctx,
             "preread_max_size", FS_API_DEFAULT_PREREAD_MAX_SIZE,
             FS_API_MIN_PREREAD_MAX_SIZE, FS_API_MAX_PREREAD_MAX_SIZE);
+    if (api_ctx->read_ahead.preread_max_size <
+            api_ctx->read_ahead.preread_min_size) 
+    {
+        logWarning("file: "__FILE__", line: %d, "
+                "preread_max_size: %d < preread_min_size: %d!",
+                __LINE__, api_ctx->read_ahead.preread_max_size,
+                api_ctx->read_ahead.preread_min_size);
+        api_ctx->read_ahead.preread_max_size =
+            api_ctx->read_ahead.preread_min_size;
+    }
 
     if (iniGetStrValue(ini_ctx->section_name, "skip_preread_on_slice_size",
                 ini_ctx->context) == NULL)
@@ -247,7 +265,7 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
     len += snprintf(output + len, size - len, " }");
 }
 
-int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
+static int write_combine_init(FSAPIContext *api_ctx,
         fs_api_write_done_callback write_done_callback,
         const int write_done_arg_extra_size)
 {
@@ -258,11 +276,6 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
     const double low_water_mark_ratio = 0.01;
     int result;
 
-    fs_api_config_load(api_ctx, ini_ctx);
-    if (!api_ctx->write_combine.enabled) {
-        return 0;
-    }
-
     api_ctx->write_done_callback.func = write_done_callback;
     api_ctx->write_done_callback.arg_extra_size = write_done_arg_extra_size;
     g_timer_ms_ctx.current_time_ms = get_current_time_ms();
@@ -270,10 +283,6 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
                     max_wait_time_ms, api_ctx->write_combine.
                     timer_shared_lock_count)) != 0)
     {
-        return result;
-    }
-
-    if ((result=fs_api_allocator_init(api_ctx)) != 0) {
         return result;
     }
 
@@ -293,6 +302,71 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
                     max_ttl_ms, low_water_mark_ratio)) != 0)
     {
         return result;
+    }
+
+    return 0;
+}
+
+static int read_ahead_init(FSAPIContext *api_ctx)
+{
+    int64_t element_limit = 10 * 1000;
+    const int64_t min_ttl_ms = 5 * 1000;
+    const int64_t max_ttl_ms = 300 * 1000;
+    const double low_water_mark_ratio = 0.01;
+    int result;
+
+    if ((result=preread_otid_htable_init(api_ctx->common.
+                    hashtable_sharding_count, api_ctx->common.
+                    hashtable_total_capacity, api_ctx->common.
+                    shared_allocator_count, element_limit, min_ttl_ms,
+                    max_ttl_ms, low_water_mark_ratio)) != 0)
+    {
+        return result;
+    }
+
+    /*
+    if ((result=obid_htable_init(api_ctx->common.
+                    hashtable_sharding_count, api_ctx->common.
+                    hashtable_total_capacity, api_ctx->common.
+                    shared_allocator_count, element_limit, min_ttl_ms,
+                    max_ttl_ms, low_water_mark_ratio)) != 0)
+    {
+        return result;
+    }
+    */
+
+    return 0;
+}
+
+int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
+        fs_api_write_done_callback write_done_callback,
+        const int write_done_arg_extra_size)
+{
+    int result;
+
+    fs_api_config_load(api_ctx, ini_ctx);
+    if (!(api_ctx->write_combine.enabled ||
+                api_ctx->read_ahead.enabled))
+    {
+        return 0;
+    }
+
+    if ((result=fs_api_allocator_init(api_ctx)) != 0) {
+        return result;
+    }
+
+    if (api_ctx->write_combine.enabled) {
+        if ((result=write_combine_init(api_ctx, write_done_callback,
+                        write_done_arg_extra_size)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if (api_ctx->read_ahead.enabled) {
+        if ((result=read_ahead_init(api_ctx)) != 0) { 
+            return result;
+        }
     }
 
     return 0;

@@ -30,9 +30,6 @@ extern "C" {
             const int64_t min_ttl_ms, const int64_t max_ttl_ms,
             const double low_water_mark_ratio);
 
-    int preread_otid_htable_insert(FSAPIOperationContext *op_ctx,
-            FSAPIBuffer *buffer);
-
     int preread_slice_read(FSAPIOperationContext *op_ctx,
             char *buff, int *read_bytes);
 

@@ -81,7 +81,8 @@ int fs_api_buffer_pool_init(FSAPIBufferPool *pool,
     return 0;
 }
 
-FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool, const int size)
+FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool,
+        const int size, const int inc_refers)
 {
     FSAPIBufferAllocator *allocator;
     FSAPIBufferAllocator *end;
@@ -96,7 +97,7 @@ FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool, const int size)
                 return NULL;
             }
 
-            FC_ATOMIC_INC(buffer->refer_count);
+            FC_ATOMIC_INC_EX(buffer->refer_count, inc_refers);
             return buffer;
         }
     }

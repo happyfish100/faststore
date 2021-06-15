@@ -64,11 +64,9 @@ static int callback_arg_alloc_init(FSAPIWriteDoneCallbackArg
     return 0;
 }
 
-static int init_allocator_context(FSAPIContext *api_ctx,
+static int init_write_combine_allocators(FSAPIContext *api_ctx,
         FSAPIAllocatorContext *ctx)
 {
-    const int min_buffer_size = 4 * 1024;
-    const int max_buffer_size = 128 * 1024;
     int result;
     int element_size;
 
@@ -107,10 +105,39 @@ static int init_allocator_context(FSAPIContext *api_ctx,
         return result;
     }
 
+    return 0;
+}
+
+static int init_read_ahead_allocators(FSAPIContext *api_ctx,
+        FSAPIAllocatorContext *ctx)
+{
+    int result;
+
     if ((result=fs_api_buffer_pool_init(&ctx->buffer_pool,
-            min_buffer_size, max_buffer_size)) != 0)
+                    api_ctx->read_ahead.preread_min_size,
+                    api_ctx->read_ahead.preread_max_size)) != 0)
     {
         return result;
+    }
+
+    return 0;
+}
+
+static int init_allocator_context(FSAPIContext *api_ctx,
+        FSAPIAllocatorContext *ctx)
+{
+    int result;
+
+    if (api_ctx->write_combine.enabled) {
+        if ((result=init_write_combine_allocators(api_ctx, ctx)) != 0) {
+            return result;
+        }
+    }
+
+    if (api_ctx->read_ahead.enabled) {
+        if ((result=init_read_ahead_allocators(api_ctx, ctx)) != 0) {
+            return result;
+        }
     }
 
     return 0;

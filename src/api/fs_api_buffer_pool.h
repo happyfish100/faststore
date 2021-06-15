@@ -24,7 +24,7 @@ struct fs_api_buffer_allocator;
 typedef struct fs_api_buffer {
     int offset;
     int length; //data length
-    int read_bytes;
+    bool dirty; //if data dirty
     volatile int refer_count;
     struct fs_api_buffer_allocator *allocator;
     char buff[0];
@@ -51,7 +51,8 @@ extern "C" {
     int fs_api_buffer_pool_init(FSAPIBufferPool *pool,
             const int min_buffer_size, const int max_buffer_size);
 
-    FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool, const int size);
+    FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool,
+            const int size, const int inc_refers);
 
     static inline void fs_api_buffer_release(FSAPIBuffer *buffer)
     {

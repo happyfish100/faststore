@@ -140,6 +140,7 @@ typedef struct fs_api_context {
     struct {
         volatile bool enabled;
         int skip_preread_on_slice_size;
+        int preread_min_size;
         int preread_max_size;
     } read_ahead;
 
