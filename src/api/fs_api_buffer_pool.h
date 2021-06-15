@@ -17,11 +17,14 @@
 #define _FS_API_BUFFER_POOL_H
 
 #include "fastcommon/fast_mblock.h"
+#include "fastcommon/fc_atomic.h"
 
 struct fs_api_buffer_allocator;
 
 typedef struct fs_api_buffer {
+    int offset;
     int length; //data length
+    int read_bytes;
     volatile int refer_count;
     struct fs_api_buffer_allocator *allocator;
     char buff[0];
@@ -48,10 +51,19 @@ extern "C" {
     int fs_api_buffer_pool_init(FSAPIBufferPool *pool,
             const int min_buffer_size, const int max_buffer_size);
 
-    FSAPIBuffer *fs_api_buffer_pool_alloc(FSAPIBufferPool *pool,
-            const int size);
+    FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool, const int size);
 
-    void fs_api_buffer_pool_free(FSAPIBuffer *buffer);
+    static inline void fs_api_buffer_release(FSAPIBuffer *buffer)
+    {
+        if (FC_ATOMIC_DEC(buffer->refer_count) == 0) {
+            fast_mblock_free_object(&buffer->allocator->mblock, buffer);
+        }
+    }
+
+    static inline void fs_api_buffer_hold(FSAPIBuffer *buffer)
+    {
+        FC_ATOMIC_INC(buffer->refer_count);
+    }
 
 #ifdef __cplusplus
 }

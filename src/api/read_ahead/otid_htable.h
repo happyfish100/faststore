@@ -18,30 +18,7 @@
 
 #include "sf/sf_sharding_htable.h"
 #include "../fs_api_types.h"
-
-/*
-typedef struct fs_preread_buffer {
-    const char *buff;
-} FSAPIWriteBuffer;
-*/
-
-typedef struct fs_preread_otid_entry {
-    SFShardingHashEntry hentry;  //must be the first
-    int successive_count;
-    int64_t last_read_offset;
-    volatile FSAPISliceEntry *slice;    //current combined slice
-} FSPrereadOTIDEntry;
-
-typedef struct fs_api_insert_slice_context {
-    FSAPIOperationContext *op_ctx;
-    FSAPIWriteBuffer *wbuffer;
-    struct {
-        int successive_count;
-        struct fs_preread_otid_entry *entry;
-        FSAPISliceEntry *old_slice;
-    } otid;
-    FSAPISliceEntry *slice;   //new created slice
-} FSAPIInsertSliceContext;
+#include "../fs_api_buffer_pool.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,7 +31,10 @@ extern "C" {
             const double low_water_mark_ratio);
 
     int preread_otid_htable_insert(FSAPIOperationContext *op_ctx,
-            FSAPIWriteBuffer *wbuffer);
+            FSAPIBuffer *buffer);
+
+    int preread_slice_read(FSAPIOperationContext *op_ctx,
+            char *buff, int *read_bytes);
 
 #ifdef __cplusplus
 }

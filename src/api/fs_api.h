@@ -33,6 +33,20 @@ extern "C" {
 #define FS_API_SET_CTX_AND_TID(op_ctx, thread_id) \
     FS_API_SET_CTX_AND_TID_EX(op_ctx, &g_fs_api_ctx, thread_id)
 
+#define FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx) \
+    op_ctx->bid = op_ctx->bs_key.block.offset;   \
+    op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid)
+
+#define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, operation) \
+    do {  \
+        if (op_ctx->api_ctx->write_combine.enabled) {  \
+            int conflict_count;  \
+            FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
+            op_ctx->op_type = operation;  \
+            obid_htable_check_conflict_and_wait(op_ctx, &conflict_count); \
+        } \
+    } while (0)
+
 #define fs_api_init(ini_ctx, write_done_callback, write_done_arg_extra_size) \
     fs_api_init_ex(&g_fs_api_ctx, ini_ctx, write_done_callback, \
             write_done_arg_extra_size)

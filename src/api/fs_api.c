@@ -18,6 +18,7 @@
 #include "write_combine/otid_htable.h"
 #include "write_combine/timeout_handler.h"
 #include "write_combine/combine_handler.h"
+#include "read_ahead/otid_htable.h"
 #include "fs_api.h"
 
 FSAPIContext g_fs_api_ctx;
@@ -68,8 +69,43 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_MAX_THREAD_POOL_MAX_IDLE_TIME      86400
 #define FS_API_DEFAULT_THREAD_POOL_MAX_IDLE_TIME    300
 
-static int fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
+#define FS_API_MIN_PREREAD_MAX_SIZE      ( 16 * 1024)
+#define FS_API_MAX_PREREAD_MAX_SIZE      (256 * 1024)
+#define FS_API_DEFAULT_PREREAD_MAX_SIZE  (128 * 1024)
+
+#define FS_API_MIN_SKIP_PREREAD_ON_SLICE_SIZE      (  8 * 1024)
+#define FS_API_MAX_SKIP_PREREAD_ON_SLICE_SIZE      (128 * 1024)
+#define FS_API_DEFAULT_SKIP_PREREAD_ON_SLICE_SIZE  ( 64 * 1024)
+
+#define FS_API_WRITE_COMBINE_SECTION_NAME   "write_combine"
+#define FS_API_READ_AHEAD_SECTION_NAME      "read_ahead"
+
+static void fs_api_config_load_common(FSAPIContext *api_ctx,
+        IniFullContext *ini_ctx)
 {
+    api_ctx->common.shared_allocator_count = iniGetIntCorrectValueEx(
+            ini_ctx, "shared_allocator_count",
+            FS_API_DEFAULT_SHARED_ALLOCATOR_COUNT,
+            FS_API_MIN_SHARED_ALLOCATOR_COUNT,
+            FS_API_MAX_SHARED_ALLOCATOR_COUNT, true);
+
+    api_ctx->common.hashtable_sharding_count = iniGetIntCorrectValue(
+            ini_ctx, "hashtable_sharding_count",
+            FS_API_DEFAULT_HASHTABLE_SHARDING_COUNT,
+            FS_API_MIN_HASHTABLE_SHARDING_COUNT,
+            FS_API_MAX_HASHTABLE_SHARDING_COUNT);
+
+    api_ctx->common.hashtable_total_capacity = iniGetInt64CorrectValue(
+            ini_ctx, "hashtable_total_capacity",
+            FS_API_DEFAULT_HASHTABLE_TOTAL_CAPACITY,
+            FS_API_MIN_HASHTABLE_TOTAL_CAPACITY,
+            FS_API_MAX_HASHTABLE_TOTAL_CAPACITY);
+}
+
+static void fs_api_config_load_write_combine(FSAPIContext *api_ctx,
+        IniFullContext *ini_ctx)
+{
+    ini_ctx->section_name = FS_API_WRITE_COMBINE_SECTION_NAME;
     api_ctx->write_combine.enabled = iniGetBoolValue(ini_ctx->section_name,
             "enabled", ini_ctx->context, true);
 
@@ -104,24 +140,6 @@ static int fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
             FS_API_MIN_TIMER_SHARED_LOCK_COUNT,
             FS_API_MAX_TIMER_SHARED_LOCK_COUNT);
 
-    api_ctx->write_combine.shared_allocator_count = iniGetIntCorrectValueEx(
-            ini_ctx, "shared_allocator_count",
-            FS_API_DEFAULT_SHARED_ALLOCATOR_COUNT,
-            FS_API_MIN_SHARED_ALLOCATOR_COUNT,
-            FS_API_MAX_SHARED_ALLOCATOR_COUNT, true);
-
-    api_ctx->write_combine.hashtable_sharding_count = iniGetIntCorrectValue(
-            ini_ctx, "hashtable_sharding_count",
-            FS_API_DEFAULT_HASHTABLE_SHARDING_COUNT,
-            FS_API_MIN_HASHTABLE_SHARDING_COUNT,
-            FS_API_MAX_HASHTABLE_SHARDING_COUNT);
-
-    api_ctx->write_combine.hashtable_total_capacity = iniGetInt64CorrectValue(
-            ini_ctx, "hashtable_total_capacity",
-            FS_API_DEFAULT_HASHTABLE_TOTAL_CAPACITY,
-            FS_API_MIN_HASHTABLE_TOTAL_CAPACITY,
-            FS_API_MAX_HASHTABLE_TOTAL_CAPACITY);
-
     api_ctx->write_combine.thread_pool_max_threads = iniGetIntCorrectValue(
             ini_ctx, "thread_pool_max_threads",
             FS_API_DEFAULT_THREAD_POOL_MAX_THREADS,
@@ -139,8 +157,39 @@ static int fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
             FS_API_DEFAULT_THREAD_POOL_MAX_IDLE_TIME,
             FS_API_MIN_THREAD_POOL_MAX_IDLE_TIME,
             FS_API_MAX_THREAD_POOL_MAX_IDLE_TIME);
+}
 
-    return 0;
+static void fs_api_config_load_read_ahead(FSAPIContext *api_ctx,
+        IniFullContext *ini_ctx)
+{
+    ini_ctx->section_name = FS_API_READ_AHEAD_SECTION_NAME;
+    api_ctx->read_ahead.enabled = iniGetBoolValue(ini_ctx->section_name,
+            "enabled", ini_ctx->context, true);
+
+    api_ctx->read_ahead.preread_max_size = iniGetByteCorrectValue(ini_ctx,
+            "preread_max_size", FS_API_DEFAULT_PREREAD_MAX_SIZE,
+            FS_API_MIN_PREREAD_MAX_SIZE, FS_API_MAX_PREREAD_MAX_SIZE);
+
+    if (iniGetStrValue(ini_ctx->section_name, "skip_preread_on_slice_size",
+                ini_ctx->context) == NULL)
+    {
+        api_ctx->read_ahead.skip_preread_on_slice_size =
+            api_ctx->read_ahead.preread_max_size / 2;
+    } else {
+        api_ctx->read_ahead.skip_preread_on_slice_size =
+            iniGetByteCorrectValue(ini_ctx,
+                    "skip_preread_on_slice_size",
+                    FS_API_DEFAULT_SKIP_PREREAD_ON_SLICE_SIZE,
+                    FS_API_MIN_SKIP_PREREAD_ON_SLICE_SIZE,
+                    FS_API_MAX_SKIP_PREREAD_ON_SLICE_SIZE);
+    }
+}
+
+static void fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
+{
+    fs_api_config_load_common(api_ctx, ini_ctx);
+    fs_api_config_load_write_combine(api_ctx, ini_ctx);
+    fs_api_config_load_read_ahead(api_ctx, ini_ctx);
 }
 
 void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
@@ -170,9 +219,9 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 api_ctx->write_combine.skip_combine_on_slice_size / 1024,
                 api_ctx->write_combine.skip_combine_on_last_merged_slices,
                 api_ctx->write_combine.timer_shared_lock_count,
-                api_ctx->write_combine.shared_allocator_count,
-                api_ctx->write_combine.hashtable_sharding_count,
-                api_ctx->write_combine.hashtable_total_capacity,
+                api_ctx->common.shared_allocator_count,
+                api_ctx->common.hashtable_sharding_count,
+                api_ctx->common.hashtable_total_capacity,
                 api_ctx->write_combine.thread_pool_max_threads,
                 api_ctx->write_combine.thread_pool_min_idle_count,
                 api_ctx->write_combine.thread_pool_max_idle_time);
@@ -180,7 +229,22 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
             len = size;
         }
     }
-    snprintf(output + len, size - len, " }");
+    len += snprintf(output + len, size - len, " }");
+
+    len += snprintf(output + len, size - len,
+            ", read_ahead { enabled: %d",
+            api_ctx->read_ahead.enabled);
+    if (api_ctx->read_ahead.enabled) {
+        len += snprintf(output + len, size - len, ", "
+                "preread_max_size: %d KB, "
+                "skip_preread_on_slice_size: %d KB",
+                api_ctx->read_ahead.preread_max_size / 1024,
+                api_ctx->read_ahead.skip_preread_on_slice_size / 1024);
+        if (len > size) {
+            len = size;
+        }
+    }
+    len += snprintf(output + len, size - len, " }");
 }
 
 int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
@@ -194,9 +258,7 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
     const double low_water_mark_ratio = 0.01;
     int result;
 
-    if ((result=fs_api_config_load(api_ctx, ini_ctx)) != 0) {
-        return result;
-    }
+    fs_api_config_load(api_ctx, ini_ctx);
     if (!api_ctx->write_combine.enabled) {
         return 0;
     }
@@ -215,18 +277,18 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
         return result;
     }
 
-    if ((result=wcombine_otid_htable_init(api_ctx->write_combine.
-                    hashtable_sharding_count, api_ctx->write_combine.
-                    hashtable_total_capacity, api_ctx->write_combine.
+    if ((result=wcombine_otid_htable_init(api_ctx->common.
+                    hashtable_sharding_count, api_ctx->common.
+                    hashtable_total_capacity, api_ctx->common.
                     shared_allocator_count, element_limit, min_ttl_ms,
                     max_ttl_ms, low_water_mark_ratio)) != 0)
     {
         return result;
     }
 
-    if ((result=obid_htable_init(api_ctx->write_combine.
-                    hashtable_sharding_count, api_ctx->write_combine.
-                    hashtable_total_capacity, api_ctx->write_combine.
+    if ((result=obid_htable_init(api_ctx->common.
+                    hashtable_sharding_count, api_ctx->common.
+                    hashtable_total_capacity, api_ctx->common.
                     shared_allocator_count, element_limit, min_ttl_ms,
                     max_ttl_ms, low_water_mark_ratio)) != 0)
     {
@@ -272,20 +334,6 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx)
     }
 }
 
-#define FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx) \
-    op_ctx->bid = op_ctx->bs_key.block.offset;   \
-    op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid)
-
-#define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, operation) \
-    do {  \
-        if (op_ctx->api_ctx->write_combine.enabled) {  \
-            int conflict_count;  \
-            FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
-            op_ctx->op_type = operation;  \
-            obid_htable_check_conflict_and_wait(op_ctx, &conflict_count); \
-        } \
-    } while (0)
-
 int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc)
 {
@@ -329,9 +377,13 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
 int fs_api_slice_read(FSAPIOperationContext *op_ctx,
         char *buff, int *read_bytes)
 {
-    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
-    return fs_client_slice_read(op_ctx->api_ctx->fs,
-            &op_ctx->bs_key, buff, read_bytes);
+    if (op_ctx->api_ctx->read_ahead.enabled) {
+        return preread_slice_read(op_ctx, buff, read_bytes);
+    } else {
+        FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
+        return fs_client_slice_read(op_ctx->api_ctx->fs,
+                &op_ctx->bs_key, buff, read_bytes);
+    }
 }
 
 int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,

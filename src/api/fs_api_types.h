@@ -119,6 +119,12 @@ typedef struct fs_api_write_buffer {
 
 typedef struct fs_api_context {
     struct {
+        int shared_allocator_count;
+        int hashtable_sharding_count;
+        int64_t hashtable_total_capacity;
+    } common;
+
+    struct {
         volatile bool enabled;
         int buffer_size;
         int min_wait_time_ms;
@@ -126,13 +132,17 @@ typedef struct fs_api_context {
         int skip_combine_on_slice_size;
         int skip_combine_on_last_merged_slices;
         int timer_shared_lock_count;
-        int shared_allocator_count;
-        int hashtable_sharding_count;
-        int64_t hashtable_total_capacity;
         int thread_pool_max_threads;
         int thread_pool_min_idle_count;
         int thread_pool_max_idle_time;
     } write_combine;
+
+    struct {
+        volatile bool enabled;
+        int skip_preread_on_slice_size;
+        int preread_max_size;
+    } read_ahead;
+
     FSClientContext *fs;
     struct {
         fs_api_write_done_callback func;

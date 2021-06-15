@@ -124,7 +124,7 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
     FSAPIAllocatorContext *end;
 
     g_fs_api_allocator_array.count = api_ctx->
-        write_combine.shared_allocator_count;
+        common.shared_allocator_count;
     bytes = sizeof(FSAPIAllocatorContext) * g_fs_api_allocator_array.count;
     g_fs_api_allocator_array.allocators = (FSAPIAllocatorContext *)
         fc_malloc(bytes);

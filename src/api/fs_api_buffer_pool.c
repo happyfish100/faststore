@@ -15,7 +15,6 @@
 
 #include <stdlib.h>
 #include "fastcommon/shared_func.h"
-#include "fastcommon/fc_atomic.h"
 #include "fs_api_buffer_pool.h"
 
 static int buffer_alloc_init(FSAPIBuffer *buffer,
@@ -82,9 +81,7 @@ int fs_api_buffer_pool_init(FSAPIBufferPool *pool,
     return 0;
 }
 
-FSAPIBuffer *fs_api_buffer_pool_alloc(FSAPIBufferPool *pool,
-        const int size)
-
+FSAPIBuffer *fs_api_buffer_alloc(FSAPIBufferPool *pool, const int size)
 {
     FSAPIBufferAllocator *allocator;
     FSAPIBufferAllocator *end;
@@ -108,11 +105,4 @@ FSAPIBuffer *fs_api_buffer_pool_alloc(FSAPIBufferPool *pool,
             "alloc size: %d is too large exceeds: %d",
             __LINE__, size, (allocator-1)->buffer_size);
     return NULL;
-}
-
-void fs_api_buffer_pool_free(FSAPIBuffer *buffer)
-{
-    if (FC_ATOMIC_DEC(buffer->refer_count) == 0) {
-        fast_mblock_free_object(&buffer->allocator->mblock, buffer);
-    }
 }
