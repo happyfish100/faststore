@@ -38,7 +38,7 @@
 #define FS_NOT_COMBINED_REASON_DIFFERENT_OID      1099
 
 struct fs_api_block_entry;
-struct fs_api_otid_entry;
+struct fs_wcombine_otid_entry;
 struct fs_api_waiting_task;
 struct fs_api_slice_entry;
 struct fs_api_allocator_context;
@@ -46,7 +46,7 @@ struct fs_api_write_done_callback_arg;
 struct fs_api_context;
 
 #define FS_API_FETCH_SLICE_OTID(slice) \
-    (FSAPIOTIDEntry *)__sync_add_and_fetch(&slice->otid, 0);
+    (FSWCombineOTIDEntry *)__sync_add_and_fetch(&slice->otid, 0);
 
 #define FS_API_FETCH_SLICE_BLOCK(slice) \
     (FSAPIBlockEntry *)__sync_add_and_fetch(&slice->block, 0);
@@ -83,7 +83,7 @@ typedef struct fs_api_write_done_callback_arg {
 
 typedef struct fs_api_slice_entry {
     LockedTimerEntry timer;  //must be the first
-    volatile struct fs_api_otid_entry *otid;
+    volatile struct fs_wcombine_otid_entry *otid;
     volatile struct fs_api_block_entry *block;
     volatile int64_t version;
     int stage;
@@ -122,7 +122,7 @@ typedef struct fs_api_insert_slice_context {
     FSAPIWriteBuffer *wbuffer;
     struct {
         int successive_count;
-        struct fs_api_otid_entry *entry;
+        struct fs_wcombine_otid_entry *entry;
         FSAPISliceEntry *old_slice;
     } otid;
     FSAPISliceEntry *slice;   //new created slice

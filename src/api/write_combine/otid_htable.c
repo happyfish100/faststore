@@ -25,11 +25,11 @@ static SFHtableShardingContext otid_ctx;
 static int otid_htable_insert_callback(SFShardingHashEntry *he,
         void *arg, const bool new_create)
 {
-    FSAPIOTIDEntry *entry;
+    FSWCombineOTIDEntry *entry;
     FSAPIInsertSliceContext *ictx;
     int64_t offset;
 
-    entry = (FSAPIOTIDEntry *)he;
+    entry = (FSWCombineOTIDEntry *)he;
     ictx = (FSAPIInsertSliceContext *)arg;
     offset = ictx->op_ctx->bs_key.block.offset +
         ictx->op_ctx->bs_key.slice.offset;
@@ -55,10 +55,10 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
 
 static bool otid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
 {
-    return ((FSAPIOTIDEntry *)he)->slice == NULL;
+    return ((FSWCombineOTIDEntry *)he)->slice == NULL;
 }
 
-int otid_htable_init(const int sharding_count,
+int wcombine_otid_htable_init(const int sharding_count,
         const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
         const int64_t min_ttl_ms, const int64_t max_ttl_ms,
@@ -68,11 +68,11 @@ int otid_htable_init(const int sharding_count,
             sf_sharding_htable_key_ids_two,
             otid_htable_insert_callback, NULL,
             otid_htable_accept_reclaim_callback, sharding_count,
-            htable_capacity, allocator_count, sizeof(FSAPIOTIDEntry),
+            htable_capacity, allocator_count, sizeof(FSWCombineOTIDEntry),
             element_limit, min_ttl_ms, max_ttl_ms, low_water_mark_ratio);
 }
 
-int otid_htable_insert(FSAPIOperationContext *op_ctx,
+int wcombine_otid_htable_insert(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer)
 {
     SFTwoIdsHashKey key;

@@ -81,7 +81,7 @@ void *thread_run(void *arg)
             }
         }
 
-        if ((result=otid_htable_insert(&op_ctx, &wbuffer)) != 0) {
+        if ((result=wcombine_otid_htable_insert(&op_ctx, &wbuffer)) != 0) {
             break;
         }
 
@@ -135,6 +135,11 @@ int main(int argc, char *argv[])
         return result;
     }
     iniFreeContext(&iniContext);
+
+    if (!g_fs_api_ctx.write_combine.enabled) {
+        fprintf(stderr, "ERROR: write_combine NOT enabled!\n");
+        return 1;
+    }
 
     fs_api_config_to_string(config_str, sizeof(config_str));
     printf("%s\n", config_str);

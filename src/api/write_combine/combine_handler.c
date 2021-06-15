@@ -28,7 +28,7 @@ CombineHandlerContext g_combine_handler_ctx = {0};
 static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 {
     FSAPIBlockEntry *block;
-    FSAPIOTIDEntry *otid;
+    FSWCombineOTIDEntry *otid;
     int64_t old_version;
     int64_t new_version;
 

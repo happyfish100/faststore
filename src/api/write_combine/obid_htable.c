@@ -304,7 +304,7 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
         void *arg, const bool new_create)
 {
     FSAPIBlockEntry *block;
-    FSAPIOTIDEntry *old_otid;
+    FSWCombineOTIDEntry *old_otid;
     FSAPIBlockEntry *old_block;
     struct fc_list_head *previous;
     FSAPIInsertSliceContext *ictx;
@@ -338,7 +338,7 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
     }
     ictx->slice->done_callback_arg->bs_key = &ictx->slice->bs_key;
 
-    old_otid = (FSAPIOTIDEntry *)ictx->slice->otid;
+    old_otid = (FSWCombineOTIDEntry *)ictx->slice->otid;
     while (!__sync_bool_compare_and_swap(&ictx->slice->otid,
             old_otid, ictx->otid.entry))
     {

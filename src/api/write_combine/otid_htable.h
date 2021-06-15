@@ -13,30 +13,30 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _OTID_HTABLE_H
-#define _OTID_HTABLE_H
+#ifndef _WRITE_COMBINE_OTID_HTABLE_H
+#define _WRITE_COMBINE_OTID_HTABLE_H
 
 #include "sf/sf_sharding_htable.h"
 #include "../fs_api_types.h"
 
-typedef struct fs_api_otid_entry {
+typedef struct fs_wcombine_otid_entry {
     SFShardingHashEntry hentry;  //must be the first
     int successive_count;
     int64_t last_write_offset;
     volatile FSAPISliceEntry *slice;    //current combined slice
-} FSAPIOTIDEntry;
+} FSWCombineOTIDEntry;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int otid_htable_init(const int sharding_count,
+    int wcombine_otid_htable_init(const int sharding_count,
             const int64_t htable_capacity,
             const int allocator_count, int64_t element_limit,
             const int64_t min_ttl_ms, const int64_t max_ttl_ms,
             const double low_water_mark_ratio);
 
-    int otid_htable_insert(FSAPIOperationContext *op_ctx,
+    int wcombine_otid_htable_insert(FSAPIOperationContext *op_ctx,
             FSAPIWriteBuffer *wbuffer);
 
 #ifdef __cplusplus

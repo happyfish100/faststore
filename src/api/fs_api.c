@@ -215,7 +215,7 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
         return result;
     }
 
-    if ((result=otid_htable_init(api_ctx->write_combine.
+    if ((result=wcombine_otid_htable_init(api_ctx->write_combine.
                     hashtable_sharding_count, api_ctx->write_combine.
                     hashtable_total_capacity, api_ctx->write_combine.
                     shared_allocator_count, element_limit, min_ttl_ms,
@@ -311,7 +311,7 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
             break;
         }
 
-        if ((result=otid_htable_insert(op_ctx, wbuffer)) != 0) {
+        if ((result=wcombine_otid_htable_insert(op_ctx, wbuffer)) != 0) {
             break;
         }
 
