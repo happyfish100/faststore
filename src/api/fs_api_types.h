@@ -139,9 +139,10 @@ typedef struct fs_api_context {
 
     struct {
         volatile bool enabled;
+        int cache_ttl_ms;
+        int min_buffer_size;
+        int max_buffer_size;
         int skip_preread_on_slice_size;
-        int preread_min_size;
-        int preread_max_size;
     } read_ahead;
 
     FSClientContext *fs;

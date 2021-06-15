@@ -22,6 +22,7 @@
 struct fs_api_buffer_allocator;
 
 typedef struct fs_api_buffer {
+    int64_t create_time_ms;
     int offset;
     int length; //data length
     bool dirty; //if data dirty
@@ -57,6 +58,7 @@ extern "C" {
     static inline void fs_api_buffer_release(FSAPIBuffer *buffer)
     {
         if (FC_ATOMIC_DEC(buffer->refer_count) == 0) {
+            logInfo("file: "__FILE__", line: %d, free buffer: %p", __LINE__, buffer);
             fast_mblock_free_object(&buffer->allocator->mblock, buffer);
         }
     }

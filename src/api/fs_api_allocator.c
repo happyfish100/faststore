@@ -114,8 +114,8 @@ static int init_read_ahead_allocators(FSAPIContext *api_ctx,
     int result;
 
     if ((result=fs_api_buffer_pool_init(&ctx->buffer_pool,
-                    api_ctx->read_ahead.preread_min_size,
-                    api_ctx->read_ahead.preread_max_size)) != 0)
+                    api_ctx->read_ahead.min_buffer_size,
+                    api_ctx->read_ahead.max_buffer_size)) != 0)
     {
         return result;
     }
@@ -158,6 +158,7 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
     if (g_fs_api_allocator_array.allocators == NULL) {
         return ENOMEM;
     }
+    memset(g_fs_api_allocator_array.allocators, 0, bytes);
 
     g_fs_api_allocator_array.api_ctx = api_ctx;
     end = g_fs_api_allocator_array.allocators + g_fs_api_allocator_array.count;
