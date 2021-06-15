@@ -61,13 +61,15 @@ static bool otid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
 int otid_htable_init(const int sharding_count,
         const int64_t htable_capacity,
         const int allocator_count, int64_t element_limit,
-        const int64_t min_ttl_sec, const int64_t max_ttl_sec)
+        const int64_t min_ttl_ms, const int64_t max_ttl_ms,
+        const double low_water_mark_ratio)
 {
-    return sf_sharding_htable_init(&otid_ctx, sf_sharding_htable_key_ids_two,
+    return sf_sharding_htable_init_ex(&otid_ctx,
+            sf_sharding_htable_key_ids_two,
             otid_htable_insert_callback, NULL,
             otid_htable_accept_reclaim_callback, sharding_count,
             htable_capacity, allocator_count, sizeof(FSAPIOTIDEntry),
-            element_limit, min_ttl_sec, max_ttl_sec);
+            element_limit, min_ttl_ms, max_ttl_ms, low_water_mark_ratio);
 }
 
 int otid_htable_insert(FSAPIOperationContext *op_ctx,

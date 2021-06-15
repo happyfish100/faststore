@@ -189,8 +189,9 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
 {
     const int precision_ms = 10;
     int64_t element_limit = 1000 * 1000;
-    const int64_t min_ttl_sec = 600;
-    const int64_t max_ttl_sec = 86400;
+    const int64_t min_ttl_ms = 600 * 1000;
+    const int64_t max_ttl_ms = 86400 * 1000;
+    const double low_water_mark_ratio = 0.01;
     int result;
 
     if ((result=fs_api_config_load(api_ctx, ini_ctx)) != 0) {
@@ -217,8 +218,8 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
     if ((result=otid_htable_init(api_ctx->write_combine.
                     hashtable_sharding_count, api_ctx->write_combine.
                     hashtable_total_capacity, api_ctx->write_combine.
-                    shared_allocator_count, element_limit, min_ttl_sec,
-                    max_ttl_sec)) != 0)
+                    shared_allocator_count, element_limit, min_ttl_ms,
+                    max_ttl_ms, low_water_mark_ratio)) != 0)
     {
         return result;
     }
@@ -226,8 +227,8 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
     if ((result=obid_htable_init(api_ctx->write_combine.
                     hashtable_sharding_count, api_ctx->write_combine.
                     hashtable_total_capacity, api_ctx->write_combine.
-                    shared_allocator_count, element_limit, min_ttl_sec,
-                    max_ttl_sec)) != 0)
+                    shared_allocator_count, element_limit, min_ttl_ms,
+                    max_ttl_ms, low_water_mark_ratio)) != 0)
     {
         return result;
     }

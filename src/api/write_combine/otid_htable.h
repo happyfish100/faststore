@@ -33,7 +33,8 @@ extern "C" {
     int otid_htable_init(const int sharding_count,
             const int64_t htable_capacity,
             const int allocator_count, int64_t element_limit,
-            const int64_t min_ttl_sec, const int64_t max_ttl_sec);
+            const int64_t min_ttl_ms, const int64_t max_ttl_ms,
+            const double low_water_mark_ratio);
 
     int otid_htable_insert(FSAPIOperationContext *op_ctx,
             FSAPIWriteBuffer *wbuffer);
