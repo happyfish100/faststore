@@ -27,7 +27,7 @@ extern "C" {
             const int shared_lock_count);
 
     int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
-            const FSSliceSize *sszie, FSAPIBuffer *buffer);
+            const FSSliceSize *ssize, FSAPIBuffer *buffer);
 
     int preread_obid_htable_delete(FSAPIOperationContext *op_ctx);
 

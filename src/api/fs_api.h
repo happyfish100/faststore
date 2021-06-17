@@ -43,7 +43,8 @@ extern "C" {
             int conflict_count;  \
             FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
             op_ctx->op_type = operation;  \
-            obid_htable_check_conflict_and_wait(op_ctx, &conflict_count); \
+            wcombine_obid_htable_check_conflict_and_wait( \
+                    op_ctx, &conflict_count); \
         } \
     } while (0)
 

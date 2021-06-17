@@ -90,7 +90,7 @@ int wcombine_otid_htable_insert(FSAPIOperationContext *op_ctx,
     }
 
     if (ictx.otid.successive_count > 0) {
-        result = obid_htable_check_combine_slice(&ictx);
+        result = wcombine_obid_htable_check_combine_slice(&ictx);
     }
 
     /*

@@ -106,6 +106,7 @@ typedef struct fs_preread_slice_entry {
     uint64_t tid;
     FSSliceSize ssize;
     struct fs_api_buffer *buffer;
+    struct fast_mblock_man *allocator;  //for free
     struct fs_preread_slice_entry *next;
 } FSPrereadSliceEntry;  //for read ahead
 
@@ -114,8 +115,8 @@ typedef struct fs_preread_block_hentry {
     struct {
         FSPrereadSliceEntry *head;  //element: FSPrereadSliceEntry
     } slices;
-    struct fs_api_allocator_context *allocator_ctx; //for free, set by fast_mblock
-    struct fs_preread_block_entry *next;
+    struct fast_mblock_man *allocator;  //for free
+    struct fs_preread_block_hentry *next;
 } FSPrereadBlockHEntry;    //for read ahead
 
 typedef struct fs_api_operation_context {
@@ -160,6 +161,7 @@ typedef struct fs_api_context {
         int min_buffer_size;
         int max_buffer_size;
         int skip_preread_on_slice_size;
+        int shared_lock_count;
     } read_ahead;
 
     FSClientContext *fs;

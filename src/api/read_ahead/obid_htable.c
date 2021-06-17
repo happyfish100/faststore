@@ -17,6 +17,16 @@
 #include "../fs_api_allocator.h"
 #include "obid_htable.h"
 
+typedef struct {
+    FSPrereadSliceEntry *previous;
+    FSPrereadSliceEntry *current;
+} FSPrereadSlicePair;
+
+typedef struct {
+    FSPrereadBlockHEntry *previous;
+    FSPrereadBlockHEntry *current;
+} FSPrereadBlockPair;
+
 typedef struct fs_preread_block_hashtable {
     FSPrereadBlockHEntry **buckets;
     int capacity;
@@ -34,17 +44,22 @@ typedef struct fs_preread_obid_context {
 
 static FSPrereadOBIDContext obid_ctx;
 
+#define OBID_SET_HASHTABLE_KEY(op_ctx, key) \
+    SFTwoIdsHashKey key;   \
+    key.oid = op_ctx->bs_key.block.oid;  \
+    key.bid = op_ctx->bid;
+
 #define OBID_SET_HASHTABLE_LOCK(key) \
     uint64_t hash_code;    \
     int64_t bucket_index;  \
     pthread_mutex_t *lock; \
-    hash_code = (key)->oid + (key)->bid; \
+    hash_code = (key).oid + (key).bid; \
     bucket_index = hash_code % obid_ctx.htable.capacity; \
     lock = obid_ctx.larray.locks + bucket_index % obid_ctx.larray.count
 
 #define OBID_SET_BUCKET_AND_LOCK(key) \
-    OBEntry **bucket;   \
-    OBID_SET_HASHTABLE_LOCK(bkey);  \
+    FSPrereadBlockHEntry **bucket;    \
+    OBID_SET_HASHTABLE_LOCK(key);     \
     bucket = obid_ctx.htable.buckets + bucket_index
 
 
@@ -93,14 +108,182 @@ static inline int compare_key(const SFTwoIdsHashKey *key1,
     return fc_compare_int64(key1->bid, key2->bid);
 }
 
-int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
-        const FSSliceSize *sszie, FSAPIBuffer *buffer)
+static inline int obid_htable_find_block(const SFTwoIdsHashKey *key,
+        const uint64_t tid, FSPrereadBlockPair *block)
 {
-    /*
-    SFTwoIdsHashKey key;
+    block->previous = NULL;
+    while (block->current != NULL) {
+        if (compare_key(key, &block->current->key) == 0) {
+            return 0;
+        }
 
-    key.oid = op_ctx->bs_key.block.oid;
-    key.bid = op_ctx->bid;
-    */
-    return 0;
+        block->previous = block->current;
+        block->current = block->current->next;
+    }
+
+    return ENOENT;
+}
+
+static inline int obid_htable_find_slice(const SFTwoIdsHashKey *key,
+        const uint64_t tid, FSPrereadBlockPair *block,
+        FSPrereadSlicePair *slice)
+{
+    if (obid_htable_find_block(key, tid, block) != 0) {
+        return ENOENT;
+    }
+
+    slice->previous = NULL;
+    slice->current = block->current->slices.head;
+    while (slice->current != NULL) {
+        if (tid == slice->current->tid) {
+            return 0;
+        }
+
+        slice->previous = slice->current;
+        slice->current = slice->current->next;
+    }
+
+    return ENOENT;
+}
+
+static inline void obid_htable_delete(FSPrereadBlockHEntry **bucket,
+        FSPrereadBlockPair *block, FSPrereadSlicePair *slice,
+        bool *release_block)
+{
+    if (slice->previous == NULL) {
+        block->current->slices.head = slice->current->next;
+        *release_block = (block->current->slices.head == NULL);
+        if (*release_block) {
+            if (block->previous == NULL) {
+                *bucket = block->current->next;
+            } else {
+                block->previous->next = block->current->next;
+            }
+        }
+    } else {
+        slice->previous->next = slice->current->next;
+        *release_block = false;
+        return;
+    }
+}
+
+static inline void obid_htable_free_slice(FSPrereadBlockHEntry *block,
+        FSPrereadSliceEntry *slice, const bool release_block)
+{
+    //TODO
+    fast_mblock_free_object(slice->allocator, slice);
+    if (release_block) {
+        fast_mblock_free_object(block->allocator, block);
+    }
+}
+
+int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
+        const FSSliceSize *ssize, FSAPIBuffer *buffer)
+{
+    int result;
+    bool found;
+    bool release_block;
+    FSPrereadBlockPair block;
+    FSPrereadSlicePair slice;
+    FSPrereadBlockHEntry *be;
+    FSPrereadSliceEntry *se;
+
+    OBID_SET_HASHTABLE_KEY(op_ctx, key);
+
+    if ((se=(FSPrereadSliceEntry *)fast_mblock_alloc_object(&op_ctx->
+                    allocator_ctx->read_ahead.slice)) == NULL)
+    {
+        return ENOMEM;
+    }
+    se->tid = op_ctx->tid;
+    se->ssize = *ssize;
+    se->buffer = buffer;
+
+    do {
+        OBID_SET_BUCKET_AND_LOCK(key);
+
+        PTHREAD_MUTEX_LOCK(lock);
+        if (*bucket != NULL) {
+            block.current = *bucket;
+            if (obid_htable_find_slice(&key, op_ctx->tid,
+                        &block, &slice) == 0)
+            {
+                found = true;
+                obid_htable_delete(bucket, &block,
+                        &slice, &release_block);
+                be = (release_block ? NULL : block.current);
+            } else {
+                be = NULL;
+                found = release_block = false;
+            }
+        } else {
+            be = NULL;
+            found = release_block = false;
+        }
+
+        if (be != NULL) {
+            se->next = be->slices.head;
+            be->slices.head = se;
+            result = 0;
+        } else if ((be=(FSPrereadBlockHEntry *)fast_mblock_alloc_object(
+                        &op_ctx->allocator_ctx->read_ahead.block)) != NULL)
+        {
+            se->next = NULL;
+            be->key.oid = op_ctx->bs_key.block.oid;
+            be->key.bid = op_ctx->bid;
+            be->slices.head = se;
+
+            be->next = *bucket;
+            *bucket = be;
+            result = 0;
+        } else {
+            fast_mblock_free_object(se->allocator, se);
+            result = ENOMEM;
+        }
+        PTHREAD_MUTEX_UNLOCK(lock);
+    } while (0);
+
+    if (found) {
+        obid_htable_free_slice(block.current,
+                slice.current, release_block);
+    }
+
+    return result;
+}
+
+int preread_obid_htable_delete(FSAPIOperationContext *op_ctx)
+{
+    int result;
+    bool release_block;
+    FSPrereadBlockPair block;
+    FSPrereadSlicePair slice;
+    OBID_SET_HASHTABLE_KEY(op_ctx, key);
+
+    do {
+        OBID_SET_BUCKET_AND_LOCK(key);
+
+        PTHREAD_MUTEX_LOCK(lock);
+        if (*bucket != NULL) {
+            block.current = *bucket;
+            if ((result=obid_htable_find_slice(&key, op_ctx->tid,
+                            &block, &slice)) == 0)
+            {
+                obid_htable_delete(bucket, &block,
+                        &slice, &release_block);
+            } else {
+                release_block = false;
+            }
+        } else {
+            release_block = false;
+            result = ENOENT;
+        }
+        PTHREAD_MUTEX_UNLOCK(lock);
+    } while (0);
+
+    if (result == 0) {
+        obid_htable_free_slice(block.current,
+                slice.current, release_block);
+   }
+
+    return result;
 }

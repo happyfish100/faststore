@@ -19,6 +19,7 @@
 #include "write_combine/timeout_handler.h"
 #include "write_combine/combine_handler.h"
 #include "read_ahead/otid_htable.h"
+#include "read_ahead/obid_htable.h"
 #include "fs_api.h"
 
 FSAPIContext g_fs_api_ctx;
@@ -84,6 +85,10 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_MIN_SKIP_PREREAD_ON_SLICE_SIZE      (  8 * 1024)
 #define FS_API_MAX_SKIP_PREREAD_ON_SLICE_SIZE      (128 * 1024)
 #define FS_API_DEFAULT_SKIP_PREREAD_ON_SLICE_SIZE  ( 64 * 1024)
+
+#define FS_API_MIN_PREREAD_SHARED_LOCK_COUNT           17
+#define FS_API_MAX_PREREAD_SHARED_LOCK_COUNT      5614657
+#define FS_API_DEFAULT_PREREAD_SHARED_LOCK_COUNT     1361
 
 #define FS_API_WRITE_COMBINE_SECTION_NAME   "write-combine"
 #define FS_API_READ_AHEAD_SECTION_NAME      "read-ahead"
@@ -216,6 +221,12 @@ static void fs_api_config_load_read_ahead(FSAPIContext *api_ctx,
                     FS_API_MIN_SKIP_PREREAD_ON_SLICE_SIZE,
                     FS_API_MAX_SKIP_PREREAD_ON_SLICE_SIZE);
     }
+
+    api_ctx->read_ahead.shared_lock_count = iniGetByteCorrectValue(
+            ini_ctx, "shared_lock_count",
+            FS_API_DEFAULT_PREREAD_SHARED_LOCK_COUNT,
+            FS_API_MIN_PREREAD_SHARED_LOCK_COUNT,
+            FS_API_MAX_PREREAD_SHARED_LOCK_COUNT);
 }
 
 static void fs_api_config_load(FSAPIContext *api_ctx, IniFullContext *ini_ctx)
@@ -272,11 +283,13 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 "cache_ttl_ms: %d ms, "
                 "min_buffer_size: %d KB, "
                 "max_buffer_size: %d KB, "
-                "skip_preread_on_slice_size: %d KB",
+                "skip_preread_on_slice_size: %d KB, "
+                "shared_lock_count: %d",
                 api_ctx->read_ahead.cache_ttl_ms,
                 api_ctx->read_ahead.min_buffer_size / 1024,
                 api_ctx->read_ahead.max_buffer_size / 1024,
-                api_ctx->read_ahead.skip_preread_on_slice_size / 1024);
+                api_ctx->read_ahead.skip_preread_on_slice_size / 1024,
+                api_ctx->read_ahead.shared_lock_count);
         if (len > size) {
             len = size;
         }
@@ -289,7 +302,7 @@ static int write_combine_init(FSAPIContext *api_ctx)
     int64_t element_limit = 1000 * 1000;
     const int64_t min_ttl_ms = 600 * 1000;
     const int64_t max_ttl_ms = 86400 * 1000;
-    const double low_water_mark_ratio = 0.10;
+    const double low_water_mark_ratio = 0.01;
     int result;
 
     if ((result=wcombine_otid_htable_init(api_ctx->common.
@@ -301,7 +314,7 @@ static int write_combine_init(FSAPIContext *api_ctx)
         return result;
     }
 
-    if ((result=obid_htable_init(api_ctx->common.
+    if ((result=wcombine_obid_htable_init(api_ctx->common.
                     hashtable_sharding_count, api_ctx->common.
                     hashtable_total_capacity, api_ctx->common.
                     shared_allocator_count, element_limit, min_ttl_ms,
@@ -315,7 +328,7 @@ static int write_combine_init(FSAPIContext *api_ctx)
 
 static int read_ahead_init(FSAPIContext *api_ctx)
 {
-    int64_t element_limit = 10 * 1000;
+    int64_t element_limit = 100 * 1000;
     const int64_t min_ttl_ms = 5 * 1000;
     const int64_t max_ttl_ms = 300 * 1000;
     const double low_water_mark_ratio = 0.01;
@@ -330,16 +343,12 @@ static int read_ahead_init(FSAPIContext *api_ctx)
         return result;
     }
 
-    /*
-    if ((result=obid_htable_init(api_ctx->common.
-                    hashtable_sharding_count, api_ctx->common.
-                    hashtable_total_capacity, api_ctx->common.
-                    shared_allocator_count, element_limit, min_ttl_ms,
-                    max_ttl_ms, low_water_mark_ratio)) != 0)
+    if ((result=preread_obid_htable_init(api_ctx->common.
+                    hashtable_total_capacity, api_ctx->read_ahead.
+                    shared_lock_count)) != 0)
     {
         return result;
     }
-    */
 
     return 0;
 }
@@ -446,7 +455,7 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         }
 
         FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
-        if ((result=obid_htable_check_conflict_and_wait(
+        if ((result=wcombine_obid_htable_check_conflict_and_wait(
                         op_ctx, &conflict_count)) != 0)
         {
             wbuffer->combined = false;

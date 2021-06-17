@@ -65,9 +65,16 @@ static int callback_arg_alloc_init(FSAPIWriteDoneCallbackArg
 }
 
 static int pread_block_entry_alloc_init(FSPrereadBlockHEntry *block,
-        FSAPIAllocatorContext *ctx)
+        struct fast_mblock_man *allocator)
 {
-    block->allocator_ctx = ctx;
+    block->allocator = allocator;
+    return 0;
+}
+
+static int pread_slice_entry_alloc_init(FSPrereadSliceEntry *slice,
+        struct fast_mblock_man *allocator)
+{
+    slice->allocator = allocator;
     return 0;
 }
 
@@ -130,14 +137,15 @@ static int init_read_ahead_allocators(FSAPIContext *api_ctx,
     if ((result=fast_mblock_init_ex1(&ctx->read_ahead.block,
                     "preread-block", sizeof(FSPrereadBlockHEntry), 8192, 0,
                     (fast_mblock_alloc_init_func)pread_block_entry_alloc_init,
-                    ctx, true)) != 0)
+                    &ctx->read_ahead.block, true)) != 0)
     {
         return result;
     }
 
     if ((result=fast_mblock_init_ex1(&ctx->read_ahead.slice,
-                    "preread-slice", sizeof(FSPrereadSliceEntry),
-                    8192, 0, NULL, NULL, true)) != 0)
+                    "preread-slice", sizeof(FSPrereadSliceEntry), 8192, 0,
+                    (fast_mblock_alloc_init_func)pread_slice_entry_alloc_init,
+                    &ctx->read_ahead.slice, true)) != 0)
     {
         return result;
     }
