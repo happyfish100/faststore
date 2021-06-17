@@ -29,7 +29,8 @@ extern "C" {
     int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
             const FSSliceSize *ssize, FSAPIBuffer *buffer);
 
-    int preread_obid_htable_delete(FSAPIOperationContext *op_ctx);
+    int preread_obid_htable_delete(const int64_t oid,
+            const int64_t bid, const int64_t tid);
 
     int preread_invalidate_conflict_cache(FSAPIOperationContext *op_ctx);
 

@@ -18,6 +18,7 @@
 #include "../fs_api.h"
 #include "../write_combine/obid_htable.h"
 #include "../write_combine/timeout_handler.h"
+#include "obid_htable.h"
 #include "otid_htable.h"
 
 typedef struct fs_preread_otid_entry {
@@ -30,7 +31,6 @@ typedef struct fs_preread_otid_entry {
 typedef struct fs_api_insert_buffer_context {
     FSAPIOperationContext *op_ctx;
     FSAPIBuffer *buffer;
-    pthread_mutex_t *lock;
     char *out_buff;
     int *read_bytes;
     int ahead_bytes;
@@ -39,8 +39,19 @@ typedef struct fs_api_insert_buffer_context {
 static SFHtableShardingContext otid_ctx;
 
 #define IS_BUFFER_VALID(api_ctx, buffer)  \
-    (!buffer->dirty && g_timer_ms_ctx.current_time_ms - buffer-> \
-     create_time_ms <= api_ctx->read_ahead.cache_ttl_ms)
+    (!buffer->dirty && !buffer->conflict && g_timer_ms_ctx.current_time_ms - \
+     buffer->create_time_ms <= api_ctx->read_ahead.cache_ttl_ms)
+
+static void release_entry_buffer(FSPrereadOTIDEntry *entry)
+{
+    entry->buffer->deleted = true;
+    if (!entry->buffer->conflict) {
+        preread_obid_htable_delete(entry->hentry.key.oid,
+                entry->buffer->bid, entry->hentry.key.tid);
+    }
+    fs_api_buffer_release(entry->buffer);
+    entry->buffer = NULL;
+}
 
 static void process_on_successive(FSAPIInsertBufferContext *ictx,
         FSPrereadOTIDEntry *entry)
@@ -135,8 +146,7 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
 
     entry->last_read_offset = offset + ictx->op_ctx->bs_key.slice.length;
     if (release_buffer) {
-        fs_api_buffer_release(entry->buffer);
-        entry->buffer = NULL;
+        release_entry_buffer(entry);
     }
 
     if (ictx->ahead_bytes > 0) {
@@ -154,11 +164,14 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
             return ENOMEM;
         }
 
+        entry->buffer->bid = ictx->op_ctx->bid;
+        entry->buffer->deleted = false;
         entry->buffer->dirty = true;
+        entry->buffer->conflict = false;
         entry->buffer->offset = ictx->op_ctx->bs_key.slice.length;
         entry->buffer->length = read_bytes;
+        entry->buffer->lock = &he->sharding->lock;
         ictx->buffer = entry->buffer;
-        ictx->lock = &he->sharding->lock;
     }
 
     return 0;
@@ -170,8 +183,7 @@ static bool otid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
 
     entry = (FSPrereadOTIDEntry *)he;
     if (entry->buffer != NULL) {
-        fs_api_buffer_release(entry->buffer);
-        entry->buffer = NULL;
+        release_entry_buffer(entry);
     }
 
     return true;
@@ -197,6 +209,8 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     int result;
     int old_slice_len;
     int bytes;
+    bool release_buffer;
+    FSSliceSize ssize;
     SFTwoIdsHashKey key;
     FSAPIInsertBufferContext ictx;
 
@@ -208,7 +222,6 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     ictx.read_bytes = read_bytes;
     ictx.ahead_bytes = 0;
     ictx.buffer = NULL;
-    ictx.lock = NULL;
 
     sf_sharding_htable_insert(&otid_ctx, &key, &ictx);
     if (*read_bytes > 0) {  //copy from read-ahead cache
@@ -243,23 +256,40 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     logInfo("file: "__FILE__", line: %d, "
             "read bytes: %d", __LINE__, bytes);
 
+    release_buffer = true;
     if (result == 0) {
         *read_bytes = FC_MIN(bytes, old_slice_len);
         memcpy(buff, ictx.buffer->buff, *read_bytes);
         if (bytes > old_slice_len) {
-            PTHREAD_MUTEX_LOCK(ictx.lock);
-            ictx.buffer->dirty = false;
-            ictx.buffer->create_time_ms = g_timer_ms_ctx.current_time_ms;
-            if (bytes < ictx.buffer->length) {
-                ictx.buffer->length = bytes;
+            PTHREAD_MUTEX_LOCK(ictx.buffer->lock);
+            if (!ictx.buffer->deleted) {
+                ictx.buffer->dirty = false;
+                ictx.buffer->create_time_ms = g_timer_ms_ctx.current_time_ms;
+                if (bytes < ictx.buffer->length) {
+                    ictx.buffer->length = bytes;
+                }
+
+                ssize.offset = op_ctx->bs_key.slice.offset + old_slice_len;
+                ssize.length = bytes - old_slice_len;
+                if (preread_obid_htable_insert(op_ctx,
+                            &ssize, ictx.buffer) == 0)
+                {
+                    release_buffer = false;
+                }
             }
-            PTHREAD_MUTEX_UNLOCK(ictx.lock);
+            PTHREAD_MUTEX_UNLOCK(ictx.buffer->lock);
         }
     } else {
         *read_bytes = 0;
     }
 
-    fs_api_buffer_release(ictx.buffer);
+    if (release_buffer) {
+        PTHREAD_MUTEX_LOCK(ictx.buffer->lock);
+        ictx.buffer->conflict = true;
+        PTHREAD_MUTEX_UNLOCK(ictx.buffer->lock);
+
+        fs_api_buffer_release(ictx.buffer);
+    }
     op_ctx->bs_key.slice.length = old_slice_len;  //restore length
     return result;
 }

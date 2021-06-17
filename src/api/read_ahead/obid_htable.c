@@ -168,9 +168,16 @@ static inline void obid_htable_delete(FSPrereadBlockHEntry **bucket,
 }
 
 static inline void obid_htable_free_slice(FSPrereadBlockHEntry *block,
-        FSPrereadSliceEntry *slice, const bool release_block)
+        FSPrereadSliceEntry *slice, const bool release_block,
+        const bool set_conflict)
 {
-    //TODO
+    if (set_conflict) {
+        PTHREAD_MUTEX_LOCK(slice->buffer->lock);
+        slice->buffer->conflict = true;
+        PTHREAD_MUTEX_UNLOCK(slice->buffer->lock);
+    }
+    fs_api_buffer_release(slice->buffer);
+
     fast_mblock_free_object(slice->allocator, slice);
     if (release_block) {
         fast_mblock_free_object(block->allocator, block);
@@ -244,28 +251,31 @@ int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
     } while (0);
 
     if (found) {
-        obid_htable_free_slice(block.current,
-                slice.current, release_block);
+        obid_htable_free_slice(block.current, slice.current,
+                release_block, true);
     }
 
     return result;
 }
 
-int preread_obid_htable_delete(FSAPIOperationContext *op_ctx)
+int preread_obid_htable_delete(const int64_t oid,
+        const int64_t bid, const int64_t tid)
 {
     int result;
     bool release_block;
     FSPrereadBlockPair block;
     FSPrereadSlicePair slice;
-    OBID_SET_HASHTABLE_KEY(op_ctx, key);
+    SFTwoIdsHashKey key;
 
+    key.oid = oid;
+    key.bid = bid;
     do {
         OBID_SET_BUCKET_AND_LOCK(key);
 
         PTHREAD_MUTEX_LOCK(lock);
         if (*bucket != NULL) {
             block.current = *bucket;
-            if ((result=obid_htable_find_slice(&key, op_ctx->tid,
+            if ((result=obid_htable_find_slice(&key, tid,
                             &block, &slice)) == 0)
             {
                 obid_htable_delete(bucket, &block,
@@ -281,9 +291,9 @@ int preread_obid_htable_delete(FSAPIOperationContext *op_ctx)
     } while (0);
 
     if (result == 0) {
-        obid_htable_free_slice(block.current,
-                slice.current, release_block);
-   }
+        obid_htable_free_slice(block.current, slice.current,
+                release_block, false);
+    }
 
     return result;
 }

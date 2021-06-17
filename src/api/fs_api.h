@@ -41,8 +41,6 @@ extern "C" {
     do {  \
         if (op_ctx->api_ctx->write_combine.enabled) {  \
             int conflict_count;  \
-            FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
-            op_ctx->op_type = operation;  \
             wcombine_obid_htable_check_conflict_and_wait( \
                     op_ctx, &conflict_count); \
         } \

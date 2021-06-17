@@ -23,10 +23,14 @@ struct fs_api_buffer_allocator;
 
 typedef struct fs_api_buffer {
     int64_t create_time_ms;
+    int64_t bid;   //block id
     int offset;
-    int length; //data length
-    bool dirty; //if data dirty
+    int length;    //data length
+    bool deleted;  //set to true when deleted from otid_hashtable
+    bool dirty;    //set to false when async read successfully
+    bool conflict; //set to true by slice write
     volatile int refer_count;
+    pthread_mutex_t *lock;
     struct fs_api_buffer_allocator *allocator;
     char buff[0];
 } FSAPIBuffer;

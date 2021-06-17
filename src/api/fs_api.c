@@ -93,6 +93,17 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_WRITE_COMBINE_SECTION_NAME   "write-combine"
 #define FS_API_READ_AHEAD_SECTION_NAME      "read-ahead"
 
+#define SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, operation) \
+    do {  \
+        if (op_ctx->api_ctx->write_combine.enabled) {  \
+            int conflict_count;  \
+            FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
+            op_ctx->op_type = operation;  \
+            wcombine_obid_htable_check_conflict_and_wait( \
+                    op_ctx, &conflict_count); \
+        } \
+    } while (0)
+
 static void fs_api_config_load_common(FSAPIContext *api_ctx,
         IniFullContext *ini_ctx)
 {
@@ -487,10 +498,10 @@ int fs_api_slice_read(FSAPIOperationContext *op_ctx,
 {
     if (op_ctx->api_ctx->read_ahead.enabled) {
         op_ctx->op_type = 'r';
-        op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid);
+        FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
         return preread_slice_read(op_ctx, buff, read_bytes);
     } else {
-        FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
+        SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
         return fs_client_slice_read(op_ctx->api_ctx->fs,
                 &op_ctx->bs_key, buff, read_bytes);
     }
@@ -499,7 +510,7 @@ int fs_api_slice_read(FSAPIOperationContext *op_ctx,
 int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *inc_alloc)
 {
-    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'a');
+    SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'a');
     return fs_client_slice_allocate_ex(op_ctx->api_ctx->fs,
             &op_ctx->bs_key, enoent_log_level, inc_alloc);
 }
@@ -507,7 +518,7 @@ int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,
 int fs_api_slice_delete_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *dec_alloc)
 {
-    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'd');
+    SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'd');
     return fs_client_slice_delete_ex(op_ctx->api_ctx->fs,
             &op_ctx->bs_key, enoent_log_level, dec_alloc);
 }
@@ -515,7 +526,7 @@ int fs_api_slice_delete_ex(FSAPIOperationContext *op_ctx,
 int fs_api_block_delete_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *dec_alloc)
 {
-    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'D');
+    SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'D');
     return fs_client_block_delete_ex(op_ctx->api_ctx->fs,
             &op_ctx->bs_key.block, enoent_log_level, dec_alloc);
 }
