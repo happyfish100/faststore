@@ -284,9 +284,7 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
     len += snprintf(output + len, size - len, " }");
 }
 
-static int write_combine_init(FSAPIContext *api_ctx,
-        fs_api_write_done_callback write_done_callback,
-        const int write_done_arg_extra_size)
+static int write_combine_init(FSAPIContext *api_ctx)
 {
     int64_t element_limit = 1000 * 1000;
     const int64_t min_ttl_ms = 600 * 1000;
@@ -294,8 +292,6 @@ static int write_combine_init(FSAPIContext *api_ctx,
     const double low_water_mark_ratio = 0.10;
     int result;
 
-    api_ctx->write_done_callback.func = write_done_callback;
-    api_ctx->write_done_callback.arg_extra_size = write_done_arg_extra_size;
     if ((result=wcombine_otid_htable_init(api_ctx->common.
                     hashtable_sharding_count, api_ctx->common.
                     hashtable_total_capacity, api_ctx->common.
@@ -366,6 +362,10 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
             __LINE__, api_ctx->write_combine.enabled,
                 api_ctx->read_ahead.enabled);
 
+    /* must set before fs_api_allocator_init */
+    api_ctx->write_done_callback.func = write_done_callback;
+    api_ctx->write_done_callback.arg_extra_size = write_done_arg_extra_size;
+
     if ((result=fs_api_allocator_init(api_ctx)) != 0) {
         return result;
     }
@@ -378,9 +378,7 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
     }
 
     if (api_ctx->write_combine.enabled) {
-        if ((result=write_combine_init(api_ctx, write_done_callback,
-                        write_done_arg_extra_size)) != 0)
-        {
+        if ((result=write_combine_init(api_ctx)) != 0) {
             return result;
         }
     }
@@ -407,10 +405,6 @@ int fs_api_start_ex(FSAPIContext *api_ctx)
     if ((result=timeout_handler_start()) != 0) {
         return result;
     }
-
-    logInfo("line: %d, write_combine.enabled: %d, read_ahead.enabled: %d",
-            __LINE__, api_ctx->write_combine.enabled,
-                api_ctx->read_ahead.enabled);
 
     if (api_ctx->write_combine.enabled) {
         if ((result=combine_handler_init(api_ctx->write_combine.
@@ -451,8 +445,6 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
             break;
         }
 
-        logInfo("file: "__FILE__", line: %d", __LINE__);
-
         FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
         if ((result=obid_htable_check_conflict_and_wait(
                         op_ctx, &conflict_count)) != 0)
@@ -460,8 +452,6 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
             wbuffer->combined = false;
             break;
         }
-        logInfo("file: "__FILE__", line: %d, conflict_count: %d",
-                __LINE__, conflict_count);
         if (conflict_count > 0) {
             wbuffer->combined = false;
             break;
@@ -472,9 +462,6 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
             break;
         }
     } while (0);
-
-    logInfo("file: "__FILE__", line: %d, combined: %d",
-            __LINE__, wbuffer->combined);
 
     if (wbuffer->combined) {  //already trigger write combine
         *write_bytes = op_ctx->bs_key.slice.length;

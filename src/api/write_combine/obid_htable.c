@@ -329,6 +329,7 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
     if (ictx->slice->done_callback_arg == NULL) {
         return ENOMEM;
     }
+
     if (ictx->wbuffer->extra_data != NULL && ictx->op_ctx->api_ctx->
                 write_done_callback.arg_extra_size > 0)
     {

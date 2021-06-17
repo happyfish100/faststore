@@ -65,11 +65,12 @@ static void combine_handler_run(void *arg, void *thread_data)
     /*
        slice = (FSAPISliceEntry *)arg;
        logInfo("slice write block {oid: %"PRId64", offset: %"PRId64"}, "
-       "slice {offset: %d, length: %d}, merged slices: %d, stage: %d",
-       slice->bs_key.block.oid, slice->bs_key.block.offset,
-       slice->bs_key.slice.offset, slice->bs_key.slice.length,
-       slice->merged_slices, slice->stage);
-     */
+            "slice {offset: %d, length: %d}, merged slices: %d, "
+            "stage: %d, result: %d",
+            slice->bs_key.block.oid, slice->bs_key.block.offset,
+            slice->bs_key.slice.offset, slice->bs_key.slice.length,
+            slice->merged_slices, slice->stage, result);
+       */
 
     if (result == 0) {
         slice->api_ctx->write_done_callback.func(slice->done_callback_arg);
