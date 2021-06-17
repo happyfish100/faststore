@@ -462,6 +462,7 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
     do {
         if (!op_ctx->api_ctx->write_combine.enabled) {
             wbuffer->combined = false;
+            result = 0;
             break;
         }
 
@@ -486,11 +487,13 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
     if (wbuffer->combined) {  //already trigger write combine
         *write_bytes = op_ctx->bs_key.slice.length;
         *inc_alloc = 0;
-        return 0;
+    } else {
+        result = fs_client_slice_write(op_ctx->api_ctx->fs, &op_ctx->
+                bs_key, wbuffer->buff, write_bytes, inc_alloc);
     }
+    preread_invalidate_conflict_slices(op_ctx);
 
-    return fs_client_slice_write(op_ctx->api_ctx->fs, &op_ctx->bs_key,
-            wbuffer->buff, write_bytes, inc_alloc);
+    return result;
 }
 
 int fs_api_slice_read(FSAPIOperationContext *op_ctx,

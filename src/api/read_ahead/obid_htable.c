@@ -109,7 +109,7 @@ static inline int compare_key(const SFTwoIdsHashKey *key1,
 }
 
 static inline int obid_htable_find_block(const SFTwoIdsHashKey *key,
-        const uint64_t tid, FSPrereadBlockPair *block)
+        FSPrereadBlockPair *block)
 {
     block->previous = NULL;
     while (block->current != NULL) {
@@ -128,7 +128,7 @@ static inline int obid_htable_find_slice(const SFTwoIdsHashKey *key,
         const uint64_t tid, FSPrereadBlockPair *block,
         FSPrereadSlicePair *slice)
 {
-    if (obid_htable_find_block(key, tid, block) != 0) {
+    if (obid_htable_find_block(key, block) != 0) {
         return ENOENT;
     }
 
@@ -146,20 +146,72 @@ static inline int obid_htable_find_slice(const SFTwoIdsHashKey *key,
     return ENOENT;
 }
 
-static inline void obid_htable_delete(FSPrereadBlockHEntry **bucket,
+static inline void check_remove_block(FSPrereadBlockHEntry **bucket,
+        FSPrereadBlockPair *block, bool *release_block)
+{
+    *release_block = (block->current->slices.head == NULL);
+    if (*release_block) {
+        if (block->previous == NULL) {
+            *bucket = block->current->next;
+        } else {
+            block->previous->next = block->current->next;
+        }
+    }
+}
+
+static inline int remove_conflict_slices(
+        const SFTwoIdsHashKey *key, const FSSliceSize *ssize,
+        FSPrereadBlockHEntry **bucket, FSPrereadBlockPair *block,
+        FSPrereadSliceEntry **slices, bool *release_block)
+{
+    FSPrereadSliceEntry *previous;
+    FSPrereadSliceEntry *current;
+    FSPrereadSliceEntry *tail;
+
+    *slices = NULL;
+    *release_block = false;
+    if (obid_htable_find_block(key, block) != 0) {
+        return ENOENT;
+    }
+
+    previous = tail = NULL;
+    current = block->current->slices.head;
+    while (current != NULL) {
+        if (fs_slice_is_overlap(ssize, &current->ssize)) {
+            if (previous == NULL) {
+                block->current->slices.head = current->next;
+            } else {
+                previous->next = current->next;
+            }
+
+            if (*slices == NULL) {
+                *slices = current;
+            } else {
+                tail->next = current;
+            }
+            tail = current;
+        }
+
+        previous = current;
+        current = current->next;
+    }
+
+    if (*slices == NULL) {
+        return ENOENT;
+    }
+
+    tail->next = NULL;
+    check_remove_block(bucket, block, release_block);
+    return 0;
+}
+
+static inline void obid_htable_remove(FSPrereadBlockHEntry **bucket,
         FSPrereadBlockPair *block, FSPrereadSlicePair *slice,
         bool *release_block)
 {
     if (slice->previous == NULL) {
         block->current->slices.head = slice->current->next;
-        *release_block = (block->current->slices.head == NULL);
-        if (*release_block) {
-            if (block->previous == NULL) {
-                *bucket = block->current->next;
-            } else {
-                block->previous->next = block->current->next;
-            }
-        }
+        check_remove_block(bucket, block, release_block);
     } else {
         slice->previous->next = slice->current->next;
         *release_block = false;
@@ -167,8 +219,7 @@ static inline void obid_htable_delete(FSPrereadBlockHEntry **bucket,
     }
 }
 
-static inline void obid_htable_free_slice(FSPrereadBlockHEntry *block,
-        FSPrereadSliceEntry *slice, const bool release_block,
+static inline void obid_htable_free_slice(FSPrereadSliceEntry *slice,
         const bool set_conflict)
 {
     if (set_conflict) {
@@ -177,8 +228,14 @@ static inline void obid_htable_free_slice(FSPrereadBlockHEntry *block,
         PTHREAD_MUTEX_UNLOCK(slice->buffer->lock);
     }
     fs_api_buffer_release(slice->buffer);
-
     fast_mblock_free_object(slice->allocator, slice);
+}
+
+static inline void obid_htable_free_slice_and_block(FSPrereadBlockHEntry
+        *block, FSPrereadSliceEntry *slice, const bool release_block,
+        const bool set_conflict)
+{
+    obid_htable_free_slice(slice, set_conflict);
     if (release_block) {
         fast_mblock_free_object(block->allocator, block);
     }
@@ -216,7 +273,7 @@ int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
                         &block, &slice) == 0)
             {
                 found = true;
-                obid_htable_delete(bucket, &block,
+                obid_htable_remove(bucket, &block,
                         &slice, &release_block);
                 be = (release_block ? NULL : block.current);
             } else {
@@ -251,8 +308,8 @@ int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
     } while (0);
 
     if (found) {
-        obid_htable_free_slice(block.current, slice.current,
-                release_block, true);
+        obid_htable_free_slice_and_block(block.current,
+                slice.current, release_block, true);
     }
 
     return result;
@@ -278,7 +335,7 @@ int preread_obid_htable_delete(const int64_t oid,
             if ((result=obid_htable_find_slice(&key, tid,
                             &block, &slice)) == 0)
             {
-                obid_htable_delete(bucket, &block,
+                obid_htable_remove(bucket, &block,
                         &slice, &release_block);
             } else {
                 release_block = false;
@@ -291,9 +348,55 @@ int preread_obid_htable_delete(const int64_t oid,
     } while (0);
 
     if (result == 0) {
-        obid_htable_free_slice(block.current, slice.current,
-                release_block, false);
+        obid_htable_free_slice_and_block(block.current,
+                slice.current, release_block, false);
     }
 
     return result;
+}
+
+int preread_invalidate_conflict_slices(FSAPIOperationContext *op_ctx)
+{
+    int result;
+    int count;
+    bool release_block;
+    FSPrereadBlockPair block;
+    FSPrereadSliceEntry *slices;
+    FSPrereadSliceEntry *slice;
+    FSPrereadSliceEntry *deleted;
+    OBID_SET_HASHTABLE_KEY(op_ctx, key);
+
+    do {
+        OBID_SET_BUCKET_AND_LOCK(key);
+
+        PTHREAD_MUTEX_LOCK(lock);
+        if (*bucket != NULL) {
+            block.current = *bucket;
+            result = remove_conflict_slices(&key, &op_ctx->bs_key.slice,
+                    bucket, &block, &slices, &release_block);
+        } else {
+            release_block = false;
+            result = ENOENT;
+        }
+        PTHREAD_MUTEX_UNLOCK(lock);
+    } while (0);
+
+    if (result != 0) {
+        return 0;
+    }
+
+    count = 0;
+    slice = slices;
+    while (slice != NULL) {
+        deleted = slice;
+        slice = slice->next;
+
+        obid_htable_free_slice(deleted, true);
+        ++count;
+    }
+    if (release_block) {
+        fast_mblock_free_object(block.current->allocator, block.current);
+    }
+
+    return count;
 }

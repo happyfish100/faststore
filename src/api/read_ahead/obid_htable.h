@@ -32,7 +32,7 @@ extern "C" {
     int preread_obid_htable_delete(const int64_t oid,
             const int64_t bid, const int64_t tid);
 
-    int preread_invalidate_conflict_cache(FSAPIOperationContext *op_ctx);
+    int preread_invalidate_conflict_slices(FSAPIOperationContext *op_ctx);
 
 #ifdef __cplusplus
 }
