@@ -49,7 +49,8 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
     __sync_bool_compare_and_swap(&slice->version, old_version, new_version);
     PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
 
-    fast_mblock_free_object(&slice->allocator_ctx->slice.allocator, slice);
+    fast_mblock_free_object(&slice->allocator_ctx->
+            write_combine.slice.allocator, slice);
 }
 
 static void combine_handler_run(void *arg, void *thread_data)

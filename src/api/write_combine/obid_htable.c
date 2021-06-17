@@ -42,8 +42,8 @@ static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
         FSAPIInsertSliceContext *ictx)
 {
     ictx->waiting_task = (FSAPIWaitingTask *)
-        fast_mblock_alloc_object(&ictx->
-                op_ctx->allocator_ctx->waiting_task);
+        fast_mblock_alloc_object(&ictx->op_ctx->allocator_ctx->
+                write_combine.waiting_task);
     if (ictx->waiting_task == NULL) {
         return;
     }
@@ -194,15 +194,15 @@ static int create_slice(FSAPIInsertSliceContext *ictx)
         return 0;
     }
 
-    ictx->slice = (FSAPISliceEntry *)fast_mblock_alloc_object(
-            &ictx->op_ctx->allocator_ctx->slice.allocator);
+    ictx->slice = (FSAPISliceEntry *)fast_mblock_alloc_object(&ictx->
+            op_ctx->allocator_ctx->write_combine.slice.allocator);
     if (ictx->slice == NULL) {
         return ENOMEM;
     }
 
     if ((result=obid_htable_insert(ictx)) != 0) {
         fast_mblock_free_object(&ictx->slice->allocator_ctx->
-                slice.allocator, ictx->slice);
+                write_combine.slice.allocator, ictx->slice);
     }
 
     return result;
@@ -259,16 +259,6 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
     }
 }
 
-static inline bool slice_is_overlap(const FSSliceSize *s1,
-        const FSSliceSize *s2)
-{
-    if (s1->offset < s2->offset) {
-        return s1->offset + s1->length > s2->offset;
-    } else {
-        return s2->offset + s2->length > s1->offset;
-    }
-}
-
 static int obid_htable_find_position(FSAPIBlockEntry *block,
         FSAPIInsertSliceContext *ictx, struct fc_list_head **previous)
 {
@@ -288,7 +278,7 @@ static int obid_htable_find_position(FSAPIBlockEntry *block,
             break;
         }
 
-        if (slice_is_overlap(&ictx->op_ctx->bs_key.slice,
+        if (fs_slice_is_overlap(&ictx->op_ctx->bs_key.slice,
                     &slice->bs_key.slice))
         {
             return EEXIST;
@@ -325,7 +315,8 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
 
     ictx->slice->api_ctx = ictx->op_ctx->api_ctx;
     ictx->slice->done_callback_arg = (FSAPIWriteDoneCallbackArg *)
-        fast_mblock_alloc_object(&ictx->op_ctx->allocator_ctx->callback_arg);
+        fast_mblock_alloc_object(&ictx->op_ctx->allocator_ctx->
+                write_combine.callback_arg);
     if (ictx->slice->done_callback_arg == NULL) {
         return ENOMEM;
     }
@@ -386,8 +377,8 @@ static int deal_confilct_slice(FSAPIFindCallbackArg *farg,
     FSAPIWaitingTaskSlicePair *ts_pair;
     if (farg->waiting_task == NULL) {
         farg->waiting_task = (FSAPIWaitingTask *)
-            fast_mblock_alloc_object(&farg->op_ctx->
-                    allocator_ctx->waiting_task);
+            fast_mblock_alloc_object(&farg->op_ctx->allocator_ctx->
+                    write_combine.waiting_task);
         if (farg->waiting_task == NULL) {
             return ENOMEM;
         }
@@ -395,8 +386,8 @@ static int deal_confilct_slice(FSAPIFindCallbackArg *farg,
         ts_pair = &farg->waiting_task->waitings.fixed_pair;
     } else {
         ts_pair = (FSAPIWaitingTaskSlicePair *)
-            fast_mblock_alloc_object(&farg->op_ctx->
-                    allocator_ctx->task_slice_pair);
+            fast_mblock_alloc_object(&farg->op_ctx->allocator_ctx->
+                    write_combine.task_slice_pair);
         if (ts_pair == NULL) {
             return ENOMEM;
         }
@@ -427,9 +418,10 @@ static void *obid_htable_find_callback(SFShardingHashEntry *he,
             break;
         }
 
-        if (slice_is_overlap(&farg->op_ctx->bs_key.slice, &slice->bs_key.slice)
-                && (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING ||
-                    slice->stage == FS_API_COMBINED_WRITER_STAGE_PROCESSING))
+        if (fs_slice_is_overlap(&farg->op_ctx->bs_key.slice,
+                    &slice->bs_key.slice) &&
+                (slice->stage == FS_API_COMBINED_WRITER_STAGE_MERGING ||
+                 slice->stage == FS_API_COMBINED_WRITER_STAGE_PROCESSING))
         {
             /*
             logInfo("file: "__FILE__", line: %d, slice conflict! "

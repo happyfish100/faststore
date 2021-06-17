@@ -477,6 +477,8 @@ int fs_api_slice_read(FSAPIOperationContext *op_ctx,
         char *buff, int *read_bytes)
 {
     if (op_ctx->api_ctx->read_ahead.enabled) {
+        op_ctx->op_type = 'r';
+        op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid);
         return preread_slice_read(op_ctx, buff, read_bytes);
     } else {
         FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');

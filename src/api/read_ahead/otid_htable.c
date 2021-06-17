@@ -144,8 +144,11 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
 
         read_bytes = ictx->op_ctx->bs_key.slice.length +
             ictx->ahead_bytes;
+
+        logInfo("file: "__FILE__", line: %d, read_bytes: %d", __LINE__, read_bytes);
+
         entry->buffer = fs_api_buffer_alloc(&ictx->op_ctx->
-                allocator_ctx->buffer_pool, read_bytes, 2);
+                allocator_ctx->read_ahead.buffer_pool, read_bytes, 2);
         if (entry->buffer == NULL) {
             ictx->ahead_bytes = 0;
             return ENOMEM;
@@ -229,9 +232,17 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     old_slice_len = op_ctx->bs_key.slice.length;
     op_ctx->bs_key.slice.length = ictx.buffer->length;
 
+    logInfo("file: "__FILE__", line: %d, "
+            "read length: %d", __LINE__, ictx.buffer->length);
+
+
     FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
     result = fs_client_slice_read(op_ctx->api_ctx->fs,
             &op_ctx->bs_key, ictx.buffer->buff, &bytes);
+
+    logInfo("file: "__FILE__", line: %d, "
+            "read bytes: %d", __LINE__, bytes);
+
     if (result == 0) {
         *read_bytes = FC_MIN(bytes, old_slice_len);
         memcpy(buff, ictx.buffer->buff, *read_bytes);

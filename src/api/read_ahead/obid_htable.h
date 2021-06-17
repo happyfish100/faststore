@@ -14,32 +14,24 @@
  */
 
 
-#ifndef _FS_FUNC_H
-#define _FS_FUNC_H
+#ifndef _READ_AHEAD_OBID_HTABLE_H
+#define _READ_AHEAD_OBID_HTABLE_H
 
-#include "fastcommon/hash.h"
-#include "fastcommon/logger.h"
-#include "fs_types.h"
+#include "../fs_api_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    static inline void fs_calc_block_hashcode(FSBlockKey *bkey)
-    {
-        bkey->hash_code = bkey->oid + bkey->offset +
-            (bkey->offset / FS_FILE_BLOCK_SIZE);
-    }
+    int preread_obid_htable_init(const int64_t htable_capacity,
+            const int shared_lock_count);
 
-    static inline bool fs_slice_is_overlap(const FSSliceSize *s1,
-        const FSSliceSize *s2)
-    {
-        if (s1->offset < s2->offset) {
-            return s1->offset + s1->length > s2->offset;
-        } else {
-            return s2->offset + s2->length > s1->offset;
-        }
-    }
+    int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
+            const FSSliceSize *sszie, FSAPIBuffer *buffer);
+
+    int preread_obid_htable_delete(FSAPIOperationContext *op_ctx);
+
+    int preread_invalidate_conflict_cache(FSAPIOperationContext *op_ctx);
 
 #ifdef __cplusplus
 }

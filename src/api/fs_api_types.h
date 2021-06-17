@@ -23,6 +23,7 @@
 #include "fastcommon/fc_list.h"
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/locked_timer.h"
+#include "sf/sf_sharding_htable.h"
 #include "faststore/client/fs_client.h"
 
 #define FS_API_COMBINED_WRITER_STAGE_NONE        0
@@ -99,7 +100,23 @@ typedef struct fs_api_slice_entry {
     struct fs_api_allocator_context *allocator_ctx; //for free, set by fast_mblock
     struct fc_list_head dlink;          //for block entry
     struct fs_api_slice_entry *next;    //for combine handler queue
-} FSAPISliceEntry;
+} FSAPISliceEntry;  //for write combine
+
+typedef struct fs_preread_slice_entry {
+    uint64_t tid;
+    FSSliceSize ssize;
+    struct fs_api_buffer *buffer;
+    struct fs_preread_slice_entry *next;
+} FSPrereadSliceEntry;  //for read ahead
+
+typedef struct fs_preread_block_hentry {
+    SFTwoIdsHashKey key;
+    struct {
+        FSPrereadSliceEntry *head;  //element: FSPrereadSliceEntry
+    } slices;
+    struct fs_api_allocator_context *allocator_ctx; //for free, set by fast_mblock
+    struct fs_preread_block_entry *next;
+} FSPrereadBlockHEntry;    //for read ahead
 
 typedef struct fs_api_operation_context {
     uint64_t tid;  //thread id

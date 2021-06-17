@@ -61,6 +61,9 @@ extern "C" {
             logInfo("file: "__FILE__", line: %d, free buffer: %p", __LINE__, buffer);
             fast_mblock_free_object(&buffer->allocator->mblock, buffer);
         }
+
+        logInfo("file: "__FILE__", line: %d, buffer refer_count: %d",
+                __LINE__, FC_ATOMIC_GET(buffer->refer_count));
     }
 
     static inline void fs_api_buffer_hold(FSAPIBuffer *buffer)

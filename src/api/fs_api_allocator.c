@@ -41,7 +41,7 @@ static int waiting_task_alloc_init(FSAPIWaitingTask *task,
     return 0;
 }
 
-static int slice_entry_alloc_init(FSAPISliceEntry *slice,
+static int wcmb_slice_entry_alloc_init(FSAPISliceEntry *slice,
         FSAPIAllocatorContext *ctx)
 {
     slice->buff = (char *)malloc(g_fs_api_allocator_array.
@@ -64,32 +64,39 @@ static int callback_arg_alloc_init(FSAPIWriteDoneCallbackArg
     return 0;
 }
 
+static int pread_block_entry_alloc_init(FSPrereadBlockHEntry *block,
+        FSAPIAllocatorContext *ctx)
+{
+    block->allocator_ctx = ctx;
+    return 0;
+}
+
 static int init_write_combine_allocators(FSAPIContext *api_ctx,
         FSAPIAllocatorContext *ctx)
 {
     int result;
     int element_size;
 
-    if ((result=fast_mblock_init_ex1(&ctx->task_slice_pair,
-                    "task_slice_pair", sizeof(FSAPIWaitingTaskSlicePair),
+    if ((result=fast_mblock_init_ex1(&ctx->write_combine.task_slice_pair,
+                    "task-slice-pair", sizeof(FSAPIWaitingTaskSlicePair),
                     4096, 0, (fast_mblock_alloc_init_func)
                     task_slice_pair_alloc_init,
-                    &ctx->task_slice_pair, true)) != 0)
+                    &ctx->write_combine.task_slice_pair, true)) != 0)
     {
         return result;
     }
 
-    if ((result=fast_mblock_init_ex1(&ctx->waiting_task,
-                    "waiting_task", sizeof(FSAPIWaitingTask), 1024, 0,
+    if ((result=fast_mblock_init_ex1(&ctx->write_combine.waiting_task,
+                    "waiting-task", sizeof(FSAPIWaitingTask), 1024, 0,
                     (fast_mblock_alloc_init_func)waiting_task_alloc_init,
-                    &ctx->waiting_task, true)) != 0)
+                    &ctx->write_combine.waiting_task, true)) != 0)
     {
         return result;
     }
 
-    if ((result=fast_mblock_init_ex1(&ctx->slice.allocator,
-                    "slice_entry", sizeof(FSAPISliceEntry), 8, 0,
-                    (fast_mblock_alloc_init_func)slice_entry_alloc_init,
+    if ((result=fast_mblock_init_ex1(&ctx->write_combine.slice.allocator,
+                    "wcombine-slice", sizeof(FSAPISliceEntry), 8, 0,
+                    (fast_mblock_alloc_init_func)wcmb_slice_entry_alloc_init,
                     ctx, true)) != 0)
     {
         return result;
@@ -97,10 +104,10 @@ static int init_write_combine_allocators(FSAPIContext *api_ctx,
 
     element_size = sizeof(FSAPIWriteDoneCallbackArg) +
         api_ctx->write_done_callback.arg_extra_size;
-    if ((result=fast_mblock_init_ex1(&ctx->callback_arg,
-                    "write_done_callback_arg", element_size, 1024, 0,
+    if ((result=fast_mblock_init_ex1(&ctx->write_combine.callback_arg,
+                    "write-done-callback-arg", element_size, 1024, 0,
                     (fast_mblock_alloc_init_func)callback_arg_alloc_init,
-                    &ctx->callback_arg, true)) != 0)
+                    &ctx->write_combine.callback_arg, true)) != 0)
     {
         return result;
     }
@@ -113,9 +120,24 @@ static int init_read_ahead_allocators(FSAPIContext *api_ctx,
 {
     int result;
 
-    if ((result=fs_api_buffer_pool_init(&ctx->buffer_pool,
+    if ((result=fs_api_buffer_pool_init(&ctx->read_ahead.buffer_pool,
                     api_ctx->read_ahead.min_buffer_size,
                     api_ctx->read_ahead.max_buffer_size)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&ctx->read_ahead.block,
+                    "preread-block", sizeof(FSPrereadBlockHEntry), 8192, 0,
+                    (fast_mblock_alloc_init_func)pread_block_entry_alloc_init,
+                    ctx, true)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&ctx->read_ahead.slice,
+                    "preread-slice", sizeof(FSPrereadSliceEntry),
+                    8192, 0, NULL, NULL, true)) != 0)
     {
         return result;
     }
@@ -163,9 +185,9 @@ int fs_api_allocator_init(FSAPIContext *api_ctx)
     g_fs_api_allocator_array.api_ctx = api_ctx;
     end = g_fs_api_allocator_array.allocators + g_fs_api_allocator_array.count;
     for (ctx=g_fs_api_allocator_array.allocators; ctx<end; ctx++) {
-        ctx->slice.current_version = 0;
-        ctx->slice.version_mask = ((int64_t)(ctx - g_fs_api_allocator_array.
-                    allocators) + 1) << 48;
+        ctx->write_combine.slice.current_version = 0;
+        ctx->write_combine.slice.version_mask = ((int64_t)(ctx -
+                    g_fs_api_allocator_array.allocators) + 1) << 48;
         if ((result=init_allocator_context(api_ctx, ctx)) != 0) {
             return result;
         }

@@ -22,15 +22,23 @@
 #include "fs_api_buffer_pool.h"
 
 typedef struct fs_api_allocator_context {
-    struct fast_mblock_man task_slice_pair; //element: FSAPIWaitingTaskSlicePair
-    struct fast_mblock_man waiting_task;    //element: FSAPIWaitingTask
     struct {
-        struct fast_mblock_man allocator;   //element: FSAPISliceEntry
-        int64_t version_mask;
-        volatile int64_t current_version;
-    } slice;
-    struct fast_mblock_man callback_arg;    //element: FSAPIWriteDoneCallbackArg
-    FSAPIBufferPool buffer_pool;
+        struct fast_mblock_man task_slice_pair; //element: FSAPIWaitingTaskSlicePair
+        struct fast_mblock_man waiting_task;    //element: FSAPIWaitingTask
+        struct {
+            struct fast_mblock_man allocator;   //element: FSAPISliceEntry
+            int64_t version_mask;
+            volatile int64_t current_version;
+        } slice;
+        struct fast_mblock_man callback_arg;    //element: FSAPIWriteDoneCallbackArg
+    } write_combine;
+
+    struct {
+        struct fast_mblock_man block; //element: FSPrereadBlockHEntry
+        struct fast_mblock_man slice; //element: FSPrereadSliceEntry
+        FSAPIBufferPool buffer_pool;
+    } read_ahead;
+
 } FSAPIAllocatorContext;
 
 typedef struct fs_api_allocator_ctx_array {
@@ -56,8 +64,8 @@ extern "C" {
 
     static inline int64_t fs_api_next_slice_version(FSAPIAllocatorContext *ctx)
     {
-        return ctx->slice.version_mask | __sync_add_and_fetch(
-                &ctx->slice.current_version, 1);
+        return ctx->write_combine.slice.version_mask | __sync_add_and_fetch(
+                &ctx->write_combine.slice.current_version, 1);
     }
 
 #ifdef __cplusplus
