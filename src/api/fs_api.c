@@ -491,7 +491,10 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         result = fs_client_slice_write(op_ctx->api_ctx->fs, &op_ctx->
                 bs_key, wbuffer->buff, write_bytes, inc_alloc);
     }
-    preread_invalidate_conflict_slices(op_ctx);
+
+    if (op_ctx->api_ctx->read_ahead.enabled) {
+        preread_invalidate_conflict_slices(op_ctx);
+    }
 
     return result;
 }

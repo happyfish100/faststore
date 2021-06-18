@@ -136,6 +136,7 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
         process_on_successive(ictx, entry);
     }
 
+    /*
     logInfo("file: "__FILE__", line: %d, "
             "tid: %"PRId64", block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice {offset: %d, length: %d}, successive_count: %d, "
@@ -143,6 +144,7 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
             ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset,
             ictx->op_ctx->bs_key.slice.offset, ictx->op_ctx->bs_key.slice.length,
             entry->successive_count, ictx->ahead_bytes, entry->buffer, release_buffer);
+            */
 
     entry->last_read_offset = offset + ictx->op_ctx->bs_key.slice.length;
     if (release_buffer) {
@@ -154,9 +156,6 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
 
         read_bytes = ictx->op_ctx->bs_key.slice.length +
             ictx->ahead_bytes;
-
-        logInfo("file: "__FILE__", line: %d, read_bytes: %d", __LINE__, read_bytes);
-
         entry->buffer = fs_api_buffer_alloc(&ictx->op_ctx->
                 allocator_ctx->read_ahead.buffer_pool, read_bytes, 2);
         if (entry->buffer == NULL) {
@@ -225,13 +224,15 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
 
     sf_sharding_htable_insert(&otid_ctx, &key, &ictx);
     if (*read_bytes > 0) {  //copy from read-ahead cache
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "read from cache, tid: %"PRId64", "
-                "block {oid: %"PRId64", offset: %"PRId64"}, "
-                "slice {offset: %d, length: %d}",
-                __LINE__, op_ctx->tid, op_ctx->bs_key.block.oid,
+                "buffer: %p, block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}", __LINE__, op_ctx->tid,
+                ictx.buffer, op_ctx->bs_key.block.oid,
                 op_ctx->bs_key.block.offset, op_ctx->bs_key.slice.offset,
                 op_ctx->bs_key.slice.length);
+                */
 
         return 0;
     }
@@ -245,17 +246,9 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     old_slice_len = op_ctx->bs_key.slice.length;
     op_ctx->bs_key.slice.length = ictx.buffer->length;
 
-    logInfo("file: "__FILE__", line: %d, "
-            "read length: %d", __LINE__, ictx.buffer->length);
-
-
     FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
     result = fs_client_slice_read(op_ctx->api_ctx->fs,
             &op_ctx->bs_key, ictx.buffer->buff, &bytes);
-
-    logInfo("file: "__FILE__", line: %d, "
-            "read bytes: %d", __LINE__, bytes);
-
     release_buffer = true;
     if (result == 0) {
         *read_bytes = FC_MIN(bytes, old_slice_len);

@@ -232,9 +232,9 @@ static inline void obid_htable_free_slice(FSPrereadSliceEntry *slice,
 }
 
 static inline void obid_htable_free_slice_and_block(FSPrereadBlockHEntry
-        *block, FSPrereadSliceEntry *slice, const bool release_block,
-        const bool set_conflict)
+        *block, FSPrereadSliceEntry *slice, const bool release_block)
 {
+    const bool set_conflict = false;
     obid_htable_free_slice(slice, set_conflict);
     if (release_block) {
         fast_mblock_free_object(block->allocator, block);
@@ -308,8 +308,13 @@ int preread_obid_htable_insert(FSAPIOperationContext *op_ctx,
     } while (0);
 
     if (found) {
+        logInfo("file: "__FILE__", line: %d, "
+                "tid: %"PRId64" block {oid: %"PRId64", bid: %"PRId64"}, "
+                "slice {offset: %d, length: %d} duplicate!", __LINE__,
+                op_ctx->tid, block.current->key.oid, block.current->key.bid,
+                slice.current->ssize.offset, slice.current->ssize.length);
         obid_htable_free_slice_and_block(block.current,
-                slice.current, release_block, true);
+                slice.current, release_block);
     }
 
     return result;
@@ -349,7 +354,7 @@ int preread_obid_htable_delete(const int64_t oid,
 
     if (result == 0) {
         obid_htable_free_slice_and_block(block.current,
-                slice.current, release_block, false);
+                slice.current, release_block);
     }
 
     return result;
