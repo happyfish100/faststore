@@ -30,7 +30,7 @@ static int init_buffer_allocator(FSAPIBufferAllocator *allocator)
     int alloc_elements_once;
     int element_size;
 
-    alloc_elements_once = (4 * 1024 * 1024) / allocator->buffer_size;
+    alloc_elements_once = (1 * 1024 * 1024) / allocator->buffer_size;
     if (alloc_elements_once <= 1) {
         alloc_elements_once = 4;
     }

@@ -37,7 +37,7 @@ extern "C" {
     op_ctx->bid = op_ctx->bs_key.block.offset;   \
     op_ctx->allocator_ctx = fs_api_allocator_get(op_ctx->tid)
 
-#define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, operation) \
+#define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx) \
     do {  \
         if (op_ctx->api_ctx->write_combine.enabled) {  \
             int conflict_count;  \

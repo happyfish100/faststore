@@ -54,7 +54,7 @@ static void release_entry_buffer(FSPrereadOTIDEntry *entry)
 }
 
 static void process_on_successive(FSAPIInsertBufferContext *ictx,
-        FSPrereadOTIDEntry *entry)
+        FSPrereadOTIDEntry *entry, bool *release_buffer)
 {
     int bytes;
     int block_remain;
@@ -69,33 +69,39 @@ static void process_on_successive(FSAPIInsertBufferContext *ictx,
         memcpy(ictx->out_buff, entry->buffer->buff +
                 entry->buffer->offset, *(ictx->read_bytes));
         entry->buffer->offset += *(ictx->read_bytes);
-    } else if (ictx->op_ctx->bs_key.slice.length < ictx->op_ctx->
-            api_ctx->read_ahead.skip_preread_on_slice_size)
-    {
-        block_remain = FS_FILE_BLOCK_SIZE -
-            ictx->op_ctx->bs_key.slice.offset;
-        max_size = FC_MIN(block_remain, ictx->op_ctx->
-                api_ctx->read_ahead.max_buffer_size);
-        if (entry->buffer != NULL) {
-            bytes = entry->buffer->allocator->buffer_size * 2;
-        } else {
-            bytes = 512;
-            while (bytes < ictx->op_ctx->bs_key.slice.length) {
-                bytes *= 2;
+        *release_buffer = (entry->buffer->length -
+                entry->buffer->offset == 0);
+    } else {
+        *release_buffer = (entry->buffer != NULL);
+        if (ictx->op_ctx->bs_key.slice.length < ictx->op_ctx->
+                api_ctx->read_ahead.skip_preread_on_slice_size &&
+                FS_FILE_BLOCK_SIZE - ictx->op_ctx->bs_key.slice.offset > 0)
+        {
+            block_remain = FS_FILE_BLOCK_SIZE -
+                ictx->op_ctx->bs_key.slice.offset;
+            max_size = FC_MIN(block_remain, ictx->op_ctx->
+                    api_ctx->read_ahead.max_buffer_size);
+            if (entry->buffer != NULL) {
+                bytes = entry->buffer->allocator->buffer_size * 2;
+            } else {
+                bytes = 512;
+                while (bytes < ictx->op_ctx->bs_key.slice.length) {
+                    bytes *= 2;
+                }
+
+                i = 0;
+                while (i++ < entry->successive_count && bytes < max_size) {
+                    bytes *= 2;
+                }
+
+                if (bytes < ictx->op_ctx->api_ctx->read_ahead.min_buffer_size) {
+                    bytes = ictx->op_ctx->api_ctx->read_ahead.min_buffer_size;
+                }
             }
 
-            i = 0;
-            while (i++ < entry->successive_count && bytes < max_size) {
-                bytes *= 2;
-            }
-
-            if (bytes < ictx->op_ctx->api_ctx->read_ahead.min_buffer_size) {
-                bytes = ictx->op_ctx->api_ctx->read_ahead.min_buffer_size;
-            }
+            ictx->ahead_bytes = FC_MIN(bytes, max_size) -
+                ictx->op_ctx->bs_key.slice.length;
         }
-
-        ictx->ahead_bytes = FC_MIN(bytes, max_size) -
-            ictx->op_ctx->bs_key.slice.length;
     }
 }
 
@@ -118,22 +124,11 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
     } else {
         if (offset == entry->last_read_offset) {
             entry->successive_count++;
-            if (entry->buffer != NULL) {
-                release_buffer = !(IS_BUFFER_VALID(ictx->op_ctx->api_ctx,
-                            entry->buffer) && (ictx->op_ctx->bs_key.
-                                slice.length < entry->buffer->length -
-                                entry->buffer->offset));
-            } else {
-                release_buffer = false;
-            }
+            process_on_successive(ictx, entry, &release_buffer);
         } else {
             entry->successive_count = 0;
             release_buffer = (entry->buffer != NULL);
         }
-    }
-
-    if (entry->successive_count > 0) {
-        process_on_successive(ictx, entry);
     }
 
     /*
@@ -238,7 +233,7 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     }
 
     if (ictx.buffer == NULL) {
-        FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
+        FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx);
         return fs_client_slice_read(op_ctx->api_ctx->fs,
                 &op_ctx->bs_key, buff, read_bytes);
     }
@@ -246,7 +241,7 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     old_slice_len = op_ctx->bs_key.slice.length;
     op_ctx->bs_key.slice.length = ictx.buffer->length;
 
-    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
+    FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx);
     result = fs_client_slice_read(op_ctx->api_ctx->fs,
             &op_ctx->bs_key, ictx.buffer->buff, &bytes);
     release_buffer = true;
