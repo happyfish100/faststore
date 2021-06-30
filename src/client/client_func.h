@@ -87,7 +87,7 @@ static inline int fs_client_init_ex(FSClientContext *client_ctx,
 static inline int fs_client_init_with_auth_ex1(FSClientContext *client_ctx,
         FCFSAuthClientContext *auth_ctx, const char *config_filename,
         const char *section_name, const SFConnectionManager *cm,
-        const bool bg_thread_enabled, const string_t *poolname,
+        const bool bg_thread_enabled, string_t *poolname,
         const bool publish)
 {
     int result;
@@ -108,8 +108,9 @@ static inline int fs_client_init_with_auth_ex1(FSClientContext *client_ctx,
 static inline int fs_client_init_with_auth(const char *config_filename,
         const bool publish)
 {
-    const string_t poolname = {NULL, 0};
-    return fs_client_init_with_auth_ex(config_filename, &poolname, publish);
+#define FS_EMPTY_POOL_NAME SF_G_EMPTY_STRING
+    return fs_client_init_with_auth_ex(config_filename,
+            &FS_EMPTY_POOL_NAME, publish);
 }
 
 /**
