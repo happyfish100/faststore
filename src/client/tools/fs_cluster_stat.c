@@ -82,9 +82,10 @@ static void output(FSClientClusterStatEntry *stats, const int count)
 int main(int argc, char *argv[])
 {
 #define CLUSTER_MAX_STAT_COUNT  256
+#define EMPTY_POOL_NAME SF_G_EMPTY_STRING
+
     const bool publish = false;
     const char *config_filename = FS_CLIENT_DEFAULT_CONFIG_FILENAME;
-    const string_t poolname = {NULL, 0};
 	int ch;
     int server_id;
     int alloc_size;
@@ -167,7 +168,7 @@ int main(int argc, char *argv[])
 
     if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.
                     client_ctx, &g_fcfs_auth_client_vars.client_ctx,
-                    config_filename, NULL, NULL, false, &poolname,
+                    config_filename, NULL, NULL, false, &EMPTY_POOL_NAME,
                     publish)) != 0)
     {
         return result;
