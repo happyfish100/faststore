@@ -378,10 +378,6 @@ int fs_api_init_ex(FSAPIContext *api_ctx, IniFullContext *ini_ctx,
         return 0;
     }
 
-    logInfo("line: %d, write_combine.enabled: %d, read_ahead.enabled: %d",
-            __LINE__, api_ctx->write_combine.enabled,
-                api_ctx->read_ahead.enabled);
-
     /* must set before fs_api_allocator_init */
     api_ctx->write_done_callback.func = write_done_callback;
     api_ctx->write_done_callback.arg_extra_size = write_done_arg_extra_size;
