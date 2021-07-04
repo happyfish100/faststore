@@ -775,6 +775,7 @@ static int cluster_select_leader()
     int active_count;
     int i;
     int sleep_secs;
+    time_t start_time;
     char prompt[512];
 	FSClusterServerStatus server_status;
     FSClusterServerInfo *next_leader;
@@ -789,9 +790,10 @@ static int cluster_select_leader()
         LEADER_ELECTION.retry_count++;
     }
 
+    start_time = g_current_time;
     sleep_secs = 1;
     i = 0;
-    while (1) {
+    while (CLUSTER_LEADER_ATOM_PTR == NULL) {
         if ((result=cluster_get_leader(&server_status, &active_count)) != 0) {
             return result;
         }
@@ -837,6 +839,18 @@ static int cluster_select_leader()
         if (sleep_secs < 32) {
             sleep_secs *= 2;
         }
+    }
+
+    next_leader = CLUSTER_LEADER_ATOM_PTR;
+    if (next_leader != NULL) {
+        logInfo("file: "__FILE__", line: %d, "
+                "abort election because the leader exists, "
+                "leader id: %d, ip %s:%u, election time used: %ds",
+                __LINE__, next_leader->server->id,
+                CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
+                CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server),
+                (int)(g_current_time - start_time));
+        return 0;
     }
 
     next_leader = server_status.cs;
