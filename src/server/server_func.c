@@ -60,7 +60,7 @@ static void log_cluster_server_config()
         return;
     }
 
-    fast_buffer_append(&buffer, "master_election : {failover=%s",
+    fast_buffer_append(&buffer, "master-election : {failover=%s",
             MASTER_ELECTION_FAILOVER ? "true" : "false");
     if (MASTER_ELECTION_FAILOVER) {
         if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
@@ -83,7 +83,7 @@ static void log_cluster_server_config()
 
 static int load_master_election_config(const char *filename)
 {
-    const char *section_name = "master_election";
+    const char *section_name = "master-election";
     int result;
     IniContext ini_context;
     char *policy;
@@ -256,7 +256,7 @@ static void server_log_configs()
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
-    sf_slow_log_config_to_string(&SLOW_LOG_CFG, "slow_log",
+    sf_slow_log_config_to_string(&SLOW_LOG_CFG, "slow-log",
             sz_slowlog_config, sizeof(sz_slowlog_config));
 
     sf_context_config_to_string(&g_sf_context,
