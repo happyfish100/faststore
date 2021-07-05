@@ -104,6 +104,7 @@ static FSClusterRelationshipContext relationship_ctx = {
     } while (0)
 
 static int proto_get_server_status(ConnectionInfo *conn,
+        const int network_timeout,
         FSClusterServerStatus *server_status)
 {
 	int result;
@@ -127,7 +128,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
             SF_CLUSTER_CONFIG_SIGN_LEN);
     response.error.length = 0;
 	if ((result=sf_send_and_recv_response(conn, out_buff,
-			sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+			sizeof(out_buff), &response, network_timeout,
             FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP, in_body,
             sizeof(FSProtoGetServerStatusResp))) != 0)
     {
@@ -148,7 +149,8 @@ static int proto_get_server_status(ConnectionInfo *conn,
     return 0;
 }
 
-static int proto_join_leader(FSClusterServerInfo *leader, ConnectionInfo *conn)
+static int proto_join_leader(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, const int network_timeout)
 {
 	int result;
 	FSProtoHeader *header;
@@ -169,7 +171,7 @@ static int proto_join_leader(FSClusterServerInfo *leader, ConnectionInfo *conn)
             SF_CLUSTER_CONFIG_SIGN_LEN);
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, network_timeout,
                     FS_CLUSTER_PROTO_JOIN_LEADER_RESP,
                     (char *)&resp, sizeof(resp))) == 0)
     {
@@ -286,6 +288,8 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         const bool log_connect_error)
 {
+    const int connect_timeout = 2;
+    const int network_timeout = 2;
     ConnectionInfo conn;
     int result;
 
@@ -302,13 +306,14 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         return 0;
     } else {
         if ((result=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            server_status->cs->server), &conn,
-                        SF_G_CONNECT_TIMEOUT, NULL, log_connect_error)) != 0)
+                            server_status->cs->server), &conn, connect_timeout,
+                        NULL, log_connect_error)) != 0)
         {
             return result;
         }
 
-        result = proto_get_server_status(&conn, server_status);
+        result = proto_get_server_status(&conn,
+                network_timeout, server_status);
         conn_pool_disconnect_server(&conn);
         return result;
     }
@@ -774,7 +779,10 @@ static int cluster_select_leader()
 	int result;
     int active_count;
     int i;
+    int max_sleep_secs;
     int sleep_secs;
+    int remain_time;
+    bool force_sleep;
     time_t start_time;
     char prompt[512];
 	FSClusterServerStatus server_status;
@@ -791,7 +799,7 @@ static int cluster_select_leader()
     }
 
     start_time = g_current_time;
-    sleep_secs = 1;
+    max_sleep_secs = 1;
     i = 0;
     while (CLUSTER_LEADER_ATOM_PTR == NULL) {
         if ((result=cluster_get_leader(&server_status, &active_count)) != 0) {
@@ -818,15 +826,31 @@ static int cluster_select_leader()
                     server_status.cs->server->id, (int)(server_status.
                         up_time - server_status.last_shutdown_time),
                     FS_FORCE_ELECTION_LONG_OPTION_STR);
+            force_sleep = true;
         } else {
+            if (g_current_time - start_time > LEADER_ELECTION_MAX_WAIT_TIME) {
+                break;
+            }
+
             if (FORCE_LEADER_ELECTION) {
                 sprintf(prompt, "force_leader_election: %d, ",
                         FORCE_LEADER_ELECTION);
             } else {
                 *prompt = '\0';
             }
-            if (i == 5) {
-                break;
+
+            force_sleep = false;
+        }
+
+        remain_time = LEADER_ELECTION_MAX_WAIT_TIME -
+            (g_current_time - start_time);
+        if (remain_time > 0) {
+            sleep_secs = FC_MIN(remain_time, max_sleep_secs);
+        } else {
+            if (force_sleep) {
+                sleep_secs = max_sleep_secs;
+            } else {
+                sleep_secs = 0;
             }
         }
 
@@ -835,9 +859,11 @@ static int cluster_select_leader()
                 "< server count: %d, %stry again after %d seconds.",
                 __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
                 prompt, sleep_secs);
-        sleep(sleep_secs);
-        if (sleep_secs < 32) {
-            sleep_secs *= 2;
+        if (sleep_secs > 0) {
+            sleep(sleep_secs);
+        }
+        if (max_sleep_secs < 32) {
+            max_sleep_secs *= 2;
         }
     }
 
@@ -865,8 +891,9 @@ static int cluster_select_leader()
             cluster_relationship_set_leader(next_leader);
         } else if (CLUSTER_LEADER_ATOM_PTR == NULL) {
             logInfo("file: "__FILE__", line: %d, "
-                    "waiting for the candidate leader server id: %d, "
-                    "ip %s:%u notify ...", __LINE__, next_leader->server->id,
+                    "election time used: %ds, waiting for the candidate "
+                    "leader server id: %d, ip %s:%u notify ...", __LINE__,
+                    (int)(g_current_time - start_time), next_leader->server->id,
                     CLUSTER_GROUP_ADDRESS_FIRST_IP(next_leader->server),
                     CLUSTER_GROUP_ADDRESS_FIRST_PORT(next_leader->server));
             return ENOENT;
@@ -1225,7 +1252,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
 
 static int proto_ping_leader_ex(FSClusterServerInfo *leader,
         ConnectionInfo *conn, const unsigned char cmd,
-        const bool report_all)
+        const int network_timeout, const bool report_all)
 {
     FSProtoHeader *header;
     SFResponseInfo response;
@@ -1254,10 +1281,10 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
 
     response.error.length = 0;
     if ((result=tcpsenddata_nb(conn->sock, NETWORK_BUFFER.data,
-                    NETWORK_BUFFER.length, SF_G_NETWORK_TIMEOUT)) == 0)
+                    NETWORK_BUFFER.length, network_timeout)) == 0)
     {
         result = cluster_recv_from_leader(conn, &response,
-                1000 * SF_G_NETWORK_TIMEOUT, false);
+                1000 * network_timeout, false);
     }
 
     if (result != 0 && result != EOPNOTSUPP) {
@@ -1269,11 +1296,13 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
     return result;
 }
 
-#define proto_activate_server(leader, conn) \
-    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, true)
+#define proto_activate_server(leader, conn, network_timeout) \
+    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, \
+            network_timeout, true)
 
-#define proto_ping_leader(leader, conn) \
-    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, false)
+#define proto_ping_leader(leader, conn, network_timeout) \
+    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, \
+            network_timeout, false)
 
 static int proto_report_disk_space(ConnectionInfo *conn,
         const FSClusterServerSpaceStat *stat)
@@ -1310,6 +1339,7 @@ static int proto_report_disk_space(ConnectionInfo *conn,
 static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
         ConnectionInfo *conn)
 {
+    const int network_timeout = 2;
     int result;
     int start_time;
     int timeout_ms;
@@ -1327,7 +1357,9 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
         }
 
         if (__sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 1, 0)) {
-            if ((result=proto_ping_leader(leader, conn)) != 0) {
+            if ((result=proto_ping_leader(leader, conn,
+                            network_timeout)) != 0)
+            {
                 return result;
             }
         }
@@ -1362,24 +1394,31 @@ static int leader_check()
     return 0;  //do not need ping myself
 }
 
-static int follower_ping(FSClusterServerInfo *leader, ConnectionInfo *conn)
+static int follower_ping(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, const int timeout)
 {
+    int connect_timeout;
+    int network_timeout;
     int result;
     static time_t last_stat_time = 0;
 
+    network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
     if (conn->sock < 0) {
+        connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
         if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            leader->server), conn, SF_G_CONNECT_TIMEOUT)) != 0)
+                            leader->server), conn, connect_timeout)) != 0)
         {
             return result;
         }
 
-        if ((result=proto_join_leader(leader, conn)) != 0) {
+        if ((result=proto_join_leader(leader, conn, network_timeout)) != 0) {
             conn_pool_disconnect_server(conn);
             return result;
         }
 
-        if ((result=proto_activate_server(leader, conn)) != 0) {
+        if ((result=proto_activate_server(leader, conn,
+                        network_timeout)) != 0)
+        {
             conn_pool_disconnect_server(conn);
             return result;
         }
@@ -1390,7 +1429,7 @@ static int follower_ping(FSClusterServerInfo *leader, ConnectionInfo *conn)
         return result;
     }
 
-    result = proto_ping_leader(leader, conn);
+    result = proto_ping_leader(leader, conn, network_timeout);
     if (result == 0 && g_current_time - last_stat_time >= 10) {
         last_stat_time = g_current_time;
         storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
@@ -1404,14 +1443,14 @@ static int follower_ping(FSClusterServerInfo *leader, ConnectionInfo *conn)
 }
 
 static inline int cluster_ping_leader(FSClusterServerInfo *leader,
-        ConnectionInfo *conn, bool *is_ping)
+        ConnectionInfo *conn, const int timeout, bool *is_ping)
 {
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         *is_ping = false;
         return leader_check();
     } else {
         *is_ping = true;
-        return follower_ping(leader, conn);
+        return follower_ping(leader, conn, timeout);
     }
 }
 
@@ -1419,9 +1458,12 @@ static void *cluster_thread_entrance(void *arg)
 {
 #define MAX_SLEEP_SECONDS  10
 
+    int result;
     int fail_count;
     int sleep_seconds;
+    int ping_remain_time;
     bool is_ping;
+    time_t ping_start_time;
     FSClusterServerInfo *leader;
     ConnectionInfo mconn;  //leader connection
 
@@ -1435,6 +1477,7 @@ static void *cluster_thread_entrance(void *arg)
 
     fail_count = 0;
     sleep_seconds = 1;
+    ping_start_time = g_current_time;
     while (SF_G_CONTINUE_FLAG) {
         leader = CLUSTER_LEADER_ATOM_PTR;
         if (leader == NULL) {
@@ -1445,35 +1488,42 @@ static void *cluster_thread_entrance(void *arg)
                 if (mconn.sock >= 0) {
                     conn_pool_disconnect_server(&mconn);
                 }
+                ping_start_time = g_current_time;
                 sleep_seconds = 1;
             }
         } else {
-            if (cluster_ping_leader(leader, &mconn, &is_ping) == 0) {
+            ping_remain_time = LEADER_ELECTION_LOST_TIMEOUT -
+                (g_current_time - ping_start_time);
+            if (ping_remain_time < 2) {
+                ping_remain_time = 2;
+            }
+            if ((result=cluster_ping_leader(leader, &mconn,
+                            ping_remain_time, &is_ping)) == 0)
+            {
                 fail_count = 0;
+                ping_start_time = g_current_time;
                 sleep_seconds = 0;
-            } else {
-                if (is_ping) {
-                    ++fail_count;
-                    logError("file: "__FILE__", line: %d, "
-                            "%dth ping leader id: %d, ip %s:%u fail",
-                            __LINE__, fail_count, leader->server->id,
-                            CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
-                            CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
+            } else if (is_ping) {
+                ++fail_count;
+                logError("file: "__FILE__", line: %d, "
+                        "%dth ping leader id: %d, ip %s:%u fail",
+                        __LINE__, fail_count, leader->server->id,
+                        CLUSTER_GROUP_ADDRESS_FIRST_IP(leader->server),
+                        CLUSTER_GROUP_ADDRESS_FIRST_PORT(leader->server));
 
-                    if (sleep_seconds == 0) {
-                        sleep_seconds = 1;
-                    } else {
-                        sleep_seconds *= 2;
-                    }
-                    if (fail_count >= 3) {
+                if (g_current_time - ping_start_time >
+                        LEADER_ELECTION_LOST_TIMEOUT)
+                {
+                    if (fail_count > 1) {
                         cluster_unset_leader();
-
                         fail_count = 0;
-                        sleep_seconds = 1;
                     }
-                } else {
                     sleep_seconds = 0;
+                } else {
+                    sleep_seconds = 1;
                 }
+            } else {
+                sleep_seconds = 0;
             }
         }
 

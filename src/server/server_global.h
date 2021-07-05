@@ -40,6 +40,8 @@ typedef struct server_global_vars {
             FSClusterConfig ctx;
             struct {
                 bool force;
+                int leader_lost_timeout;
+                int max_wait_time;
             } leader_election;
 
             struct {
@@ -94,6 +96,10 @@ typedef struct server_global_vars {
 
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force
+#define LEADER_ELECTION_LOST_TIMEOUT  g_server_global_vars.cluster. \
+    config.leader_election.leader_lost_timeout
+#define LEADER_ELECTION_MAX_WAIT_TIME g_server_global_vars.cluster. \
+    config.leader_election.max_wait_time
 
 #define MASTER_ELECTION_FAILOVER  g_server_global_vars.cluster. \
     config.master_election.failover

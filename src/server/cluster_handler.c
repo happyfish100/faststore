@@ -209,7 +209,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "i am not leader");
-        return EINVAL;
+        return SF_CLUSTER_ERROR_NOT_LEADER;
     }
 
     if (CLUSTER_PEER != NULL) {
@@ -361,7 +361,7 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "i am not leader");
-        return EINVAL;
+        return SF_CLUSTER_ERROR_NOT_LEADER;
     }
 
     if ((result=process_ping_leader_req(task)) == 0) {

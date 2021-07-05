@@ -60,20 +60,6 @@ static void log_cluster_server_config()
         return;
     }
 
-    fast_buffer_append(&buffer, "master-election : {failover=%s",
-            MASTER_ELECTION_FAILOVER ? "true" : "false");
-    if (MASTER_ELECTION_FAILOVER) {
-        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
-            fast_buffer_append(&buffer, ", policy=%s",
-                    FS_MASTER_ELECTION_POLICY_STRICT_STR);
-        } else {
-            fast_buffer_append(&buffer, ", policy=%s:%d",
-                    FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
-                    MASTER_ELECTION_TIMEOUTS);
-        }
-    }
-    fast_buffer_append(&buffer, "}\n");
-
     fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     log_it1(LOG_INFO, buffer.data, buffer.length);
     fast_buffer_destroy(&buffer);
@@ -157,6 +143,30 @@ static int load_master_election_config(const char *filename)
     return 0;
 }
 
+static int load_leader_election_config(const char *cluster_filename)
+{
+    IniContext ini_context;
+    IniFullContext ini_ctx;
+    int result;
+
+    if ((result=iniLoadFromFile(cluster_filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, cluster_filename, result);
+        return result;
+    }
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, cluster_filename,
+            "leader-election", &ini_context);
+    LEADER_ELECTION_LOST_TIMEOUT = iniGetIntCorrectValue(
+            &ini_ctx, "leader_lost_timeout", 3, 1, 300);
+    LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
+            &ini_ctx, "max_wait_time", 30, 1, 3600);
+
+    iniFreeContext(&ini_context);
+    return 0;
+}
+
 static int load_cluster_config(IniContext *ini_context, const char *filename,
         char *full_cluster_filename, const int size)
 {
@@ -179,16 +189,16 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     {
         return result;
     }
+    if ((result=load_leader_election_config(full_cluster_filename)) != 0) {
+        return result;
+    }
+
     if ((result=load_master_election_config(full_cluster_filename)) != 0) {
         return result;
     }
     fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
-    if ((result=server_group_info_init(full_cluster_filename)) != 0) {
-        return result;
-    }
-
-    return 0;
+    return server_group_info_init(full_cluster_filename);
 }
 
 static int load_data_path_config(IniContext *ini_context, const char *filename)
@@ -246,13 +256,14 @@ static int load_data_path_config(IniContext *ini_context, const char *filename)
 
 static void server_log_configs()
 {
-    char sz_server_config[512];
+    char sz_server_config[1024];
     char sz_global_config[512];
     char sz_slowlog_config[256];
     char sz_service_config[128];
     char sz_cluster_config[128];
     char sz_replica_config[128];
     char sz_auth_config[1024];
+    int len;
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
@@ -269,7 +280,7 @@ static void server_log_configs()
     fcfs_auth_for_server_cfg_to_string(&AUTH_CTX,
             sz_auth_config, sizeof(sz_auth_config));
 
-    snprintf(sz_server_config, sizeof(sz_server_config),
+    len = snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
@@ -278,7 +289,9 @@ static void server_log_configs()
             "local_binlog_check_last_seconds = %d s, "
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
-            "idempotency_max_channel_count: %d",
+            "idempotency_max_channel_count: %d, "
+            "leader-election {leader_lost_timeout: %ds, "
+            "max_wait_time: %ds}",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
@@ -287,7 +300,27 @@ static void server_log_configs()
             LOCAL_BINLOG_CHECK_LAST_SECONDS,
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
-            SF_IDEMPOTENCY_MAX_CHANNEL_COUNT);
+            SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
+            LEADER_ELECTION_LOST_TIMEOUT,
+            LEADER_ELECTION_MAX_WAIT_TIME);
+
+    len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
+            ", master-election {failover=%s", (MASTER_ELECTION_FAILOVER ?
+                "true" : "false"));
+    if (MASTER_ELECTION_FAILOVER) {
+        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
+            len += snprintf(sz_server_config + len, sizeof(sz_server_config)
+                    - len, ", policy=%s", FS_MASTER_ELECTION_POLICY_STRICT_STR);
+        } else {
+            len += snprintf(sz_server_config + len,
+                    sizeof(sz_server_config) - len,
+                    ", policy=%s:%d",
+                    FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
+                    MASTER_ELECTION_TIMEOUTS);
+        }
+    }
+    len += snprintf(sz_server_config + len,
+            sizeof(sz_server_config) - len, "}");
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s", g_fs_global_vars.version.major,
