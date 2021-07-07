@@ -984,14 +984,20 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 TASK_CTX.common.need_response = false;
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
-                result = replica_deal_join_server_req(task);
+                if ((result=replica_deal_join_server_req(task)) > 0) {
+                    result *= -1;  //force close connection
+                }
                 break;
             case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
-                result = replica_deal_join_server_resp(task);
+                if ((result=replica_deal_join_server_resp(task)) > 0 ) {
+                    result *= -1;  //force close connection
+                }
                 TASK_CTX.common.need_response = false;
                 break;
             case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
-                result = du_handler_deal_client_join(task);
+                if ((result=du_handler_deal_client_join(task)) > 0) {
+                    result *= -1;  //force close connection
+                }
                 break;
             case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
                 result = du_handler_deal_get_readable_server(task,
@@ -1008,10 +1014,8 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 }
                 break;
             case FS_REPLICA_PROTO_RPC_RESP:
-                if ((result=replica_deal_rpc_resp(task)) != 0) {
-                    if (result > 0) {
-                        result *= -1;  //force close connection
-                    }
+                if ((result=replica_deal_rpc_resp(task)) > 0) {
+                    result *= -1;  //force close connection
                 }
                 TASK_CTX.common.need_response = false;
                 break;
