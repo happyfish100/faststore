@@ -486,8 +486,6 @@ int server_load_config(const char *filename)
         return EINVAL;
     }
 
-    logInfo("cpu count: %d", SYSTEM_CPU_COUNT);
-
     g_server_global_vars.replica.active_test_interval = (int)
         ceil(SF_G_NETWORK_TIMEOUT / 2.00);
     g_sf_binlog_data_path = DATA_PATH_STR;

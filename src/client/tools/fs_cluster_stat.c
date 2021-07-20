@@ -76,7 +76,7 @@ static void output(FSClientClusterStatEntry *stats, const int count)
                 stat->data_version
               );
     }
-    printf("\nserver count: %d\n\n", count);
+    printf("\ndata server count: %d\n\n", count);
 }
 
 int main(int argc, char *argv[])
