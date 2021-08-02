@@ -1,6 +1,5 @@
-faststore (2.3.0-1) UNRELEASED; urgency=low
+faststore (2.3.0-1) unstable; urgency=medium
 
-  * Initial release. Closes: #nnnn
-    <nnnn is the bug number of your ITP>
+  * Initial release.
 
- --  <>  Sun, 25 Jul 2021 17:39:44 +0800
+ -- YuQing <384681@qq.com>  Sun, 25 Jul 2021 17:39:44 +0800
