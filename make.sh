@@ -2,9 +2,6 @@ ENABLE_STATIC_LIB=0
 ENABLE_SHARED_LIB=1
 TARGET_PREFIX=$DESTDIR/usr
 TARGET_CONF_PATH=$DESTDIR/etc/fdir
-TARGET_INIT_PATH=$DESTDIR/etc/init.d
-
-WITH_LINUX_SERVICE=1
 
 DEBUG_FLAG=1
 
@@ -157,19 +154,3 @@ fi
 cd ../api
 replace_makefile
 make $1 $2
-
-if [ "$1" = "install" ]; then
-  cd ..
-  if [ "$uname" = "Linux" ]; then
-    if [ "$WITH_LINUX_SERVICE" = "1" ]; then
-      if [ ! -d /etc/fdir ]; then
-        mkdir -p /etc/fdir
-        cp -f conf/server.conf $TARGET_CONF_PATH/server.conf.sample
-        cp -f conf/client.conf $TARGET_CONF_PATH/client.conf.sample
-      fi
-#      mkdir -p $TARGET_INIT_PATH
-#      cp -f init.d/fdir_serverd $TARGET_INIT_PATH
-#      /sbin/chkconfig --add fdir_serverd 
-    fi
-  fi
-fi
