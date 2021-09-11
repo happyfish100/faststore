@@ -13,11 +13,9 @@ override_dh_auto_install:
 	./make.sh install
 	
 	mkdir -p $(CONFDIR)
-	mkdir -p $(SYSTEMDIR)
 	cp conf/*.conf $(CONFDIR)
 	cp systemd/faststore.service debian/faststore-server.faststore.service
 	dh_auto_install
 
 override_dh_installsystemd:
-	dh_installsystemd --package=faststore-server --name=faststore --no-start
-	
+	dh_installsystemd --package=faststore-server --name=faststore --no-start --no-restart-on-upgrade
