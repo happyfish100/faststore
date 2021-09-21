@@ -145,8 +145,9 @@ int trunk_sf_binlog_get_current_write_index()
 
 static int init_binlog_writer()
 {
-    return sf_binlog_writer_init(&binlog_writer, FS_TRUNK_BINLOG_SUBDIR_NAME,
-            BINLOG_BUFFER_SIZE, FS_TRUNK_BINLOG_MAX_RECORD_SIZE);
+    return sf_binlog_writer_init(&binlog_writer, DATA_PATH_STR,
+            FS_TRUNK_BINLOG_SUBDIR_NAME, BINLOG_BUFFER_SIZE,
+            FS_TRUNK_BINLOG_MAX_RECORD_SIZE);
 }
 
 int trunk_binlog_init()

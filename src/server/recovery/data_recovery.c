@@ -298,7 +298,7 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx,
     result = ETIMEDOUT;
     replica_binlog_get_subdir_name(subdir_name, ctx->ds->dg->id);
     for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
-        sf_binlog_writer_get_filename(subdir_name,
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
                 replica_binlog_get_current_write_index(
                     ctx->ds->dg->id), filename, sizeof(filename));
         if ((r=replica_binlog_get_last_data_version(

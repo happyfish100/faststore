@@ -1,7 +1,6 @@
 %define FastStoreServer faststore-server
 %define FastStoreClient faststore-client
 %define FastStoreDevel  faststore-devel
-%define FastStoreDebuginfo faststore-debuginfo
 %define FastStoreConfig faststore-config
 %define CommitVersion %(echo $COMMIT_VERSION)
 
