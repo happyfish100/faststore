@@ -133,7 +133,7 @@ static void slice_write_done_notify(FSDataOperation *op)
     PTHREAD_MUTEX_UNLOCK(&thread_ctx->common.lcp.lock);
 }
 
-int replay_task_alloc_init(void *element, void *args)
+static int replay_task_alloc_init(void *element, void *args)
 {
     int result;
     ReplayTaskInfo *task;
