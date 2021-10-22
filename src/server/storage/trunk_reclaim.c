@@ -197,6 +197,7 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
     TrunkReclaimSliceInfo *tail;
     TrunkReclaimBlockInfo *block;
 
+    barray->count = 0;
     if (barray->alloc < sarray->count) {
         if ((result=realloc_rb_array(barray, sarray->count)) != 0) {
             return result;
