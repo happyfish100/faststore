@@ -344,6 +344,12 @@ static bool can_add_to_freelist(FSTrunkFileInfo *trunk_info)
                 <= (1.00 -  STORAGE_CFG.reclaim_trunks_on_path_usage));
     }
 
+    if ((double)remain_size / (double)trunk_info->size >=
+            (1.00 - STORAGE_CFG.reclaim_trunks_on_path_usage))
+    {
+        return true;
+    }
+
     ratio_thredhold = trunk_allocator_calc_reclaim_ratio_thredhold(
             trunk_info->allocator);
     return ((double)trunk_info->used.bytes / (double)
