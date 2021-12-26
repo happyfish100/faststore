@@ -13,8 +13,8 @@ Homepage: http://github.com/happyfish100/faststore
 Package: faststore
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.53),
-         libserverframe (>= 1.1.10),
+Depends: libfastcommon (>= 1.0.54),
+         libserverframe (>= 1.1.11),
          fastcfs-auth-client (>= 2.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-server (= ${binary:Version}),
@@ -26,8 +26,8 @@ Description: a high performance distributed file storage service
 Package: faststore-server
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.53),
-         libserverframe (>= 1.1.10),
+Depends: libfastcommon (>= 1.0.54),
+         libserverframe (>= 1.1.11),
          fastcfs-auth-client (>= 2.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-config (>= 1.0.0),
@@ -38,8 +38,8 @@ Description: FastStore server
 Package: faststore-client
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.53),
-         libserverframe (>= 1.1.10),
+Depends: libfastcommon (>= 1.0.54),
+         libserverframe (>= 1.1.11),
          fastcfs-auth-client (>= 2.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-config (>= 1.0.0),
