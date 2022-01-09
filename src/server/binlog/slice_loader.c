@@ -518,7 +518,7 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
         line.len = line_end - line_start;
 
         if (thread_ctx->freelist == NULL) {
-            thread_ctx->freelist = fast_mblock_batch_alloc(
+            thread_ctx->freelist = fast_mblock_batch_alloc1(
                     &thread_ctx->record_allocator,
                     MBLOCK_BATCH_ALLOC_SIZE);
             if (thread_ctx->freelist == NULL) {
