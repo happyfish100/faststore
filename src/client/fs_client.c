@@ -213,12 +213,12 @@ int fs_cluster_stat(FSClientContext *client_ctx, const ConnectionInfo
     return result;
 }
 
-int fs_client_slice_write(FSClientContext *client_ctx,
-        const FSBlockSliceKeyInfo *bs_key, const char *data,
+static int do_slice_write(FSClientContext *client_ctx,
+        ConnectionInfo **conn, const FSBlockSliceKeyInfo *bs_key,
+        const bool is_writev, const void *data, const int count,
         int *write_bytes, int *inc_alloc)
 {
     const SFConnectionParameters *connection_params;
-    ConnectionInfo *conn;
     IdempotencyClientChannel *old_channel;
     FSBlockSliceKeyInfo new_key;
     int result;
@@ -237,19 +237,11 @@ int fs_client_slice_write(FSClientContext *client_ctx,
     int64_t time_used;
     
     start_time = get_current_time_us();
+    conn_time_used += get_current_time_us() - start_time;
     */
 
-    if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
-                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
-                        bs_key->block.hash_code), &result)) == NULL)
-    {
-        return SF_UNIX_ERRNO(result, EIO);
-    }
-
-    //conn_time_used += get_current_time_us() - start_time;
-
     connection_params = client_ctx->cm.ops.get_connection_params(
-            &client_ctx->cm, conn);
+            &client_ctx->cm, *conn);
 
     sf_init_net_retry_interval_context(&net_retry_ctx,
             &client_ctx->common_cfg.net_retry_cfg.interval_mm,
@@ -285,10 +277,17 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             }
 
             if (result == 0) {
-                if ((result=fs_client_proto_slice_write(client_ctx, conn,
-                                req_id, &new_key, data + *write_bytes,
-                                &current_alloc)) == 0)
-                {
+                if (is_writev) {
+                    result = fs_client_proto_slice_writev(client_ctx, *conn,
+                            req_id, &new_key, (const struct iovec *)data,
+                            count, &current_alloc);
+                } else {
+                    result = fs_client_proto_slice_write(client_ctx, *conn,
+                            req_id, &new_key, (char *)data + *write_bytes,
+                            &current_alloc);
+                }
+
+                if (result == 0) {
                     break;
                 }
             }
@@ -301,7 +300,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                             connection_params->channel) == 0)
                 {
                     if ((conn_result=sf_proto_rebind_idempotency_channel(
-                                    conn, connection_params->channel->id,
+                                    *conn, connection_params->channel->id,
                                     connection_params->channel->key,
                                     client_ctx->common_cfg.network_timeout)) == 0)
                     {
@@ -319,8 +318,8 @@ int fs_client_slice_write(FSClientContext *client_ctx,
                     __LINE__, __FUNCTION__, result, i);
                     */
 
-            SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, conn_result);
-            if ((conn=client_ctx->cm.ops.get_master_connection(
+            SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, *conn, conn_result);
+            if ((*conn=client_ctx->cm.ops.get_master_connection(
                             &client_ctx->cm, FS_CLIENT_DATA_GROUP_INDEX(
                                 client_ctx, bs_key->block.hash_code),
                             &result)) == NULL)
@@ -329,7 +328,7 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             }
 
             connection_params = client_ctx->cm.ops.
-                get_connection_params(&client_ctx->cm, conn);
+                get_connection_params(&client_ctx->cm, *conn);
             if (connection_params->channel != old_channel) {
                 break;
             }
@@ -370,8 +369,6 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         sf_reset_net_retry_interval(&net_retry_ctx);
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
-
     /*
     time_used = get_current_time_us() - start_time;
     total_time_used += time_used;
@@ -382,6 +379,118 @@ int fs_client_slice_write(FSClientContext *client_ctx,
             */
 
     return SF_UNIX_ERRNO(result, EIO);
+}
+
+#define FS_CLIENT_SLICE_WRITE_BUF(client_ctx, conn, bs_key, \
+        data, write_bytes, inc_alloc) \
+        do_slice_write(client_ctx, conn, bs_key, false, \
+                data, 0, write_bytes, inc_alloc)
+
+#define FS_CLIENT_SLICE_WRITE_IOV(client_ctx, conn, bs_key, \
+        iov, iovcnt, write_bytes, inc_alloc) \
+        do_slice_write(client_ctx, conn, bs_key, true, \
+                iov, iovcnt, write_bytes, inc_alloc)
+
+int fs_client_slice_write(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const char *data,
+        int *write_bytes, int *inc_alloc)
+{
+    ConnectionInfo *conn;
+    int result;
+
+    if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
+                        bs_key->block.hash_code), &result)) == NULL)
+    {
+        return SF_UNIX_ERRNO(result, EIO);
+    }
+
+    result = FS_CLIENT_SLICE_WRITE_BUF(client_ctx, &conn,
+            bs_key, data, write_bytes, inc_alloc);
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    return result;
+}
+
+int fs_client_slice_writev(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+        const int iovcnt, int *write_bytes, int *inc_alloc)
+{
+    ConnectionInfo *conn;
+    const SFConnectionParameters *connection_params;
+    FSBlockSliceKeyInfo new_key;
+    const struct iovec *iob;
+    const struct iovec *iovp;
+    const struct iovec *end;
+    int curcnt;
+    int remain;
+    int bytes;
+    int written;
+    int alloc;
+    int result;
+
+    if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
+                        bs_key->block.hash_code), &result)) == NULL)
+    {
+        return SF_UNIX_ERRNO(result, EIO);
+    }
+    connection_params = client_ctx->cm.ops.get_connection_params(
+            &client_ctx->cm, conn);
+
+    if (iovcnt == 1) {
+        result = FS_CLIENT_SLICE_WRITE_BUF(client_ctx, &conn,
+                bs_key, iov->iov_base, write_bytes, inc_alloc);
+    } else if (bs_key->slice.length <= connection_params->buffer_size) {
+        result = FS_CLIENT_SLICE_WRITE_IOV(client_ctx, &conn,
+                bs_key, iov, iovcnt, write_bytes, inc_alloc);
+    } else {
+        *write_bytes = *inc_alloc = 0;
+        end = iov + iovcnt;
+        iovp = iov;
+        new_key = *bs_key;
+        remain = bs_key->slice.length;
+        while (iovp < end) {
+            if (remain <= connection_params->buffer_size) {
+                bytes = remain;
+                curcnt = end - iovp;
+            } else {
+                bytes = iovp->iov_len;
+                iob = iovp + 1;
+                while (iob < end && bytes + iob->iov_len <=
+                        connection_params->buffer_size)
+                {
+                    bytes += iob->iov_len;
+                    iob++;
+                }
+                curcnt = iob - iovp;
+            }
+            new_key.slice.length = bytes;
+
+            if (curcnt == 1) {
+                result = FS_CLIENT_SLICE_WRITE_BUF(client_ctx, &conn,
+                        &new_key, iovp->iov_base, &written, &alloc);
+            } else {
+                result = FS_CLIENT_SLICE_WRITE_IOV(client_ctx, &conn,
+                        &new_key, iovp, curcnt, &written, &alloc);
+            }
+            if (result != 0) {
+                break;
+            }
+
+            remain -= bytes;
+            *write_bytes += written;
+            *inc_alloc += alloc;
+            if (remain <= 0) {
+                break;
+            }
+
+            iovp += curcnt;
+            new_key.slice.offset += bytes;
+        }
+    }
+
+    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    return result;
 }
 
 int fs_client_slice_read_ex(FSClientContext *client_ctx,

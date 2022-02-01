@@ -86,6 +86,10 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc);
 
+int fs_client_slice_writev(FSClientContext *client_ctx,
+        const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+        const int iovcnt, int *write_bytes, int *inc_alloc);
+
 int fs_client_slice_read_ex(FSClientContext *client_ctx,
         const int slave_id, const int req_cmd, const int resp_cmd,
         const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);

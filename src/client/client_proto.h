@@ -58,6 +58,11 @@ extern "C" {
             const FSBlockSliceKeyInfo *bs_key, const char *data,
             int *inc_alloc);
 
+    int fs_client_proto_slice_writev(FSClientContext *client_ctx,
+            ConnectionInfo *conn, const uint64_t req_id,
+            const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+            const int iovcnt, int *inc_alloc);
+
     int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
             ConnectionInfo *conn, const int slave_id, const int req_cmd,
             const int resp_cmd, const FSBlockSliceKeyInfo *bs_key,

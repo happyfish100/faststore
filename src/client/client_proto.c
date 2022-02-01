@@ -31,10 +31,10 @@ static inline void proto_pack_block_key(const FSBlockKey *
     long2buff(bkey->offset, proto_bkey->offset);
 }
 
-int fs_client_proto_slice_write(FSClientContext *client_ctx,
+static int do_slice_write(FSClientContext *client_ctx,
         ConnectionInfo *conn, const uint64_t req_id,
-        const FSBlockSliceKeyInfo *bs_key, const char *data,
-        int *inc_alloc)
+        const FSBlockSliceKeyInfo *bs_key, tcpsenddatafunc send_func,
+        void *data, const int size, int *inc_alloc)
 {
     char out_buff[sizeof(FSProtoHeader) +
         SF_PROTO_UPDATE_EXTRA_BODY_SIZE +
@@ -63,8 +63,8 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
             break;
         }
 
-        if ((result=tcpsenddata_nb(conn->sock, (char *)data, bs_key->slice.
-                        length, client_ctx->common_cfg.network_timeout)) != 0)
+        if ((result=send_func(conn->sock, data, size, client_ctx->
+                        common_cfg.network_timeout)) != 0)
         {
             break;
         }
@@ -85,6 +85,25 @@ int fs_client_proto_slice_write(FSClientContext *client_ctx,
     }
 
     return result;
+}
+
+int fs_client_proto_slice_write(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const uint64_t req_id,
+        const FSBlockSliceKeyInfo *bs_key, const char *data,
+        int *inc_alloc)
+{
+    return do_slice_write(client_ctx, conn, req_id, bs_key, tcpsenddata_nb,
+            (void *)data, bs_key->slice.length, inc_alloc);
+}
+
+int fs_client_proto_slice_writev(FSClientContext *client_ctx,
+        ConnectionInfo *conn, const uint64_t req_id,
+        const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+        const int iovcnt, int *inc_alloc)
+{
+    return do_slice_write(client_ctx, conn, req_id, bs_key,
+            (tcpsenddatafunc)tcpwritev_nb,
+            (void *)iov, iovcnt, inc_alloc);
 }
 
 int fs_client_proto_slice_read_ex(FSClientContext *client_ctx,
