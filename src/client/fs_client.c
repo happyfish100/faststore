@@ -574,8 +574,22 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
 #define GET_MASTER_CONNECTION(cm, arg1, result)        \
     (cm)->ops.get_master_connection(cm, arg1, result)
 
+#define GET_READALBE_CONNECTION(cm, arg1, result)        \
+    (cm)->ops.get_readable_connection(cm, arg1, result)
+
 #define GET_LEADER_CONNECTION(cm, arg1, result)        \
     (cm)->ops.get_leader_connection(cm, arg1, result)
+
+int fs_client_slice_readv_ex(FSClientContext *client_ctx,
+        const int slave_id, const int req_cmd, const int resp_cmd,
+        const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+        const int iovcnt, int *read_bytes)
+{
+    SF_CLIENT_IDEMPOTENCY_QUERY_WRAPPER(client_ctx, &client_ctx->cm,
+            GET_READALBE_CONNECTION, FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
+                bs_key->block.hash_code), fs_client_proto_slice_readv_ex,
+            slave_id, req_cmd, resp_cmd, bs_key, iov, iovcnt, read_bytes);
+}
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,

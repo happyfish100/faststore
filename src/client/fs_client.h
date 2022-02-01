@@ -94,6 +94,11 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
         const int slave_id, const int req_cmd, const int resp_cmd,
         const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes);
 
+int fs_client_slice_readv_ex(FSClientContext *client_ctx,
+        const int slave_id, const int req_cmd, const int resp_cmd,
+        const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
+        const int iovcnt, int *read_bytes);
+
 int fs_client_bs_operate(FSClientContext *client_ctx,
         const void *key, const uint32_t hash_code,
         const int req_cmd, const int resp_cmd,
@@ -117,6 +122,10 @@ int fs_client_bs_operate(FSClientContext *client_ctx,
             FS_REPLICA_PROTO_SLICE_READ_REQ,  \
             FS_REPLICA_PROTO_SLICE_READ_RESP, \
             bs_key, buff, read_bytes)
+
+#define fs_client_slice_readv(client_ctx, bs_key, iov, iovcnt, read_bytes)   \
+    fs_client_slice_readv_ex(client_ctx, 0, FS_SERVICE_PROTO_SLICE_READ_REQ, \
+            FS_SERVICE_PROTO_SLICE_READ_RESP, bs_key, iov, iovcnt, read_bytes)
 
 #define fs_client_slice_delete_ex(client_ctx, bs_key, \
         enoent_log_level, dec_alloc) \
