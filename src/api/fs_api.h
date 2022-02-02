@@ -79,6 +79,9 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
 int fs_api_slice_read(FSAPIOperationContext *op_ctx,
         char *buff, int *read_bytes);
 
+int fs_api_slice_readv(FSAPIOperationContext *op_ctx,
+        const struct iovec *iov, const int iovcnt, int *read_bytes);
+
 int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *inc_alloc);
 

@@ -509,6 +509,20 @@ int fs_api_slice_read(FSAPIOperationContext *op_ctx,
     }
 }
 
+int fs_api_slice_readv(FSAPIOperationContext *op_ctx,
+        const struct iovec *iov, const int iovcnt, int *read_bytes)
+{
+    if (op_ctx->api_ctx->read_ahead.enabled) {
+        op_ctx->op_type = 'r';
+        FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
+        return preread_slice_readv(op_ctx, iov, iovcnt, read_bytes);
+    } else {
+        SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
+        return fs_client_slice_readv(op_ctx->api_ctx->fs,
+                &op_ctx->bs_key, iov, iovcnt, read_bytes);
+    }
+}
+
 int fs_api_slice_allocate_ex(FSAPIOperationContext *op_ctx,
         const int enoent_log_level, int *inc_alloc)
 {

@@ -31,7 +31,14 @@ typedef struct fs_preread_otid_entry {
 typedef struct fs_api_insert_buffer_context {
     FSAPIOperationContext *op_ctx;
     FSAPIBuffer *buffer;
-    char *out_buff;
+    bool is_readv;
+    union {
+        struct {
+            int iovcnt;
+            const struct iovec *iov;
+        };
+        char *buff;
+    } out;
     int *read_bytes;
     int ahead_bytes;
 } FSAPIInsertBufferContext;
@@ -53,6 +60,34 @@ static void release_entry_buffer(FSPrereadOTIDEntry *entry)
     entry->buffer = NULL;
 }
 
+static inline void fill_out_buffer(FSAPIInsertBufferContext *ictx,
+        const char *buff, const int length)
+{
+    const struct iovec *iob;
+    const struct iovec *end;
+    const char *current;
+    int remain;
+    int bytes;
+
+    if (ictx->is_readv) {
+        current = buff;
+        remain = length;
+        end = ictx->out.iov + ictx->out.iovcnt;
+        for (iob=ictx->out.iov; iob<end; iob++) {
+            bytes = FC_MIN(remain, iob->iov_len);
+            memcpy(iob->iov_base, current, bytes);
+
+            remain -= bytes;
+            if (remain == 0) {
+                break;
+            }
+            current += bytes;
+        }
+    } else {
+        memcpy(ictx->out.buff, buff, length);
+    }
+}
+
 static void process_on_successive(FSAPIInsertBufferContext *ictx,
         FSPrereadOTIDEntry *entry, bool *release_buffer)
 {
@@ -66,8 +101,8 @@ static void process_on_successive(FSAPIInsertBufferContext *ictx,
                     (entry->buffer->length - entry->buffer->offset)))
     {
         *(ictx->read_bytes) = ictx->op_ctx->bs_key.slice.length;
-        memcpy(ictx->out_buff, entry->buffer->buff +
-                entry->buffer->offset, *(ictx->read_bytes));
+        fill_out_buffer(ictx, entry->buffer->buff + entry->
+                buffer->offset, *(ictx->read_bytes));
         entry->buffer->offset += *(ictx->read_bytes);
         *release_buffer = (entry->buffer->length -
                 entry->buffer->offset == 0);
@@ -197,8 +232,9 @@ int preread_otid_htable_init(const int sharding_count,
             element_limit, min_ttl_ms, max_ttl_ms, low_water_mark_ratio);
 }
 
-int preread_slice_read(FSAPIOperationContext *op_ctx,
-            char *buff, int *read_bytes)
+static int slice_preread(FSAPIOperationContext *op_ctx,
+        const bool is_readv, const void *data,
+        const int iovcnt, int *read_bytes)
 {
     int result;
     int old_slice_len;
@@ -212,7 +248,13 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     key.oid = op_ctx->bs_key.block.oid;
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
-    ictx.out_buff = buff;
+    ictx.is_readv = is_readv;
+    if (is_readv) {
+        ictx.out.iov = (const struct iovec *)data;
+        ictx.out.iovcnt = iovcnt;
+    } else {
+        ictx.out.buff = (char *)data;
+    }
     ictx.read_bytes = read_bytes;
     ictx.ahead_bytes = 0;
     ictx.buffer = NULL;
@@ -234,8 +276,13 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
 
     if (ictx.buffer == NULL) {
         FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx);
-        return fs_client_slice_read(op_ctx->api_ctx->fs,
-                &op_ctx->bs_key, buff, read_bytes);
+        if (is_readv) {
+            return fs_client_slice_readv(op_ctx->api_ctx->fs, &op_ctx->
+                    bs_key, ictx.out.iov, ictx.out.iovcnt, read_bytes);
+        } else {
+            return fs_client_slice_read(op_ctx->api_ctx->fs,
+                    &op_ctx->bs_key, ictx.out.buff, read_bytes);
+        }
     }
 
     old_slice_len = op_ctx->bs_key.slice.length;
@@ -247,7 +294,7 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     release_buffer = true;
     if (result == 0) {
         *read_bytes = FC_MIN(bytes, old_slice_len);
-        memcpy(buff, ictx.buffer->buff, *read_bytes);
+        fill_out_buffer(&ictx, ictx.buffer->buff, *read_bytes);
         if (bytes > old_slice_len) {
             PTHREAD_MUTEX_LOCK(ictx.buffer->lock);
             if (!ictx.buffer->deleted) {
@@ -280,4 +327,18 @@ int preread_slice_read(FSAPIOperationContext *op_ctx,
     }
     op_ctx->bs_key.slice.length = old_slice_len;  //restore length
     return result;
+}
+
+int preread_slice_read(FSAPIOperationContext *op_ctx,
+            char *buff, int *read_bytes)
+{
+    const bool is_readv = false;
+    return slice_preread(op_ctx, is_readv, buff, 0, read_bytes);
+}
+
+int preread_slice_readv(FSAPIOperationContext *op_ctx,
+        const struct iovec *iov, const int iovcnt, int *read_bytes)
+{
+    const bool is_readv = true;
+    return slice_preread(op_ctx, is_readv, iov, iovcnt, read_bytes);
 }

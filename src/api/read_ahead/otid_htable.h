@@ -33,6 +33,9 @@ extern "C" {
     int preread_slice_read(FSAPIOperationContext *op_ctx,
             char *buff, int *read_bytes);
 
+    int preread_slice_readv(FSAPIOperationContext *op_ctx,
+            const struct iovec *iov, const int iovcnt, int *read_bytes);
+
 #ifdef __cplusplus
 }
 #endif
