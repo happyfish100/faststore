@@ -52,6 +52,34 @@ static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
             &ictx->waiting_task->waitings.fixed_pair);
 }
 
+static void copy_to_buff(char *buff, FSAPIWriteBuffer *wbuffer,
+        const int length)
+{
+    const struct iovec *iob;
+    const struct iovec *end;
+    char *current;
+    int remain;
+    int bytes;
+
+    if (wbuffer->is_writev) {
+        current = buff;
+        remain = length;
+        end = wbuffer->iov + wbuffer->iovcnt;
+        for (iob=wbuffer->iov; iob<end; iob++) {
+            bytes = FC_MIN(remain, iob->iov_len);
+            memcpy(current, iob->iov_base, bytes);
+
+            remain -= bytes;
+            if (remain == 0) {
+                break;
+            }
+            current += bytes;
+        }
+    } else {
+        memcpy(buff, wbuffer->buff, length);
+    }
+}
+
 static int do_combine_slice(FSAPISliceEntry *slice,
         FSAPIInsertSliceContext *ictx)
 {
@@ -65,10 +93,9 @@ static int do_combine_slice(FSAPISliceEntry *slice,
         return 0;
     }
 
-    memcpy(slice->buff + slice->bs_key.slice.length,
-            ictx->wbuffer->buff, ictx->op_ctx->bs_key.slice.length);
-    slice->bs_key.slice.length = slice->bs_key.slice.length +
-                ictx->op_ctx->bs_key.slice.length;
+    copy_to_buff(slice->buff + slice->bs_key.slice.length,
+            ictx->wbuffer, ictx->op_ctx->bs_key.slice.length);
+    slice->bs_key.slice.length += ictx->op_ctx->bs_key.slice.length;
     slice->merged_slices++;
     ictx->wbuffer->combined = true;
     if (ictx->op_ctx->api_ctx->write_combine.buffer_size -
@@ -344,7 +371,7 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
         old_block = FS_API_FETCH_SLICE_BLOCK(ictx->slice);
     }
 
-    memcpy(ictx->slice->buff, ictx->wbuffer->buff,
+    copy_to_buff(ictx->slice->buff, ictx->wbuffer,
             ictx->op_ctx->bs_key.slice.length);
     ictx->slice->bs_key = ictx->op_ctx->bs_key;
     ictx->slice->merged_slices = 1;

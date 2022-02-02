@@ -484,8 +484,15 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         *write_bytes = op_ctx->bs_key.slice.length;
         *inc_alloc = 0;
     } else {
-        result = fs_client_slice_write(op_ctx->api_ctx->fs, &op_ctx->
-                bs_key, wbuffer->buff, write_bytes, inc_alloc);
+        if (wbuffer->is_writev) {
+            result = fs_client_slice_writev(op_ctx->api_ctx->fs,
+                    &op_ctx->bs_key, wbuffer->iov, wbuffer->iovcnt,
+                    write_bytes, inc_alloc);
+        } else {
+            result = fs_client_slice_write(op_ctx->api_ctx->fs,
+                    &op_ctx->bs_key, wbuffer->buff,
+                    write_bytes, inc_alloc);
+        }
     }
 
     if (op_ctx->api_ctx->read_ahead.enabled) {

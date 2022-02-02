@@ -129,10 +129,18 @@ typedef struct fs_api_operation_context {
 } FSAPIOperationContext;
 
 typedef struct fs_api_write_buffer {
-    const char *buff;
-    void *extra_data;  //for write done callback
+    bool is_writev;
     bool combined;
     short reason;       //not combine reason
+    union {
+        struct {
+            int iovcnt;
+            const struct iovec *iov;
+        };
+        const char *buff;
+    };
+
+    void *extra_data;  //for write done callback
 } FSAPIWriteBuffer;
 
 typedef struct fs_api_context {

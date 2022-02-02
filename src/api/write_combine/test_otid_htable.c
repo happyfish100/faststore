@@ -38,6 +38,7 @@ void *thread_run(void *arg)
     buff = (char *)malloc(length);
     memset(buff, 0, length);
 
+    wbuffer.is_writev = false;
     wbuffer.buff = buff;
     wbuffer.extra_data = NULL;
 
