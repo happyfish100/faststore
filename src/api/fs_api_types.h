@@ -39,11 +39,11 @@
 #define FS_NOT_COMBINED_REASON_DIFFERENT_OID      1099
 
 #define FS_API_SET_WBUFFER_BUFF(wbuffer, _buff)  \
-    wbuffer->is_writev = false; wbuffer->buff = _buff
+    (wbuffer).is_writev = false; (wbuffer).buff = _buff
 
-#define FS_API_SET_WBUFFER_IOV(wbuffer, _iov, _cnt)  \
-    wbuffer->is_writev = true; wbuffer->iov = _iov;  \
-    wbuffer->iovcnt = _cnt
+#define FS_API_SET_WBUFFER_IOV(wbuffer, _iov, _cnt)   \
+    (wbuffer).is_writev = true; (wbuffer).iov = _iov; \
+    (wbuffer).iovcnt = _cnt
 
 struct fs_api_block_entry;
 struct fs_wcombine_otid_entry;

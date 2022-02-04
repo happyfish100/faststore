@@ -360,7 +360,6 @@ static int do_slice_write(FSClientContext *client_ctx,
         *inc_alloc += current_alloc;
         *write_bytes += bytes;
         remain -= bytes;
-
         if (remain == 0) {
             break;
         }

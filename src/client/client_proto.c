@@ -20,6 +20,7 @@
 #include "fastcommon/sockopt.h"
 #include "fastcommon/connection_pool.h"
 #include "sf/idempotency/client/client_channel.h"
+#include "sf/sf_iov.h"
 #include "fs_proto.h"
 #include "client_global.h"
 #include "client_proto.h"
@@ -106,103 +107,10 @@ int fs_client_proto_slice_writev(FSClientContext *client_ctx,
             (void *)iov, iovcnt, inc_alloc);
 }
 
-static void fill_hole(const struct iovec *iov,
-        const int hole_start, const int hole_len)
-{
-    const struct iovec *iob;
-    int bytes;
-    int remain_len;
-    int left_bytes;
-    char *start;
-
-    iob = iov;
-    bytes = iob->iov_len;
-    while (bytes <= hole_start) {
-        ++iob;
-        bytes += iob->iov_len;
-    }
-
-    remain_len = bytes - hole_start;
-    start = (char *)iob->iov_base + (iob->iov_len - remain_len);
-    if (hole_len <= remain_len) {
-        memset(start, 0, hole_len);
-        return;
-    }
-
-    memset(start, 0, remain_len);
-    left_bytes = hole_len - remain_len;
-    while (1) {
-        ++iob;
-        if (left_bytes <= iob->iov_len) {
-            memset(iob->iov_base, 0, left_bytes);
-            return;
-        }
-
-        memset(iob->iov_base, 0, iob->iov_len);
-        left_bytes -= iob->iov_len;
-    }
-}
-
-#define FS_IOV_FIXED_SIZE  256
-typedef struct {
-    struct iovec holder[FS_IOV_FIXED_SIZE];
-    struct iovec *ptr;
-
-    struct {
-        struct iovec *iov;
-        int cnt;
-    } input;
-
-    struct iovec *iov;
-    int cnt;
-} FSIOVArray;
-
-static int calc_iova(FSIOVArray *iova, const int curr_len)
-{
-    struct iovec *iob;
-    int bytes;
-    int remain_len;
-
-    if (iova->iov == iova->input.iov) {
-        if (iova->input.cnt <= FS_IOV_FIXED_SIZE) {
-            iova->ptr = iova->holder;
-        } else {
-            iova->ptr = (struct iovec *)fc_malloc(iova->input.cnt *
-                    sizeof(struct iovec));
-            if (iova->ptr == NULL) {
-                return ENOMEM;
-            }
-        }
-
-        memcpy(iova->ptr, iova->input.iov, iova->input.cnt *
-                sizeof(struct iovec));
-        iova->iov = iova->ptr;
-    }
-
-    iob = iova->iov;
-    bytes = iob->iov_len;
-    while (bytes <= curr_len) {
-        ++iob;
-        bytes += iob->iov_len;
-    }
-
-    /* adjust the first element */
-    remain_len = bytes - curr_len;
-    if (remain_len < iob->iov_len) {
-        iob->iov_base = (char *)iob->iov_base +
-            (iob->iov_len - remain_len);
-        iob->iov_len = remain_len;
-    }
-
-    iova->cnt -= (iob - iova->iov);
-    iova->iov = iob;
-    return 0;
-}
-
 static int do_slice_read(FSClientContext *client_ctx,
         ConnectionInfo *conn, const int slave_id, const int req_cmd,
         const int resp_cmd, const FSBlockSliceKeyInfo *bs_key,
-        const bool is_readv, const void *data, const int count,
+        const bool is_readv, const void *data, const int iovcnt,
         int *read_bytes)
 {
     const SFConnectionParameters *connection_params;
@@ -215,7 +123,7 @@ static int do_slice_read(FSClientContext *client_ctx,
     FSProtoServiceSliceReadReq *sreq;
     FSProtoReplicaSliceReadReq *rreq;
     FSProtoBlockSlice *proto_bs;
-    FSIOVArray iova;
+    SFDynamicIOVArray iova;
     int out_bytes;
     int hole_start;
     int hole_len;
@@ -246,8 +154,7 @@ static int do_slice_read(FSClientContext *client_ctx,
     hole_start = buff_offet = 0;
     remain = bs_key->slice.length;
     if (is_readv) {
-        iova.iov = iova.input.iov = (struct iovec *)data;
-        iova.cnt = iova.input.cnt = count;
+        sf_iova_init(iova, (struct iovec *)data, iovcnt);
     }
     while (remain > 0) {
         if (remain <= connection_params->buffer_size) {
@@ -306,7 +213,12 @@ static int do_slice_read(FSClientContext *client_ctx,
             hole_len = buff_offet - hole_start;
             if (hole_len > 0) {
                 if (is_readv) {
-                    fill_hole(iova.input.iov, hole_start, hole_len);
+                    if ((result=sf_iova_memset_ex(iova.input.iov,
+                                    iova.input.cnt, 0, hole_start,
+                                    hole_len)) != 0)
+                    {
+                        break;
+                    }
                 } else {
                     memset((char *)data + hole_start, 0, hole_len);
                 }
@@ -319,7 +231,7 @@ static int do_slice_read(FSClientContext *client_ctx,
                 "current length: %d, current read: %d, remain: %d, result: %d",
                 hole_start, bs_key->slice.offset + buff_offet,
                 curr_len, bytes, remain, result);
-                */
+         */
 
         buff_offet += curr_len;
         remain -= curr_len;
@@ -328,16 +240,14 @@ static int do_slice_read(FSClientContext *client_ctx,
         }
 
         if (is_readv) {
-            if ((result=calc_iova(&iova, curr_len)) != 0) {
+            if ((result=sf_iova_consume(&iova, curr_len)) != 0) {
                 break;
             }
         }
     }
 
-    if (is_readv && (iova.iov != iova.input.iov)) {
-        if (iova.ptr != iova.holder) {
-            free(iova.ptr);
-        }
+    if (is_readv) {
+        sf_iova_destroy(iova);
     }
 
     *read_bytes = hole_start;
