@@ -14,6 +14,7 @@
  */
 
 #include <stdlib.h>
+#include "sf/sf_iov.h"
 #include "../fs_api_allocator.h"
 #include "../fs_api.h"
 #include "../write_combine/obid_htable.h"
@@ -63,26 +64,8 @@ static void release_entry_buffer(FSPrereadOTIDEntry *entry)
 static inline void fill_out_buffer(FSAPIInsertBufferContext *ictx,
         const char *buff, const int length)
 {
-    const struct iovec *iob;
-    const struct iovec *end;
-    const char *current;
-    int remain;
-    int bytes;
-
     if (ictx->is_readv) {
-        current = buff;
-        remain = length;
-        end = ictx->out.iov + ictx->out.iovcnt;
-        for (iob=ictx->out.iov; iob<end; iob++) {
-            bytes = FC_MIN(remain, iob->iov_len);
-            memcpy(iob->iov_base, current, bytes);
-
-            remain -= bytes;
-            if (remain == 0) {
-                break;
-            }
-            current += bytes;
-        }
+        sf_iova_memcpy_ex(ictx->out.iov, ictx->out.iovcnt, buff, length);
     } else {
         memcpy(ictx->out.buff, buff, length);
     }
