@@ -30,7 +30,7 @@ int trunk_fd_cache_init(TrunkFDCacheContext *cache_ctx, const int capacity)
     int alloc_elements_once;
     unsigned int *prime_capacity;
 
-    if ((prime_capacity=hash_get_prime_capacity(capacity)) != NULL) {
+    if ((prime_capacity=fc_hash_get_prime_capacity(capacity)) != NULL) {
         cache_ctx->htable.size = *prime_capacity;
     } else {
         cache_ctx->htable.size = capacity;

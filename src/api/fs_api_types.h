@@ -18,7 +18,6 @@
 
 #include <limits.h>
 #include <sys/types.h>
-#include <sys/stat.h>
 #include "fastcommon/common_define.h"
 #include "fastcommon/fc_list.h"
 #include "fastcommon/pthread_func.h"
