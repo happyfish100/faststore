@@ -24,7 +24,8 @@
 
 typedef struct fs_preread_otid_entry {
     SFShardingHashEntry hentry;  //must be the first
-    int successive_count;
+    int successive_count;  //for successive offset or cache hit
+    int continuous_count;  //for read
     int64_t last_read_offset;
     FSAPIBuffer *buffer;
 } FSPrereadOTIDEntry;
@@ -33,7 +34,6 @@ typedef struct fs_preread_insert_buffer_context {
     FSAPIOperationContext *op_ctx;
     FSAPIBuffer *buffer;
     bool is_readv;
-    bool is_prefetch;
     union {
         struct {
             int iovcnt;
@@ -75,14 +75,16 @@ static inline void fill_out_buffer(FSPrereadInsertContext *ictx,
 static void process_on_successive(FSPrereadInsertContext *ictx,
         FSPrereadOTIDEntry *entry, bool *release_buffer)
 {
+    bool buffer_valid;
     int bytes;
     int block_remain;
     int max_size;
     int i;
 
-    if (entry->buffer != NULL && IS_BUFFER_VALID(ictx->op_ctx->api_ctx,
-                entry->buffer) && (ictx->op_ctx->bs_key.slice.length <=
-                    (entry->buffer->length - entry->buffer->offset)))
+    buffer_valid = (entry->buffer != NULL && IS_BUFFER_VALID(
+                ictx->op_ctx->api_ctx, entry->buffer));
+    if (buffer_valid && (ictx->op_ctx->bs_key.slice.length <=
+            (entry->buffer->length - entry->buffer->offset)))
     {
         *(ictx->read_bytes) = ictx->op_ctx->bs_key.slice.length;
         fill_out_buffer(ictx, entry->buffer->buff + entry->
@@ -96,26 +98,29 @@ static void process_on_successive(FSPrereadInsertContext *ictx,
                 api_ctx->read_ahead.skip_preread_on_slice_size &&
                 FS_FILE_BLOCK_SIZE - ictx->op_ctx->bs_key.slice.offset > 0)
         {
+            if (buffer_valid) {
+                entry->continuous_count++;
+            } else {
+                entry->continuous_count = 1;
+            }
+
             block_remain = FS_FILE_BLOCK_SIZE -
                 ictx->op_ctx->bs_key.slice.offset;
             max_size = FC_MIN(block_remain, ictx->op_ctx->
                     api_ctx->read_ahead.max_buffer_size);
-            if (entry->buffer != NULL) {
-                bytes = entry->buffer->allocator->buffer_size * 2;
-            } else {
-                bytes = 512;
-                while (bytes < ictx->op_ctx->bs_key.slice.length) {
-                    bytes *= 2;
-                }
 
-                i = 0;
-                while (i++ < entry->successive_count && bytes < max_size) {
-                    bytes *= 2;
-                }
+            bytes = 512;
+            while (bytes < ictx->op_ctx->bs_key.slice.length) {
+                bytes *= 2;
+            }
 
-                if (bytes < ictx->op_ctx->api_ctx->read_ahead.min_buffer_size) {
-                    bytes = ictx->op_ctx->api_ctx->read_ahead.min_buffer_size;
-                }
+            i = 0;
+            while (i++ < entry->continuous_count && bytes < max_size) {
+                bytes *= 2;
+            }
+
+            if (bytes < ictx->op_ctx->api_ctx->read_ahead.min_buffer_size) {
+                bytes = ictx->op_ctx->api_ctx->read_ahead.min_buffer_size;
             }
 
             ictx->ahead_bytes = FC_MIN(bytes, max_size) -
@@ -132,7 +137,7 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
     int64_t offset;
     int64_t start_offset;
     int64_t end_offset;
-    bool is_successive;
+    bool try_read_cache;
     bool release_buffer;
 
     entry = (FSPrereadOTIDEntry *)he;
@@ -142,13 +147,16 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
     if (new_create) {
         entry->buffer = NULL;
         entry->successive_count = 0;
+        entry->continuous_count = 0;
         release_buffer = false;
     } else {
         if (offset == entry->last_read_offset) {
-            is_successive = true;
+            entry->successive_count++;
+            try_read_cache = true;
         } else {
-            if (ictx->is_prefetch && entry->buffer != NULL &&
-                    IS_BUFFER_VALID(ictx->op_ctx->api_ctx, entry->buffer))
+            entry->successive_count = 0;
+            if (entry->buffer != NULL && IS_BUFFER_VALID(ictx->
+                        op_ctx->api_ctx, entry->buffer))
             {
                 start_offset = entry->last_read_offset -
                     entry->buffer->offset;
@@ -157,20 +165,19 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
                             bs_key.slice.length <= end_offset))
                 {
                     entry->buffer->offset = offset - start_offset;
-                    is_successive = true;
+                    try_read_cache = true;
                 } else {
-                    is_successive = false;
+                    try_read_cache = false;
                 }
             } else {
-                is_successive = false;
+                try_read_cache = false;
             }
         }
 
-        if (is_successive) {
-            entry->successive_count++;
+        if (try_read_cache) {
             process_on_successive(ictx, entry, &release_buffer);
         } else {
-            entry->successive_count = 0;
+            entry->continuous_count = 0;
             release_buffer = (entry->buffer != NULL);
         }
     }
@@ -179,10 +186,12 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
     logInfo("file: "__FILE__", line: %d, "
             "tid: %"PRId64", block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice {offset: %d, length: %d}, successive_count: %d, "
-            "ahead_bytes: %d, buffer: %p, release_buffer: %d", __LINE__, ictx->op_ctx->tid,
+            "continuous_count: %d, ahead_bytes: %d, buffer: %p, "
+            "release_buffer: %d", __LINE__, ictx->op_ctx->tid,
             ictx->op_ctx->bs_key.block.oid, ictx->op_ctx->bs_key.block.offset,
             ictx->op_ctx->bs_key.slice.offset, ictx->op_ctx->bs_key.slice.length,
-            entry->successive_count, ictx->ahead_bytes, entry->buffer, release_buffer);
+            entry->successive_count, entry->continuous_count, \
+            ictx->ahead_bytes, entry->buffer, release_buffer);
             */
 
     entry->last_read_offset = offset + ictx->op_ctx->bs_key.slice.length;
@@ -206,7 +215,7 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
         entry->buffer->deleted = false;
         entry->buffer->dirty = true;
         entry->buffer->conflict = false;
-        entry->buffer->offset = ictx->op_ctx->bs_key.slice.length;
+        entry->buffer->offset = ictx->op_ctx->bs_key.slice.length; //for next read
         entry->buffer->length = read_bytes;
         entry->buffer->lock = &he->sharding->lock;
         ictx->buffer = entry->buffer;
@@ -243,7 +252,7 @@ int preread_otid_htable_init(const int sharding_count,
 
 static int slice_preread(FSAPIOperationContext *op_ctx,
         const bool is_readv, const void *data, const int iovcnt,
-        int *read_bytes, const bool is_prefetch)
+        int *read_bytes)
 {
     int result;
     int old_slice_len;
@@ -258,7 +267,6 @@ static int slice_preread(FSAPIOperationContext *op_ctx,
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
     ictx.is_readv = is_readv;
-    ictx.is_prefetch = is_prefetch;
     if (is_readv) {
         ictx.out.iov = (const struct iovec *)data;
         ictx.out.iovcnt = iovcnt;
@@ -339,19 +347,16 @@ static int slice_preread(FSAPIOperationContext *op_ctx,
     return result;
 }
 
-int preread_slice_read_ex(FSAPIOperationContext *op_ctx, char *buff,
-        int *read_bytes, const bool is_prefetch)
+int preread_slice_read(FSAPIOperationContext *op_ctx,
+        char *buff, int *read_bytes)
 {
     const bool is_readv = false;
-    return slice_preread(op_ctx, is_readv, buff,
-            0, read_bytes, is_prefetch);
+    return slice_preread(op_ctx, is_readv, buff, 0, read_bytes);
 }
 
 int preread_slice_readv(FSAPIOperationContext *op_ctx,
         const struct iovec *iov, const int iovcnt, int *read_bytes)
 {
     const bool is_readv = true;
-    const bool is_prefetch = false;
-    return slice_preread(op_ctx, is_readv, iov,
-            iovcnt, read_bytes, is_prefetch);
+    return slice_preread(op_ctx, is_readv, iov, iovcnt, read_bytes);
 }

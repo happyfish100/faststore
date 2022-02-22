@@ -502,14 +502,13 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
     return result;
 }
 
-int fs_api_slice_read_ex(FSAPIOperationContext *op_ctx,
-        char *buff, int *read_bytes, const bool is_prefetch)
+int fs_api_slice_read(FSAPIOperationContext *op_ctx,
+        char *buff, int *read_bytes)
 {
     if (op_ctx->api_ctx->read_ahead.enabled) {
         op_ctx->op_type = 'r';
         FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
-        return preread_slice_read_ex(op_ctx, buff,
-                read_bytes, is_prefetch);
+        return preread_slice_read(op_ctx, buff, read_bytes);
     } else {
         SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, 'r');
         return fs_client_slice_read(op_ctx->api_ctx->fs,

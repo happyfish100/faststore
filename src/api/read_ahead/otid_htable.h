@@ -30,15 +30,8 @@ extern "C" {
             const int64_t min_ttl_ms, const int64_t max_ttl_ms,
             const double low_water_mark_ratio);
 
-    int preread_slice_read_ex(FSAPIOperationContext *op_ctx, char *buff,
-            int *read_bytes, const bool is_prefetch);
-
-    static inline int preread_slice_read(FSAPIOperationContext *op_ctx,
-            char *buff, int *read_bytes)
-    {
-        const bool is_prefetch = false;
-        return preread_slice_read_ex(op_ctx, buff, read_bytes, is_prefetch);
-    }
+    int preread_slice_read(FSAPIOperationContext *op_ctx,
+            char *buff, int *read_bytes);
 
     int preread_slice_readv(FSAPIOperationContext *op_ctx,
             const struct iovec *iov, const int iovcnt, int *read_bytes);
