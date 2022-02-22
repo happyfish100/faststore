@@ -29,10 +29,11 @@ typedef struct fs_preread_otid_entry {
     FSAPIBuffer *buffer;
 } FSPrereadOTIDEntry;
 
-typedef struct fs_api_insert_buffer_context {
+typedef struct fs_preread_insert_buffer_context {
     FSAPIOperationContext *op_ctx;
     FSAPIBuffer *buffer;
     bool is_readv;
+    bool is_prefetch;
     union {
         struct {
             int iovcnt;
@@ -42,7 +43,7 @@ typedef struct fs_api_insert_buffer_context {
     } out;
     int *read_bytes;
     int ahead_bytes;
-} FSAPIInsertBufferContext;
+} FSPrereadInsertContext;
 
 static SFHtableShardingContext otid_ctx;
 
@@ -61,7 +62,7 @@ static void release_entry_buffer(FSPrereadOTIDEntry *entry)
     entry->buffer = NULL;
 }
 
-static inline void fill_out_buffer(FSAPIInsertBufferContext *ictx,
+static inline void fill_out_buffer(FSPrereadInsertContext *ictx,
         const char *buff, const int length)
 {
     if (ictx->is_readv) {
@@ -71,7 +72,7 @@ static inline void fill_out_buffer(FSAPIInsertBufferContext *ictx,
     }
 }
 
-static void process_on_successive(FSAPIInsertBufferContext *ictx,
+static void process_on_successive(FSPrereadInsertContext *ictx,
         FSPrereadOTIDEntry *entry, bool *release_buffer)
 {
     int bytes;
@@ -127,12 +128,15 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
         void *arg, const bool new_create)
 {
     FSPrereadOTIDEntry *entry;
-    FSAPIInsertBufferContext *ictx;
+    FSPrereadInsertContext *ictx;
     int64_t offset;
+    int64_t start_offset;
+    int64_t end_offset;
+    bool is_successive;
     bool release_buffer;
 
     entry = (FSPrereadOTIDEntry *)he;
-    ictx = (FSAPIInsertBufferContext *)arg;
+    ictx = (FSPrereadInsertContext *)arg;
     offset = ictx->op_ctx->bs_key.block.offset +
         ictx->op_ctx->bs_key.slice.offset;
     if (new_create) {
@@ -141,6 +145,28 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
         release_buffer = false;
     } else {
         if (offset == entry->last_read_offset) {
+            is_successive = true;
+        } else {
+            if (ictx->is_prefetch && entry->buffer != NULL &&
+                    IS_BUFFER_VALID(ictx->op_ctx->api_ctx, entry->buffer))
+            {
+                start_offset = entry->last_read_offset -
+                    entry->buffer->offset;
+                end_offset = start_offset + entry->buffer->length;
+                if (offset >= start_offset && (offset + ictx->op_ctx->
+                            bs_key.slice.length <= end_offset))
+                {
+                    entry->buffer->offset = offset - start_offset;
+                    is_successive = true;
+                } else {
+                    is_successive = false;
+                }
+            } else {
+                is_successive = false;
+            }
+        }
+
+        if (is_successive) {
             entry->successive_count++;
             process_on_successive(ictx, entry, &release_buffer);
         } else {
@@ -216,8 +242,8 @@ int preread_otid_htable_init(const int sharding_count,
 }
 
 static int slice_preread(FSAPIOperationContext *op_ctx,
-        const bool is_readv, const void *data,
-        const int iovcnt, int *read_bytes)
+        const bool is_readv, const void *data, const int iovcnt,
+        int *read_bytes, const bool is_prefetch)
 {
     int result;
     int old_slice_len;
@@ -225,13 +251,14 @@ static int slice_preread(FSAPIOperationContext *op_ctx,
     bool release_buffer;
     FSSliceSize ssize;
     SFTwoIdsHashKey key;
-    FSAPIInsertBufferContext ictx;
+    FSPrereadInsertContext ictx;
 
     *read_bytes = 0;
     key.oid = op_ctx->bs_key.block.oid;
     key.tid = op_ctx->tid;
     ictx.op_ctx = op_ctx;
     ictx.is_readv = is_readv;
+    ictx.is_prefetch = is_prefetch;
     if (is_readv) {
         ictx.out.iov = (const struct iovec *)data;
         ictx.out.iovcnt = iovcnt;
@@ -312,16 +339,19 @@ static int slice_preread(FSAPIOperationContext *op_ctx,
     return result;
 }
 
-int preread_slice_read(FSAPIOperationContext *op_ctx,
-            char *buff, int *read_bytes)
+int preread_slice_read_ex(FSAPIOperationContext *op_ctx, char *buff,
+        int *read_bytes, const bool is_prefetch)
 {
     const bool is_readv = false;
-    return slice_preread(op_ctx, is_readv, buff, 0, read_bytes);
+    return slice_preread(op_ctx, is_readv, buff,
+            0, read_bytes, is_prefetch);
 }
 
 int preread_slice_readv(FSAPIOperationContext *op_ctx,
         const struct iovec *iov, const int iovcnt, int *read_bytes)
 {
     const bool is_readv = true;
-    return slice_preread(op_ctx, is_readv, iov, iovcnt, read_bytes);
+    const bool is_prefetch = false;
+    return slice_preread(op_ctx, is_readv, iov,
+            iovcnt, read_bytes, is_prefetch);
 }

@@ -76,8 +76,15 @@ int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
 int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc);
 
-int fs_api_slice_read(FSAPIOperationContext *op_ctx,
-        char *buff, int *read_bytes);
+int fs_api_slice_read_ex(FSAPIOperationContext *op_ctx,
+        char *buff, int *read_bytes, const bool is_prefetch);
+
+static inline int fs_api_slice_read(FSAPIOperationContext *op_ctx,
+        char *buff, int *read_bytes)
+{
+    const bool is_prefetch = false;
+    return fs_api_slice_read_ex(op_ctx, buff, read_bytes, is_prefetch);
+}
 
 int fs_api_slice_readv(FSAPIOperationContext *op_ctx,
         const struct iovec *iov, const int iovcnt, int *read_bytes);

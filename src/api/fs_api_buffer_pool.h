@@ -28,7 +28,7 @@ typedef struct fs_api_buffer {
     int length;    //data length
     bool deleted;  //set to true when deleted from otid_hashtable
     bool dirty;    //set to false when async read successfully
-    bool conflict; //set to true by slice write
+    bool conflict; //set to true by slice write or read ahead
     volatile int refer_count;
     pthread_mutex_t *lock;
     struct fs_api_buffer_allocator *allocator;
