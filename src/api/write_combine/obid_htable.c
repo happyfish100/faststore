@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include "../fs_api_allocator.h"
 #include "combine_handler.h"
+#include "oid_htable.h"
 #include "otid_htable.h"
 #include "obid_htable.h"
 
@@ -377,6 +378,11 @@ static int obid_htable_insert_callback(SFShardingHashEntry *he,
     ictx->slice->merged_slices = 1;
     ictx->slice->start_time = g_timer_ms_ctx.current_time_ms;
     ictx->slice->stage = FS_API_COMBINED_WRITER_STAGE_MERGING;
+
+    if (fc_list_empty(&block->slices.head)) {
+        wcombine_oid_htable_insert(block);
+    }
+
     if (previous == NULL) {
         fc_list_add(&ictx->slice->dlink, &block->slices.head);
     } else {
@@ -480,30 +486,30 @@ static bool obid_htable_accept_reclaim_callback(SFShardingHashEntry *he)
     return fc_list_empty(&((FSAPIBlockEntry *)he)->slices.head);
 }
 
-int wcombine_obid_htable_init(const int sharding_count, const int64_t htable_capacity,
-        const int allocator_count, int64_t element_limit,
-        const int64_t min_ttl_ms, const int64_t max_ttl_ms,
-        const double low_water_mark_ratio)
+int wcombine_obid_htable_init(const int sharding_count,
+        const int64_t htable_capacity, const int allocator_count,
+        int64_t element_limit, const int64_t min_ttl_ms,
+        const int64_t max_ttl_ms, const double low_water_mark_ratio)
 {
     return sf_sharding_htable_init_ex(&obid_ctx, sf_sharding_htable_key_ids_two,
-            obid_htable_insert_callback, obid_htable_find_callback,
+            obid_htable_insert_callback, obid_htable_find_callback, NULL,
             obid_htable_accept_reclaim_callback, sharding_count,
             htable_capacity, allocator_count, sizeof(FSAPIBlockEntry),
             element_limit, min_ttl_ms, max_ttl_ms, low_water_mark_ratio);
 }
 
-int wcombine_obid_htable_check_conflict_and_wait(FSAPIOperationContext
-        *op_ctx, int *conflict_count)
+int wcombine_obid_htable_check_conflict_and_wait(FSAPIOperationContext *op_ctx)
 {
     SFTwoIdsHashKey key;
     FSAPIFindCallbackArg callback_arg;
+    int conflict_count;
 
-    *conflict_count = 0;
+    conflict_count = 0;
     key.oid = op_ctx->bs_key.block.oid;
     key.bid = op_ctx->bid;
     callback_arg.op_ctx = op_ctx;
     callback_arg.waiting_task = NULL;
-    callback_arg.conflict_count = conflict_count;
+    callback_arg.conflict_count = &conflict_count;
     if (sf_sharding_htable_find(&obid_ctx, &key, &callback_arg) == NULL) {
         return 0;
     }
@@ -512,7 +518,7 @@ int wcombine_obid_htable_check_conflict_and_wait(FSAPIOperationContext
         fs_api_wait_write_done_and_release(callback_arg.waiting_task);
     }
 
-    return 0;
+    return conflict_count;
 }
 
 int wcombine_obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
@@ -532,4 +538,44 @@ int wcombine_obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx)
     } while (result == 0 && ictx->waiting_task != NULL && count++ < 3);
 
     return result;
+}
+
+ssize_t wcombine_obid_htable_datasync(const int64_t oid, const uint64_t tid)
+{
+    FSWCombineIDArray array;
+    SFTwoIdsHashKey key;
+    FSAPIFindCallbackArg callback_arg;
+    FSAPIOperationContext op_ctx;
+    int64_t *bid;
+    int64_t *end;
+    int total_count;
+    int conflict_count;
+
+    wcombine_id_array_init(&array);
+    if (wcombine_oid_htable_find(oid, &array) != 0) {
+        return 0;
+    }
+
+    op_ctx.allocator_ctx = fs_api_allocator_get(tid);
+    op_ctx.bs_key.slice.offset = 0;
+    op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
+    callback_arg.op_ctx = &op_ctx;
+    callback_arg.conflict_count = &conflict_count;
+    key.oid = oid;
+    total_count = 0;
+    end = array.elts + array.count;
+    for (bid=array.elts; bid<end; bid++) {
+        key.bid = *bid;
+        *(callback_arg.conflict_count) = 0;
+        callback_arg.waiting_task = NULL;
+        if (sf_sharding_htable_find(&obid_ctx, &key, &callback_arg) != NULL) {
+            total_count += *(callback_arg.conflict_count);
+            if (callback_arg.waiting_task != NULL) {
+                fs_api_wait_write_done_and_release(callback_arg.waiting_task);
+            }
+        }
+    }
+
+    wcombine_id_array_destroy(&array);
+    return total_count;
 }

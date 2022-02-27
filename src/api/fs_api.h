@@ -40,9 +40,7 @@ extern "C" {
 #define FS_API_CHECK_CONFLICT_AND_WAIT(op_ctx) \
     do {  \
         if (op_ctx->api_ctx->write_combine.enabled) {  \
-            int conflict_count;  \
-            wcombine_obid_htable_check_conflict_and_wait( \
-                    op_ctx, &conflict_count); \
+            wcombine_obid_htable_check_conflict_and_wait(op_ctx); \
         } \
     } while (0)
 
@@ -72,6 +70,10 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx);
 
 int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
         const int64_t file_size, const uint64_t tid);
+
+/* return synced slice count */
+ssize_t fs_api_datasync(FSAPIContext *api_ctx,
+        const int64_t oid, const uint64_t tid);
 
 int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc);

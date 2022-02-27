@@ -16,6 +16,7 @@
 #include <stdlib.h>
 #include "write_combine/obid_htable.h"
 #include "write_combine/otid_htable.h"
+#include "write_combine/oid_htable.h"
 #include "write_combine/timeout_handler.h"
 #include "write_combine/combine_handler.h"
 #include "read_ahead/otid_htable.h"
@@ -96,11 +97,9 @@ FSAPIContext g_fs_api_ctx;
 #define SET_VARS_AND_CHECK_CONFLICT_AND_WAIT(op_ctx, operation) \
     do {  \
         if (op_ctx->api_ctx->write_combine.enabled) {  \
-            int conflict_count;  \
             FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);  \
             op_ctx->op_type = operation;  \
-            wcombine_obid_htable_check_conflict_and_wait( \
-                    op_ctx, &conflict_count); \
+            wcombine_obid_htable_check_conflict_and_wait(op_ctx); \
         } \
     } while (0)
 
@@ -334,6 +333,15 @@ static int write_combine_init(FSAPIContext *api_ctx)
         return result;
     }
 
+    if ((result=wcombine_oid_htable_init(api_ctx->common.
+                    hashtable_sharding_count, api_ctx->common.
+                    hashtable_total_capacity, api_ctx->common.
+                    shared_allocator_count, element_limit, min_ttl_ms,
+                    max_ttl_ms, low_water_mark_ratio)) != 0)
+    {
+        return result;
+    }
+
     return 0;
 }
 
@@ -448,6 +456,16 @@ void fs_api_terminate_ex(FSAPIContext *api_ctx)
     }
 }
 
+ssize_t fs_api_datasync(FSAPIContext *api_ctx,
+        const int64_t oid, const uint64_t tid)
+{
+    if (api_ctx->write_combine.enabled) {
+        return wcombine_obid_htable_datasync(oid, tid);
+    } else {
+        return 0;
+    }
+}
+
 int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         FSAPIWriteBuffer *wbuffer, int *write_bytes, int *inc_alloc)
 {
@@ -463,12 +481,7 @@ int fs_api_slice_write(FSAPIOperationContext *op_ctx,
         }
 
         FS_API_SET_BID_AND_ALLOCATOR_CTX(op_ctx);
-        if ((result=wcombine_obid_htable_check_conflict_and_wait(
-                        op_ctx, &conflict_count)) != 0)
-        {
-            wbuffer->combined = false;
-            break;
-        }
+        conflict_count = wcombine_obid_htable_check_conflict_and_wait(op_ctx);
         if (conflict_count > 0) {
             wbuffer->combined = false;
             break;

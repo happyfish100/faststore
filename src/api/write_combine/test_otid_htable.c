@@ -76,12 +76,9 @@ void *thread_run(void *arg)
         }
         op_ctx.bid = op_ctx.bs_key.block.offset;
 
-        if (wcombine_obid_htable_check_conflict_and_wait(
-                    &op_ctx, &conflict_count) == 0)
-        {
-            if (conflict_count > 0) {
-                total_conflict_count += conflict_count;
-            }
+        conflict_count = wcombine_obid_htable_check_conflict_and_wait(&op_ctx);
+        if (conflict_count > 0) {
+            total_conflict_count += conflict_count;
         }
 
         if ((result=wcombine_otid_htable_insert(&op_ctx, &wbuffer)) != 0) {

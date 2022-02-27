@@ -244,7 +244,7 @@ int preread_otid_htable_init(const int sharding_count,
 {
     return sf_sharding_htable_init_ex(&otid_ctx,
             sf_sharding_htable_key_ids_two,
-            otid_htable_insert_callback, NULL,
+            otid_htable_insert_callback, NULL, NULL,
             otid_htable_accept_reclaim_callback, sharding_count,
             htable_capacity, allocator_count, sizeof(FSPrereadOTIDEntry),
             element_limit, min_ttl_ms, max_ttl_ms, low_water_mark_ratio);

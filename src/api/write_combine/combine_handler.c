@@ -19,6 +19,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../fs_api_allocator.h"
+#include "oid_htable.h"
 #include "obid_htable.h"
 #include "otid_htable.h"
 #include "combine_handler.h"
@@ -47,6 +48,10 @@ static inline void notify_and_release_slice(FSAPISliceEntry *slice)
 
     fc_list_del_init(&slice->dlink); //remove from block
     __sync_bool_compare_and_swap(&slice->version, old_version, new_version);
+
+    if (fc_list_empty(&block->slices.head)) {
+        wcombine_oid_htable_delete(block);
+    }
     PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);
 
     fast_mblock_free_object(&slice->allocator_ctx->

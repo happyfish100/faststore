@@ -24,6 +24,7 @@ typedef struct fs_api_block_entry {
     struct {
         struct fc_list_head head;  //element: FSAPISliceEntry
     } slices;
+    struct fc_list_head dlink;  //for oid htable
 } FSAPIBlockEntry;
 
 typedef struct fs_api_insert_slice_context {
@@ -47,10 +48,14 @@ extern "C" {
             int64_t element_limit, const int64_t min_ttl_ms,
             const int64_t max_ttl_ms, const double low_water_mark_ratio);
 
-    int wcombine_obid_htable_check_conflict_and_wait(FSAPIOperationContext
-            *op_ctx, int *conflict_count);
+    int wcombine_obid_htable_check_conflict_and_wait(
+            FSAPIOperationContext *op_ctx);
 
-    int wcombine_obid_htable_check_combine_slice(FSAPIInsertSliceContext *ictx);
+    int wcombine_obid_htable_check_combine_slice(
+            FSAPIInsertSliceContext *ictx);
+
+    ssize_t wcombine_obid_htable_datasync(const int64_t oid,
+            const uint64_t tid);
 
     static inline int fs_api_swap_slice_stage(FSAPISliceEntry *slice,
             const int old_stage, const int new_stage)
