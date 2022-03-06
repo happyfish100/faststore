@@ -83,16 +83,20 @@ static int parse_cmd_options(int argc, char *argv[])
     int ch;
     const struct option longopts[] = {
         {FS_FORCE_ELECTION_LONG_OPTION_STR, no_argument, NULL, 'f'},
+        {FS_MIGRATE_CLEAN_LONG_OPTION_STR, no_argument, NULL, 'C'},
         SF_COMMON_LONG_OPTIONS,
         {NULL, 0, NULL, 0}
     };
 
-    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"f",
+    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"fC",
                     longopts, NULL)) != -1)
     {
         switch (ch) {
             case 'f':
                 FORCE_LEADER_ELECTION = true;
+                break;
+            case 'C':
+                MIGRATE_CLEAN_ENABLED = true;
                 break;
             case '?':
                 return EINVAL;
@@ -112,6 +116,12 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
              FS_FORCE_ELECTION_LONG_OPTION_LEN}, 'f', false,
         "-f | --"FS_FORCE_ELECTION_LONG_OPTION_STR
             ": force leader election"},
+
+        {{FS_MIGRATE_CLEAN_LONG_OPTION_STR,
+             FS_MIGRATE_CLEAN_LONG_OPTION_LEN}, 'C', false,
+        "-C | --"FS_MIGRATE_CLEAN_LONG_OPTION_STR
+            ": enable migrate clean"},
+
         {{NULL, 0}, 0, false, NULL}
     };
     bool stop;

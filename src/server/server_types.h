@@ -125,6 +125,10 @@
 #define FS_FORCE_ELECTION_LONG_OPTION_LEN  (sizeof( \
             FS_FORCE_ELECTION_LONG_OPTION_STR) - 1)
 
+#define FS_MIGRATE_CLEAN_LONG_OPTION_STR  "migrate-clean"
+#define FS_MIGRATE_CLEAN_LONG_OPTION_LEN  (sizeof( \
+            FS_MIGRATE_CLEAN_LONG_OPTION_STR) - 1)
+
 
 #define FS_TASK_BUFFER_FRONT_PADDING_SIZE  (sizeof(FSProtoHeader) + \
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \

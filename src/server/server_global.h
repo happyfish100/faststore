@@ -38,6 +38,7 @@ typedef struct server_global_vars {
         volatile FSClusterServerInfo *leader;
         struct {
             FSClusterConfig ctx;
+            bool migrate_clean;
             struct {
                 bool force;
                 int leader_lost_timeout;
@@ -93,6 +94,9 @@ typedef struct server_global_vars {
 #define AUTH_CTX              g_server_global_vars.cluster.auth
 #define AUTH_CLIENT_CTX       AUTH_CTX.ctx
 #define AUTH_ENABLED          AUTH_CTX.enabled
+
+#define MIGRATE_CLEAN_ENABLED  g_server_global_vars.cluster. \
+    config.migrate_clean
 
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force

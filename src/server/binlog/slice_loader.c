@@ -23,6 +23,7 @@
 #include "sf/sf_func.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
+#include "../server_group_info.h"
 #include "../shared_thread_pool.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
@@ -82,6 +83,7 @@ typedef struct slice_parse_thread_ctx_array {
 
 typedef struct slice_data_thread_context {
     int64_t total_count;
+    int64_t skip_count;
     volatile int64_t done_count;
     SliceRecordChain slices;  //for enqueue
     struct fc_queue queue;   //element: SliceBinlogRecord
@@ -421,9 +423,17 @@ static int slice_parse_buffer(BinlogLoaderContext *ctx)
     return 0;
 }
 
-static inline int slice_loader_deal_record(SliceBinlogRecord *record)
+static inline int slice_loader_deal_record(SliceDataThreadContext
+        *thread_ctx, SliceBinlogRecord *record)
 {
     OBSliceEntry *slice;
+
+    if (MIGRATE_CLEAN_ENABLED) {
+        if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->bs_key.block))) {
+            thread_ctx->skip_count++;
+            return 0;
+        }
+    }
 
     switch (record->op_type) {
         case SLICE_BINLOG_OP_TYPE_WRITE_SLICE:
@@ -454,7 +464,7 @@ static inline void deal_records(SliceDataThreadContext *thread_ctx,
     struct fast_mblock_chain chain;
     int count;
 
-    if (slice_loader_deal_record(head) != 0) {
+    if (slice_loader_deal_record(thread_ctx, head) != 0) {
         SF_G_CONTINUE_FLAG = false;
         return;
     }
@@ -465,7 +475,7 @@ static inline void deal_records(SliceDataThreadContext *thread_ctx,
     thread_ctx->done_count++;
     record = head->next;
     while (record != NULL) {
-        if (slice_loader_deal_record(record) != 0) {
+        if (slice_loader_deal_record(thread_ctx, record) != 0) {
             SF_G_CONTINUE_FLAG = false;
             return;
         }
@@ -646,6 +656,7 @@ static int init_data_thread_context(SliceDataThreadContext *thread_ctx)
     }
 
     thread_ctx->total_count = 0;
+    thread_ctx->skip_count = 0;
     thread_ctx->done_count = 0;
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
     return 0;
@@ -984,6 +995,31 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
     return result;
 }
 
+static int64_t get_total_skip_count(SliceDataThreadCtxArray *ctx_array)
+{
+    int64_t total;
+    SliceDataThreadContext *ctx;
+    SliceDataThreadContext *end;
+
+    total = 0;
+    end = ctx_array->contexts + ctx_array->count;
+    for (ctx=ctx_array->contexts; ctx<end; ctx++) {
+        total += ctx->skip_count;
+    }
+
+    return total;
+}
+
+static int migrate_clean(SliceLoaderContext *ctx)
+{
+    if (get_total_skip_count(&ctx->data_thread_array) > 0) {
+        //TODO
+    }
+
+    //TODO
+    return 0;
+}
+
 int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
 {
     int result;
@@ -1019,7 +1055,11 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     g_ob_hashtable.modify_sallocator = true;
 
     if (SF_G_CONTINUE_FLAG) {
+        if (result == 0 && MIGRATE_CLEAN_ENABLED) {
+            result = migrate_clean(&ctx);
+        }
         destroy_loader_context(&ctx);
     }
+
     return result;
 }

@@ -67,6 +67,22 @@ static inline FSClusterDataGroupInfo *fs_get_data_group(const int data_group_id)
     return CLUSTER_DATA_RGOUP_ARRAY.groups + index;
 }
 
+static inline bool fs_is_my_data_group(const int data_group_id)
+{
+    int index;
+
+    index = data_group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
+    if (index < 0 || index >= CLUSTER_DATA_RGOUP_ARRAY.count) {
+        return false;
+    }
+
+    if (CLUSTER_DATA_RGOUP_ARRAY.groups[index].id != data_group_id) {
+        return false;
+    }
+
+    return (CLUSTER_DATA_RGOUP_ARRAY.groups[index].myself != NULL);
+}
+
 static inline FSClusterDataServerInfo *fs_get_data_server(
         const int data_group_id, const int server_id)
 {

@@ -235,7 +235,7 @@ static int init_cluster_data_group_array(const char *filename,
 
     count = (max_id - min_id) + 1;
     bytes = sizeof(FSClusterDataGroupInfo) * count;
-    CLUSTER_DATA_RGOUP_ARRAY.groups = (FSClusterDataGroupInfo *)fc_malloc(bytes);
+    CLUSTER_DATA_RGOUP_ARRAY.groups = fc_malloc(bytes);
     if (CLUSTER_DATA_RGOUP_ARRAY.groups == NULL) {
         return ENOMEM;
     }
