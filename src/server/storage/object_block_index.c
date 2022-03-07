@@ -19,6 +19,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/uniq_skiplist.h"
 #include "sf/sf_global.h"
+#include "sf/sf_func.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
 #include "storage_allocator.h"
@@ -1259,5 +1260,98 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
 
     *slice_count = sarray.count;
     free(sarray.slices);
+    return result;
+}
+
+typedef struct {
+    int fd;
+    const char *filename;
+    SFBinlogBuffer buffer;
+} FSFileBufferPair;
+
+static inline int write_to_file(FSFileBufferPair *fb)
+{
+    int result;
+    int length;
+
+    length = fb->buffer.current - fb->buffer.buff;
+    if (fc_safe_write(fb->fd, fb->buffer.buff, length) != length) {
+        result = errno != 0 ? errno : EIO;
+        logError("file: "__FILE__", line: %d, "
+                "write to file %s fail, errno: %d, error info: %s",
+                __LINE__, fb->filename, result, STRERROR(result));
+        return result;
+    }
+
+    fb->buffer.current = fb->buffer.buff;
+    return 0;
+}
+
+int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
+        const int64_t start_index, const int64_t end_index,
+        const char *filename)
+{
+    const int64_t data_version = 0;
+    const int source = BINLOG_SOURCE_DUMP;
+    int result;
+    FSFileBufferPair fb;
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+    time_t current_time;
+    OBSliceEntry *slice;
+    UniqSkiplistIterator it;
+
+    fb.filename = filename;
+    fb.fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fb.fd < 0) {
+        result = errno != 0 ? errno : EIO;
+        logError("file: "__FILE__", line: %d, "
+                "open file %s fail, errno: %d, error info: %s",
+                __LINE__, filename, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=sf_binlog_buffer_init(&fb.buffer, 1024 * 1024)) != 0) {
+        return result;
+    }
+    fb.buffer.end = fb.buffer.buff + fb.buffer.size;
+
+    current_time = g_current_time - LOCAL_BINLOG_CHECK_LAST_SECONDS;
+    end = htable->buckets + end_index;
+    for (bucket=htable->buckets+start_index; result == 0 &&
+            bucket<end; bucket++)
+    {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            uniq_skiplist_iterator(ob->slices, &it);
+            while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                if (fb.buffer.end - fb.buffer.current <
+                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+                {
+                    if ((result=write_to_file(&fb)) != 0) {
+                        break;
+                    }
+                }
+
+                fb.buffer.current += slice_binlog_log_to_buff(
+                        slice, current_time, data_version,
+                        source, fb.buffer.current);
+            }
+
+            ob = ob->next;
+        } while (ob != NULL);
+    }
+
+    if (result == 0 && fb.buffer.current - fb.buffer.buff > 0) {
+        result = write_to_file(&fb);
+    }
+
+    close(fb.fd);
+    sf_binlog_buffer_destroy(&fb.buffer);
     return result;
 }

@@ -51,6 +51,10 @@ extern "C" {
     ob_index_dump_slices_to_trunk_ex(&g_ob_hashtable, \
             start_index, end_index, slice_count)
 
+#define ob_index_dump_slices_to_file(start_index, end_index, filename) \
+    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, \
+            start_index, end_index, filename)
+
     int ob_index_init();
     void ob_index_destroy();
 
@@ -138,6 +142,10 @@ extern "C" {
     int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,
             int64_t *slice_count);
+
+    int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
+            const int64_t start_index, const int64_t end_index,
+            const char *filename);
 
 #ifdef __cplusplus
 }

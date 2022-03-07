@@ -18,6 +18,7 @@
 #define _SLICE_BINLOG_H
 
 #include "fastcommon/sched_thread.h"
+#include "sf/sf_binlog_writer.h"
 #include "binlog_types.h"
 #include "../storage/object_block_index.h"
 
@@ -36,6 +37,31 @@ extern "C" {
     int slice_binlog_get_current_write_index();
 
     struct sf_binlog_writer_info *slice_binlog_get_writer();
+
+    static inline const char *slice_binlog_get_filename(const
+            int binlog_index, char *filename, const int size)
+    {
+        return sf_binlog_writer_get_filename(DATA_PATH_STR,
+                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                filename, size);
+    }
+
+    static inline int slice_binlog_log_to_buff(const OBSliceEntry *slice,
+            const time_t current_time, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64
+                " %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
+                (int64_t)current_time, data_version, source,
+                slice->type == OB_SLICE_TYPE_FILE ?
+                SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
+                SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
+                slice->ob->bkey.oid, slice->ob->bkey.offset,
+                slice->ssize.offset, slice->ssize.length,
+                slice->space.store->index, slice->space.id_info.id,
+                slice->space.id_info.subdir, slice->space.offset,
+                slice->space.size);
+    }
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             const time_t current_time, const uint64_t sn,

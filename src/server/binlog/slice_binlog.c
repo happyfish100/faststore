@@ -84,18 +84,8 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d "
-            "%d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
-            (int64_t)current_time, data_version, source,
-            slice->type == OB_SLICE_TYPE_FILE ?
-            SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
-            SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
-            slice->ob->bkey.oid, slice->ob->bkey.offset,
-            slice->ssize.offset, slice->ssize.length,
-            slice->space.store->index, slice->space.id_info.id,
-            slice->space.id_info.subdir, slice->space.offset,
-            slice->space.size);
+    wbuffer->bf.length = slice_binlog_log_to_buff(slice, current_time,
+            data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }

@@ -28,6 +28,7 @@
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "binlog_loader.h"
+#include "migrate_clean.h"
 #include "slice_binlog.h"
 #include "slice_loader.h"
 
@@ -116,6 +117,7 @@ typedef struct slice_loader_context {
     volatile bool parse_continue_flag;
     volatile bool data_continue_flag;
     int dealing_threads;
+    int64_t slice_count;
     SliceParseThreadCtxArray parse_thread_array;
     SliceDataThreadCtxArray data_thread_array;
 } SliceLoaderContext;
@@ -877,7 +879,7 @@ static void slice_dump_thread_run(SliceDumpThreadContext *thread_ctx,
 }
 
 static int init_dump_thread_ctx_array(SliceLoaderContext *loader_ctx,
-        SliceDumpThreadCtxArray *ctx_array, int64_t *slice_count)
+        SliceDumpThreadCtxArray *ctx_array)
 {
 #define MIN_SLICES_PER_THREAD  200000
     int result;
@@ -906,8 +908,8 @@ static int init_dump_thread_ctx_array(SliceLoaderContext *loader_ctx,
     if (thread_count == 1) {
         ctx_array->count = 0;
         ctx_array->contexts = NULL;
-        return ob_index_dump_slices_to_trunk(0,
-                g_ob_hashtable.capacity, slice_count);
+        return ob_index_dump_slices_to_trunk(0, g_ob_hashtable.
+                capacity, &loader_ctx->slice_count);
     }
 
     bytes = sizeof(SliceDumpThreadContext) * thread_count;
@@ -946,15 +948,14 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
     SliceDumpThreadCtxArray dump_thread_array;
     SliceDumpThreadContext *ctx;
     SliceDumpThreadContext *end;
-    int64_t slice_count;
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
 
     start_time = get_current_time_ms();
-    slice_count = 0;
+    loader_ctx->slice_count = 0;
     if ((result=init_dump_thread_ctx_array(loader_ctx,
-                    &dump_thread_array, &slice_count)) != 0)
+                    &dump_thread_array)) != 0)
     {
         return result;
     }
@@ -971,7 +972,7 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
             fc_sleep_ms(10);
         }
 
-        slice_count = 0;
+        loader_ctx->slice_count = 0;
         end = dump_thread_array.contexts + dump_thread_array.count;
         for (ctx=dump_thread_array.contexts; ctx<end; ctx++) {
             /*
@@ -980,7 +981,7 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
                     ctx->slice_count);
                     */
 
-            slice_count += ctx->slice_count;
+            loader_ctx->slice_count += ctx->slice_count;
         }
 
         free(dump_thread_array.contexts);
@@ -990,7 +991,7 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
     long_to_comma_str(end_time - start_time, time_buff);
     logInfo("file: "__FILE__", line: %d, "
             "dump %"PRId64" slices to trunk done, time used: %s ms",
-            __LINE__, slice_count, time_buff);
+            __LINE__, loader_ctx->slice_count, time_buff);
 
     return result;
 }
@@ -1008,16 +1009,6 @@ static int64_t get_total_skip_count(SliceDataThreadCtxArray *ctx_array)
     }
 
     return total;
-}
-
-static int migrate_clean(SliceLoaderContext *ctx)
-{
-    if (get_total_skip_count(&ctx->data_thread_array) > 0) {
-        //TODO
-    }
-
-    //TODO
-    return 0;
 }
 
 int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
@@ -1056,7 +1047,10 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
 
     if (SF_G_CONTINUE_FLAG) {
         if (result == 0 && MIGRATE_CLEAN_ENABLED) {
-            result = migrate_clean(&ctx);
+            bool dump_slice_index;
+            dump_slice_index = (get_total_skip_count(
+                        &ctx.data_thread_array) > 0);
+            result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
         }
         destroy_loader_context(&ctx);
     }
