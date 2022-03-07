@@ -84,9 +84,10 @@ static void slice_clean_thread_run(SliceCleanThreadContext *thread_ctx,
     __sync_sub_and_fetch(&thread_ctx->clean_ctx->running_threads, 1);
 }
 
-static int clean_slice_binlog(const int64_t total_slice_count)
+static int dump_slice_binlog(const int64_t total_slice_count,
+        int *binlog_file_count)
 {
-#define MIN_SLICES_PER_THREAD  2000000
+#define MIN_SLICES_PER_THREAD  2000000LL
     int result;
     int bytes;
     int thread_count;
@@ -102,6 +103,7 @@ static int clean_slice_binlog(const int64_t total_slice_count)
         thread_count = SYSTEM_CPU_COUNT;
     }
 
+    *binlog_file_count = thread_count;
     if (thread_count == 1) {
         return dump_slices_to_file(0, 0, g_ob_hashtable.capacity);
     }
@@ -147,16 +149,189 @@ static int clean_slice_binlog(const int64_t total_slice_count)
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
+static inline const char *get_slice_mark_filename(
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s/.slice_dump.flag",
+            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
+    return filename;
+}
+
+#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
+#define BINLOG_REDO_STAGE_RENAME_SLICE    2
+#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
+
+#define BINLOG_REDO_ITEM_BINLOG_COUNT  "binlog_file_count"
+#define BINLOG_REDO_ITEM_CURRENT_STAGE "current_stage"
+
+static int write_to_redo_file(const char *redo_filename,
+        const int binlog_file_count, const int stage)
+{
+    char buff[256];
+    int result;
+    int len;
+
+    len = sprintf(buff, "%s=%d\n"
+            "%s=%d\n",
+            BINLOG_REDO_ITEM_BINLOG_COUNT,
+            binlog_file_count,
+            BINLOG_REDO_ITEM_CURRENT_STAGE, stage);
+    if ((result=safeWriteToFile(redo_filename, buff, len)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "write to file \"%s\" fail, "
+                "errno: %d, error info: %s",
+                __LINE__, redo_filename,
+                result, STRERROR(result));
+    }
+
+    return result;
+}
+
+static int load_from_redo_file(const char *redo_filename,
+        int *binlog_file_count, int *stage)
+{
+    IniContext ini_context;
+    int result;
+
+    if ((result=iniLoadFromFile(redo_filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load from file \"%s\" fail, error code: %d",
+                __LINE__, redo_filename, result);
+        return result;
+    }
+
+    *binlog_file_count = iniGetIntValue(NULL,
+            BINLOG_REDO_ITEM_BINLOG_COUNT,
+            &ini_context, 0);
+    *stage = iniGetIntValue(NULL,
+            BINLOG_REDO_ITEM_CURRENT_STAGE,
+            &ini_context, 0);
+
+    iniFreeContext(&ini_context);
+    return 0;
+}
+
+static int delete_all_slice_binlogs()
+{
+    //TODO
+    return 0;
+}
+
+static int rename_slice_binlogs(const int binlog_file_count)
+{
+    //TODO
+    return 0;
+}
+
+static int remove_replica_binlogs()
+{
+    //TODO
+    /*
+       replica_binlog_get_filepath(
+       const int data_group_id, char *filename, const int size)
+     */
+    return 0;
+}
+
+static int redo(const char *redo_filename, const int binlog_file_count,
+        const int current_stage)
+{
+    int result;
+
+    switch (current_stage) {
+        case BINLOG_REDO_STAGE_REMOVE_SLICE:
+            if ((result=delete_all_slice_binlogs()) != 0) {
+                return result;
+            }
+            if ((result=write_to_redo_file(redo_filename, binlog_file_count,
+                            BINLOG_REDO_STAGE_RENAME_SLICE)) != 0)
+            {
+                return result;
+            }
+        case BINLOG_REDO_STAGE_RENAME_SLICE:
+            if ((result=rename_slice_binlogs(binlog_file_count)) != 0) {
+                return result;
+            }
+            if ((result=write_to_redo_file(redo_filename, binlog_file_count,
+                            BINLOG_REDO_STAGE_REMOVE_REPLICA)) != 0)
+            {
+                return result;
+            }
+        case BINLOG_REDO_STAGE_REMOVE_REPLICA:
+            if ((result=remove_replica_binlogs()) != 0) {
+                return result;
+            }
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "unkown stage: %d", __LINE__, current_stage);
+            return EINVAL;
+    }
+
+    if ((result=slice_binlog_set_binlog_index(binlog_file_count - 1)) != 0) {
+        return result;
+    }
+
+    return fc_delete_file_ex(redo_filename, "migrate clean mark");
+}
+
+int migrate_clean_redo()
+{
+    int result;
+    int binlog_file_count;
+    int current_stage;
+    char redo_filename[PATH_MAX];
+
+    get_slice_mark_filename(redo_filename, sizeof(redo_filename));
+    if (access(redo_filename, F_OK) != 0) {
+        if (errno == ENOENT) {
+            return 0;
+        }
+
+        result = (errno != 0 ? errno : EPERM);
+        logError("file: "__FILE__", line: %d, "
+                "access slice mark file: %s fail, "
+                "errno: %d, error info: %s", __LINE__,
+                redo_filename, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=load_from_redo_file(redo_filename, &binlog_file_count,
+                    &current_stage)) != 0)
+    {
+        return result;
+    }
+
+    return redo(redo_filename, binlog_file_count, current_stage);
+}
+
 int migrate_clean_binlog(const int64_t total_slice_count,
         const bool dump_slice_index)
 {
     int result;
+    int binlog_file_count;
+    int current_stage;
+    char redo_filename[PATH_MAX];
 
     if (dump_slice_index) {
-        if ((result=clean_slice_binlog(total_slice_count)) != 0) {
+        if ((result=dump_slice_binlog(total_slice_count,
+                        &binlog_file_count)) != 0)
+        {
             return result;
         }
+
+        current_stage = BINLOG_REDO_STAGE_REMOVE_SLICE;
+    } else {
+        binlog_file_count = slice_binlog_get_current_write_index() + 1;
+        current_stage = BINLOG_REDO_STAGE_REMOVE_REPLICA;
     }
 
-    return 0;
+    get_slice_mark_filename(redo_filename, sizeof(redo_filename));
+    if ((result=write_to_redo_file(redo_filename, binlog_file_count,
+                    current_stage)) != 0)
+    {
+        return result;
+    }
+
+    return redo(redo_filename, binlog_file_count, current_stage);
 }

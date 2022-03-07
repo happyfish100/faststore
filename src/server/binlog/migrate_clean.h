@@ -26,6 +26,8 @@ extern "C" {
     int migrate_clean_binlog(const int64_t total_slice_count,
             const bool dump_slice_index);
 
+    int migrate_clean_redo();
+
 #ifdef __cplusplus
 }
 #endif

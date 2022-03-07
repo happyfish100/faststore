@@ -26,6 +26,7 @@
 #define SLICE_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
 #define SLICE_BINLOG_OP_TYPE_DEL_SLICE    BINLOG_OP_TYPE_DEL_SLICE
 #define SLICE_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
+#define SLICE_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,6 +38,8 @@ extern "C" {
     int slice_binlog_get_current_write_index();
 
     struct sf_binlog_writer_info *slice_binlog_get_writer();
+
+    int slice_binlog_set_binlog_index(const int binlog_index);
 
     static inline const char *slice_binlog_get_filename(const
             int binlog_index, char *filename, const int size)
@@ -61,6 +64,16 @@ extern "C" {
                 slice->space.store->index, slice->space.id_info.id,
                 slice->space.id_info.subdir, slice->space.offset,
                 slice->space.size);
+    }
+
+    static inline int slice_binlog_log_no_op(const time_t current_time,
+            const uint64_t data_version, const int source, char *buff)
+    {
+        const int64_t oid = 0;
+        const int64_t offset = 0;
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64"\n", (int64_t)current_time, data_version,
+                source, SLICE_BINLOG_OP_TYPE_DEL_BLOCK, oid, offset);
     }
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,

@@ -19,6 +19,7 @@
 
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_binlog_writer.h"
+#include "../server_global.h"
 #include "../storage/object_block_index.h"
 #include "binlog_types.h"
 
@@ -44,8 +45,8 @@ extern "C" {
     int replica_binlog_init();
     void replica_binlog_destroy();
 
-    static inline void replica_binlog_get_subdir_name(char *subdir_name,
-            const int data_group_id)
+    static inline void replica_binlog_get_subdir_name(
+            char *subdir_name, const int data_group_id)
     {
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
@@ -53,6 +54,16 @@ extern "C" {
 
     SFBinlogWriterInfo *replica_binlog_get_writer(
             const int data_group_id);
+
+    static inline const char *replica_binlog_get_filepath(
+            const int data_group_id, char *filename, const int size)
+    {
+        char subdir_name[64];
+
+        replica_binlog_get_subdir_name(subdir_name, data_group_id);
+        return sf_binlog_writer_get_filepath(DATA_PATH_STR,
+                subdir_name, filename, size);
+    }
 
     int replica_binlog_get_current_write_index(const int data_group_id);
 

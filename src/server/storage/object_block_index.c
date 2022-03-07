@@ -1231,7 +1231,9 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
     }
 
     end = htable->buckets + end_index;
-    for (bucket=htable->buckets+start_index; bucket<end; bucket++) {
+    for (bucket=htable->buckets+start_index; bucket<end &&
+            SF_G_CONTINUE_FLAG; bucket++)
+    {
         if (*bucket == NULL) {
             continue;
         }
@@ -1254,8 +1256,12 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
         } while (ob != NULL);
     }
 
-    if (sarray.count > 0) {
-        result = add_slices_to_trunk(&sarray);
+    if (SF_G_CONTINUE_FLAG) {
+        if (sarray.count > 0) {
+            result = add_slices_to_trunk(&sarray);
+        }
+    } else {
+        result = EINTR;
     }
 
     *slice_count = sarray.count;
@@ -1294,6 +1300,8 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     const int64_t data_version = 0;
     const int source = BINLOG_SOURCE_DUMP;
     int result;
+    int i;
+    bool need_padding;
     FSFileBufferPair fb;
     OBEntry **bucket;
     OBEntry **end;
@@ -1320,7 +1328,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     current_time = g_current_time - LOCAL_BINLOG_CHECK_LAST_SECONDS;
     end = htable->buckets + end_index;
     for (bucket=htable->buckets+start_index; result == 0 &&
-            bucket<end; bucket++)
+            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
     {
         if (*bucket == NULL) {
             continue;
@@ -1345,6 +1353,26 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
 
             ob = ob->next;
         } while (ob != NULL);
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    }
+
+    need_padding = (end_index == htable->capacity);
+    if (need_padding && result == 0) {
+        for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
+            if (fb.buffer.end - fb.buffer.current <
+                    FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+            {
+                if ((result=write_to_file(&fb)) != 0) {
+                    break;
+                }
+            }
+
+            fb.buffer.current += slice_binlog_log_no_op(current_time + i,
+                    data_version, source, fb.buffer.current);
+        }
     }
 
     if (result == 0 && fb.buffer.current - fb.buffer.buff > 0) {

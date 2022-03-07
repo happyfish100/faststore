@@ -41,6 +41,7 @@
 
 #define DEL_SLICE_EXPECT_FIELD_COUNT           8
 #define DEL_BLOCK_EXPECT_FIELD_COUNT           6
+#define NO_OP_EXPECT_FIELD_COUNT               6
 
 #define MAX_BINLOG_FIELD_COUNT  16
 #define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
@@ -240,6 +241,27 @@ static inline int del_block_set_fields(SliceBinlogRecord *record,
     return 0;
 }
 
+static inline int no_op_set_fields(SliceBinlogRecord *record,
+        BinlogReadThreadResult *r, string_t *line,
+        string_t *cols, const int count)
+{
+    int64_t line_count;
+    char binlog_filename[PATH_MAX];
+
+    if (count != NO_OP_EXPECT_FIELD_COUNT) {
+        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
+                line->str, line_count);
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: %"PRId64", "
+                "field count: %d != %d", __LINE__,
+                binlog_filename, line_count,
+                count, NO_OP_EXPECT_FIELD_COUNT);
+        return EINVAL;
+    }
+
+    return 0;
+}
+
 #define SLICE_ADD_TO_CHAIN(thread_ctx, record) \
     if (thread_ctx->slices.head == NULL) { \
         thread_ctx->slices.head = record;  \
@@ -281,7 +303,8 @@ static int slice_parse_line(SliceParseThreadContext *thread_ctx,
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET,
-            (op_type == SLICE_BINLOG_OP_TYPE_DEL_BLOCK ?
+            ((op_type == SLICE_BINLOG_OP_TYPE_DEL_BLOCK ||
+              op_type == SLICE_BINLOG_OP_TYPE_NO_OP) ?
              '\n' : ' '), 0);
     fs_calc_block_hashcode(&bkey);
 
@@ -304,6 +327,10 @@ static int slice_parse_line(SliceParseThreadContext *thread_ctx,
             break;
         case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
             result = del_block_set_fields(record,
+                    r, line, cols, count);
+            break;
+        case SLICE_BINLOG_OP_TYPE_NO_OP:
+            result = no_op_set_fields(record,
                     r, line, cols, count);
             break;
         default:
@@ -452,6 +479,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             return ob_index_delete_slices_by_binlog(&record->bs_key);
         case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
             return ob_index_delete_block_by_binlog(&record->bs_key.block);
+        case SLICE_BINLOG_OP_TYPE_NO_OP:
         default:
             return 0;
     }
