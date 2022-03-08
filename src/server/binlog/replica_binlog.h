@@ -56,13 +56,20 @@ extern "C" {
             const int data_group_id);
 
     static inline const char *replica_binlog_get_filepath(
-            const int data_group_id, char *filename, const int size)
+            const int data_group_id, char *filepath, const int size)
     {
         char subdir_name[64];
 
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
         return sf_binlog_writer_get_filepath(DATA_PATH_STR,
-                subdir_name, filename, size);
+                subdir_name, filepath, size);
+    }
+
+    static inline const char *replica_binlog_get_base_path(
+            char *filepath, const int size)
+    {
+        return sf_binlog_writer_get_filepath(DATA_PATH_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME, filepath, size);
     }
 
     int replica_binlog_get_current_write_index(const int data_group_id);

@@ -53,8 +53,10 @@ struct sf_binlog_writer_info *slice_binlog_get_writer()
 
 int slice_binlog_set_binlog_index(const int binlog_index)
 {
-    return sf_file_writer_set_binlog_index(&binlog_writer.
-            writer.fw, binlog_index);
+    /* force write to binlog index file */
+    binlog_writer.writer.fw.binlog.index = -1;
+    return sf_binlog_writer_set_binlog_index(&binlog_writer.
+            writer, binlog_index);
 }
 
 int slice_binlog_get_current_write_index()
@@ -64,12 +66,11 @@ int slice_binlog_get_current_write_index()
 
 int slice_binlog_init()
 {
-    int result;
+    return init_binlog_writer();
+}
 
-    if ((result=init_binlog_writer()) != 0) {
-        return result;
-    }
-
+int slice_binlog_load()
+{
     return slice_loader_load(&binlog_writer.writer);
 }
 

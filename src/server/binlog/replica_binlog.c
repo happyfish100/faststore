@@ -289,7 +289,8 @@ int replica_binlog_init()
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        if ((myself=fs_get_data_server(data_group_id, CLUSTER_MYSELF_PTR->
+        if ((myself=fs_get_data_server(data_group_id,
+                        CLUSTER_MYSELF_PTR->
                         server->id)) == NULL)
         {
             return ENOENT;

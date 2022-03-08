@@ -128,14 +128,16 @@ int binlog_loader_load_ex(const char *subdir_name,
             *extra_buff = '\0';
         }
 
-        logInfo("file: "__FILE__", line: %d, "
-                "load %s data done. record count: %"PRId64"%s, "
-                "time used: %s ms", __LINE__, subdir_name,
-                parse_ctx.total_count, extra_buff, time_buff);
+        if (SF_G_CONTINUE_FLAG) {
+            logInfo("file: "__FILE__", line: %d, "
+                    "load %s data done. record count: %"PRId64"%s, "
+                    "time used: %s ms", __LINE__, subdir_name,
+                    parse_ctx.total_count, extra_buff, time_buff);
+        }
     } else {
         logError("file: "__FILE__", line: %d, "
                 "result: %d", __LINE__, result);
     }
 
-    return result;
+    return SF_G_CONTINUE_FLAG ? result : EINTR;
 }

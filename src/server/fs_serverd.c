@@ -350,7 +350,7 @@ int main(int argc, char *argv[])
     } while (0);
 
     if (result != 0) {
-        lcrit("program exit abnomally");
+        lcrit("program exit abnomally with errno: %d", result);
         log_destroy();
         return result;
     }

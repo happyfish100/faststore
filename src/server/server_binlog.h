@@ -24,6 +24,7 @@
 #include "binlog/trunk_binlog.h"
 #include "binlog/slice_binlog.h"
 #include "binlog/replica_binlog.h"
+#include "binlog/migrate_clean.h"
 
 #ifdef __cplusplus
 extern "C" {

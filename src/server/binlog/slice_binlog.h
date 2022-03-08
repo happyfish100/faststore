@@ -35,11 +35,19 @@ extern "C" {
     int slice_binlog_init();
     void slice_binlog_destroy();
 
+    int slice_binlog_load();
     int slice_binlog_get_current_write_index();
 
     struct sf_binlog_writer_info *slice_binlog_get_writer();
 
     int slice_binlog_set_binlog_index(const int binlog_index);
+
+    static inline const char *slice_binlog_get_filepath(
+            char *filepath, const int size)
+    {
+        return sf_binlog_writer_get_filepath(DATA_PATH_STR,
+                FS_SLICE_BINLOG_SUBDIR_NAME, filepath, size);
+    }
 
     static inline const char *slice_binlog_get_filename(const
             int binlog_index, char *filename, const int size)
@@ -47,6 +55,13 @@ extern "C" {
         return sf_binlog_writer_get_filename(DATA_PATH_STR,
                 FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
                 filename, size);
+    }
+
+    static inline const char *slice_binlog_get_index_filename(
+            char *filename, const int size)
+    {
+        return sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+                FS_SLICE_BINLOG_SUBDIR_NAME, filename, size);
     }
 
     static inline int slice_binlog_log_to_buff(const OBSliceEntry *slice,
@@ -69,11 +84,11 @@ extern "C" {
     static inline int slice_binlog_log_no_op(const time_t current_time,
             const uint64_t data_version, const int source, char *buff)
     {
-        const int64_t oid = 0;
+        const int64_t oid = 1;
         const int64_t offset = 0;
         return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
                 "%"PRId64"\n", (int64_t)current_time, data_version,
-                source, SLICE_BINLOG_OP_TYPE_DEL_BLOCK, oid, offset);
+                source, BINLOG_OP_TYPE_NO_OP, oid, offset);
     }
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,

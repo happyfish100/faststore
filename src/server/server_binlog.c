@@ -76,8 +76,19 @@ int server_binlog_init()
         return result;
     }
 
-    //TODO move to first?
-	return do_binlog_check();
+    if ((result=migrate_clean_redo()) != 0) {
+        return result;
+    }
+
+    if ((result=do_binlog_check()) != 0) {
+        return result;
+    }
+
+    if ((result=slice_binlog_load()) != 0) {
+        return result;
+    }
+
+    return 0;
 }
 
 void server_binlog_destroy()

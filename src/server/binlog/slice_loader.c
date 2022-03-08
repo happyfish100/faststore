@@ -456,6 +456,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
         *thread_ctx, SliceBinlogRecord *record)
 {
     OBSliceEntry *slice;
+    int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
         if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->bs_key.block))) {
@@ -476,9 +477,29 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             slice->space = record->space;
             return ob_index_add_slice_by_binlog(slice);
         case SLICE_BINLOG_OP_TYPE_DEL_SLICE:
-            return ob_index_delete_slices_by_binlog(&record->bs_key);
+            if ((result=ob_index_delete_slices_by_binlog(
+                            &record->bs_key)) != 0)
+            {
+                logError("file: "__FILE__", line: %d, "
+                        "delete slice fail, block {oid: %"PRId64", "
+                        "offset: %"PRId64"}, slice {offset: %d, length: %d}"
+                        ", errno: %d, error info: %s", __LINE__, record->
+                        bs_key.block.oid, record->bs_key.block.offset,
+                        record->bs_key.slice.offset, record->bs_key.
+                        slice.length, result, STRERROR(result));
+            }
+            return result;
         case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
-            return ob_index_delete_block_by_binlog(&record->bs_key.block);
+            if ((result=ob_index_delete_block_by_binlog(
+                            &record->bs_key.block)) != 0)
+            {
+                logError("file: "__FILE__", line: %d, "
+                        "delete block fail, {oid: %"PRId64", offset: %"
+                        PRId64"}, errno: %d, error info: %s", __LINE__,
+                        record->bs_key.block.oid, record->bs_key.block.
+                        offset, result, STRERROR(result));
+            }
+            return result;
         case SLICE_BINLOG_OP_TYPE_NO_OP:
         default:
             return 0;
@@ -1062,11 +1083,6 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     result = binlog_loader_load_ex(FS_SLICE_BINLOG_SUBDIR_NAME,
             slice_writer, &callbacks, (ctx.parse_thread_array.count +
                 ctx.data_thread_array.count) * 2);
-    if (result == 0) {
-        if (!SF_G_CONTINUE_FLAG) {
-            result = EINTR;
-        }
-    }
 
     if (result == 0) {
         result = slice_dump_slices_to_trunk(&ctx);
@@ -1080,8 +1096,8 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                         &ctx.data_thread_array) > 0);
             result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
         }
-        destroy_loader_context(&ctx);
     }
 
+    destroy_loader_context(&ctx);
     return result;
 }
