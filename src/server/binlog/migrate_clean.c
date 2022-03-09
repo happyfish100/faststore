@@ -54,18 +54,18 @@ typedef struct binlog_clean_redo_context {
 static inline const char *get_slice_dump_filename(const
         int binlog_index, char *filename, const int size)
 {
-#define TMP_FILENAME_AFFIX_STR  ".tmp"
-#define TMP_FILENAME_AFFIX_LEN  (sizeof(TMP_FILENAME_AFFIX_STR) - 1)
+#define DUMP_FILENAME_AFFIX_STR  ".dump"
+#define DUMP_FILENAME_AFFIX_LEN  (sizeof(DUMP_FILENAME_AFFIX_STR) - 1)
     int len;
 
     slice_binlog_get_filename(binlog_index, filename, size);
     len = strlen(filename);
-    if (len + TMP_FILENAME_AFFIX_LEN >= size) {
+    if (len + DUMP_FILENAME_AFFIX_LEN >= size) {
         return NULL;
     }
 
-    memcpy(filename + len, TMP_FILENAME_AFFIX_STR, TMP_FILENAME_AFFIX_LEN);
-    *(filename + len + TMP_FILENAME_AFFIX_LEN) = '\0';
+    memcpy(filename + len, DUMP_FILENAME_AFFIX_STR, DUMP_FILENAME_AFFIX_LEN);
+    *(filename + len + DUMP_FILENAME_AFFIX_LEN) = '\0';
     return filename;
 }
 

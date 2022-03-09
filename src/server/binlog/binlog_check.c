@@ -67,7 +67,6 @@ static int get_replica_last_timestamp(time_t *last_timestamp)
         data_group_id = id_array->ids[i];
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
                 data_group_id);
-
         last_index = replica_binlog_get_current_write_index(data_group_id);
         if ((result=get_last_timestamp(subdir_name,
                         last_index, &timestamp)) != 0)
@@ -90,7 +89,6 @@ static int binlog_check_get_last_timestamp(time_t *last_timestamp)
     time_t timestamp;
 
     *last_timestamp = 0;
-
     last_index = slice_binlog_get_current_write_index();
     if ((result=get_last_timestamp(FS_SLICE_BINLOG_SUBDIR_NAME,
                     last_index, &timestamp)) != 0)

@@ -1325,7 +1325,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     }
     fb.buffer.end = fb.buffer.buff + fb.buffer.size;
 
-    current_time = g_current_time - LOCAL_BINLOG_CHECK_LAST_SECONDS;
+    current_time = g_current_time;
     end = htable->buckets + end_index;
     for (bucket=htable->buckets+start_index; result == 0 &&
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
