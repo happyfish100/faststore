@@ -264,6 +264,7 @@ static int check_combine_slice(FSAPIInsertSliceContext *ictx)
                 result = try_combine_slice(ictx->otid.old_slice,
                         ictx, &is_new_slice);
             } else {
+                is_new_slice = false;
                 result = -EAGAIN;
             }
             PTHREAD_MUTEX_UNLOCK(&block->hentry.sharding->lock);

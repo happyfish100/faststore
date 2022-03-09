@@ -459,6 +459,9 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
     int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
+        if (record->op_type == SLICE_BINLOG_OP_TYPE_NO_OP) {
+            return 0;
+        }
         if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->bs_key.block))) {
             thread_ctx->skip_count++;
             return 0;

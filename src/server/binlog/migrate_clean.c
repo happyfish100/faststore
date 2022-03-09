@@ -444,10 +444,13 @@ int migrate_clean_binlog(const int64_t total_slice_count,
 {
     int result;
     BinlogCleanRedoContext redo_ctx;
+    int64_t start_time;
     time_t current_time;
     struct tm tm_current;
+    char time_used[32];
 
     if (dump_slice_index) {
+        start_time = get_current_time_ms();
         if ((result=dump_slice_binlog(total_slice_count,
                         &redo_ctx.binlog_file_count)) != 0)
         {
@@ -456,8 +459,10 @@ int migrate_clean_binlog(const int64_t total_slice_count,
 
         logInfo("file: "__FILE__", line: %d, "
                 "dump slice binlog, total slice count: %"PRId64", "
-                "binlog file count: %d", __LINE__, total_slice_count +
-                LOCAL_BINLOG_CHECK_LAST_SECONDS, redo_ctx.binlog_file_count);
+                "binlog file count: %d, time used: %s ms", __LINE__,
+                total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
+                redo_ctx.binlog_file_count, long_to_comma_str(
+                    get_current_time_ms() - start_time, time_used));
 
         redo_ctx.current_stage = BINLOG_REDO_STAGE_REMOVE_SLICE;
     } else {
