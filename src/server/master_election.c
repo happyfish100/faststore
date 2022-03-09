@@ -165,8 +165,9 @@ static inline FSClusterDataServerInfo *get_preseted_master(
 static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         int *result)
 {
-#define OFFLINE_WAIT_TIMEOUT   5
+#define ACTIVE_WAIT_TIMEOUT    5
 #define ONLINE_WAIT_TIMEOUT   30
+#define OFFLINE_WAIT_TIMEOUT   5
 
 #define IS_SERVER_TIMEDOUT(group, cs, election_start_time, timeout)  \
     (g_current_time - (cs->status_changed_time > 0 ?     \
@@ -290,6 +291,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
             *result = 0;
             return last;
         }
+        timeout = ACTIVE_WAIT_TIMEOUT * 3;
     } else if (status == FS_SERVER_STATUS_ONLINE) {
         timeout = ONLINE_WAIT_TIMEOUT * 3;
     } else {
