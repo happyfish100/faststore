@@ -1,4 +1,29 @@
-faststore (3.1.0-1) UNRELEASED; urgency=medium
+faststore (3.2.0-1) unstable; urgency=medium
+
+  * fs_client_slice_writev impl.
+  * fs_client_slice_readv_ex impl.
+  * fs_api_slice_readv impl.
+  * fs_api_slice_write support writev
+  * add macros: FS_API_SET_WBUFFER_BUFF/IOV
+  * use sf/sf_iov.h from libserverframe
+  * use function sf_iova_memcpy_ex from libserverframe
+  * call renamed hash_get_prime_capacity
+  * read ahead support prefetch for fgetc, fgets and fscanf
+  * read ahead support prefetch automaticlly
+  * impl. function fs_api_datasync
+  * replenish commits for fs_api_datasync
+  * upgrade version to 3.2.0
+  * support --migrate-clean option
+  * add files: binlog/migrate_clean.[hc]
+  * migrate_clean.[hc] support redo mode for atomicity
+  * migrate_clean_binlog/redo impl.
+  * change dump slice binlog file's affix
+  * dump slice binlog log time used
+  * remove compile warning
+
+ -- YuQing <384681@qq.com>  Sun, 13 Mar 2022 16:59:42 +0800
+
+faststore (3.1.0-1) unstable; urgency=medium
 
   * upgrade version to 3.1.0
 

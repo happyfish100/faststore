@@ -4,8 +4,8 @@ Priority: optional
 Maintainer: YuQing <384681@qq.com>
 Build-Depends: debhelper (>=11~),
                libaio-dev,
-               libfastcommon-dev (>= 1.0.55),
-               libserverframe-dev (>= 1.1.12),
+               libfastcommon-dev (>= 1.0.56),
+               libserverframe-dev (>= 1.1.13),
                fastcfs-auth-dev (>= 3.0.0)
 Standards-Version: 4.1.4
 Homepage: http://github.com/happyfish100/faststore
@@ -13,8 +13,8 @@ Homepage: http://github.com/happyfish100/faststore
 Package: faststore
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.55),
-         libserverframe (>= 1.1.12),
+Depends: libfastcommon (>= 1.0.56),
+         libserverframe (>= 1.1.13),
          fastcfs-auth-client (>= 3.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-server (= ${binary:Version}),
@@ -26,8 +26,8 @@ Description: a high performance distributed file storage service
 Package: faststore-server
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.55),
-         libserverframe (>= 1.1.12),
+Depends: libfastcommon (>= 1.0.56),
+         libserverframe (>= 1.1.13),
          fastcfs-auth-client (>= 3.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-config (>= 1.0.0),
@@ -38,8 +38,8 @@ Description: FastStore server
 Package: faststore-client
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.55),
-         libserverframe (>= 1.1.12),
+Depends: libfastcommon (>= 1.0.56),
+         libserverframe (>= 1.1.13),
          fastcfs-auth-client (>= 3.0.0),
          fastcfs-auth-config (>= 2.0.0),
          faststore-config (>= 1.0.0),
