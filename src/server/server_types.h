@@ -129,6 +129,9 @@
 #define FS_MIGRATE_CLEAN_LONG_OPTION_LEN  (sizeof( \
             FS_MIGRATE_CLEAN_LONG_OPTION_STR) - 1)
 
+#define FS_DATA_REBUILD_LONG_OPTION_STR  "data-rebuild"
+#define FS_DATA_REBUILD_LONG_OPTION_LEN  (sizeof( \
+            FS_DATA_REBUILD_LONG_OPTION_STR) - 1)
 
 #define FS_TASK_BUFFER_FRONT_PADDING_SIZE  (sizeof(FSProtoHeader) + \
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \

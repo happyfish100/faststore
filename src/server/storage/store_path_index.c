@@ -320,8 +320,8 @@ static int load_store_path_index(IniContext *ini_context,
     pentry = store_paths.entries;
     end = sections + count;
     for (section=sections; section<end; section++,pentry++) {
-        if ((result=load_one_store_path_index(ini_context, full_filename,
-                        section, pentry)) != 0)
+        if ((result=load_one_store_path_index(ini_context,
+                        full_filename, section, pentry)) != 0)
         {
             return result;
         }

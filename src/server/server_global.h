@@ -71,6 +71,10 @@ typedef struct server_global_vars {
 
     struct {
         FSStorageConfig cfg;
+        struct {
+            int index;
+            const char *str;
+        } rebuild_path;
     } storage;
 
     struct {
@@ -97,6 +101,9 @@ typedef struct server_global_vars {
 
 #define MIGRATE_CLEAN_ENABLED  g_server_global_vars.cluster. \
     config.migrate_clean
+
+#define DATA_REBUILD_PATH_STR   g_server_global_vars.storage.rebuild_path.str
+#define DATA_REBUILD_PATH_INDEX g_server_global_vars.storage.rebuild_path.index
 
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force

@@ -32,6 +32,9 @@ static int load_one_path(FSStorageConfig *storage_cfg,
 {
     int result;
     char *path_str;
+    char buff[PATH_MAX];
+    string_t src;
+    string_t dest;
 
     path_str = iniGetStrValue(ini_ctx->section_name,
             "path", ini_ctx->context);
@@ -72,14 +75,19 @@ static int load_one_path(FSStorageConfig *storage_cfg,
         SF_CHOWN_RETURN_ON_ERROR(path_str, geteuid(), getegid());
     }
 
-    chopPath(path_str);
-    path->len = strlen(path_str);
+    FC_SET_STRING(src, path_str);
+    dest.str = buff;
+    if ((result=fc_format_path(&src, &dest, sizeof(buff))) != 0) {
+        return result;
+    }
+
+    path->len = dest.len;
     path->str = (char *)fc_malloc(path->len + 1);
     if (path->str == NULL) {
         return ENOMEM;
     }
+    memcpy(path->str, dest.str, path->len + 1);
 
-    memcpy(path->str, path_str, path->len + 1);
     return 0;
 }
 
@@ -631,10 +639,6 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
     int old_count;
     int change_count;
 
-    if ((result=store_path_index_init()) != 0) {
-        return result;
-    }
-
     old_count = store_path_index_count();
     change_count = 0;
     do {
@@ -668,8 +672,39 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
             store_path_index_count(), change_count,
             storage_cfg->max_store_path_index);
 
-    store_path_index_destroy();
     return result;
+}
+
+static int set_data_rebuild_path_index()
+{
+    int result;
+    char buff[PATH_MAX];
+    string_t src;
+    string_t dest;
+    StorePathEntry *pentry;
+
+    if (DATA_REBUILD_PATH_STR == NULL) {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return 0;
+    }
+
+    FC_SET_STRING(src, (char *)DATA_REBUILD_PATH_STR);
+    dest.str = buff;
+    if ((result=fc_format_path(&src, &dest, sizeof(buff))) != 0) {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return result;
+    }
+
+    if ((pentry=store_path_index_get(dest.str)) == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "data rebuild path: %s not exist in storage.conf",
+                __LINE__, dest.str);
+        DATA_REBUILD_PATH_INDEX = -1;
+        return ENOENT;
+    }
+
+    DATA_REBUILD_PATH_INDEX = pentry->index;
+    return 0;
 }
 
 int storage_config_load(FSStorageConfig *storage_cfg,
@@ -691,7 +726,17 @@ int storage_config_load(FSStorageConfig *storage_cfg,
     result = load_from_config_file(storage_cfg, &ini_ctx);
     iniFreeContext(&ini_context);
     if (result == 0) {
-        result = load_store_path_indexes(storage_cfg, storage_filename);
+        if ((result=store_path_index_init()) != 0) {
+            return result;
+        }
+
+        if ((result=load_store_path_indexes(storage_cfg,
+                        storage_filename)) == 0)
+        {
+            result = set_data_rebuild_path_index();
+        }
+
+        store_path_index_destroy();
     }
     return result;
 }

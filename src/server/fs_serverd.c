@@ -83,17 +83,22 @@ static int parse_cmd_options(int argc, char *argv[])
     int ch;
     const struct option longopts[] = {
         {FS_FORCE_ELECTION_LONG_OPTION_STR, no_argument, NULL, 'f'},
+        {FS_DATA_REBUILD_LONG_OPTION_STR, required_argument, NULL, 'R'},
         {FS_MIGRATE_CLEAN_LONG_OPTION_STR, no_argument, NULL, 'C'},
         SF_COMMON_LONG_OPTIONS,
         {NULL, 0, NULL, 0}
     };
 
-    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"fC",
+    DATA_REBUILD_PATH_STR = NULL;
+    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"fCR:",
                     longopts, NULL)) != -1)
     {
         switch (ch) {
             case 'f':
                 FORCE_LEADER_ELECTION = true;
+                break;
+            case 'R':
+                DATA_REBUILD_PATH_STR = optarg;
                 break;
             case 'C':
                 MIGRATE_CLEAN_ENABLED = true;
@@ -116,6 +121,11 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
              FS_FORCE_ELECTION_LONG_OPTION_LEN}, 'f', false,
         "-f | --"FS_FORCE_ELECTION_LONG_OPTION_STR
             ": force leader election"},
+
+        {{FS_DATA_REBUILD_LONG_OPTION_STR,
+             FS_DATA_REBUILD_LONG_OPTION_LEN}, 'R', true,
+        "-R | --"FS_DATA_REBUILD_LONG_OPTION_STR
+            " <store_path>: data rebuilding for the store path"},
 
         {{FS_MIGRATE_CLEAN_LONG_OPTION_STR,
              FS_MIGRATE_CLEAN_LONG_OPTION_LEN}, 'C', false,
