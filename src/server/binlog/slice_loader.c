@@ -27,6 +27,7 @@
 #include "../shared_thread_pool.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
+#include "../storage/store_path_rebuild.h"
 #include "binlog_loader.h"
 #include "migrate_clean.h"
 #include "slice_binlog.h"
@@ -1054,6 +1055,21 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
     return result;
 }
 
+static int64_t get_total_count(SliceDataThreadCtxArray *ctx_array)
+{
+    int64_t total;
+    SliceDataThreadContext *ctx;
+    SliceDataThreadContext *end;
+
+    total = 0;
+    end = ctx_array->contexts + ctx_array->count;
+    for (ctx=ctx_array->contexts; ctx<end; ctx++) {
+        total += ctx->total_count;
+    }
+
+    return total;
+}
+
 static int64_t get_total_skip_count(SliceDataThreadCtxArray *ctx_array)
 {
     int64_t total;
@@ -1112,12 +1128,20 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         if (DATA_REBUILD_PATH_INDEX >= 0) {
             DATA_REBUILD_SLICE_COUNT = get_total_rebuild_count(
                     &ctx.data_thread_array);
+            if (DATA_REBUILD_SLICE_COUNT > 0) {
+                result = store_path_rebuild_dump_data(
+                        get_total_count(&ctx.data_thread_array));
+            }
 
-            logInfo("rebuild path: %s, count: %"PRId64, DATA_REBUILD_PATH_STR,
+            logInfo("rebuild path: %s, total slice count: %"PRId64", "
+                    "rebuild count: %"PRId64, DATA_REBUILD_PATH_STR,
+                    get_total_count(&ctx.data_thread_array),
                     DATA_REBUILD_SLICE_COUNT);
         }
 
-        result = slice_dump_slices_to_trunk(&ctx);
+        if (result == 0) {
+            result = slice_dump_slices_to_trunk(&ctx);
+        }
     }
     g_ob_hashtable.modify_sallocator = true;
 

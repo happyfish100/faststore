@@ -27,22 +27,22 @@
 #include "replica_binlog.h"
 #include "migrate_clean.h"
 
-typedef struct slice_clean_thread_context {
+typedef struct data_dump_thread_context {
     int thread_index;
     int64_t start_index;
     int64_t end_index;
-    struct slice_clean_context *clean_ctx;
-} SliceCleanThreadContext;
+    struct data_dump_context *dump_ctx;
+} DataDumpThreadContext;
 
-typedef struct slice_clean_thread_ctx_array {
-    SliceCleanThreadContext *contexts;
+typedef struct data_dump_thread_ctx_array {
+    DataDumpThreadContext *contexts;
     int count;
-} SliceCleanThreadCtxArray;
+} DataDumpThreadCtxArray;
 
-typedef struct slice_clean_context {
+typedef struct data_dump_context {
     volatile int running_threads;
-    SliceCleanThreadCtxArray clean_thread_array;
-} SliceCleanContext;
+    DataDumpThreadCtxArray thread_array;
+} DataDumpContext;
 
 typedef struct binlog_clean_redo_context {
     char redo_filename[PATH_MAX];
@@ -82,7 +82,7 @@ static inline int dump_slices_to_file(const int binlog_index,
     return ob_index_dump_slices_to_file(start_index, end_index, filename);
 }
 
-static void slice_clean_thread_run(SliceCleanThreadContext *thread_ctx,
+static void data_dump_thread_run(DataDumpThreadContext *thread_ctx,
         void *thread_data)
 {
     if (dump_slices_to_file(thread_ctx->thread_index, thread_ctx->
@@ -90,7 +90,7 @@ static void slice_clean_thread_run(SliceCleanThreadContext *thread_ctx,
     {
         sf_terminate_myself();
     }
-    __sync_sub_and_fetch(&thread_ctx->clean_ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread_ctx->dump_ctx->running_threads, 1);
 }
 
 static int dump_slice_binlog(const int64_t total_slice_count,
@@ -102,9 +102,9 @@ static int dump_slice_binlog(const int64_t total_slice_count,
     int thread_count;
     int64_t buckets_per_thread;
     int64_t start_index;
-    SliceCleanContext clean_ctx;
-    SliceCleanThreadContext *ctx;
-    SliceCleanThreadContext *end;
+    DataDumpContext dump_ctx;
+    DataDumpThreadContext *ctx;
+    DataDumpThreadContext *end;
 
     thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
         MIN_SLICES_PER_THREAD;
@@ -119,28 +119,28 @@ static int dump_slice_binlog(const int64_t total_slice_count,
         return dump_slices_to_file(0, 0, g_ob_hashtable.capacity);
     }
 
-    bytes = sizeof(SliceCleanThreadContext) * thread_count;
-    clean_ctx.clean_thread_array.contexts = fc_malloc(bytes);
-    if (clean_ctx.clean_thread_array.contexts == NULL) {
+    bytes = sizeof(DataDumpThreadContext) * thread_count;
+    dump_ctx.thread_array.contexts = fc_malloc(bytes);
+    if (dump_ctx.thread_array.contexts == NULL) {
         return ENOMEM;
     }
 
-    clean_ctx.running_threads = thread_count;
+    dump_ctx.running_threads = thread_count;
     buckets_per_thread = (g_ob_hashtable.capacity +
             thread_count - 1) / thread_count;
-    end = clean_ctx.clean_thread_array.contexts + thread_count;
-    for (ctx=clean_ctx.clean_thread_array.contexts,
+    end = dump_ctx.thread_array.contexts + thread_count;
+    for (ctx=dump_ctx.thread_array.contexts,
             start_index=0; ctx<end; ctx++)
     {
-        ctx->thread_index = ctx - clean_ctx.clean_thread_array.contexts;
+        ctx->thread_index = ctx - dump_ctx.thread_array.contexts;
         ctx->start_index = start_index;
         ctx->end_index = start_index + buckets_per_thread;
         if (ctx->end_index > g_ob_hashtable.capacity) {
             ctx->end_index = g_ob_hashtable.capacity;
         }
-        ctx->clean_ctx = &clean_ctx;
+        ctx->dump_ctx = &dump_ctx;
         if ((result=shared_thread_pool_run((fc_thread_pool_callback)
-                        slice_clean_thread_run, ctx)) != 0)
+                        data_dump_thread_run, ctx)) != 0)
         {
             return result;
         }
@@ -150,11 +150,12 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 
     do {
         fc_sleep_ms(10);
-        if (__sync_add_and_fetch(&clean_ctx.running_threads, 0) == 0) {
+        if (__sync_add_and_fetch(&dump_ctx.running_threads, 0) == 0) {
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
 
+    free(dump_ctx.thread_array.contexts);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
@@ -450,6 +451,9 @@ int migrate_clean_binlog(const int64_t total_slice_count,
     char time_used[32];
 
     if (dump_slice_index) {
+        logInfo("file: "__FILE__", line: %d, "
+                "begin dump slice binlog ...", __LINE__);
+
         start_time = get_current_time_ms();
         if ((result=dump_slice_binlog(total_slice_count,
                         &redo_ctx.binlog_file_count)) != 0)

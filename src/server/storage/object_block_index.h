@@ -19,8 +19,6 @@
 
 #include "../server_types.h"
 
-typedef int (*ob_index_dump_filter_func)(const OBSliceEntry *slice, void *arg);
-
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,8 +52,13 @@ extern "C" {
             start_index, end_index, slice_count)
 
 #define ob_index_dump_slices_to_file(start_index, end_index, filename) \
-    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, NULL, \
-            NULL, start_index, end_index, filename)
+    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, start_index, \
+            end_index, filename, end_index == g_ob_hashtable.capacity)
+
+#define ob_index_remove_slices_to_file(start_index, end_index, \
+        rebuild_store_index, filename) \
+    ob_index_remove_slices_to_file_ex(&g_ob_hashtable, start_index, \
+            end_index, rebuild_store_index, filename)
 
     int ob_index_init();
     void ob_index_destroy();
@@ -146,9 +149,12 @@ extern "C" {
             int64_t *slice_count);
 
     int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
-            ob_index_dump_filter_func filter, void *arg,
             const int64_t start_index, const int64_t end_index,
-            const char *filename);
+            const char *filename, const bool need_padding);
+
+    int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
+            const int64_t start_index, const int64_t end_index,
+            const int rebuild_store_index, const char *filename);
 
 #ifdef __cplusplus
 }
