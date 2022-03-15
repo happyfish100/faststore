@@ -72,6 +72,7 @@ typedef struct server_global_vars {
     struct {
         FSStorageConfig cfg;
         struct {
+            volatile int64_t slice_count; //slice count in slice binlog
             int index;
             const char *str;
         } rebuild_path;
@@ -102,8 +103,10 @@ typedef struct server_global_vars {
 #define MIGRATE_CLEAN_ENABLED  g_server_global_vars.cluster. \
     config.migrate_clean
 
-#define DATA_REBUILD_PATH_STR   g_server_global_vars.storage.rebuild_path.str
-#define DATA_REBUILD_PATH_INDEX g_server_global_vars.storage.rebuild_path.index
+#define DATA_REBUILD_PATH_STR    g_server_global_vars.storage.rebuild_path.str
+#define DATA_REBUILD_PATH_INDEX  g_server_global_vars.storage.rebuild_path.index
+#define DATA_REBUILD_SLICE_COUNT g_server_global_vars. \
+    storage.rebuild_path.slice_count
 
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force

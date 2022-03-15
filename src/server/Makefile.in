@@ -16,7 +16,8 @@ CLIENT_OBJS = ../client/fs_client.o ../client/client_func.o \
 SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replica_handler.o common_handler.o data_update_handler.o \
               server_global.o server_group_info.o server_storage.o \
-              storage/storage_config.o storage/store_path_index.o \
+              storage/storage_config.o storage/store_path_index.o  \
+              storage/store_path_rebuild.o  \
               storage/trunk_allocator.o storage/storage_allocator.o \
               storage/trunk_maker.o storage/trunk_prealloc.o  \
               storage/trunk_reclaim.o storage/trunk_id_info.o \

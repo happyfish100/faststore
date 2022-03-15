@@ -33,7 +33,6 @@ static int load_one_path(FSStorageConfig *storage_cfg,
     int result;
     char *path_str;
     char buff[PATH_MAX];
-    string_t src;
     string_t dest;
 
     path_str = iniGetStrValue(ini_ctx->section_name,
@@ -75,9 +74,10 @@ static int load_one_path(FSStorageConfig *storage_cfg,
         SF_CHOWN_RETURN_ON_ERROR(path_str, geteuid(), getegid());
     }
 
-    FC_SET_STRING(src, path_str);
     dest.str = buff;
-    if ((result=fc_format_path(&src, &dest, sizeof(buff))) != 0) {
+    if ((result=fc_remove_redundant_slashes1(path_str,
+                    &dest, sizeof(buff))) != 0)
+    {
         return result;
     }
 
@@ -678,9 +678,7 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
 static int set_data_rebuild_path_index()
 {
     int result;
-    char buff[PATH_MAX];
-    string_t src;
-    string_t dest;
+    char rebuild_path[PATH_MAX];
     StorePathEntry *pentry;
 
     if (DATA_REBUILD_PATH_STR == NULL) {
@@ -688,17 +686,17 @@ static int set_data_rebuild_path_index()
         return 0;
     }
 
-    FC_SET_STRING(src, (char *)DATA_REBUILD_PATH_STR);
-    dest.str = buff;
-    if ((result=fc_format_path(&src, &dest, sizeof(buff))) != 0) {
+    if ((result=fc_remove_redundant_slashes2(DATA_REBUILD_PATH_STR,
+                    rebuild_path, sizeof(rebuild_path))) != 0)
+    {
         DATA_REBUILD_PATH_INDEX = -1;
         return result;
     }
 
-    if ((pentry=store_path_index_get(dest.str)) == NULL) {
+    if ((pentry=store_path_index_get(rebuild_path)) == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "data rebuild path: %s not exist in storage.conf",
-                __LINE__, dest.str);
+                __LINE__, rebuild_path);
         DATA_REBUILD_PATH_INDEX = -1;
         return ENOENT;
     }

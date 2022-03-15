@@ -86,6 +86,7 @@ typedef struct slice_parse_thread_ctx_array {
 typedef struct slice_data_thread_context {
     int64_t total_count;
     int64_t skip_count;
+    int64_t rebuild_count;   //for data rebuilding of the specify store path
     volatile int64_t done_count;
     SliceRecordChain slices;  //for enqueue
     struct fc_queue queue;   //element: SliceBinlogRecord
@@ -475,6 +476,10 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                 return ENOMEM;
             }
 
+            if (record->space.store->index == DATA_REBUILD_PATH_INDEX) {
+                thread_ctx->rebuild_count++;
+            }
+
             slice->type = record->slice_type;
             slice->ssize = record->bs_key.slice;
             slice->space = record->space;
@@ -711,6 +716,7 @@ static int init_data_thread_context(SliceDataThreadContext *thread_ctx)
 
     thread_ctx->total_count = 0;
     thread_ctx->skip_count = 0;
+    thread_ctx->rebuild_count = 0;
     thread_ctx->done_count = 0;
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
     return 0;
@@ -1063,6 +1069,21 @@ static int64_t get_total_skip_count(SliceDataThreadCtxArray *ctx_array)
     return total;
 }
 
+static int64_t get_total_rebuild_count(SliceDataThreadCtxArray *ctx_array)
+{
+    int64_t total;
+    SliceDataThreadContext *ctx;
+    SliceDataThreadContext *end;
+
+    total = 0;
+    end = ctx_array->contexts + ctx_array->count;
+    for (ctx=ctx_array->contexts; ctx<end; ctx++) {
+        total += ctx->rebuild_count;
+    }
+
+    return total;
+}
+
 int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
 {
     int result;
@@ -1088,17 +1109,23 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                 ctx.data_thread_array.count) * 2);
 
     if (result == 0) {
+        if (DATA_REBUILD_PATH_INDEX >= 0) {
+            DATA_REBUILD_SLICE_COUNT = get_total_rebuild_count(
+                    &ctx.data_thread_array);
+
+            logInfo("rebuild path: %s, count: %"PRId64, DATA_REBUILD_PATH_STR,
+                    DATA_REBUILD_SLICE_COUNT);
+        }
+
         result = slice_dump_slices_to_trunk(&ctx);
     }
     g_ob_hashtable.modify_sallocator = true;
 
-    if (SF_G_CONTINUE_FLAG) {
-        if (result == 0 && MIGRATE_CLEAN_ENABLED) {
-            bool dump_slice_index;
-            dump_slice_index = (get_total_skip_count(
-                        &ctx.data_thread_array) > 0);
-            result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
-        }
+    if (result == 0 && MIGRATE_CLEAN_ENABLED) {
+        bool dump_slice_index;
+        dump_slice_index = (get_total_skip_count(
+                    &ctx.data_thread_array) > 0);
+        result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
     }
 
     destroy_loader_context(&ctx);

@@ -22,39 +22,38 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
-#include "../storage/object_block_index.h"
-#include "slice_binlog.h"
-#include "replica_binlog.h"
-#include "migrate_clean.h"
+#include "../binlog/slice_binlog.h"
+#include "object_block_index.h"
+#include "store_path_rebuild.h"
 
-typedef struct slice_clean_thread_context {
+typedef struct data_rebuild_thread_context {
     int thread_index;
     int64_t start_index;
     int64_t end_index;
-    struct slice_clean_context *clean_ctx;
-} SliceCleanThreadContext;
+    struct data_rebuild_context *clean_ctx;
+} DataRebuildThreadContext;
 
-typedef struct slice_clean_thread_ctx_array {
-    SliceCleanThreadContext *contexts;
+typedef struct data_rebuild_thread_ctx_array {
+    DataRebuildThreadContext *contexts;
     int count;
-} SliceCleanThreadCtxArray;
+} DataRebuildThreadCtxArray;
 
-typedef struct slice_clean_context {
+typedef struct data_rebuild_context {
     volatile int running_threads;
-    SliceCleanThreadCtxArray clean_thread_array;
-} SliceCleanContext;
+    DataRebuildThreadCtxArray clean_thread_array;
+} DataRebuildContext;
 
-typedef struct binlog_clean_redo_context {
+typedef struct data_rebuild_redo_context {
     char redo_filename[PATH_MAX];
     char backup_subdir[NAME_MAX];
     int binlog_file_count;
     int current_stage;
-} BinlogCleanRedoContext;
+} DataRebuildRedoContext;
 
 static inline const char *get_slice_dump_filename(const
         int binlog_index, char *filename, const int size)
 {
-#define DUMP_FILENAME_AFFIX_STR  "-migrate.dump"
+#define DUMP_FILENAME_AFFIX_STR  "-rebuild.dump"
 #define DUMP_FILENAME_AFFIX_LEN  (sizeof(DUMP_FILENAME_AFFIX_STR) - 1)
     int len;
 
@@ -82,7 +81,7 @@ static inline int dump_slices_to_file(const int binlog_index,
     return ob_index_dump_slices_to_file(start_index, end_index, filename);
 }
 
-static void slice_clean_thread_run(SliceCleanThreadContext *thread_ctx,
+static void data_rebuild_thread_run(DataRebuildThreadContext *thread_ctx,
         void *thread_data)
 {
     if (dump_slices_to_file(thread_ctx->thread_index, thread_ctx->
@@ -102,9 +101,9 @@ static int dump_slice_binlog(const int64_t total_slice_count,
     int thread_count;
     int64_t buckets_per_thread;
     int64_t start_index;
-    SliceCleanContext clean_ctx;
-    SliceCleanThreadContext *ctx;
-    SliceCleanThreadContext *end;
+    DataRebuildContext clean_ctx;
+    DataRebuildThreadContext *ctx;
+    DataRebuildThreadContext *end;
 
     thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
         MIN_SLICES_PER_THREAD;
@@ -119,7 +118,7 @@ static int dump_slice_binlog(const int64_t total_slice_count,
         return dump_slices_to_file(0, 0, g_ob_hashtable.capacity);
     }
 
-    bytes = sizeof(SliceCleanThreadContext) * thread_count;
+    bytes = sizeof(DataRebuildThreadContext) * thread_count;
     clean_ctx.clean_thread_array.contexts = fc_malloc(bytes);
     if (clean_ctx.clean_thread_array.contexts == NULL) {
         return ENOMEM;
@@ -140,7 +139,7 @@ static int dump_slice_binlog(const int64_t total_slice_count,
         }
         ctx->clean_ctx = &clean_ctx;
         if ((result=shared_thread_pool_run((fc_thread_pool_callback)
-                        slice_clean_thread_run, ctx)) != 0)
+                        data_rebuild_thread_run, ctx)) != 0)
         {
             return result;
         }
@@ -161,20 +160,20 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.migrate_slice_dump.flag",
+    snprintf(filename, size, "%s/%s/.rebuild_slice_dump.flag",
             DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
     return filename;
 }
 
-#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
-#define BINLOG_REDO_STAGE_RENAME_SLICE    2
-#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
+#define DATA_REBUILD_REDO_STAGE_REMOVE_SLICE    1
+#define DATA_REBUILD_REDO_STAGE_RENAME_SLICE    2
+#define DATA_REBUILD_REDO_STAGE_REBUILDING      3
 
-#define BINLOG_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
-#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define BINLOG_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
+#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
+#define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE  "current_stage"
+#define DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
 
-static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
+static int write_to_redo_file(DataRebuildRedoContext *redo_ctx)
 {
     char buff[256];
     int result;
@@ -183,9 +182,9 @@ static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
     len = sprintf(buff, "%s=%d\n"
             "%s=%d\n"
             "%s=%s\n",
-            BINLOG_REDO_ITEM_BINLOG_COUNT, redo_ctx->binlog_file_count,
-            BINLOG_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
-            BINLOG_REDO_ITEM_BACKUP_SUBDIR, redo_ctx->backup_subdir);
+            DATA_REBUILD_REDO_ITEM_BINLOG_COUNT, redo_ctx->binlog_file_count,
+            DATA_REBUILD_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
+            DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR, redo_ctx->backup_subdir);
     if ((result=safeWriteToFile(redo_ctx->redo_filename, buff, len)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
@@ -195,7 +194,7 @@ static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
     return result;
 }
 
-static int load_from_redo_file(BinlogCleanRedoContext *redo_ctx)
+static int load_from_redo_file(DataRebuildRedoContext *redo_ctx)
 {
     IniContext ini_context;
     char *backup_subdir;
@@ -211,17 +210,17 @@ static int load_from_redo_file(BinlogCleanRedoContext *redo_ctx)
     }
 
     redo_ctx->binlog_file_count = iniGetIntValue(NULL,
-            BINLOG_REDO_ITEM_BINLOG_COUNT, &ini_context, 0);
+            DATA_REBUILD_REDO_ITEM_BINLOG_COUNT, &ini_context, 0);
     redo_ctx->current_stage = iniGetIntValue(NULL,
-            BINLOG_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            DATA_REBUILD_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
     backup_subdir = iniGetStrValue(NULL,
-            BINLOG_REDO_ITEM_BACKUP_SUBDIR,
+            DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR,
             &ini_context);
     if (backup_subdir == NULL || *backup_subdir == '\0') {
         logError("file: "__FILE__", line: %d, "
                 "redo file: %s, item: %s not exist",
                 __LINE__, redo_ctx->redo_filename,
-                BINLOG_REDO_ITEM_BACKUP_SUBDIR);
+                DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR);
         return ENOENT;
     }
     snprintf(redo_ctx->backup_subdir,
@@ -244,7 +243,7 @@ static inline int backup_to_path(const char *src_filename,
             dest_filename, overwritten);
 }
 
-static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
+static int backup_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 {
     int result;
     int last_index;
@@ -292,7 +291,7 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
     return 0;
 }
 
-static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
+static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 {
     const bool overwritten = false;
     int result;
@@ -317,90 +316,32 @@ static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
     return slice_binlog_set_binlog_index(last_index);
 }
 
-static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)
-{
-    int result;
-    int data_group_count;
-    int data_group_id;
-    int len;
-    int backup_count;
-    char binlog_basepath[PATH_MAX];
-    char binlog_filepath[PATH_MAX];
-    char backup_filepath[PATH_MAX];
-
-    replica_binlog_get_base_path(binlog_basepath, sizeof(binlog_basepath));
-    len = strlen(binlog_basepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_basepath))
-    {
-        logError("file: "__FILE__", line: %d, "
-                "slice backup path is too long", __LINE__);
-        return ENAMETOOLONG;
-    }
-
-    sprintf(backup_filepath, "%s/%s", binlog_basepath,
-            redo_ctx->backup_subdir);
-    backup_count = 0;
-    data_group_count = FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX);
-    for (data_group_id=1; data_group_id<=data_group_count; data_group_id++) {
-        if (fs_is_my_data_group(data_group_id)) {
-            continue;
-        }
-
-        replica_binlog_get_filepath(data_group_id,
-                binlog_filepath, sizeof(binlog_filepath));
-        if (access(binlog_filepath, F_OK) != 0) {
-            continue;
-        }
-
-        if ((backup_count == 0) && (result=fc_check_mkdir(
-                        backup_filepath, 0775)) != 0)
-        {
-            return result;
-        }
-
-        if ((result=backup_to_path(binlog_filepath, backup_filepath)) != 0) {
-            return result;
-        }
-        ++backup_count;
-    }
-
-    if (backup_count > 0) {
-        logInfo("file: "__FILE__", line: %d, "
-                "backup %d replica data groups to %s/",
-                __LINE__, backup_count, backup_filepath);
-    }
-    return 0;
-}
-
-static int redo(BinlogCleanRedoContext *redo_ctx)
+static int redo(DataRebuildRedoContext *redo_ctx)
 {
     int result;
 
     switch (redo_ctx->current_stage) {
-        case BINLOG_REDO_STAGE_REMOVE_SLICE:
+        case DATA_REBUILD_REDO_STAGE_REMOVE_SLICE:
             if ((result=backup_slice_binlogs(redo_ctx)) != 0) {
                 return result;
             }
 
-            redo_ctx->current_stage = BINLOG_REDO_STAGE_RENAME_SLICE;
+            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_RENAME_SLICE;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
             //continue next stage
-        case BINLOG_REDO_STAGE_RENAME_SLICE:
+        case DATA_REBUILD_REDO_STAGE_RENAME_SLICE:
             if ((result=rename_slice_binlogs(redo_ctx)) != 0) {
                 return result;
             }
-            redo_ctx->current_stage = BINLOG_REDO_STAGE_REMOVE_REPLICA;
+            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
             //continue next stage
-        case BINLOG_REDO_STAGE_REMOVE_REPLICA:
-            if ((result=backup_replica_binlogs(redo_ctx)) != 0) {
-                return result;
-            }
+        case DATA_REBUILD_REDO_STAGE_REBUILDING:
+            //TODO
             break;
         default:
             logError("file: "__FILE__", line: %d, "
@@ -412,10 +353,10 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
     return fc_delete_file_ex(redo_ctx->redo_filename, "redo mark");
 }
 
-int migrate_clean_redo()
+int store_path_rebuild_redo()
 {
     int result;
-    BinlogCleanRedoContext redo_ctx;
+    DataRebuildRedoContext redo_ctx;
 
     get_slice_mark_filename(redo_ctx.redo_filename,
             sizeof(redo_ctx.redo_filename));
@@ -439,37 +380,30 @@ int migrate_clean_redo()
     return redo(&redo_ctx);
 }
 
-int migrate_clean_binlog(const int64_t total_slice_count,
-        const bool dump_slice_index)
+int store_path_rebuild_data(const int64_t total_slice_count)
 {
     int result;
-    BinlogCleanRedoContext redo_ctx;
+    DataRebuildRedoContext redo_ctx;
     int64_t start_time;
     time_t current_time;
     struct tm tm_current;
     char time_used[32];
 
-    if (dump_slice_index) {
-        start_time = get_current_time_ms();
-        if ((result=dump_slice_binlog(total_slice_count,
-                        &redo_ctx.binlog_file_count)) != 0)
-        {
-            return result;
-        }
-
-        logInfo("file: "__FILE__", line: %d, "
-                "dump slice binlog, total slice count: %"PRId64", "
-                "binlog file count: %d, time used: %s ms", __LINE__,
-                total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
-                redo_ctx.binlog_file_count, long_to_comma_str(
-                    get_current_time_ms() - start_time, time_used));
-
-        redo_ctx.current_stage = BINLOG_REDO_STAGE_REMOVE_SLICE;
-    } else {
-        redo_ctx.binlog_file_count =
-            slice_binlog_get_current_write_index() + 1;
-        redo_ctx.current_stage = BINLOG_REDO_STAGE_REMOVE_REPLICA;
+    start_time = get_current_time_ms();
+    if ((result=dump_slice_binlog(total_slice_count,
+                    &redo_ctx.binlog_file_count)) != 0)
+    {
+        return result;
     }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "dump slice binlog, total slice count: %"PRId64", "
+            "binlog file count: %d, time used: %s ms", __LINE__,
+            total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
+            redo_ctx.binlog_file_count, long_to_comma_str(
+                get_current_time_ms() - start_time, time_used));
+
+    redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_REMOVE_SLICE;
 
     current_time = g_current_time;
     localtime_r(&current_time, &tm_current);

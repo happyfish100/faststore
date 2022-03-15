@@ -20,6 +20,7 @@
 #include "fastcommon/uniq_skiplist.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "sf/sf_buffered_writer.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
 #include "storage_allocator.h"
@@ -1269,31 +1270,8 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
     return result;
 }
 
-typedef struct {
-    int fd;
-    const char *filename;
-    SFBinlogBuffer buffer;
-} FSFileBufferPair;
-
-static inline int write_to_file(FSFileBufferPair *fb)
-{
-    int result;
-    int length;
-
-    length = fb->buffer.current - fb->buffer.buff;
-    if (fc_safe_write(fb->fd, fb->buffer.buff, length) != length) {
-        result = errno != 0 ? errno : EIO;
-        logError("file: "__FILE__", line: %d, "
-                "write to file %s fail, errno: %d, error info: %s",
-                __LINE__, fb->filename, result, STRERROR(result));
-        return result;
-    }
-
-    fb->buffer.current = fb->buffer.buff;
-    return 0;
-}
-
 int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
+        ob_index_dump_filter_func filter, void *arg,
         const int64_t start_index, const int64_t end_index,
         const char *filename)
 {
@@ -1302,7 +1280,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     int result;
     int i;
     bool need_padding;
-    FSFileBufferPair fb;
+    SFBufferedWriter writer;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
@@ -1310,20 +1288,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
 
-    fb.filename = filename;
-    fb.fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-    if (fb.fd < 0) {
-        result = errno != 0 ? errno : EIO;
-        logError("file: "__FILE__", line: %d, "
-                "open file %s fail, errno: %d, error info: %s",
-                __LINE__, filename, result, STRERROR(result));
+    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
         return result;
     }
-
-    if ((result=sf_binlog_buffer_init(&fb.buffer, 1024 * 1024)) != 0) {
-        return result;
-    }
-    fb.buffer.end = fb.buffer.buff + fb.buffer.size;
 
     current_time = g_current_time;
     end = htable->buckets + end_index;
@@ -1338,21 +1305,25 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         do {
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (fb.buffer.end - fb.buffer.current <
+                if (filter != NULL && filter(slice, arg) == 0) {
+                    continue;
+                }
+
+                if (SF_BUFFERED_WRITER_REMAIN(writer) <
                         FS_SLICE_BINLOG_MAX_RECORD_SIZE)
                 {
-                    if ((result=write_to_file(&fb)) != 0) {
+                    if ((result=sf_buffered_writer_save(&writer)) != 0) {
                         break;
                     }
                 }
 
-                fb.buffer.current += slice_binlog_log_to_buff(
+                writer.buffer.current += slice_binlog_log_to_buff(
                         slice, current_time, data_version,
-                        source, fb.buffer.current);
+                        source, writer.buffer.current);
             }
 
             ob = ob->next;
-        } while (ob != NULL);
+        } while (ob != NULL && result == 0);
     }
 
     if (!SF_G_CONTINUE_FLAG) {
@@ -1362,24 +1333,23 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     need_padding = (end_index == htable->capacity);
     if (need_padding && result == 0) {
         for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
-            if (fb.buffer.end - fb.buffer.current <
+            if (SF_BUFFERED_WRITER_REMAIN(writer) <
                     FS_SLICE_BINLOG_MAX_RECORD_SIZE)
             {
-                if ((result=write_to_file(&fb)) != 0) {
+                if ((result=sf_buffered_writer_save(&writer)) != 0) {
                     break;
                 }
             }
 
-            fb.buffer.current += slice_binlog_log_no_op(current_time + i,
-                    data_version, source, fb.buffer.current);
+            writer.buffer.current += slice_binlog_log_no_op(current_time + i,
+                    data_version, source, writer.buffer.current);
         }
     }
 
-    if (result == 0 && fb.buffer.current - fb.buffer.buff > 0) {
-        result = write_to_file(&fb);
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+        result = sf_buffered_writer_save(&writer);
     }
 
-    close(fb.fd);
-    sf_binlog_buffer_destroy(&fb.buffer);
+    sf_buffered_writer_destroy(&writer);
     return result;
 }
