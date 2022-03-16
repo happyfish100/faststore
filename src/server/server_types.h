@@ -78,6 +78,10 @@
 #define FS_MIN_RECOVERY_MAX_QUEUE_DEPTH                  1
 #define FS_MAX_RECOVERY_MAX_QUEUE_DEPTH                 64
 
+#define FS_DEFAULT_DATA_REBUILD_THREADS                  8
+#define FS_MIN_DATA_REBUILD_THREADS                      1
+#define FS_MAX_DATA_REBUILD_THREADS                   1024
+
 #define FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS       3
 #define FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS          3
 #define FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS              0

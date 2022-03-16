@@ -71,6 +71,7 @@ typedef struct server_global_vars {
 
     struct {
         FSStorageConfig cfg;
+        int rebuild_threads;
         struct {
             volatile int64_t slice_count; //slice count in slice binlog
             int index;
@@ -107,6 +108,7 @@ typedef struct server_global_vars {
 #define DATA_REBUILD_PATH_INDEX  g_server_global_vars.storage.rebuild_path.index
 #define DATA_REBUILD_SLICE_COUNT g_server_global_vars. \
     storage.rebuild_path.slice_count
+#define DATA_REBUILD_THREADS g_server_global_vars.storage.rebuild_threads
 
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force

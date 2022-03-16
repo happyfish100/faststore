@@ -56,7 +56,7 @@
 #include "server_replication.h"
 #include "server_recovery.h"
 #include "storage/slice_op.h"
-#include "storage/store_path_rebuild.h"
+#include "rebuild/store_path_rebuild.h"
 #include "dio/trunk_write_thread.h"
 #include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"

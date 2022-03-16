@@ -23,7 +23,7 @@
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
 #include "../binlog/slice_binlog.h"
-#include "object_block_index.h"
+#include "../storage/object_block_index.h"
 #include "store_path_rebuild.h"
 
 typedef int (*dump_slices_to_file_callback)(const int binlog_index,

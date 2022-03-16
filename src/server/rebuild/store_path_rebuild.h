@@ -17,7 +17,7 @@
 #ifndef _FS_STORE_PATH_REBUILD_H
 #define _FS_STORE_PATH_REBUILD_H
 
-#include "storage_types.h"
+#include "../server_types.h"
 
 #ifdef __cplusplus
 extern "C" {

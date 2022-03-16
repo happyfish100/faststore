@@ -27,7 +27,7 @@
 #include "../shared_thread_pool.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
-#include "../storage/store_path_rebuild.h"
+#include "../rebuild/store_path_rebuild.h"
 #include "binlog_loader.h"
 #include "migrate_clean.h"
 #include "slice_binlog.h"
