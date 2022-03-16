@@ -283,7 +283,7 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     slice_binlog_get_index_filename(index_filename,
             sizeof(index_filename));
-    if ((result=fc_copy_to_path(index_filename, backup_filepath)) != 0) {
+    if ((result=backup_to_path(index_filename, backup_filepath)) != 0) {
         return result;
     }
 
@@ -295,7 +295,7 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
 static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 {
-    const bool overwritten = false;
+    const bool overwritten = true;
     int result;
     int last_index;
     int binlog_index;
