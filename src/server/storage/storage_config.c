@@ -678,6 +678,7 @@ static int load_store_path_indexes(FSStorageConfig *storage_cfg,
 static int set_data_rebuild_path_index()
 {
     int result;
+    int child_count;
     char rebuild_path[PATH_MAX];
     StorePathEntry *pentry;
 
@@ -700,6 +701,23 @@ static int set_data_rebuild_path_index()
         DATA_REBUILD_PATH_INDEX = -1;
         return ENOENT;
     }
+
+    child_count = fc_get_path_child_count(rebuild_path);
+    if (child_count < 0) {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return errno != 0 ? errno : EPERM;
+    }
+
+    //TODO
+    /*
+    if (child_count > 1) {
+        logError("file: "__FILE__", line: %d, "
+                "data rebuild path: %s not empty, child count: %d",
+                __LINE__, rebuild_path, child_count);
+        DATA_REBUILD_PATH_INDEX = -1;
+        return ENOTEMPTY;
+    }
+    */
 
     DATA_REBUILD_PATH_INDEX = pentry->index;
     return 0;

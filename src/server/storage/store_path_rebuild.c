@@ -53,40 +53,41 @@ typedef struct data_rebuild_redo_context {
     int current_stage;
 } DataRebuildRedoContext;
 
-#define DATA_DUMP_FILENAME_AFFIX_STR  "-rebuild.dump"
-#define DATA_DUMP_FILENAME_AFFIX_LEN  \
-    (sizeof(DATA_DUMP_FILENAME_AFFIX_STR) - 1)
-
-#define DATA_REBUILD_FILENAME_AFFIX_STR  "-rebuild.data"
-#define DATA_REBUILD_FILENAME_AFFIX_LEN  \
-    (sizeof(DATA_REBUILD_FILENAME_AFFIX_STR) - 1)
+#define REBUILD_SUBDIR_NAME        "rebuild"
+#define DATA_DUMP_FILE_EXTNAME     "dmp"
+#define DATA_REBUILD_FILE_EXTNAME  "dat"
 
 static inline const char *get_slice_dump_filename(
-        const int binlog_index, const string_t *affix,
+        const int binlog_index, const char *extname,
         char *filename, const int size)
 {
-    int len;
-
-    slice_binlog_get_filename(binlog_index, filename, size);
-    len = strlen(filename);
-    if (len + affix->len >= size) {
-        return NULL;
-    }
-
-    memcpy(filename + len, affix->str, affix->len);
-    *(filename + len + affix->len) = '\0';
+    snprintf(filename, size, "%s/%s/slice-%03d.%s", DATA_PATH_STR,
+            REBUILD_SUBDIR_NAME, binlog_index, extname);
     return filename;
+}
+
+static inline const char *get_slice_mark_filename(
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s/.data_rebuild.flag",
+            DATA_PATH_STR, REBUILD_SUBDIR_NAME);
+    return filename;
+}
+
+static inline int check_make_subdir()
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s",
+            DATA_PATH_STR, REBUILD_SUBDIR_NAME);
+    return fc_check_mkdir(path, 0755);
 }
 
 static inline int dump_slices_to_file(const int binlog_index,
         const int64_t start_index, const int64_t end_index)
 {
-    string_t affix;
     char filename[PATH_MAX];
 
-    FC_SET_STRING_EX(affix, DATA_DUMP_FILENAME_AFFIX_STR,
-            DATA_DUMP_FILENAME_AFFIX_LEN);
-    if (get_slice_dump_filename(binlog_index, &affix,
+    if (get_slice_dump_filename(binlog_index, DATA_DUMP_FILE_EXTNAME,
                 filename, sizeof(filename)) == NULL)
     {
         return ENAMETOOLONG;
@@ -109,12 +110,9 @@ static void data_dump_thread_run(DataDumpThreadContext *thread_ctx,
 static inline int remove_slices_to_file(const int binlog_index,
         const int64_t start_index, const int64_t end_index)
 {
-    string_t affix;
     char filename[PATH_MAX];
 
-    FC_SET_STRING_EX(affix, DATA_REBUILD_FILENAME_AFFIX_STR,
-            DATA_REBUILD_FILENAME_AFFIX_LEN);
-    if (get_slice_dump_filename(binlog_index, &affix,
+    if (get_slice_dump_filename(binlog_index, DATA_REBUILD_FILE_EXTNAME,
                 filename, sizeof(filename)) == NULL)
     {
         return ENAMETOOLONG;
@@ -212,14 +210,6 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 
     return dump_slices(thread_count, dump_slices_to_file,
             (fc_thread_pool_callback)data_dump_thread_run);
-}
-
-static inline const char *get_slice_mark_filename(
-        char *filename, const int size)
-{
-    snprintf(filename, size, "%s/%s/.rebuild_slice_dump.flag",
-            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
-    return filename;
 }
 
 #define DATA_REBUILD_REDO_STAGE_REMOVE_SLICE    1
@@ -338,7 +328,7 @@ static int backup_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 
     slice_binlog_get_index_filename(index_filename,
             sizeof(index_filename));
-    if ((result=backup_to_path(index_filename, backup_filepath)) != 0) {
+    if ((result=fc_copy_to_path(index_filename, backup_filepath)) != 0) {
         return result;
     }
 
@@ -354,15 +344,12 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
     int result;
     int last_index;
     int binlog_index;
-    string_t affix;
     char dump_filename[PATH_MAX];
     char binlog_filename[PATH_MAX];
 
-    FC_SET_STRING_EX(affix, DATA_DUMP_FILENAME_AFFIX_STR,
-            DATA_DUMP_FILENAME_AFFIX_LEN);
     last_index = redo_ctx->binlog_file_count - 1;
     for (binlog_index=0; binlog_index<=last_index; binlog_index++) {
-        get_slice_dump_filename(binlog_index, &affix,
+        get_slice_dump_filename(binlog_index, DATA_DUMP_FILE_EXTNAME,
                 dump_filename, sizeof(dump_filename));
         slice_binlog_get_filename(binlog_index, binlog_filename,
                 sizeof(binlog_filename));
@@ -393,6 +380,10 @@ static int redo(DataRebuildRedoContext *redo_ctx)
             //continue next stage
         case DATA_REBUILD_REDO_STAGE_RENAME_SLICE:
             if ((result=rename_slice_binlogs(redo_ctx)) != 0) {
+                logError("file: "__FILE__", line: %d, "
+                        "rename slice binlogs fail, "
+                        "errno: %d, error info: %s",
+                        __LINE__, result, STRERROR(result));
                 return result;
             }
             redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
@@ -449,6 +440,29 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
     struct tm tm_current;
     char time_used[32];
 
+    get_slice_mark_filename(redo_ctx.redo_filename,
+            sizeof(redo_ctx.redo_filename));
+    if (access(redo_ctx.redo_filename, F_OK) == 0) {
+        logError("file: "__FILE__", line: %d, "
+                "rebuild mark file: %s already exist, you must start "
+                "fs_serverd without option: --%s!", __LINE__,
+                redo_ctx.redo_filename, FS_DATA_REBUILD_LONG_OPTION_STR);
+        return EEXIST;
+    } else {
+        result = errno != 0 ? errno : EPERM;
+        if (result != ENOENT) {
+            logError("file: "__FILE__", line: %d, "
+                    "access rebuild mark file: %s fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    redo_ctx.redo_filename, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
     logInfo("file: "__FILE__", line: %d, "
             "begin dump slice binlog ...", __LINE__);
 
@@ -473,8 +487,6 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
     strftime(redo_ctx.backup_subdir, sizeof(redo_ctx.backup_subdir),
             "%Y%m%d%H%M%S", &tm_current);
 
-    get_slice_mark_filename(redo_ctx.redo_filename,
-            sizeof(redo_ctx.redo_filename));
     if ((result=write_to_redo_file(&redo_ctx)) != 0) {
         return result;
     }

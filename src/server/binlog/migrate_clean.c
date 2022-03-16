@@ -51,22 +51,22 @@ typedef struct binlog_clean_redo_context {
     int current_stage;
 } BinlogCleanRedoContext;
 
+#define MIGRATE_SUBDIR_NAME         "migrate"
+
 static inline const char *get_slice_dump_filename(const
         int binlog_index, char *filename, const int size)
 {
-#define DUMP_FILENAME_AFFIX_STR  "-migrate.dump"
-#define DUMP_FILENAME_AFFIX_LEN  (sizeof(DUMP_FILENAME_AFFIX_STR) - 1)
-    int len;
-
-    slice_binlog_get_filename(binlog_index, filename, size);
-    len = strlen(filename);
-    if (len + DUMP_FILENAME_AFFIX_LEN >= size) {
-        return NULL;
-    }
-
-    memcpy(filename + len, DUMP_FILENAME_AFFIX_STR, DUMP_FILENAME_AFFIX_LEN);
-    *(filename + len + DUMP_FILENAME_AFFIX_LEN) = '\0';
+    snprintf(filename, size, "%s/%s/slice-%03d.dmp", DATA_PATH_STR,
+            MIGRATE_SUBDIR_NAME, binlog_index);
     return filename;
+}
+
+static inline int check_make_subdir()
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s",
+            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+    return fc_check_mkdir(path, 0755);
 }
 
 static inline int dump_slices_to_file(const int binlog_index,
@@ -162,8 +162,8 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.migrate_slice_dump.flag",
-            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/.migrate_clean.flag",
+            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
     return filename;
 }
 
@@ -283,7 +283,7 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     slice_binlog_get_index_filename(index_filename,
             sizeof(index_filename));
-    if ((result=backup_to_path(index_filename, backup_filepath)) != 0) {
+    if ((result=fc_copy_to_path(index_filename, backup_filepath)) != 0) {
         return result;
     }
 
@@ -418,6 +418,10 @@ int migrate_clean_redo()
     int result;
     BinlogCleanRedoContext redo_ctx;
 
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
     get_slice_mark_filename(redo_ctx.redo_filename,
             sizeof(redo_ctx.redo_filename));
     if (access(redo_ctx.redo_filename, F_OK) != 0) {
@@ -449,6 +453,10 @@ int migrate_clean_binlog(const int64_t total_slice_count,
     time_t current_time;
     struct tm tm_current;
     char time_used[32];
+
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
 
     if (dump_slice_index) {
         logInfo("file: "__FILE__", line: %d, "
