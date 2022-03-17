@@ -53,16 +53,11 @@ typedef struct data_rebuild_redo_context {
     int current_stage;
 } DataRebuildRedoContext;
 
-#define REBUILD_SUBDIR_NAME        "rebuild"
-#define DATA_DUMP_FILE_EXTNAME     "dmp"
-#define DATA_REBUILD_FILE_EXTNAME  "dat"
-
 static inline const char *get_slice_dump_filename(
-        const int binlog_index, const char *extname,
-        char *filename, const int size)
+        const int binlog_index, char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/slice-%03d.%s", DATA_PATH_STR,
-            REBUILD_SUBDIR_NAME, binlog_index, extname);
+    snprintf(filename, size, "%s/%s/slice-%03d.dmp", DATA_PATH_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME, binlog_index);
     return filename;
 }
 
@@ -70,7 +65,7 @@ static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
     snprintf(filename, size, "%s/%s/.data_rebuild.flag",
-            DATA_PATH_STR, REBUILD_SUBDIR_NAME);
+            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME);
     return filename;
 }
 
@@ -78,7 +73,7 @@ static inline int check_make_subdir()
 {
     char path[PATH_MAX];
     snprintf(path, sizeof(path), "%s/%s",
-            DATA_PATH_STR, REBUILD_SUBDIR_NAME);
+            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME);
     return fc_check_mkdir(path, 0755);
 }
 
@@ -87,8 +82,8 @@ static inline int dump_slices_to_file(const int binlog_index,
 {
     char filename[PATH_MAX];
 
-    if (get_slice_dump_filename(binlog_index, DATA_DUMP_FILE_EXTNAME,
-                filename, sizeof(filename)) == NULL)
+    if (get_slice_dump_filename(binlog_index, filename,
+                sizeof(filename)) == NULL)
     {
         return ENAMETOOLONG;
     }
@@ -112,7 +107,8 @@ static inline int remove_slices_to_file(const int binlog_index,
 {
     char filename[PATH_MAX];
 
-    if (get_slice_dump_filename(binlog_index, DATA_REBUILD_FILE_EXTNAME,
+    if (sf_binlog_writer_get_filename(DATA_PATH_STR,
+                FS_REBUILD_BINLOG_SUBDIR_NAME, binlog_index,
                 filename, sizeof(filename)) == NULL)
     {
         return ENAMETOOLONG;
@@ -349,8 +345,8 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 
     last_index = redo_ctx->binlog_file_count - 1;
     for (binlog_index=0; binlog_index<=last_index; binlog_index++) {
-        get_slice_dump_filename(binlog_index, DATA_DUMP_FILE_EXTNAME,
-                dump_filename, sizeof(dump_filename));
+        get_slice_dump_filename(binlog_index, dump_filename,
+                sizeof(dump_filename));
         slice_binlog_get_filename(binlog_index, binlog_filename,
                 sizeof(binlog_filename));
         if ((result=fc_check_rename_ex(dump_filename,

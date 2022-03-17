@@ -31,6 +31,11 @@ typedef struct server_binlog_reader {
     SFBinlogBuffer binlog_buffer;
 } ServerBinlogReader;
 
+typedef struct server_binlog_reader_array {
+    ServerBinlogReader *readers;
+    int count;
+} ServerBinlogReaderArray;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

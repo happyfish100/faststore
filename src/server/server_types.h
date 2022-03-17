@@ -42,6 +42,7 @@
 #define FS_REPLICA_BINLOG_SUBDIR_NAME    "replica"
 
 #define FS_RECOVERY_BINLOG_SUBDIR_NAME   "recovery"
+#define FS_REBUILD_BINLOG_SUBDIR_NAME    "rebuild"
 
 #define FS_BINLOG_SUBDIR_NAME_SIZE          64
 #define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
