@@ -688,7 +688,7 @@ static int init_parse_thread_context(SliceParseThreadContext *thread_ctx)
     if ((result=fast_mblock_init_ex1(&thread_ctx->record_allocator,
                     "slice_record", sizeof(SliceBinlogRecord),
                     alloc_elements_once, elements_limit,
-                    (fast_mblock_alloc_init_func)slice_record_alloc_init,
+                    (fast_mblock_object_init_func)slice_record_alloc_init,
                     &thread_ctx->record_allocator, true)) != 0)
     {
         return result;

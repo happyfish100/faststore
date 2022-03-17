@@ -148,7 +148,7 @@ static int init_allocators(ReadBufferPool *pool)
 
     if ((result=fast_mblock_init_ex1(&pool->mblock, "aligned-rdbuffer",
                     sizeof(AlignedReadBuffer), 8192, 0,
-                    (fast_mblock_alloc_init_func)aligned_buffer_alloc_init,
+                    (fast_mblock_object_init_func)aligned_buffer_alloc_init,
                     pool, true)) != 0)
     {
         return result;

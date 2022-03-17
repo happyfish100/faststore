@@ -300,7 +300,7 @@ static int init_ob_shared_allocator_array(
 
         if ((result=fast_mblock_init_ex1(&allocator->ob,
                         "ob_entry", sizeof(OBEntry), 16 * 1024, 0,
-                        (fast_mblock_alloc_init_func)ob_alloc_init,
+                        (fast_mblock_object_init_func)ob_alloc_init,
                         &allocator->ob, true)) != 0)
         {
             return result;
@@ -308,7 +308,7 @@ static int init_ob_shared_allocator_array(
 
         if ((result=fast_mblock_init_ex1(&allocator->slice,
                         "slice_entry", sizeof(OBSliceEntry), 64 * 1024, 0,
-                        (fast_mblock_alloc_init_func)slice_alloc_init,
+                        (fast_mblock_object_init_func)slice_alloc_init,
                         &allocator->slice, true)) != 0)
         {
             return result;

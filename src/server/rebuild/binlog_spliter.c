@@ -25,7 +25,7 @@
 
 typedef struct data_read_thread_info {
     ServerBinlogReaderArray rda;
-    struct data_read_context *ctx;
+    struct binlog_spliter_context *ctx;
 } DataReadThreadInfo;
 
 typedef struct data_read_thread_array {
@@ -38,8 +38,23 @@ typedef struct data_read_context {
     DataReadThreadArray thread_array;
 } DataReadContext;
 
+typedef struct binlog_writer_ctx_array {
+    SFBinlogWriterContext *contexts;
+    int count;
+} BinlogWriterCtxArray;
+
+typedef struct binlog_spliter_context {
+    BinlogWriterCtxArray wctx_array;
+    DataReadContext read_ctx;
+} BinlogSpliterContext;
+
 static inline int read_and_dispatch(ServerBinlogReader *reader)
 {
+    /*
+    SFBinlogWriterBuffer *sf_binlog_writer_alloc_buffer(
+        SFBinlogWriterThread *thread);
+        */
+
     return 0;
 }
 
@@ -54,12 +69,58 @@ static void *data_read_thread_run(DataReadThreadInfo *thread)
             sf_terminate_myself();
         }
     }
-    __sync_sub_and_fetch(&thread->ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread->ctx->read_ctx.running_threads, 1);
     return NULL;
 }
 
-int binlog_spliter_do(ServerBinlogReaderArray *rda,
-        const int read_threads, const int split_count)
+static int init_binlog_writers(BinlogSpliterContext *ctx,
+        const int split_count)
+{
+    int result;
+    int thread_index;
+    char subdir_name[64];
+    SFBinlogWriterContext *wctx;
+    SFBinlogWriterContext *wend;
+
+    ctx->wctx_array.contexts = fc_malloc(split_count *
+            sizeof(SFBinlogWriterContext));
+    if (ctx->wctx_array.contexts == NULL) {
+        return ENOMEM;
+    }
+
+    wend = ctx->wctx_array.contexts + split_count;
+    for (wctx=ctx->wctx_array.contexts; wctx<wend; wctx++) {
+        thread_index = wctx - ctx->wctx_array.contexts;
+        binlog_spliter_get_subdir_name(thread_index,
+                subdir_name, sizeof(subdir_name));
+        if ((result=sf_binlog_writer_init(wctx, DATA_PATH_STR,
+                        subdir_name, BINLOG_BUFFER_SIZE,
+                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
+        {
+            return result;
+        }
+    }
+
+    ctx->wctx_array.count = split_count;
+    return 0;
+}
+
+static void destroy_binlog_writers(BinlogSpliterContext *ctx)
+{
+    SFBinlogWriterContext *wctx;
+    SFBinlogWriterContext *wend;
+
+    wend = ctx->wctx_array.contexts + ctx->wctx_array.count;
+    for (wctx=ctx->wctx_array.contexts; wctx<wend; wctx++) {
+        sf_binlog_writer_destroy(wctx);
+    }
+
+    free(ctx->wctx_array.contexts);
+}
+
+static int do_split(BinlogSpliterContext *ctx,
+        ServerBinlogReaderArray *rda,
+        const int read_threads)
 {
     int result;
     int thread_count;
@@ -67,7 +128,6 @@ int binlog_spliter_do(ServerBinlogReaderArray *rda,
     int avg_count;
     int remain_count;
     pthread_t tid;
-    DataReadContext ctx;
     DataReadThreadInfo *thread;
     DataReadThreadInfo *end;
     ServerBinlogReader *reader;
@@ -85,15 +145,15 @@ int binlog_spliter_do(ServerBinlogReaderArray *rda,
     remain_count = rda->count - (avg_count * thread_count);
 
     bytes = sizeof(DataReadThreadInfo) * thread_count;
-    ctx.thread_array.threads = fc_malloc(bytes);
-    if (ctx.thread_array.threads == NULL) {
+    ctx->read_ctx.thread_array.threads = fc_malloc(bytes);
+    if (ctx->read_ctx.thread_array.threads == NULL) {
         return ENOMEM;
     }
 
     reader = rda->readers;
-    ctx.running_threads = thread_count;
-    end = ctx.thread_array.threads + thread_count;
-    for (thread=ctx.thread_array.threads; thread<end; thread++) {
+    ctx->read_ctx.running_threads = thread_count;
+    end = ctx->read_ctx.thread_array.threads + thread_count;
+    for (thread=ctx->read_ctx.thread_array.threads; thread<end; thread++) {
         thread->rda.readers = reader;
         if (remain_count > 0) {
             thread->rda.count = avg_count + 1;
@@ -102,7 +162,7 @@ int binlog_spliter_do(ServerBinlogReaderArray *rda,
             thread->rda.count = avg_count;
         }
         reader += thread->rda.count;
-        thread->ctx = &ctx;
+        thread->ctx = ctx;
         if ((result=fc_create_thread(&tid, (void *(*)(void *))
                         data_read_thread_run, thread,
                         SF_G_THREAD_STACK_SIZE)) != 0)
@@ -113,11 +173,26 @@ int binlog_spliter_do(ServerBinlogReaderArray *rda,
 
     do {
         fc_sleep_ms(10);
-        if (__sync_add_and_fetch(&ctx.running_threads, 0) == 0) {
+        if (__sync_add_and_fetch(&ctx->read_ctx.running_threads, 0) == 0) {
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
 
-    free(ctx.thread_array.threads);
+    free(ctx->read_ctx.thread_array.threads);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
+}
+
+int binlog_spliter_do(ServerBinlogReaderArray *rda,
+        const int read_threads, const int split_count)
+{
+    int result;
+    BinlogSpliterContext ctx;
+
+    if ((result=init_binlog_writers(&ctx, split_count)) != 0) {
+        return result;
+    }
+
+    result = do_split(&ctx, rda, read_threads);
+    destroy_binlog_writers(&ctx);
+    return result;
 }
