@@ -146,11 +146,50 @@ static void *data_read_thread_run(DataReadThreadInfo *thread)
     return NULL;
 }
 
-static int init_binlog_writers(BinlogSpliterContext *ctx,
-        const int split_count)
+static int init_binlog_writer(SFBinlogWriterInfo *writer,
+        const char *subdir_name)
 {
     const uint64_t next_version = 1;
     const int ring_size = 4096;
+    int result;
+    int binlog_index;
+    char filename[PATH_MAX];
+    SFBinlogFilePosition position;
+
+    if ((result=sf_binlog_writer_init_by_version(writer,
+                    DATA_PATH_STR, subdir_name, next_version,
+                    BINLOG_BUFFER_SIZE, ring_size)) != 0)
+    {
+        return result;
+    }
+
+    sf_binlog_get_current_write_position(writer, &position);
+    if (position.index == 0 && position.offset == 0) {
+        return 0;
+    }
+
+    sf_binlog_writer_destroy_writer(writer);
+    for (binlog_index=0; binlog_index<=position.index; binlog_index++) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                binlog_index, filename, sizeof(filename));
+        if ((result=fc_delete_file(filename)) != 0) {
+            return result;
+        }
+    }
+
+    sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+            subdir_name, filename, sizeof(filename));
+    if ((result=fc_delete_file(filename)) != 0) {
+        return result;
+    }
+
+    return sf_binlog_writer_init_by_version(writer, DATA_PATH_STR,
+            subdir_name, next_version, BINLOG_BUFFER_SIZE, ring_size);
+}
+
+static int init_binlog_writers(BinlogSpliterContext *ctx,
+        const int split_count)
+{
     int result;
     int thread_index;
     char subdir_name[64];
@@ -170,12 +209,12 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
         rebuild_binlog_get_subdir_name(thread_index,
                 subdir_name, sizeof(subdir_name));
 
-        if ((result=sf_binlog_writer_init_by_version(&rctx->wctx.writer,
-                        DATA_PATH_STR, subdir_name, next_version,
-                        BINLOG_BUFFER_SIZE, ring_size)) != 0)
+        if ((result=init_binlog_writer(&rctx->wctx.writer,
+                        subdir_name)) != 0)
         {
             return result;
         }
+
         if ((result=sf_binlog_writer_init_thread(&rctx->wctx.thread,
                         subdir_name, &rctx->wctx.writer,
                         SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,

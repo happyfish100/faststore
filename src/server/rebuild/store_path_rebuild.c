@@ -24,7 +24,18 @@
 #include "../shared_thread_pool.h"
 #include "../binlog/slice_binlog.h"
 #include "../storage/object_block_index.h"
+#include "binlog_spliter.h"
 #include "store_path_rebuild.h"
+
+#define DATA_REBUILD_REDO_STAGE_REMOVE_SLICE    1
+#define DATA_REBUILD_REDO_STAGE_RENAME_SLICE    2
+#define DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG    3
+#define DATA_REBUILD_REDO_STAGE_REBUILDING      4
+
+#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
+#define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE  "current_stage"
+#define DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
+
 
 typedef int (*dump_slices_to_file_callback)(const int binlog_index,
         const int64_t start_index, const int64_t end_index);
@@ -208,14 +219,6 @@ static int dump_slice_binlog(const int64_t total_slice_count,
             (fc_thread_pool_callback)data_dump_thread_run);
 }
 
-#define DATA_REBUILD_REDO_STAGE_REMOVE_SLICE    1
-#define DATA_REBUILD_REDO_STAGE_RENAME_SLICE    2
-#define DATA_REBUILD_REDO_STAGE_REBUILDING      3
-
-#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
-#define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
-
 static int write_to_redo_file(DataRebuildRedoContext *redo_ctx)
 {
     char buff[256];
@@ -359,6 +362,47 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
     return slice_binlog_set_binlog_index(last_index);
 }
 
+static int split_binlog(DataRebuildRedoContext *redo_ctx)
+{
+    ServerBinlogReaderArray rda;
+    ServerBinlogReader *reader;
+    ServerBinlogReader *end;
+    SFBinlogFilePosition position;
+    int read_threads;
+    int split_count;
+    int result;
+
+    if ((rda.readers=fc_malloc(sizeof(ServerBinlogReader) *
+                    redo_ctx->binlog_file_count)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    position.offset = 0;
+    end = rda.readers + redo_ctx->binlog_file_count;
+    for (reader=rda.readers; reader<end; reader++) {
+        position.index = reader - rda.readers;
+        if ((result=binlog_reader_init(reader,
+                        FS_REBUILD_BINLOG_SUBDIR_NAME,
+                        NULL, &position)) != 0)
+        {
+            return result;
+        }
+    }
+
+    rda.count = redo_ctx->binlog_file_count;
+    split_count = DATA_REBUILD_THREADS;
+    read_threads = FC_MIN(SYSTEM_CPU_COUNT, split_count);
+    result = binlog_spliter_do(&rda, read_threads, split_count);
+
+    for (reader=rda.readers; reader<end; reader++) {
+        binlog_reader_destroy(reader);
+    }
+    free(rda.readers);
+
+    return result;
+}
+
 static int redo(DataRebuildRedoContext *redo_ctx)
 {
     int result;
@@ -382,11 +426,19 @@ static int redo(DataRebuildRedoContext *redo_ctx)
                         __LINE__, result, STRERROR(result));
                 return result;
             }
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
+            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
             //continue next stage
+        case DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG:
+            if ((result=split_binlog(redo_ctx)) != 0) {
+                return result;
+            }
+            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                return result;
+            }
         case DATA_REBUILD_REDO_STAGE_REBUILDING:
             //TODO
             break;
