@@ -24,15 +24,6 @@
 extern "C" {
 #endif
 
-    static inline char *binlog_spliter_get_subdir_name(const int tindex,
-            char *subdir_name, const int size)
-    {
-        snprintf(subdir_name, size, "%s/%d",
-                FS_REBUILD_BINLOG_SUBDIR_NAME,
-                tindex + 1);
-        return subdir_name;
-    }
-
     int binlog_spliter_run(ServerBinlogReader *readers, const int count);
 
 #ifdef __cplusplus

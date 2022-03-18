@@ -23,6 +23,7 @@
 #include "sf/sf_buffered_writer.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
+#include "../rebuild/rebuild_binlog.h"
 #include "storage_allocator.h"
 #include "object_block_index.h"
 
@@ -1370,12 +1371,13 @@ static int realloc_slice_parray(OBSlicePtrArray *array)
 }
 
 typedef struct {
+    int64_t sn;
     OBSlicePtrArray slice_parray;
     SFBufferedWriter writer;
 } DumpSliceContext;
 
 static inline int write_slice_to_file(OBEntry *ob, const int slice_type,
-        FSSliceSize *ssize, DumpSliceContext *ctx)
+        const FSSliceSize *ssize, DumpSliceContext *ctx)
 {
     int result;
 
@@ -1387,14 +1389,11 @@ static inline int write_slice_to_file(OBEntry *ob, const int slice_type,
         }
     }
 
-    ctx->writer.buffer.current += sprintf(
-            ctx->writer.buffer.current,
-            "%c %"PRId64" %"PRId64" %d %d\n",
-            slice_type == OB_SLICE_TYPE_FILE ?
+    ctx->writer.buffer.current += rebuild_binlog_log_to_buff(
+            ++(ctx->sn), slice_type == OB_SLICE_TYPE_FILE ?
             SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
             SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
-            ob->bkey.oid, ob->bkey.offset,
-            ssize->offset, ssize->length);
+            &ob->bkey, ssize, ctx->writer.buffer.current);
     return 0;
 }
 
@@ -1466,6 +1465,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
         return result;
     }
 
+    ctx.sn = 0;
     end = htable->buckets + end_index;
     for (bucket=htable->buckets+start_index; result == 0 &&
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
