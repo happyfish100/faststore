@@ -206,8 +206,8 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
     for (rctx=ctx->wctx_array.contexts; rctx<wend; rctx++) {
         rctx->sn = 0;
         thread_index = rctx - ctx->wctx_array.contexts;
-        rebuild_binlog_get_subdir_name(thread_index,
-                subdir_name, sizeof(subdir_name));
+        rebuild_binlog_get_subdir_name(FS_REBUILD_BINLOG_SUBDIR_NAME,
+                thread_index, subdir_name, sizeof(subdir_name));
 
         if ((result=init_binlog_writer(&rctx->wctx.writer,
                         subdir_name)) != 0)
@@ -300,6 +300,9 @@ static int do_split(BinlogSpliterContext *ctx,
         }
     } while (SF_G_CONTINUE_FLAG);
 
+    for (thread=ctx->read_ctx.thread_array.threads; thread<end; thread++) {
+        fc_free_buffer(&thread->buffer);
+    }
     free(ctx->read_ctx.thread_array.threads);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }

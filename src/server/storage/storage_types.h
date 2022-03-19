@@ -132,7 +132,7 @@ typedef struct fs_slice_op_context {
         bool deal_done;  //for continue deal check
         bool is_update;
         struct {
-            bool log_replica;  //false for trunk reclaim
+            bool log_replica;  //false for trunk reclaim and data rebuild
         } write_binlog;
         char source;           //for binlog write
         int data_group_id;
@@ -153,7 +153,7 @@ typedef struct fs_slice_op_context {
         FSSliceSNPairArray sarray;
     } update;  //for slice update
 
-    struct ob_slice_ptr_array slice_ptr_array;
+    struct ob_slice_ptr_array slice_ptr_array;  //for slice read
 
 #ifdef OS_LINUX
     iovec_array_t iovec_array;

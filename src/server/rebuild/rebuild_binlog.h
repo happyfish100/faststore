@@ -24,12 +24,10 @@
 extern "C" {
 #endif
 
-    static inline char *rebuild_binlog_get_subdir_name(const int tindex,
-            char *subdir_name, const int size)
+    static inline char *rebuild_binlog_get_subdir_name(const char *name,
+            const int tindex, char *subdir_name, const int size)
     {
-        snprintf(subdir_name, size, "%s/%d",
-                FS_REBUILD_BINLOG_SUBDIR_NAME,
-                tindex + 1);
+        snprintf(subdir_name, size, "%s/%d", name, tindex + 1);
         return subdir_name;
     }
 

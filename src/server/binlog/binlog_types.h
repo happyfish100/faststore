@@ -44,6 +44,7 @@
 #define BINLOG_OP_TYPE_NO_OP        'N'
 
 #define BINLOG_SOURCE_RECLAIM       'M'  //by trunk reclaim
+#define BINLOG_SOURCE_REBUILD       'B'  //by data rebuild
 #define BINLOG_SOURCE_DUMP          'F'  //by binlog dump
 #define BINLOG_SOURCE_RPC_MASTER    'C'  //by user call (master side)
 #define BINLOG_SOURCE_RPC_SLAVE     'c'  //by user call (slave side)

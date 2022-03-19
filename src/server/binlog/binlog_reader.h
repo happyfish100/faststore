@@ -21,12 +21,25 @@
 #include "sf/sf_binlog_writer.h"
 #include "binlog_types.h"
 
+typedef enum {
+    binlog_index_type_writer_ptr,
+    binlog_index_type_index_val
+} BinlogIndexType;
+
+typedef struct server_binlog_info {
+    BinlogIndexType type;
+    union {
+        SFBinlogWriterInfo *writer;  //for get current write index
+        int write_index;
+    };
+} ServerBinlogInfo; 
+
 typedef struct server_binlog_reader {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char fname_suffix[FS_BINLOG_FILENAME_SUFFIX_SIZE];
-    SFBinlogWriterInfo *writer;  //for get current write index
-    char filename[PATH_MAX];
+    ServerBinlogInfo binlog_info;
     int fd;
+    char filename[PATH_MAX];
     SFBinlogFilePosition position;
     SFBinlogBuffer binlog_buffer;
 } ServerBinlogReader;
@@ -43,9 +56,16 @@ extern "C" {
 #define binlog_reader_init(reader, subdir_name, writer, pos) \
     binlog_reader_init_ex(reader, subdir_name, "", writer, pos)
 
+#define binlog_reader_init1(reader, subdir_name, write_index, pos) \
+    binlog_reader_init1_ex(reader, subdir_name, "", write_index, pos)
+
 int binlog_reader_init_ex(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
         SFBinlogWriterInfo *writer, const SFBinlogFilePosition *pos);
+
+int binlog_reader_init1_ex(ServerBinlogReader *reader,
+        const char *subdir_name, const char *fname_suffix,
+        const int write_index, const SFBinlogFilePosition *pos);
 
 void binlog_reader_destroy(ServerBinlogReader *reader);
 
