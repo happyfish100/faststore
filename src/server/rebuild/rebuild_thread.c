@@ -20,6 +20,7 @@
 #include "sf/sf_func.h"
 #include "../../common/fs_func.h"
 #include "../../client/fs_client.h"
+#include "../binlog/slice_binlog.h"
 #include "../storage/slice_op.h"
 #include "../server_global.h"
 #include "rebuild_binlog.h"
@@ -28,8 +29,8 @@
 
 typedef struct data_rebuild_thread_info {
     int thread_index;
-    int buffer_size;
-    BufferInfo buffer;
+    BufferInfo rbuffer;
+    BufferInfo wbuffer;
     ServerBinlogReader reader;
     SFFileWriterInfo writer;
     FSSliceOpContext op_ctx;
@@ -99,54 +100,87 @@ static inline int fetch_slice_data(DataRebuildThreadInfo *thread)
     return thread->op_ctx.result;
 }
 
+static int write_to_slice_binlog(DataRebuildThreadInfo *thread)
+{
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+    time_t current_time;
+    int result;
+
+    result = 0;
+    current_time = g_current_time;
+    slice_sn_end = thread->op_ctx.update.sarray.slice_sn_pairs +
+        thread->op_ctx.update.sarray.count;
+    for (slice_sn_pair=thread->op_ctx.update.sarray.slice_sn_pairs;
+            slice_sn_pair<slice_sn_end; slice_sn_pair++)
+    {
+        thread->wbuffer.length = slice_binlog_log_to_buff(slice_sn_pair->
+                slice, current_time, thread->op_ctx.info.data_version,
+                thread->op_ctx.info.source, thread->wbuffer.buff);
+        if ((result=sf_file_writer_deal_buffer(&thread->writer,
+                        &thread->wbuffer)) != 0)
+        {
+            break;
+        }
+    }
+
+    fs_slice_array_release(&thread->op_ctx.update.sarray);
+    return result;
+}
+
 static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 {
     int result;
     char op_type;
     int64_t sn;
 
-    if ((result=rebuild_binlog_parse_line(&thread->reader, &thread->buffer,
+    if ((result=rebuild_binlog_parse_line(&thread->reader, &thread->rbuffer,
                     line, &sn, &op_type, &thread->op_ctx.info.bs_key)) != 0)
     {
         return result;
     }
 
     thread->op_ctx.info.data_version = sn;
-    if ((result=fetch_slice_data(thread)) != 0) {
-        if (result == ENODATA) {
-            //TODO
-            return 0;
-        }
-
-        return result;
-    }
-
-    if ((result=fs_slice_write(&thread->op_ctx)) == 0) {
-        PTHREAD_MUTEX_LOCK(&thread->notify.lcp.lock);
-        while (!thread->notify.finished && SF_G_CONTINUE_FLAG) {
-            pthread_cond_wait(&thread->notify.lcp.cond,
-                    &thread->notify.lcp.lock);
-        }
-        if (thread->notify.finished) {
-            thread->notify.finished = false;  /* reset for next call */
-        } else {
-            thread->op_ctx.result = EINTR;
-        }
-        PTHREAD_MUTEX_UNLOCK(&thread->notify.lcp.lock);
+    if (op_type == SLICE_BINLOG_OP_TYPE_ALLOC_SLICE) {
+       thread->op_ctx.result = fs_slice_allocate(&thread->op_ctx);
     } else {
-        thread->op_ctx.result = result;
-    }
+        if ((result=fetch_slice_data(thread)) != 0) {
+            if (result == ENODATA) {
+                return 0;
+            }
 
-    if (result == 0) {
-        fs_write_finish(&thread->op_ctx);  //for add slice index and cleanup
+            return result;
+        }
+
+        if ((result=fs_slice_write(&thread->op_ctx)) == 0) {
+            PTHREAD_MUTEX_LOCK(&thread->notify.lcp.lock);
+            while (!thread->notify.finished && SF_G_CONTINUE_FLAG) {
+                pthread_cond_wait(&thread->notify.lcp.cond,
+                        &thread->notify.lcp.lock);
+            }
+            if (thread->notify.finished) {
+                thread->notify.finished = false;  /* reset for next call */
+            } else {
+                thread->op_ctx.result = EINTR;
+            }
+            PTHREAD_MUTEX_UNLOCK(&thread->notify.lcp.lock);
+        } else {
+            thread->op_ctx.result = result;
+        }
+
+        if (result == 0) {
+            fs_write_finish(&thread->op_ctx);  //for add slice index and cleanup
+        }
     }
 
     if (thread->op_ctx.result != 0) {
-        fs_log_rw_error(&thread->op_ctx, thread->op_ctx.result, 0, "write");
+        fs_log_rw_error(&thread->op_ctx, thread->op_ctx.result,
+                0, (op_type == SLICE_BINLOG_OP_TYPE_ALLOC_SLICE) ?
+                "allocate" : "write");
         return thread->op_ctx.result;
     }
 
-    return fs_log_slice_write(&thread->op_ctx);
+    return write_to_slice_binlog(thread);
 }
 
 static int parse_buffer(DataRebuildThreadInfo *thread)
@@ -157,8 +191,8 @@ static int parse_buffer(DataRebuildThreadInfo *thread)
     char *buff_end;
     char *line_end;
 
-    line_start = thread->buffer.buff;
-    buff_end = thread->buffer.buff + thread->buffer.length;
+    line_start = thread->rbuffer.buff;
+    buff_end = thread->rbuffer.buff + thread->rbuffer.length;
     while (line_start < buff_end) {
         line_end = (char *)memchr(line_start, '\n', buff_end - line_start);
         if (line_end == NULL) {
@@ -182,15 +216,19 @@ static inline int do_rebuild(DataRebuildThreadInfo *thread)
     int result;
 
     while ((result=binlog_reader_integral_read(&thread->reader,
-                    thread->buffer.buff, thread->buffer.alloc_size,
-                    &thread->buffer.length)) == 0)
+                    thread->rbuffer.buff, thread->rbuffer.alloc_size,
+                    &thread->rbuffer.length)) == 0)
     {
         if ((result=parse_buffer(thread)) != 0) {
             return result;
         }
     }
 
-    return (result == ENOENT ? 0 : result);
+    if (result == ENOENT || result == 0) {
+        return sf_file_writer_flush(&thread->writer);
+    } else {
+        return result;
+    }
 }
 
 static void *data_rebuild_thread_run(DataRebuildThreadInfo *thread)
@@ -215,6 +253,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
 {
     int result;
     char name[64];
+    char subdir_name[64];
 
     sprintf(name, "%s/%s", REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
             REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT);
@@ -224,12 +263,22 @@ static int init_thread(DataRebuildThreadInfo *thread)
         return result;
     }
 
-    int sf_file_writer_init(SFFileWriterInfo *writer,
-            const char *data_path, const char *subdir_name,
-            const int buffer_size);
+    rebuild_binlog_get_repaly_subdir_name(
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_OUTPUT,
+            thread->thread_index, subdir_name, sizeof(subdir_name));
+    if ((result=sf_file_writer_init(&thread->writer, DATA_PATH_STR,
+                    subdir_name, BINLOG_BUFFER_SIZE)) != 0)
+    {
+        return result;
+    }
 
+    if ((result=fc_init_buffer(&thread->rbuffer, 1024 * 1024)) != 0) {
+        return result;
+    }
 
-    if ((result=fc_init_buffer(&thread->buffer, 1024 * 1024)) != 0) {
+    if ((result=fc_init_buffer(&thread->wbuffer,
+                    FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
+    {
         return result;
     }
 
@@ -237,9 +286,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.info.write_binlog.log_replica = false;
     thread->op_ctx.info.data_version = 0;
     thread->op_ctx.info.myself = NULL;
-
-    thread->buffer_size = FS_FILE_BLOCK_SIZE;
-    thread->op_ctx.info.buff = (char *)fc_malloc(thread->buffer_size);
+    thread->op_ctx.info.buff = (char *)fc_malloc(FS_FILE_BLOCK_SIZE);
     if (thread->op_ctx.info.buff == NULL) {
         return ENOMEM;
     }
@@ -252,16 +299,18 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
         rebuild_write_done_callback;
     thread->op_ctx.arg = thread;
-    return fs_init_slice_op_ctx(&thread->op_ctx.update.sarray);
+    return fs_slice_array_init(&thread->op_ctx.update.sarray);
 }
 
 static void destroy_thread(DataRebuildThreadInfo *thread)
 {
     binlog_reader_destroy(&thread->reader);
-    fc_free_buffer(&thread->buffer);
+    sf_file_writer_destroy(&thread->writer);
+    fc_free_buffer(&thread->rbuffer);
+    fc_free_buffer(&thread->wbuffer);
     free(thread->op_ctx.info.buff);
     destroy_pthread_lock_cond_pair(&thread->notify.lcp);
-    fs_free_slice_op_ctx(&thread->op_ctx.update.sarray);
+    fs_slice_array_destroy(&thread->op_ctx.update.sarray);
 }
 
 int rebuild_thread_do(const int thread_count)

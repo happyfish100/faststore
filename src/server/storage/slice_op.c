@@ -74,20 +74,6 @@ static inline void set_data_version(FSSliceOpContext *op_ctx)
     }
 }
 
-static inline void free_slice_array(FSSliceSNPairArray *array)
-{
-    FSSliceSNPair *slice_sn_pair;
-    FSSliceSNPair *slice_sn_end;
-
-    slice_sn_end = array->slice_sn_pairs + array->count;
-    for (slice_sn_pair=array->slice_sn_pairs;
-            slice_sn_pair<slice_sn_end; slice_sn_pair++)
-    {
-        ob_index_free_slice(slice_sn_pair->slice);
-    }
-    array->count = 0;
-}
-
 int fs_log_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
@@ -117,7 +103,7 @@ int fs_log_slice_write(FSSliceOpContext *op_ctx)
                 op_ctx->info.source);
     }
 
-    free_slice_array(&op_ctx->update.sarray);
+    fs_slice_array_release(&op_ctx->update.sarray);
     return result;
 }
 
@@ -154,7 +140,7 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
     } while (0);
 
     if (op_ctx->result != 0) {
-        free_slice_array(&op_ctx->update.sarray);
+        fs_slice_array_release(&op_ctx->update.sarray);
     }
 }
 
@@ -602,7 +588,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
     }
 
     if (result != 0) {
-        free_slice_array(&op_ctx->update.sarray);
+        fs_slice_array_release(&op_ctx->update.sarray);
     }
 
     /*

@@ -77,7 +77,7 @@ static int init_nio_task(struct fast_task_info *task)
     task->network_timeout = SF_G_NETWORK_TIMEOUT;
     slice_sn_parray = &((FSServerTaskArg *)task->arg)->
         context.slice_op_ctx.update.sarray;
-    return fs_init_slice_op_ctx(slice_sn_parray);
+    return fs_slice_array_init(slice_sn_parray);
 }
 
 static int parse_cmd_options(int argc, char *argv[])

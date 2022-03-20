@@ -21,6 +21,7 @@
 #include "sf/sf_binlog_writer.h"
 #include "binlog_types.h"
 #include "../storage/object_block_index.h"
+#include "../server_global.h"
 
 #define SLICE_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
 #define SLICE_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE

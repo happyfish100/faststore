@@ -82,7 +82,7 @@ static inline const char *get_slice_mark_filename(
     return filename;
 }
 
-static inline int check_make_subdir_ex(const int count, ...)
+static int check_make_subdir_ex(const int count, ...)
 {
     int result;
     char path[PATH_MAX];

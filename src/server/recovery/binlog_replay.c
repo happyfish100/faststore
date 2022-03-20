@@ -144,7 +144,7 @@ static int replay_task_alloc_init(void *element, void *args)
     task->op_ctx.info.write_binlog.log_replica = true;
     task->op_ctx.info.buff = (char *)(task + 1);
 
-    if ((result=fs_init_slice_op_ctx(&task->op_ctx.update.sarray)) != 0) {
+    if ((result=fs_slice_array_init(&task->op_ctx.update.sarray)) != 0) {
         return result;
     }
 

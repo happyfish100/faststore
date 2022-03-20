@@ -30,7 +30,7 @@
 extern "C" {
 #endif
 
-    static inline int fs_init_slice_op_ctx(FSSliceSNPairArray *parray)
+    static inline int fs_slice_array_init(FSSliceSNPairArray *parray)
     {
         parray->alloc = FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT;
         parray->slice_sn_pairs = (FSSliceSNPair *)fc_malloc(
@@ -42,13 +42,27 @@ extern "C" {
         return 0;
     }
 
-    static inline void fs_free_slice_op_ctx(FSSliceSNPairArray *parray)
+    static inline void fs_slice_array_destroy(FSSliceSNPairArray *parray)
     {
         if (parray->slice_sn_pairs != NULL) {
             free(parray->slice_sn_pairs);
             parray->slice_sn_pairs = NULL;
             parray->alloc = 0;
         }
+    }
+
+    static inline void fs_slice_array_release(FSSliceSNPairArray *array)
+    {
+        FSSliceSNPair *slice_sn_pair;
+        FSSliceSNPair *slice_sn_end;
+
+        slice_sn_end = array->slice_sn_pairs + array->count;
+        for (slice_sn_pair=array->slice_sn_pairs;
+                slice_sn_pair<slice_sn_end; slice_sn_pair++)
+        {
+            ob_index_free_slice(slice_sn_pair->slice);
+        }
+        array->count = 0;
     }
 
     static inline void fs_log_rw_error(FSSliceOpContext *op_ctx,

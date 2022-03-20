@@ -70,7 +70,7 @@ int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
     rctx->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
         reclaim_slice_rw_done_callback;
     rctx->op_ctx.arg = rctx;
-    return fs_init_slice_op_ctx(&rctx->op_ctx.update.sarray);
+    return fs_slice_array_init(&rctx->op_ctx.update.sarray);
 }
 
 static int realloc_rb_array(TrunkReclaimBlockArray *array,
