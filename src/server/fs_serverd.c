@@ -41,6 +41,7 @@
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
 #include "common/fs_types.h"
+#include "client/fs_client.h"
 #include "server_types.h"
 #include "server_global.h"
 #include "server_func.h"
@@ -109,6 +110,14 @@ static int parse_cmd_options(int argc, char *argv[])
             default:
                 break;
         }
+    }
+
+    if (DATA_REBUILD_PATH_STR != NULL && MIGRATE_CLEAN_ENABLED) {
+        fprintf(stderr, "Error: option --%s and --%s "
+                "can't appear at the same time!\n\n",
+                FS_DATA_REBUILD_LONG_OPTION_STR,
+                FS_MIGRATE_CLEAN_LONG_OPTION_STR);
+        return EINVAL;
     }
 
     return 0;
@@ -324,6 +333,10 @@ int main(int argc, char *argv[])
         if ((result=fcfs_auth_for_server_start(&AUTH_CTX)) != 0) {
             break;
         }
+
+        /* set read rule for data group recovery */
+        g_fs_client_vars.client_ctx.common_cfg.read_rule =
+            sf_data_read_rule_master_only;
 
         common_handler_init();
         //sched_print_all_entries();

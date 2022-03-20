@@ -13,20 +13,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+//rebuild_types.h
 
-#ifndef _FS_STORE_PATH_REBUILD_H
-#define _FS_STORE_PATH_REBUILD_H
+#ifndef _REBUILD_TYPES_H_
+#define _REBUILD_TYPES_H_
 
 #include "../server_types.h"
-#include "rebuild_types.h"
+
+#define REBUILD_BINLOG_SUBDIR_NAME_DUMP          "dump"
+#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY        "replay"
+#define REBUILD_BINLOG_SUBDIR_NAME_REDISPATCH    "redispatch"
+
+#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT  "input"
+#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY_OUTPUT "output"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-    int store_path_rebuild_dump_data(const int64_t total_slice_count);
-
-    int store_path_rebuild_redo();
 
 #ifdef __cplusplus
 }

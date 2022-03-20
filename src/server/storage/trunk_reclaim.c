@@ -273,23 +273,6 @@ static int migrate_prepare(TrunkReclaimContext *rctx,
     return 0;
 }
 
-static inline void log_rw_error(FSSliceOpContext *op_ctx,
-        const int result, const int ignore_errno, const char *caption)
-{
-    int log_level;
-    log_level = (result == ignore_errno) ? LOG_DEBUG : LOG_ERR;
-    log_it_ex(&g_log_context, log_level,
-            "file: "__FILE__", line: %d, %s slice fail, "
-            "oid: %"PRId64", block offset: %"PRId64", "
-            "slice offset: %d, length: %d, "
-            "errno: %d, error info: %s", __LINE__, caption,
-            op_ctx->info.bs_key.block.oid,
-            op_ctx->info.bs_key.block.offset,
-            op_ctx->info.bs_key.slice.offset,
-            op_ctx->info.bs_key.slice.length,
-            result, STRERROR(result));
-}
-
 static int migrate_one_slice(TrunkReclaimContext *rctx,
         FSBlockSliceKeyInfo *bs_key)
 {
@@ -311,7 +294,7 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
     }
 
     if (result != 0) {
-        log_rw_error(&rctx->op_ctx, result, ENOENT, "read");
+        fs_log_rw_error(&rctx->op_ctx, result, ENOENT, "read");
         return result == ENOENT ? 0 : result;
     }
 
@@ -341,7 +324,7 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
 #endif
 
     if (rctx->op_ctx.result != 0) {
-        log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
+        fs_log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
         return rctx->op_ctx.result;
     }
 

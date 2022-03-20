@@ -13,6 +13,7 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <stdarg.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sched_thread.h"
@@ -67,8 +68,9 @@ typedef struct data_rebuild_redo_context {
 static inline const char *get_slice_dump_filename(
         const int binlog_index, char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/slice-%03d.dmp", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME, binlog_index);
+    snprintf(filename, size, "%s/%s/%s/slice-%03d.dmp",
+            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP, binlog_index);
     return filename;
 }
 
@@ -80,12 +82,71 @@ static inline const char *get_slice_mark_filename(
     return filename;
 }
 
-static inline int check_make_subdir()
+static inline int check_make_subdir_ex(const int count, ...)
 {
+    int result;
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s",
-            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME);
-    return fc_check_mkdir(path, 0755);
+    const char *subname1;
+    const char *subname2;
+    va_list ap;
+
+    va_start(ap, count);
+    switch (count) {
+        case 1:
+            subname1 = va_arg(ap, const char *);
+            snprintf(path, sizeof(path), "%s/%s/%s", DATA_PATH_STR,
+                    FS_REBUILD_BINLOG_SUBDIR_NAME, subname1);
+            break;
+        case 2:
+            subname1 = va_arg(ap, const char *);
+            subname2 = va_arg(ap, const char *);
+            snprintf(path, sizeof(path), "%s/%s/%s/%s", DATA_PATH_STR,
+                    FS_REBUILD_BINLOG_SUBDIR_NAME, subname1, subname2);
+            break;
+        default:
+            snprintf(path, sizeof(path), "%s/%s",
+                    DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME);
+            break;
+    }
+    va_end(ap);
+
+    result = fc_check_mkdir(path, 0755);
+    return result;
+}
+
+#define check_make_subdir() check_make_subdir_ex(0)
+#define check_make_subdir1(...) check_make_subdir_ex(1, __VA_ARGS__)
+#define check_make_subdir2(...) check_make_subdir_ex(2, __VA_ARGS__)
+
+static inline int check_make_subdirs()
+{
+    int result;
+
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
+    if ((result=check_make_subdir1(REBUILD_BINLOG_SUBDIR_NAME_DUMP)) != 0) {
+        return result;
+    }
+
+    if ((result=check_make_subdir1(REBUILD_BINLOG_SUBDIR_NAME_REPLAY)) != 0) {
+        return result;
+    }
+
+    if ((result=check_make_subdir2(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+                    REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=check_make_subdir2(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+                    REBUILD_BINLOG_SUBDIR_NAME_REPLAY_OUTPUT)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
 }
 
 static inline int dump_slices_to_file(const int binlog_index,
@@ -116,11 +177,14 @@ static void data_dump_thread_run(DataDumpThreadContext *thread_ctx,
 static inline int remove_slices_to_file(const int binlog_index,
         const int64_t start_index, const int64_t end_index)
 {
+    char subdir_name[64];
     char filename[PATH_MAX];
 
-    if (sf_binlog_writer_get_filename(DATA_PATH_STR,
-                FS_REBUILD_BINLOG_SUBDIR_NAME, binlog_index,
-                filename, sizeof(filename)) == NULL)
+    snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
+            FS_REBUILD_BINLOG_SUBDIR_NAME,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+    if (sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                binlog_index, filename, sizeof(filename)) == NULL)
     {
         return ENAMETOOLONG;
     }
@@ -365,6 +429,7 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 static int split_binlog(DataRebuildRedoContext *redo_ctx)
 {
     ServerBinlogReaderArray rda;
+    char subdir_name[64];
     ServerBinlogReader *reader;
     ServerBinlogReader *end;
     SFBinlogFilePosition position;
@@ -378,12 +443,14 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
         return ENOMEM;
     }
 
+    snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
+            FS_REBUILD_BINLOG_SUBDIR_NAME,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
     position.offset = 0;
     end = rda.readers + redo_ctx->binlog_file_count;
     for (reader=rda.readers; reader<end; reader++) {
         position.index = reader - rda.readers;
-        if ((result=binlog_reader_init(reader,
-                        FS_REBUILD_BINLOG_SUBDIR_NAME,
+        if ((result=binlog_reader_init(reader, subdir_name,
                         NULL, &position)) != 0)
         {
             return result;
@@ -507,7 +574,7 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
         }
     }
 
-    if ((result=check_make_subdir()) != 0) {
+    if ((result=check_make_subdirs()) != 0) {
         return result;
     }
 

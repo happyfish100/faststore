@@ -27,6 +27,7 @@
 #include "sf/sf_service.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
+#include "client/fs_client.h"
 #include "server_global.h"
 #include "server_binlog.h"
 #include "server_group_info.h"
@@ -378,6 +379,63 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
     return storage_config_load(&STORAGE_CFG, full_filename);
 }
 
+static int init_net_retry_config(const char *config_filename)
+{
+    IniFullContext ini_ctx;
+    IniContext ini_context;
+    int result;
+
+    if ((result=iniLoadFromFile(config_filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, config_filename, result);
+        return result;
+    }
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
+            "data_recovery", &ini_context);
+    result = sf_load_net_retry_config(&g_fs_client_vars.
+            client_ctx.common_cfg.net_retry_cfg, &ini_ctx);
+
+    iniFreeContext(&ini_context);
+    return result;
+}
+
+static int server_init_client(const char *config_filename)
+{
+    int result;
+    const bool bg_thread_enabled = false;
+
+    /* set read rule for store path rebuild */
+    g_fs_client_vars.client_ctx.common_cfg.read_rule =
+        sf_data_read_rule_any_available;
+
+    g_fs_client_vars.client_ctx.common_cfg.connect_timeout =
+        SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.client_ctx.common_cfg.network_timeout =
+        SF_G_NETWORK_TIMEOUT;
+    snprintf(g_fs_client_vars.base_path,
+            sizeof(g_fs_client_vars.base_path),
+            "%s", SF_G_BASE_PATH_STR);
+    g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
+    g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
+        client_ctx.cluster_cfg.ptr->replica_group_index;
+    if ((result=init_net_retry_config(config_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.
+                    client_ctx, &g_fs_client_vars.client_ctx.cm,
+                    bg_thread_enabled)) != 0)
+    {
+        return result;
+    }
+    g_fs_client_vars.client_ctx.inited = true;
+    g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
+
+    return 0;
+}
+
 int server_load_config(const char *filename)
 {
     IniContext ini_context;
@@ -512,5 +570,5 @@ int server_load_config(const char *filename)
     server_log_configs();
     storage_config_to_log(&STORAGE_CFG);
 
-    return 0;
+    return server_init_client(filename);
 }

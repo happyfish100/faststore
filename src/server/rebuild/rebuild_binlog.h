@@ -19,6 +19,7 @@
 
 #include "../server_types.h"
 #include "../binlog/binlog_reader.h"
+#include "rebuild_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +28,20 @@ extern "C" {
     static inline char *rebuild_binlog_get_subdir_name(const char *name,
             const int tindex, char *subdir_name, const int size)
     {
-        snprintf(subdir_name, size, "%s/%d", name, tindex + 1);
+        snprintf(subdir_name, size, "%s/%s/%d",
+                FS_REBUILD_BINLOG_SUBDIR_NAME,
+                name, tindex + 1);
+        return subdir_name;
+    }
+
+    static inline char *rebuild_binlog_get_repaly_subdir_name(
+            const char *name, const int tindex,
+            char *subdir_name, const int size)
+    {
+        snprintf(subdir_name, size, "%s/%s/%s/%d",
+                FS_REBUILD_BINLOG_SUBDIR_NAME,
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+                name, tindex + 1);
         return subdir_name;
     }
 

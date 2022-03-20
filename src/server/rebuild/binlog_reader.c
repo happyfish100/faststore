@@ -41,6 +41,8 @@ int rebuild_binlog_reader_init(ServerBinlogReader *reader,
     }
 
     //TODO set position
+    position.index = 0;
+    position.offset = 0;
     return binlog_reader_init1(reader, subdir_name,
             write_index, &position);
 }

@@ -51,6 +51,24 @@ extern "C" {
         }
     }
 
+    static inline void fs_log_rw_error(FSSliceOpContext *op_ctx,
+            const int result, const int ignore_errno, const char *caption)
+    {
+        int log_level;
+        log_level = (result == ignore_errno) ? LOG_DEBUG : LOG_ERR;
+        log_it_ex(&g_log_context, log_level,
+                "file: "__FILE__", line: %d, %s slice fail, "
+                "oid: %"PRId64", block offset: %"PRId64", "
+                "slice offset: %d, length: %d, "
+                "errno: %d, error info: %s", __LINE__, caption,
+                op_ctx->info.bs_key.block.oid,
+                op_ctx->info.bs_key.block.offset,
+                op_ctx->info.bs_key.slice.offset,
+                op_ctx->info.bs_key.slice.length,
+                result, STRERROR(result));
+    }
+
+
 #ifdef OS_LINUX
     static inline void fs_release_aio_buffers(FSSliceOpContext *op_ctx)
     {

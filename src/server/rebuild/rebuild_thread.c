@@ -19,6 +19,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../../common/fs_func.h"
+#include "../../client/fs_client.h"
 #include "../storage/slice_op.h"
 #include "../server_global.h"
 #include "rebuild_binlog.h"
@@ -30,6 +31,7 @@ typedef struct data_rebuild_thread_info {
     int buffer_size;
     BufferInfo buffer;
     ServerBinlogReader reader;
+    SFFileWriterInfo writer;
     FSSliceOpContext op_ctx;
     struct {
         bool finished;
@@ -49,21 +51,102 @@ typedef struct data_rebuild_context {
     DataRebuildThreadArray thread_array;
 } DataRebuildContext;
 
+static inline int fetch_slice_data(DataRebuildThreadInfo *thread)
+{
+    int read_bytes;
+
+    thread->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(
+            thread->op_ctx.info.bs_key.block);
+    if ((thread->op_ctx.result=fs_client_slice_read_by_slave(
+                    &g_fs_client_vars.client_ctx, 0,
+                    &thread->op_ctx.info.bs_key,
+                    thread->op_ctx.info.buff, &read_bytes)) == 0)
+    {
+        if (read_bytes != thread->op_ctx.info.bs_key.slice.length) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "block {oid: %"PRId64", offset: %"PRId64"}, "
+                    "slice {offset: %d, length: %d}, "
+                    "read bytes: %d != slice length, "
+                    "maybe delete later?", __LINE__,
+                    thread->op_ctx.info.bs_key.block.oid,
+                    thread->op_ctx.info.bs_key.block.offset,
+                    thread->op_ctx.info.bs_key.slice.offset,
+                    thread->op_ctx.info.bs_key.slice.length,
+                    read_bytes);
+            thread->op_ctx.info.bs_key.slice.length = read_bytes;
+        }
+    } else if (thread->op_ctx.result == ENODATA) {
+        logWarning("file: "__FILE__", line: %d, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}, slice not exist, "
+                "maybe delete later?", __LINE__,
+                thread->op_ctx.info.bs_key.block.oid,
+                thread->op_ctx.info.bs_key.block.offset,
+                thread->op_ctx.info.bs_key.slice.offset,
+                thread->op_ctx.info.bs_key.slice.length);
+    } else {
+        logError("file: "__FILE__", line: %d, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}, "
+                "fetch data fail, errno: %d, error info: %s", __LINE__,
+                thread->op_ctx.info.bs_key.block.oid,
+                thread->op_ctx.info.bs_key.block.offset,
+                thread->op_ctx.info.bs_key.slice.offset,
+                thread->op_ctx.info.bs_key.slice.length,
+                thread->op_ctx.result, STRERROR(thread->op_ctx.result));
+    }
+
+    return thread->op_ctx.result;
+}
+
 static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 {
     int result;
     char op_type;
     int64_t sn;
-    FSBlockSliceKeyInfo bs_key;
 
     if ((result=rebuild_binlog_parse_line(&thread->reader, &thread->buffer,
-                    line, &sn, &op_type, &bs_key)) != 0)
+                    line, &sn, &op_type, &thread->op_ctx.info.bs_key)) != 0)
     {
         return result;
     }
 
-    //TODO
-    return 0;
+    thread->op_ctx.info.data_version = sn;
+    if ((result=fetch_slice_data(thread)) != 0) {
+        if (result == ENODATA) {
+            //TODO
+            return 0;
+        }
+
+        return result;
+    }
+
+    if ((result=fs_slice_write(&thread->op_ctx)) == 0) {
+        PTHREAD_MUTEX_LOCK(&thread->notify.lcp.lock);
+        while (!thread->notify.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&thread->notify.lcp.cond,
+                    &thread->notify.lcp.lock);
+        }
+        if (thread->notify.finished) {
+            thread->notify.finished = false;  /* reset for next call */
+        } else {
+            thread->op_ctx.result = EINTR;
+        }
+        PTHREAD_MUTEX_UNLOCK(&thread->notify.lcp.lock);
+    } else {
+        thread->op_ctx.result = result;
+    }
+
+    if (result == 0) {
+        fs_write_finish(&thread->op_ctx);  //for add slice index and cleanup
+    }
+
+    if (thread->op_ctx.result != 0) {
+        fs_log_rw_error(&thread->op_ctx, thread->op_ctx.result, 0, "write");
+        return thread->op_ctx.result;
+    }
+
+    return fs_log_slice_write(&thread->op_ctx);
 }
 
 static int parse_buffer(DataRebuildThreadInfo *thread)
@@ -131,13 +214,20 @@ static void rebuild_write_done_callback(FSSliceOpContext *op_ctx,
 static int init_thread(DataRebuildThreadInfo *thread)
 {
     int result;
+    char name[64];
 
+    sprintf(name, "%s/%s", REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT);
     if ((result=rebuild_binlog_reader_init(&thread->reader,
-                    FS_REBUILD_BINLOG_SUBDIR_NAME,
-                    thread->thread_index)) != 0)
+                    name, thread->thread_index)) != 0)
     {
         return result;
     }
+
+    int sf_file_writer_init(SFFileWriterInfo *writer,
+            const char *data_path, const char *subdir_name,
+            const int buffer_size);
+
 
     if ((result=fc_init_buffer(&thread->buffer, 1024 * 1024)) != 0) {
         return result;

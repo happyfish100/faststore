@@ -206,7 +206,8 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
     for (rctx=ctx->wctx_array.contexts; rctx<wend; rctx++) {
         rctx->sn = 0;
         thread_index = rctx - ctx->wctx_array.contexts;
-        rebuild_binlog_get_subdir_name(FS_REBUILD_BINLOG_SUBDIR_NAME,
+        rebuild_binlog_get_repaly_subdir_name(
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT,
                 thread_index, subdir_name, sizeof(subdir_name));
 
         if ((result=init_binlog_writer(&rctx->wctx.writer,
