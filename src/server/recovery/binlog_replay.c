@@ -238,7 +238,7 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
     operation = DATA_OPERATION_NONE;
     success_ptr = NULL;
     switch (task->op_type) {
-        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
             thread_ctx->stat.write.total++;
             if (task->op_ctx.result == 0) {
                 operation = DATA_OPERATION_SLICE_WRITE;
@@ -248,12 +248,12 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
                 thread_ctx->stat.write.ignore++;
             }
             break;
-        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
             thread_ctx->stat.allocate.total++;
             operation = DATA_OPERATION_SLICE_ALLOCATE;
             success_ptr = &thread_ctx->stat.allocate.success;
             break;
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             thread_ctx->stat.remove.total++;
             operation = DATA_OPERATION_SLICE_DELETE;
             success_ptr = &thread_ctx->stat.remove.success;
@@ -372,7 +372,7 @@ static int task_dispatch(BinlogReplayContext *replay_ctx,
 
     write_count = 0;
     for (ppt=tasks; ppt<end; ppt++) {
-        if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
+        if ((*ppt)->op_type == BINLOG_OP_TYPE_WRITE_SLICE) {
             ++write_count;
         }
     }
@@ -381,7 +381,7 @@ static int task_dispatch(BinlogReplayContext *replay_ctx,
         FC_ATOMIC_INC_EX(replay_ctx->dispatch_thread.notify.
                 fetch_data_count, write_count);
         for (ppt=tasks; ppt<end; ppt++) {
-            if ((*ppt)->op_type == REPLICA_BINLOG_OP_TYPE_WRITE_SLICE) {
+            if ((*ppt)->op_type == BINLOG_OP_TYPE_WRITE_SLICE) {
                 fetch_thread = replay_ctx->thread_env.contexts + (ppt - tasks);
                 fc_queue_push(&fetch_thread->queue, *ppt);
             }

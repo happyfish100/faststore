@@ -23,12 +23,6 @@
 #include "../storage/object_block_index.h"
 #include "binlog_types.h"
 
-#define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
-#define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
-#define REPLICA_BINLOG_OP_TYPE_DEL_SLICE    BINLOG_OP_TYPE_DEL_SLICE
-#define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
-#define REPLICA_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
-
 struct server_binlog_reader;
 
 typedef struct replica_binlog_record {
@@ -161,7 +155,7 @@ extern "C" {
     {
         return replica_binlog_log_block(current_time, data_group_id,
                 data_version, bkey, source,
-                REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
+                BINLOG_OP_TYPE_DEL_BLOCK);
     }
 
     static inline int replica_binlog_log_no_op(const int data_group_id,
@@ -169,7 +163,7 @@ extern "C" {
     {
         return replica_binlog_log_block(g_current_time, data_group_id,
                 data_version, bkey, BINLOG_SOURCE_REPLAY,
-                REPLICA_BINLOG_OP_TYPE_NO_OP);
+                BINLOG_OP_TYPE_NO_OP);
     }
 
     static inline int replica_binlog_log_write_slice(const time_t current_time,
@@ -178,7 +172,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
+                BINLOG_OP_TYPE_WRITE_SLICE);
     }
 
     static inline int replica_binlog_log_alloc_slice(const time_t current_time,
@@ -187,7 +181,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
+                BINLOG_OP_TYPE_ALLOC_SLICE);
     }
 
     static inline int replica_binlog_log_del_slice(const time_t current_time,
@@ -196,7 +190,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
+                BINLOG_OP_TYPE_DEL_SLICE);
     }
 
     const char *replica_binlog_get_op_type_caption(const int op_type);

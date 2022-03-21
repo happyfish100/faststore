@@ -85,14 +85,16 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 {
     SFBinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=sf_binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                    &binlog_writer.thread)) == NULL)
+    {
         return ENOMEM;
     }
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_to_buff(slice, current_time,
-            data_version, source, wbuffer->bf.buff);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff(slice,
+            current_time, data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }
@@ -103,7 +105,9 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
 {
     SFBinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=sf_binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                    &binlog_writer.thread)) == NULL)
+    {
         return ENOMEM;
     }
 
@@ -112,20 +116,23 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
             (int64_t)current_time, data_version, source,
-            SLICE_BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
+            BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
 }
 
-int slice_binlog_log_del_block(const FSBlockKey *bkey,
+static inline int log_block_update(const FSBlockKey *bkey,
         const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source)
+        const uint64_t data_version, const int source,
+        const char op_type)
 {
     SFBinlogWriterBuffer *wbuffer;
 
-    if ((wbuffer=sf_binlog_writer_alloc_buffer(&binlog_writer.thread)) == NULL) {
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                    &binlog_writer.thread)) == NULL)
+    {
         return ENOMEM;
     }
 
@@ -134,10 +141,25 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
     wbuffer->bf.length = sprintf(wbuffer->bf.buff,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, data_version, source,
-            SLICE_BINLOG_OP_TYPE_DEL_BLOCK,
-            bkey->oid, bkey->offset);
+            op_type, bkey->oid, bkey->offset);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     return 0;
+}
+
+int slice_binlog_log_del_block(const FSBlockKey *bkey,
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version, const int source)
+{
+    return log_block_update(bkey, current_time, sn, data_version,
+            source, BINLOG_OP_TYPE_DEL_BLOCK);
+}
+
+int slice_binlog_log_no_op(const FSBlockKey *bkey,
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version, const int source)
+{
+    return log_block_update(bkey, current_time, sn, data_version,
+            source, BINLOG_OP_TYPE_NO_OP);
 }
 
 void slice_binlog_writer_stat(FSBinlogWriterStat *stat)

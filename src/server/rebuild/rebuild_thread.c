@@ -114,9 +114,10 @@ static int write_to_slice_binlog(DataRebuildThreadInfo *thread)
     for (slice_sn_pair=thread->op_ctx.update.sarray.slice_sn_pairs;
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
-        thread->wbuffer.length = slice_binlog_log_to_buff(slice_sn_pair->
-                slice, current_time, thread->op_ctx.info.data_version,
-                thread->op_ctx.info.source, thread->wbuffer.buff);
+        thread->wbuffer.length = slice_binlog_log_add_slice_to_buff(
+                slice_sn_pair->slice, current_time, thread->op_ctx.
+                info.data_version, thread->op_ctx.info.source,
+                thread->wbuffer.buff);
         if ((result=sf_file_writer_deal_buffer(&thread->writer,
                         &thread->wbuffer)) != 0)
         {
@@ -141,7 +142,7 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
     }
 
     thread->op_ctx.info.data_version = sn;
-    if (op_type == SLICE_BINLOG_OP_TYPE_ALLOC_SLICE) {
+    if (op_type == BINLOG_OP_TYPE_ALLOC_SLICE) {
        thread->op_ctx.result = fs_slice_allocate(&thread->op_ctx);
     } else {
         if ((result=fetch_slice_data(thread)) != 0) {
@@ -175,7 +176,7 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 
     if (thread->op_ctx.result != 0) {
         fs_log_rw_error(&thread->op_ctx, thread->op_ctx.result,
-                0, (op_type == SLICE_BINLOG_OP_TYPE_ALLOC_SLICE) ?
+                0, (op_type == BINLOG_OP_TYPE_ALLOC_SLICE) ?
                 "allocate" : "write");
         return thread->op_ctx.result;
     }

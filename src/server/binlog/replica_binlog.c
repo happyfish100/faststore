@@ -397,13 +397,13 @@ int replica_binlog_record_unpack(const string_t *line,
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     switch (record->op_type) {
-        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
-        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             result = unpack_slice_record(cols, count, record, error_info);
             break;
-        case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
-        case REPLICA_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_NO_OP:
             result = unpack_block_record(cols, count, record, error_info);
             break;
         default:
@@ -658,15 +658,15 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
 const char *replica_binlog_get_op_type_caption(const int op_type)
 {
     switch (op_type) {
-        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
             return "write slice";
-        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
             return "alloc slice";
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             return "delete slice";
-        case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
             return "delete block";
-        case REPLICA_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_NO_OP:
             return "no op";
         default:
             return "unkown";
@@ -747,8 +747,8 @@ static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
         return sub;
     }
 
-    if (r1->op_type == REPLICA_BINLOG_OP_TYPE_DEL_BLOCK ||
-        r1->op_type == REPLICA_BINLOG_OP_TYPE_NO_OP)
+    if (r1->op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
+        r1->op_type == BINLOG_OP_TYPE_NO_OP)
     {
         return 0;
     }

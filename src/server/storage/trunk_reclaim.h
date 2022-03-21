@@ -31,6 +31,7 @@ typedef struct trunk_reclaim_block_info {
 } TrunkReclaimBlockInfo;
 
 typedef struct trunk_reclaim_slice_info {
+    OBSliceType type;
     FSBlockSliceKeyInfo bs_key;
     struct trunk_reclaim_slice_info *next;
 } TrunkReclaimSliceInfo;

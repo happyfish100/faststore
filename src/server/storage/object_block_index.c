@@ -1312,9 +1312,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                     }
                 }
 
-                writer.buffer.current += slice_binlog_log_to_buff(
-                        slice, current_time, data_version,
-                        source, writer.buffer.current);
+                writer.buffer.current += slice_binlog_log_add_slice_to_buff(
+                        slice, current_time, data_version, source,
+                        writer.buffer.current);
             }
 
             ob = ob->next;
@@ -1326,6 +1326,10 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     }
 
     if (need_padding && result == 0) {
+        FSBlockKey bkey;
+
+        bkey.oid = 1;
+        bkey.offset = 0;
         for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
             if (SF_BUFFERED_WRITER_REMAIN(writer) <
                     FS_SLICE_BINLOG_MAX_RECORD_SIZE)
@@ -1335,8 +1339,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                 }
             }
 
-            writer.buffer.current += slice_binlog_log_no_op(current_time + i,
-                    data_version, source, writer.buffer.current);
+            writer.buffer.current += slice_binlog_log_no_op_to_buff(
+                    &bkey, current_time + i, data_version, source,
+                    writer.buffer.current);
         }
     }
 
@@ -1391,8 +1396,8 @@ static inline int write_slice_to_file(OBEntry *ob, const int slice_type,
 
     ctx->writer.buffer.current += rebuild_binlog_log_to_buff(
             ++(ctx->sn), slice_type == OB_SLICE_TYPE_FILE ?
-            SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
-            SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
+            BINLOG_OP_TYPE_WRITE_SLICE :
+            BINLOG_OP_TYPE_ALLOC_SLICE,
             &ob->bkey, ssize, ctx->writer.buffer.current);
     return 0;
 }

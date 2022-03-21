@@ -538,6 +538,10 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         }
     }
 
+    if (count == 0) {   //NOT need to allocate space
+        return 0;
+    }
+
     do {
         if (op_ctx->update.sarray.alloc < count *
                 FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC)
@@ -605,6 +609,10 @@ int fs_log_slice_allocate(FSSliceOpContext *op_ctx)
     FSSliceSNPair *slice_sn_end;
     int result;
     time_t current_time;
+
+    if (op_ctx->update.sarray.count == 0) {  //NOT log when no change
+        return 0;
+    }
 
     current_time = g_current_time;
     slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +

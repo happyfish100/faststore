@@ -305,33 +305,33 @@ static int slice_parse_line(SliceParseThreadContext *thread_ctx,
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
     SLICE_PARSE_INT_EX(bkey.offset, "block offset",
             BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET,
-            ((op_type == SLICE_BINLOG_OP_TYPE_DEL_BLOCK ||
-              op_type == SLICE_BINLOG_OP_TYPE_NO_OP) ?
+            ((op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
+              op_type == BINLOG_OP_TYPE_NO_OP) ?
              '\n' : ' '), 0);
     fs_calc_block_hashcode(&bkey);
 
     record->op_type = op_type;
     record->bs_key.block = bkey;
     switch (op_type) {
-        case SLICE_BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
             record->slice_type = OB_SLICE_TYPE_FILE;
             result = add_slice_set_fields(record,
                     r, line, cols, count);
             break;
-        case SLICE_BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
             record->slice_type = OB_SLICE_TYPE_ALLOC;
             result = add_slice_set_fields(record,
                     r, line, cols, count);
             break;
-        case SLICE_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             result = del_slice_set_fields(record,
                     r, line, cols, count);
             break;
-        case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
             result = del_block_set_fields(record,
                     r, line, cols, count);
             break;
-        case SLICE_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_NO_OP:
             result = no_op_set_fields(record,
                     r, line, cols, count);
             break;
@@ -461,7 +461,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
     int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
-        if (record->op_type == SLICE_BINLOG_OP_TYPE_NO_OP) {
+        if (record->op_type == BINLOG_OP_TYPE_NO_OP) {
             return 0;
         }
         if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->bs_key.block))) {
@@ -471,8 +471,8 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
     }
 
     switch (record->op_type) {
-        case SLICE_BINLOG_OP_TYPE_WRITE_SLICE:
-        case SLICE_BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
             if ((slice=ob_index_alloc_slice(&record->bs_key.block)) == NULL) {
                 return ENOMEM;
             }
@@ -485,7 +485,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             slice->ssize = record->bs_key.slice;
             slice->space = record->space;
             return ob_index_add_slice_by_binlog(slice);
-        case SLICE_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             if ((result=ob_index_delete_slices_by_binlog(
                             &record->bs_key)) != 0)
             {
@@ -498,7 +498,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         slice.length, result, STRERROR(result));
             }
             return result;
-        case SLICE_BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
             if ((result=ob_index_delete_block_by_binlog(
                             &record->bs_key.block)) != 0)
             {
@@ -509,7 +509,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         offset, result, STRERROR(result));
             }
             return result;
-        case SLICE_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_NO_OP:
         default:
             return 0;
     }

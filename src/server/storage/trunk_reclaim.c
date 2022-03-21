@@ -167,6 +167,7 @@ static int convert_to_rs_array(FSTrunkAllocator *allocator,
             rs = rs_array->slices + rs_array->count;
         }
 
+        rs->type = slice->type;
         rs->bs_key.block = slice->ob->bkey;
         rs->bs_key.slice = slice->ssize;
         rs++;
@@ -225,7 +226,7 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
                     &block->ob->bkey, &slice->bs_key.block) == 0)
         {
             if (tail->bs_key.slice.offset + tail->bs_key.slice.length ==
-                    slice->bs_key.slice.offset)
+                    slice->bs_key.slice.offset && tail->type == slice->type)
             {  //combine slices
                 tail->bs_key.slice.length += slice->bs_key.slice.length;
             } else {
@@ -274,12 +275,21 @@ static int migrate_prepare(TrunkReclaimContext *rctx,
 }
 
 static int migrate_one_slice(TrunkReclaimContext *rctx,
-        FSBlockSliceKeyInfo *bs_key)
+        TrunkReclaimSliceInfo *slice)
 {
     int result;
 
-    if ((result=migrate_prepare(rctx, bs_key)) != 0) {
+    if ((result=migrate_prepare(rctx, &slice->bs_key)) != 0) {
         return result;
+    }
+
+    if (slice->type == OB_SLICE_TYPE_ALLOC) {
+        if ((result=fs_slice_allocate(&rctx->op_ctx)) == 0) {
+            return fs_log_slice_allocate(&rctx->op_ctx);
+        } else {
+            fs_log_rw_error(&rctx->op_ctx, result, 0, "allocate");
+            return result;
+        }
     }
 
     if ((result=fs_slice_read(&rctx->op_ctx)) == 0) {
@@ -339,7 +349,7 @@ static int migrate_one_block(TrunkReclaimContext *rctx,
 
     slice = block->head;
     while (slice != NULL) {
-        if ((result=migrate_one_slice(rctx, &slice->bs_key)) != 0) {
+        if ((result=migrate_one_slice(rctx, slice)) != 0) {
             return result;
         }
         slice = slice->next;
