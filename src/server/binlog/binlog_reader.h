@@ -19,6 +19,7 @@
 #define _BINLOG_READER_H_
 
 #include "sf/sf_binlog_writer.h"
+#include "../server_global.h"
 #include "binlog_types.h"
 
 typedef enum {

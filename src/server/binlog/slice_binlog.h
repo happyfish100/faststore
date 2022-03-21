@@ -23,6 +23,15 @@
 #include "../storage/object_block_index.h"
 #include "../server_global.h"
 
+typedef struct slice_binlog_record {
+    char source;
+    char op_type;
+    OBSliceType slice_type;   //add slice only
+    FSBlockSliceKeyInfo bs_key;
+    FSTrunkSpaceInfo space;   //add slice only
+    int64_t data_version;
+} SliceBinlogRecord;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -36,6 +45,8 @@ extern "C" {
     struct sf_binlog_writer_info *slice_binlog_get_writer();
 
     int slice_binlog_set_binlog_index(const int binlog_index);
+
+    int slice_binlog_set_next_version();
 
     static inline const char *slice_binlog_get_filepath(
             char *filepath, const int size)
@@ -102,6 +113,9 @@ extern "C" {
             const uint64_t data_version, const int source);
 
     void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
+
+    int slice_binlog_record_unpack(const string_t *line,
+            SliceBinlogRecord *record, char *error_info);
 
 #ifdef __cplusplus
 }

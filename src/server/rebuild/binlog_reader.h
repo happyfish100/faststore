@@ -24,7 +24,11 @@ extern "C" {
 #endif
 
     int rebuild_binlog_reader_init(ServerBinlogReader *reader,
-            const char *name, const int binlog_index);
+            const char *subdir_name);
+
+    int rebuild_binlog_reader_save_position(
+            const char *in_subdir_name,
+            const char *out_subdir_name);
 
 #ifdef __cplusplus
 }

@@ -19,10 +19,11 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../../common/fs_func.h"
+#include "../binlog/binlog_loader.h"
 #include "../server_global.h"
 #include "rebuild_binlog.h"
 
-#define REBUILD_BINLOG_FIELD_INDEX_SN            0
+#define REBUILD_BINLOG_FIELD_INDEX_DATA_VERSION  0
 #define REBUILD_BINLOG_FIELD_INDEX_OP_TYPE       1
 #define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OID     2
 #define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OFFSET  3
@@ -31,67 +32,86 @@
 
 #define REBUILD_BINLOG_FIELD_COUNT  6
 
-#define REBUILD_BINLOG_GET_FILENAME_LINE_COUNT(reader, buffer, line_str, line_count) \
-    do { \
-        fc_get_file_line_count_ex(reader->filename, reader->position.offset - \
-                ((buffer)->length - (line_str - (buffer)->buff)), &line_count); \
-        line_count++; \
-    } while (0)
-
-#define REBUILD_BINLOG_PARSE_INT_EX(reader, buffer, \
-        var, caption, index, endchr, min_val) \
-    do {   \
-        var = strtol(cols[index].str, &endptr, 10);  \
-        if (*endptr != endchr || var < min_val) {    \
-            REBUILD_BINLOG_GET_FILENAME_LINE_COUNT(reader, \
-                    buffer, line->str, line_count);  \
-            logError("file: "__FILE__", line: %d, "  \
-                    "binlog file %s, line no: %"PRId64", " \
-                    "invalid %s: %.*s", __LINE__,          \
-                    reader->filename, line_count,  \
-                    caption, cols[index].len, cols[index].str); \
-            return EINVAL;  \
-        }  \
-    } while (0)
-
-int rebuild_binlog_parse_line(ServerBinlogReader *reader,
-        BufferInfo *buffer, const string_t *line, int64_t *sn,
-        char *op_type, FSBlockSliceKeyInfo *bs_key)
+int rebuild_binlog_record_unpack(const string_t *line,
+        RebuildBinlogRecord *record, char *error_info)
 {
     int count;
-    int64_t line_count;
     string_t cols[REBUILD_BINLOG_FIELD_COUNT];
     char *endptr;
 
     count = split_string_ex(line, ' ', cols,
             REBUILD_BINLOG_FIELD_COUNT, false);
     if (count != REBUILD_BINLOG_FIELD_COUNT) {
-        REBUILD_BINLOG_GET_FILENAME_LINE_COUNT(reader, buffer,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d != %d", __LINE__,
-                reader->filename, line_count,
+        sprintf(error_info, "field count: %d != %d",
                 count, REBUILD_BINLOG_FIELD_COUNT);
         return EINVAL;
     }
 
-    REBUILD_BINLOG_PARSE_INT_EX(reader, buffer, *sn, "sn",
-            REBUILD_BINLOG_FIELD_INDEX_SN, ' ', 1);
-    *op_type = cols[REBUILD_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
-    REBUILD_BINLOG_PARSE_INT_EX(reader, buffer,
-            bs_key->block.oid, "object ID",
+    BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
+            REBUILD_BINLOG_FIELD_INDEX_DATA_VERSION, ' ', 1);
+    record->op_type = cols[REBUILD_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
             REBUILD_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
-    REBUILD_BINLOG_PARSE_INT_EX(reader, buffer,
-            bs_key->block.offset, "block offset",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
             REBUILD_BINLOG_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
-    REBUILD_BINLOG_PARSE_INT_EX(reader, buffer,
-            bs_key->slice.offset, "slice offset",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
             REBUILD_BINLOG_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
-    REBUILD_BINLOG_PARSE_INT_EX(reader, buffer,
-            bs_key->slice.length, "slice length",
+    BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
             REBUILD_BINLOG_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
 
-    fs_calc_block_hashcode(&bs_key->block);
+    fs_calc_block_hashcode(&record->bs_key.block);
+    return 0;
+}
+
+int rebuild_binlog_parse_line(ServerBinlogReader *reader,
+        BufferInfo *buffer, const string_t *line,
+        RebuildBinlogRecord *record)
+{
+    int result;
+    int64_t line_count;
+    char error_info[256];
+
+    if ((result=rebuild_binlog_record_unpack(line,
+                    record, error_info)) != 0)
+    {
+        REBUILD_BINLOG_GET_FILENAME_LINE_COUNT(reader, buffer,
+                line->str, line_count);
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: %"PRId64", %s", __LINE__,
+                reader->filename, line_count, error_info);
+    }
+
+    return result;
+}
+
+int rebuild_binlog_get_last_data_version(const char *subdir_name,
+        const int binlog_index, int64_t *data_version)
+{
+    int result;
+    char filename[PATH_MAX];
+    char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
+    char error_info[256];
+    int64_t file_size;
+    string_t line;
+    RebuildBinlogRecord record;
+
+    binlog_reader_get_filename(subdir_name, binlog_index,
+            filename, sizeof(filename));
+    if ((result=fc_get_last_line(filename, buff, sizeof(buff),
+                    &file_size, &line)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=rebuild_binlog_record_unpack(&line,
+                    &record, error_info)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, unpack last line fail, %s",
+                __LINE__, filename, error_info);
+        return result;
+    }
+
+    *data_version = record.data_version;
     return 0;
 }

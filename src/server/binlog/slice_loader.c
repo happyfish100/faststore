@@ -33,36 +33,19 @@
 #include "slice_binlog.h"
 #include "slice_loader.h"
 
-#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 8
-#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   9
-#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR    10
-#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    11
-#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      12
-#define ADD_SLICE_EXPECT_FIELD_COUNT          13
-
-#define DEL_SLICE_EXPECT_FIELD_COUNT           8
-#define DEL_BLOCK_EXPECT_FIELD_COUNT           6
-#define NO_OP_EXPECT_FIELD_COUNT               6
-
-#define MAX_BINLOG_FIELD_COUNT  16
-#define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
-
 #define MBLOCK_BATCH_ALLOC_SIZE  1024
 
 struct slice_loader_context;
 
-typedef struct slice_binlog_record {
-    char op_type;
-    OBSliceType slice_type;   //add slice only
-    FSBlockSliceKeyInfo bs_key;
-    FSTrunkSpaceInfo space;   //add slice only
+typedef struct slice_loader_record {
+    SliceBinlogRecord slice;
     struct fast_mblock_man *allocator;
-    struct slice_binlog_record *next;  //for queue
-} SliceBinlogRecord;
+    struct slice_loader_record *next;  //for queue
+} SliceLoaderRecord;
 
 typedef struct slice_record_chain {
-    SliceBinlogRecord *head;
-    SliceBinlogRecord *tail;
+    SliceLoaderRecord *head;
+    SliceLoaderRecord *tail;
 } SliceRecordChain;
 
 typedef struct slice_parse_thread_context {
@@ -72,7 +55,7 @@ typedef struct slice_parse_thread_context {
         pthread_lock_cond_pair_t lcp;
     } notify;
     SliceRecordChain slices;  //for output
-    struct fast_mblock_man record_allocator;  //element: SliceBinlogRecord
+    struct fast_mblock_man record_allocator;  //element: SliceLoaderRecord
     struct fast_mblock_node *freelist;  //for batch alloc
     BinlogReadThreadContext *read_thread_ctx;
     BinlogReadThreadResult *r;
@@ -90,7 +73,7 @@ typedef struct slice_data_thread_context {
     int64_t rebuild_count;   //for data rebuilding of the specify store path
     volatile int64_t done_count;
     SliceRecordChain slices;  //for enqueue
-    struct fc_queue queue;   //element: SliceBinlogRecord
+    struct fc_queue queue;   //element: SliceLoaderRecord
     struct slice_loader_context *loader_ctx;
 } SliceDataThreadContext;
 
@@ -130,140 +113,6 @@ typedef struct slice_loader_context {
         BINLOG_GET_FILENAME_LINE_COUNT(r, FS_SLICE_BINLOG_SUBDIR_NAME, \
         binlog_filename, line_str, line_count)
 
-#define SLICE_PARSE_INT_EX(var, caption, index, endchr, min_val) \
-    BINLOG_PARSE_INT_EX(FS_SLICE_BINLOG_SUBDIR_NAME, var, caption,  \
-            index, endchr, min_val)
-
-#define SLICE_PARSE_INT(var, index, endchr, min_val)  \
-    BINLOG_PARSE_INT_EX(FS_SLICE_BINLOG_SUBDIR_NAME, var, #var, \
-            index, endchr, min_val)
-
-static inline int add_slice_set_fields(SliceBinlogRecord *record,
-        BinlogReadThreadResult *r, string_t *line, string_t *cols,
-        const int count)
-{
-    int64_t line_count;
-    char binlog_filename[PATH_MAX];
-    char *endptr;
-    int path_index;
-
-    if (count != ADD_SLICE_EXPECT_FIELD_COUNT) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d != %d", __LINE__,
-                binlog_filename, line_count,
-                count, ADD_SLICE_EXPECT_FIELD_COUNT);
-        return EINVAL;
-    }
-
-    SLICE_PARSE_INT_EX(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
-    SLICE_PARSE_INT_EX(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, ' ', 1);
-
-    SLICE_PARSE_INT(path_index, ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX, ' ', 0);
-    if (path_index > STORAGE_CFG.max_store_path_index) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "invalid path_index: %d > max_store_path_index: %d",
-                __LINE__, binlog_filename, line_count,
-                path_index, STORAGE_CFG.max_store_path_index);
-        return EINVAL;
-    }
-
-    if (PATHS_BY_INDEX_PPTR[path_index] == NULL) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "path_index: %d not exist", __LINE__,
-                binlog_filename, line_count, path_index);
-        return ENOENT;
-    }
-    record->space.store = &PATHS_BY_INDEX_PPTR[path_index]->store;
-    SLICE_PARSE_INT_EX(record->space.id_info.id, "trunk_id",
-            ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID, ' ', 1);
-    SLICE_PARSE_INT_EX(record->space.id_info.subdir, "subdir",
-            ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR, ' ', 1);
-    SLICE_PARSE_INT(record->space.offset,
-            ADD_SLICE_FIELD_INDEX_SPACE_OFFSET, ' ', 0);
-    SLICE_PARSE_INT(record->space.size,
-            ADD_SLICE_FIELD_INDEX_SPACE_SIZE, '\n', 0);
-    return 0;
-}
-
-static inline int del_slice_set_fields(SliceBinlogRecord *record,
-        BinlogReadThreadResult *r, string_t *line,
-        string_t *cols, const int count)
-{
-    int64_t line_count;
-    char binlog_filename[PATH_MAX];
-    char *endptr;
-
-    if (count != DEL_SLICE_EXPECT_FIELD_COUNT) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d != %d", __LINE__,
-                binlog_filename, line_count,
-                count, DEL_SLICE_EXPECT_FIELD_COUNT);
-        return EINVAL;
-    }
-
-    SLICE_PARSE_INT_EX(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
-    SLICE_PARSE_INT_EX(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
-    return 0;
-}
-
-static inline int del_block_set_fields(SliceBinlogRecord *record,
-        BinlogReadThreadResult *r, string_t *line,
-        string_t *cols, const int count)
-{
-    int64_t line_count;
-    char binlog_filename[PATH_MAX];
-
-    if (count != DEL_BLOCK_EXPECT_FIELD_COUNT) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d != %d", __LINE__,
-                binlog_filename, line_count,
-                count, DEL_BLOCK_EXPECT_FIELD_COUNT);
-        return EINVAL;
-    }
-
-    return 0;
-}
-
-static inline int no_op_set_fields(SliceBinlogRecord *record,
-        BinlogReadThreadResult *r, string_t *line,
-        string_t *cols, const int count)
-{
-    int64_t line_count;
-    char binlog_filename[PATH_MAX];
-
-    if (count != NO_OP_EXPECT_FIELD_COUNT) {
-        SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                line->str, line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d != %d", __LINE__,
-                binlog_filename, line_count,
-                count, NO_OP_EXPECT_FIELD_COUNT);
-        return EINVAL;
-    }
-
-    return 0;
-}
-
 #define SLICE_ADD_TO_CHAIN(thread_ctx, record) \
     if (thread_ctx->slices.head == NULL) { \
         thread_ctx->slices.head = record;  \
@@ -275,88 +124,22 @@ static inline int no_op_set_fields(SliceBinlogRecord *record,
 
 
 static int slice_parse_line(SliceParseThreadContext *thread_ctx,
-        BinlogReadThreadResult *r, string_t *line,
-        SliceBinlogRecord *record)
+        BinlogReadThreadResult *r, const string_t *line,
+        SliceLoaderRecord *record)
 {
-    int count;
     int result;
     int64_t line_count;
-    string_t cols[MAX_BINLOG_FIELD_COUNT];
     char binlog_filename[PATH_MAX];
-    FSBlockKey bkey;
-    char op_type;
-    char *endptr;
+    char error_info[256];
 
-    count = split_string_ex(line, ' ', cols,
-            MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+    if ((result=slice_binlog_record_unpack(line,
+                    &record->slice, error_info)) != 0)
+    {
         SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
                 line->str, line_count);
         logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", "
-                "field count: %d < %d", __LINE__,
-                binlog_filename, line_count,
-                count, MIN_EXPECT_FIELD_COUNT);
-        return EINVAL;
-    }
-
-    op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
-    SLICE_PARSE_INT_EX(bkey.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
-    SLICE_PARSE_INT_EX(bkey.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET,
-            ((op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
-              op_type == BINLOG_OP_TYPE_NO_OP) ?
-             '\n' : ' '), 0);
-    fs_calc_block_hashcode(&bkey);
-
-    record->op_type = op_type;
-    record->bs_key.block = bkey;
-    switch (op_type) {
-        case BINLOG_OP_TYPE_WRITE_SLICE:
-            record->slice_type = OB_SLICE_TYPE_FILE;
-            result = add_slice_set_fields(record,
-                    r, line, cols, count);
-            break;
-        case BINLOG_OP_TYPE_ALLOC_SLICE:
-            record->slice_type = OB_SLICE_TYPE_ALLOC;
-            result = add_slice_set_fields(record,
-                    r, line, cols, count);
-            break;
-        case BINLOG_OP_TYPE_DEL_SLICE:
-            result = del_slice_set_fields(record,
-                    r, line, cols, count);
-            break;
-        case BINLOG_OP_TYPE_DEL_BLOCK:
-            result = del_block_set_fields(record,
-                    r, line, cols, count);
-            break;
-        case BINLOG_OP_TYPE_NO_OP:
-            result = no_op_set_fields(record,
-                    r, line, cols, count);
-            break;
-        default:
-            SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                    line->str, line_count);
-            logError("file: "__FILE__", line: %d, "
-                    "binlog file %s, line no: %"PRId64", "
-                    "invalid op_type: %c (0x%02x)", __LINE__,
-                    binlog_filename, line_count,
-                    op_type, (unsigned char)op_type);
-            result = EINVAL;
-            break;
-    }
-
-    if (result != 0) {
-        if (result != EINVAL) {
-            SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename,
-                    line->str, line_count);
-            logError("file: "__FILE__", line: %d, "
-                    "binlog file %s, line no: %"PRId64", op_type: %c, "
-                    "add to index fail, errno: %d", __LINE__,
-                    binlog_filename, line_count, op_type, result);
-        }
-
+                "binlog file %s, line no: %"PRId64", %s", __LINE__,
+                binlog_filename, line_count, error_info);
         return result;
     }
 
@@ -368,7 +151,7 @@ static void waiting_and_process_parse_result(SliceLoaderContext
         *slice_ctx, SliceParseThreadContext *parse_thread)
 {
     SliceDataThreadContext *data_thread;
-    SliceBinlogRecord *record;
+    SliceLoaderRecord *record;
 
     PTHREAD_MUTEX_LOCK(&parse_thread->notify.lcp.lock);
     while (!parse_thread->notify.parse_done && SF_G_CONTINUE_FLAG) {
@@ -383,7 +166,7 @@ static void waiting_and_process_parse_result(SliceLoaderContext
 
     record = parse_thread->slices.head;
     while (record != NULL) {
-        data_thread = slice_ctx->data_thread_array.contexts + record->
+        data_thread = slice_ctx->data_thread_array.contexts + record->slice.
             bs_key.block.hash_code % slice_ctx->data_thread_array.count;
         SLICE_ADD_TO_CHAIN(data_thread, record);
 
@@ -455,58 +238,65 @@ static int slice_parse_buffer(BinlogLoaderContext *ctx)
 }
 
 static inline int slice_loader_deal_record(SliceDataThreadContext
-        *thread_ctx, SliceBinlogRecord *record)
+        *thread_ctx, SliceLoaderRecord *record)
 {
     OBSliceEntry *slice;
     int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
-        if (record->op_type == BINLOG_OP_TYPE_NO_OP) {
+        if (record->slice.op_type == BINLOG_OP_TYPE_NO_OP) {
             return 0;
         }
-        if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->bs_key.block))) {
+        if (!fs_is_my_data_group(FS_DATA_GROUP_ID(record->
+                        slice.bs_key.block)))
+        {
             thread_ctx->skip_count++;
             return 0;
         }
     }
 
-    switch (record->op_type) {
+    switch (record->slice.op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
         case BINLOG_OP_TYPE_ALLOC_SLICE:
-            if ((slice=ob_index_alloc_slice(&record->bs_key.block)) == NULL) {
+            if ((slice=ob_index_alloc_slice(&record->
+                            slice.bs_key.block)) == NULL)
+            {
                 return ENOMEM;
             }
 
-            if (record->space.store->index == DATA_REBUILD_PATH_INDEX) {
+            if (record->slice.space.store->index ==
+                    DATA_REBUILD_PATH_INDEX)
+            {
                 thread_ctx->rebuild_count++;
             }
 
-            slice->type = record->slice_type;
-            slice->ssize = record->bs_key.slice;
-            slice->space = record->space;
+            slice->type = record->slice.slice_type;
+            slice->ssize = record->slice.bs_key.slice;
+            slice->space = record->slice.space;
             return ob_index_add_slice_by_binlog(slice);
         case BINLOG_OP_TYPE_DEL_SLICE:
             if ((result=ob_index_delete_slices_by_binlog(
-                            &record->bs_key)) != 0)
+                            &record->slice.bs_key)) != 0)
             {
                 logError("file: "__FILE__", line: %d, "
                         "delete slice fail, block {oid: %"PRId64", "
                         "offset: %"PRId64"}, slice {offset: %d, length: %d}"
-                        ", errno: %d, error info: %s", __LINE__, record->
-                        bs_key.block.oid, record->bs_key.block.offset,
-                        record->bs_key.slice.offset, record->bs_key.
+                        ", errno: %d, error info: %s", __LINE__, record->slice.
+                        bs_key.block.oid, record->slice.bs_key.block.offset,
+                        record->slice.bs_key.slice.offset, record->slice.bs_key.
                         slice.length, result, STRERROR(result));
             }
             return result;
         case BINLOG_OP_TYPE_DEL_BLOCK:
-            if ((result=ob_index_delete_block_by_binlog(
-                            &record->bs_key.block)) != 0)
+            if ((result=ob_index_delete_block_by_binlog(&record->
+                            slice.bs_key.block)) != 0)
             {
                 logError("file: "__FILE__", line: %d, "
                         "delete block fail, {oid: %"PRId64", offset: %"
                         PRId64"}, errno: %d, error info: %s", __LINE__,
-                        record->bs_key.block.oid, record->bs_key.block.
-                        offset, result, STRERROR(result));
+                        record->slice.bs_key.block.oid,
+                        record->slice.bs_key.block.offset,
+                        result, STRERROR(result));
             }
             return result;
         case BINLOG_OP_TYPE_NO_OP:
@@ -516,9 +306,9 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
 }
 
 static inline void deal_records(SliceDataThreadContext *thread_ctx,
-        SliceBinlogRecord *head)
+        SliceLoaderRecord *head)
 {
-    SliceBinlogRecord *record;
+    SliceLoaderRecord *record;
     struct fast_mblock_node *node;
     struct fast_mblock_man *prev_allocator;
     struct fast_mblock_chain chain;
@@ -572,7 +362,7 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
     char *buff_end;
     char *line_end;
     struct fast_mblock_node *node;
-    SliceBinlogRecord *record;
+    SliceLoaderRecord *record;
 
     result = 0;
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
@@ -598,7 +388,7 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
         }
         node = thread_ctx->freelist;
         thread_ctx->freelist = thread_ctx->freelist->next;
-        record = (SliceBinlogRecord *)node->data;
+        record = (SliceLoaderRecord *)node->data;
         if ((result=slice_parse_line(thread_ctx, thread_ctx->r,
                         &line, record)) != 0)
         {
@@ -652,13 +442,13 @@ static void slice_parse_thread_run(SliceParseThreadContext *thread_ctx,
 static void slice_data_thread_run(SliceDataThreadContext *thread_ctx,
         void *thread_data)
 {
-    SliceBinlogRecord *head;
+    SliceLoaderRecord *head;
 
     __sync_add_and_fetch(&thread_ctx->loader_ctx->thread_counts.data, 1);
     while (SF_G_CONTINUE_FLAG && thread_ctx->
             loader_ctx->data_continue_flag)
     {
-        head = (SliceBinlogRecord *)fc_queue_pop_all(&thread_ctx->queue);
+        head = (SliceLoaderRecord *)fc_queue_pop_all(&thread_ctx->queue);
         if (head != NULL) {
             deal_records(thread_ctx, head);
         }
@@ -666,7 +456,7 @@ static void slice_data_thread_run(SliceDataThreadContext *thread_ctx,
     __sync_sub_and_fetch(&thread_ctx->loader_ctx->thread_counts.data, 1);
 }
 
-static int slice_record_alloc_init(SliceBinlogRecord *record,
+static int slice_record_alloc_init(SliceLoaderRecord *record,
         struct fast_mblock_man *allocator)
 {
     record->allocator = allocator;
@@ -686,7 +476,7 @@ static int init_parse_thread_context(SliceParseThreadContext *thread_ctx)
     elements_limit = (8 * BINLOG_BUFFER_SIZE) /
         FS_SLICE_BINLOG_MIN_RECORD_SIZE;
     if ((result=fast_mblock_init_ex1(&thread_ctx->record_allocator,
-                    "slice_record", sizeof(SliceBinlogRecord),
+                    "slice_record", sizeof(SliceLoaderRecord),
                     alloc_elements_once, elements_limit,
                     (fast_mblock_object_init_func)slice_record_alloc_init,
                     &thread_ctx->record_allocator, true)) != 0)
@@ -710,7 +500,7 @@ static int init_data_thread_context(SliceDataThreadContext *thread_ctx)
     int result;
 
     if ((result=fc_queue_init(&thread_ctx->queue, (long)(
-                        &((SliceBinlogRecord *)NULL)->next))) != 0)
+                        &((SliceLoaderRecord *)NULL)->next))) != 0)
     {
         return result;
     }

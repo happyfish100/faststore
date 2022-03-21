@@ -132,17 +132,17 @@ static int write_to_slice_binlog(DataRebuildThreadInfo *thread)
 static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 {
     int result;
-    char op_type;
-    int64_t sn;
+    RebuildBinlogRecord record;
 
-    if ((result=rebuild_binlog_parse_line(&thread->reader, &thread->rbuffer,
-                    line, &sn, &op_type, &thread->op_ctx.info.bs_key)) != 0)
+    if ((result=rebuild_binlog_parse_line(&thread->reader,
+                    &thread->rbuffer, line, &record)) != 0)
     {
         return result;
     }
 
-    thread->op_ctx.info.data_version = sn;
-    if (op_type == BINLOG_OP_TYPE_ALLOC_SLICE) {
+    thread->op_ctx.info.data_version = record.data_version;
+    thread->op_ctx.info.bs_key = record.bs_key;
+    if (record.op_type == BINLOG_OP_TYPE_ALLOC_SLICE) {
        thread->op_ctx.result = fs_slice_allocate(&thread->op_ctx);
     } else {
         if ((result=fetch_slice_data(thread)) != 0) {
@@ -176,7 +176,7 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 
     if (thread->op_ctx.result != 0) {
         fs_log_rw_error(&thread->op_ctx, thread->op_ctx.result,
-                0, (op_type == BINLOG_OP_TYPE_ALLOC_SLICE) ?
+                0, (record.op_type == BINLOG_OP_TYPE_ALLOC_SLICE) ?
                 "allocate" : "write");
         return thread->op_ctx.result;
     }
@@ -253,13 +253,13 @@ static void rebuild_write_done_callback(FSSliceOpContext *op_ctx,
 static int init_thread(DataRebuildThreadInfo *thread)
 {
     int result;
-    char name[64];
     char subdir_name[64];
 
-    sprintf(name, "%s/%s", REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
-            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT);
+    rebuild_binlog_get_repaly_subdir_name(
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT,
+            thread->thread_index, subdir_name, sizeof(subdir_name));
     if ((result=rebuild_binlog_reader_init(&thread->reader,
-                    name, thread->thread_index)) != 0)
+                    subdir_name)) != 0)
     {
         return result;
     }

@@ -41,7 +41,7 @@ typedef struct data_read_context {
 
 typedef struct rebuild_binlog_writer_context {
     SFBinlogWriterContext wctx;
-    volatile int64_t sn;
+    volatile int64_t data_version;
 } RebuildBinlogWriterContext;
 
 typedef struct binlog_writer_ctx_array {
@@ -58,31 +58,30 @@ static int deal_line(DataReadThreadInfo *thread,
         ServerBinlogReader *reader, const string_t *line)
 {
     int result;
-    char op_type;
-    int64_t sn;
-    FSBlockSliceKeyInfo bs_key;
+    RebuildBinlogRecord record;
     RebuildBinlogWriterContext *ctx;
     SFBinlogWriterBuffer *wbuffer;
 
     if ((result=rebuild_binlog_parse_line(reader, &thread->buffer,
-                    line, &sn, &op_type, &bs_key)) != 0)
+                    line, &record)) != 0)
     {
         return result;
     }
 
     ctx = thread->ctx->wctx_array.contexts +
-        (bs_key.block.hash_code %
+        (record.bs_key.block.hash_code %
          thread->ctx->wctx_array.count);
 
-    sn = __sync_add_and_fetch(&ctx->sn, 1);
-    if ((wbuffer=sf_binlog_writer_alloc_one_version_buffer(
-                    &ctx->wctx.writer, sn)) == NULL)
+    record.data_version = __sync_add_and_fetch(&ctx->data_version, 1);
+    if ((wbuffer=sf_binlog_writer_alloc_one_version_buffer(&ctx->
+                    wctx.writer, record.data_version)) == NULL)
     {
         return ENOMEM;
     }
 
-    wbuffer->bf.length = rebuild_binlog_log_to_buff(sn, op_type,
-            &bs_key.block, &bs_key.slice, wbuffer->bf.buff);
+    wbuffer->bf.length = rebuild_binlog_log_to_buff(record.data_version,
+            record.op_type, &record.bs_key.block, &record.bs_key.slice,
+            wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&ctx->wctx.writer, wbuffer);
     return 0;
 }
@@ -204,7 +203,7 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
 
     wend = ctx->wctx_array.contexts + split_count;
     for (rctx=ctx->wctx_array.contexts; rctx<wend; rctx++) {
-        rctx->sn = 0;
+        rctx->data_version = 0;
         thread_index = rctx - ctx->wctx_array.contexts;
         rebuild_binlog_get_repaly_subdir_name(
                 REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT,

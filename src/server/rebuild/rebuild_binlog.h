@@ -21,6 +21,21 @@
 #include "../binlog/binlog_reader.h"
 #include "rebuild_types.h"
 
+typedef struct rebuild_binlog_record {
+    int64_t data_version;
+    char op_type;
+    FSBlockSliceKeyInfo bs_key;
+} RebuildBinlogRecord;
+
+#define REBUILD_BINLOG_GET_FILENAME_LINE_COUNT( \
+        reader, buffer, line_str, line_count) \
+    do { \
+        fc_get_file_line_count_ex((reader)->filename, \
+                (reader)->position.offset - ((buffer)->length - \
+                    (line_str - (buffer)->buff)), &line_count); \
+        line_count++; \
+    } while (0)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -54,9 +69,15 @@ extern "C" {
                 ssize->offset, ssize->length);
     }
 
+    int rebuild_binlog_record_unpack(const string_t *line,
+            RebuildBinlogRecord *record, char *error_info);
+
     int rebuild_binlog_parse_line(ServerBinlogReader *reader,
-            BufferInfo *buffer, const string_t *line, int64_t *sn,
-            char *op_type, FSBlockSliceKeyInfo *bs_key);
+            BufferInfo *buffer, const string_t *line,
+            RebuildBinlogRecord *record);
+
+    int rebuild_binlog_get_last_data_version(const char *subdir_name,
+            const int binlog_index, int64_t *data_version);
 
 #ifdef __cplusplus
 }
