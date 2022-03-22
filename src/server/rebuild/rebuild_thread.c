@@ -29,10 +29,9 @@
 
 typedef struct data_rebuild_thread_info {
     int thread_index;
+    int64_t max_sn;
     BufferInfo rbuffer;
-    BufferInfo wbuffer;
     ServerBinlogReader reader;
-    SFFileWriterInfo writer;
     FSSliceOpContext op_ctx;
     struct {
         bool finished;
@@ -100,39 +99,11 @@ static inline int fetch_slice_data(DataRebuildThreadInfo *thread)
     return thread->op_ctx.result;
 }
 
-static int write_to_slice_binlog(DataRebuildThreadInfo *thread)
-{
-    FSSliceSNPair *slice_sn_pair;
-    FSSliceSNPair *slice_sn_end;
-    time_t current_time;
-    int result;
-
-    result = 0;
-    current_time = g_current_time;
-    slice_sn_end = thread->op_ctx.update.sarray.slice_sn_pairs +
-        thread->op_ctx.update.sarray.count;
-    for (slice_sn_pair=thread->op_ctx.update.sarray.slice_sn_pairs;
-            slice_sn_pair<slice_sn_end; slice_sn_pair++)
-    {
-        thread->wbuffer.length = slice_binlog_log_add_slice_to_buff(
-                slice_sn_pair->slice, current_time, thread->op_ctx.
-                info.data_version, thread->op_ctx.info.source,
-                thread->wbuffer.buff);
-        if ((result=sf_file_writer_deal_buffer(&thread->writer,
-                        &thread->wbuffer)) != 0)
-        {
-            break;
-        }
-    }
-
-    fs_slice_array_release(&thread->op_ctx.update.sarray);
-    return result;
-}
-
 static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
 {
     int result;
     RebuildBinlogRecord record;
+    FSSliceSNPair *last_pair;
 
     if ((result=rebuild_binlog_parse_line(&thread->reader,
                     &thread->rbuffer, line, &record)) != 0)
@@ -140,7 +111,6 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
         return result;
     }
 
-    thread->op_ctx.info.data_version = record.data_version;
     thread->op_ctx.info.bs_key = record.bs_key;
     if (record.op_type == BINLOG_OP_TYPE_ALLOC_SLICE) {
        thread->op_ctx.result = fs_slice_allocate(&thread->op_ctx);
@@ -181,7 +151,18 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
         return thread->op_ctx.result;
     }
 
-    return write_to_slice_binlog(thread);
+    if (thread->op_ctx.update.sarray.count == 0) {
+        return 0;
+    }
+
+    last_pair = thread->op_ctx.update.sarray.slice_sn_pairs +
+        (thread->op_ctx.update.sarray.count - 1);
+    thread->max_sn = last_pair->sn;
+    if (record.op_type == BINLOG_OP_TYPE_ALLOC_SLICE) {
+        return fs_log_slice_allocate(&thread->op_ctx);
+    } else {
+        return fs_log_slice_write(&thread->op_ctx);
+    }
 }
 
 static int parse_buffer(DataRebuildThreadInfo *thread)
@@ -215,21 +196,39 @@ static int parse_buffer(DataRebuildThreadInfo *thread)
 static inline int do_rebuild(DataRebuildThreadInfo *thread)
 {
     int result;
+    SFBinlogWriterInfo *slice_writer;
 
+    slice_writer = slice_binlog_get_writer();
     while ((result=binlog_reader_integral_read(&thread->reader,
                     thread->rbuffer.buff, thread->rbuffer.alloc_size,
-                    &thread->rbuffer.length)) == 0)
+                    &thread->rbuffer.length)) == 0 && SF_G_CONTINUE_FLAG)
     {
         if ((result=parse_buffer(thread)) != 0) {
             return result;
         }
+
+        logInfo("thread: [%d], line: %d, writer_last_version: %"PRId64", "
+                "thread->max_sn: %"PRId64, thread->thread_index, __LINE__,
+                sf_binlog_writer_get_last_version(slice_writer), thread->max_sn);
+
+        while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
+                    slice_writer) < thread->max_sn)
+        {
+            fc_sleep_ms(1);
+        }
+
+        logInfo("thread: [%d], line: %d, writer_last_version: %"PRId64", "
+                "thread->max_sn: %"PRId64, thread->thread_index, __LINE__,
+                sf_binlog_writer_get_last_version(slice_writer), thread->max_sn);
+
+        if ((result=rebuild_binlog_reader_save_position(
+                        &thread->reader)) != 0)
+        {
+            return result;
+        }
     }
 
-    if (result == ENOENT || result == 0) {
-        return sf_file_writer_flush(&thread->writer);
-    } else {
-        return result;
-    }
+    return (result == ENOENT ? 0 : result);
 }
 
 static void *data_rebuild_thread_run(DataRebuildThreadInfo *thread)
@@ -255,20 +254,10 @@ static int init_thread(DataRebuildThreadInfo *thread)
     int result;
     char subdir_name[64];
 
-    rebuild_binlog_get_repaly_subdir_name(
-            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT,
+    rebuild_binlog_get_subdir_name(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
             thread->thread_index, subdir_name, sizeof(subdir_name));
     if ((result=rebuild_binlog_reader_init(&thread->reader,
                     subdir_name)) != 0)
-    {
-        return result;
-    }
-
-    rebuild_binlog_get_repaly_subdir_name(
-            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_OUTPUT,
-            thread->thread_index, subdir_name, sizeof(subdir_name));
-    if ((result=sf_file_writer_init(&thread->writer, DATA_PATH_STR,
-                    subdir_name, BINLOG_BUFFER_SIZE)) != 0)
     {
         return result;
     }
@@ -277,12 +266,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
         return result;
     }
 
-    if ((result=fc_init_buffer(&thread->wbuffer,
-                    FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
-    {
-        return result;
-    }
-
+    thread->max_sn = 0;
     thread->op_ctx.info.source = BINLOG_SOURCE_REBUILD;
     thread->op_ctx.info.write_binlog.log_replica = false;
     thread->op_ctx.info.data_version = 0;
@@ -306,9 +290,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
 static void destroy_thread(DataRebuildThreadInfo *thread)
 {
     binlog_reader_destroy(&thread->reader);
-    sf_file_writer_destroy(&thread->writer);
     fc_free_buffer(&thread->rbuffer);
-    fc_free_buffer(&thread->wbuffer);
     free(thread->op_ctx.info.buff);
     destroy_pthread_lock_cond_pair(&thread->notify.lcp);
     fs_slice_array_destroy(&thread->op_ctx.update.sarray);
@@ -329,6 +311,7 @@ int rebuild_thread_do(const int thread_count)
         return ENOMEM;
     }
 
+    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     ctx.running_threads = thread_count;
     end = ctx.thread_array.threads + thread_count;
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
@@ -351,6 +334,7 @@ int rebuild_thread_do(const int thread_count)
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
+    slice_binlog_writer_set_flags(0);
 
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
         destroy_thread(thread);
@@ -358,4 +342,21 @@ int rebuild_thread_do(const int thread_count)
 
     free(ctx.thread_array.threads);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
+}
+
+int rebuild_cleanup(const char *dirname, const int thread_count)
+{
+    int result;
+    int thread_index;
+    char subdir_name[64];
+
+    for (thread_index=0; thread_index<thread_count; thread_index++) {
+        rebuild_binlog_get_subdir_name(dirname, thread_index,
+                subdir_name, sizeof(subdir_name));
+        if ((result=rebuild_binlog_reader_unlink_subdir(subdir_name)) != 0) {
+            return result;
+        }
+    }
+
+    return 0;
 }

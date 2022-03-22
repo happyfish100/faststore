@@ -22,7 +22,6 @@
 #include "rebuild_types.h"
 
 typedef struct rebuild_binlog_record {
-    int64_t data_version;
     char op_type;
     FSBlockSliceKeyInfo bs_key;
 } RebuildBinlogRecord;
@@ -49,23 +48,12 @@ extern "C" {
         return subdir_name;
     }
 
-    static inline char *rebuild_binlog_get_repaly_subdir_name(
-            const char *name, const int tindex,
-            char *subdir_name, const int size)
-    {
-        snprintf(subdir_name, size, "%s/%s/%s/%d",
-                FS_REBUILD_BINLOG_SUBDIR_NAME,
-                REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
-                name, tindex + 1);
-        return subdir_name;
-    }
-
-    static inline int rebuild_binlog_log_to_buff(const uint64_t sn,
+    static inline int rebuild_binlog_log_to_buff(
             const char op_type, const FSBlockKey *bkey,
             const FSSliceSize *ssize, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %c %"PRId64" %"PRId64" %d %d\n",
-                sn, op_type, bkey->oid, bkey->offset,
+        return sprintf(buff, "%c %"PRId64" %"PRId64" %d %d\n",
+                op_type, bkey->oid, bkey->offset,
                 ssize->offset, ssize->length);
     }
 
@@ -75,9 +63,6 @@ extern "C" {
     int rebuild_binlog_parse_line(ServerBinlogReader *reader,
             BufferInfo *buffer, const string_t *line,
             RebuildBinlogRecord *record);
-
-    int rebuild_binlog_get_last_data_version(const char *subdir_name,
-            const int binlog_index, int64_t *data_version);
 
 #ifdef __cplusplus
 }

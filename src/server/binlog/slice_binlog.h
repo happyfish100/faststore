@@ -46,6 +46,8 @@ extern "C" {
 
     int slice_binlog_set_binlog_index(const int binlog_index);
 
+    void slice_binlog_writer_set_flags(const short flags);
+
     int slice_binlog_set_next_version();
 
     static inline const char *slice_binlog_get_filepath(

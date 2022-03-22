@@ -24,9 +24,6 @@
 #define REBUILD_BINLOG_SUBDIR_NAME_REPLAY        "replay"
 #define REBUILD_BINLOG_SUBDIR_NAME_REDISPATCH    "redispatch"
 
-#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT  "input"
-#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY_OUTPUT "output"
-
 #ifdef __cplusplus
 extern "C" {
 #endif

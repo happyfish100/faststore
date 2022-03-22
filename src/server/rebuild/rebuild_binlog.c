@@ -23,14 +23,13 @@
 #include "../server_global.h"
 #include "rebuild_binlog.h"
 
-#define REBUILD_BINLOG_FIELD_INDEX_DATA_VERSION  0
-#define REBUILD_BINLOG_FIELD_INDEX_OP_TYPE       1
-#define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OID     2
-#define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OFFSET  3
-#define REBUILD_BINLOG_FIELD_INDEX_SLICE_OFFSET  4
-#define REBUILD_BINLOG_FIELD_INDEX_SLICE_LENGTH  5
+#define REBUILD_BINLOG_FIELD_INDEX_OP_TYPE       0
+#define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OID     1
+#define REBUILD_BINLOG_FIELD_INDEX_BLOCK_OFFSET  2
+#define REBUILD_BINLOG_FIELD_INDEX_SLICE_OFFSET  3
+#define REBUILD_BINLOG_FIELD_INDEX_SLICE_LENGTH  4
 
-#define REBUILD_BINLOG_FIELD_COUNT  6
+#define REBUILD_BINLOG_FIELD_COUNT  5
 
 int rebuild_binlog_record_unpack(const string_t *line,
         RebuildBinlogRecord *record, char *error_info)
@@ -47,8 +46,6 @@ int rebuild_binlog_record_unpack(const string_t *line,
         return EINVAL;
     }
 
-    BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
-            REBUILD_BINLOG_FIELD_INDEX_DATA_VERSION, ' ', 1);
     record->op_type = cols[REBUILD_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
             REBUILD_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
@@ -82,36 +79,4 @@ int rebuild_binlog_parse_line(ServerBinlogReader *reader,
     }
 
     return result;
-}
-
-int rebuild_binlog_get_last_data_version(const char *subdir_name,
-        const int binlog_index, int64_t *data_version)
-{
-    int result;
-    char filename[PATH_MAX];
-    char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
-    char error_info[256];
-    int64_t file_size;
-    string_t line;
-    RebuildBinlogRecord record;
-
-    binlog_reader_get_filename(subdir_name, binlog_index,
-            filename, sizeof(filename));
-    if ((result=fc_get_last_line(filename, buff, sizeof(buff),
-                    &file_size, &line)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=rebuild_binlog_record_unpack(&line,
-                    &record, error_info)) != 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, unpack last line fail, %s",
-                __LINE__, filename, error_info);
-        return result;
-    }
-
-    *data_version = record.data_version;
-    return 0;
 }

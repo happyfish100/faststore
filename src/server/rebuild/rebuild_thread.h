@@ -25,6 +25,8 @@ extern "C" {
 
     int rebuild_thread_do(const int thread_count);
 
+    int rebuild_cleanup(const char *dirname, const int thread_count);
+
 #ifdef __cplusplus
 }
 #endif

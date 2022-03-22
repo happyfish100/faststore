@@ -58,6 +58,7 @@ static int deal_line(DataReadThreadInfo *thread,
         ServerBinlogReader *reader, const string_t *line)
 {
     int result;
+    int64_t data_version;
     RebuildBinlogRecord record;
     RebuildBinlogWriterContext *ctx;
     SFBinlogWriterBuffer *wbuffer;
@@ -72,16 +73,16 @@ static int deal_line(DataReadThreadInfo *thread,
         (record.bs_key.block.hash_code %
          thread->ctx->wctx_array.count);
 
-    record.data_version = __sync_add_and_fetch(&ctx->data_version, 1);
+    data_version = __sync_add_and_fetch(&ctx->data_version, 1);
     if ((wbuffer=sf_binlog_writer_alloc_one_version_buffer(&ctx->
-                    wctx.writer, record.data_version)) == NULL)
+                    wctx.writer, data_version)) == NULL)
     {
         return ENOMEM;
     }
 
-    wbuffer->bf.length = rebuild_binlog_log_to_buff(record.data_version,
-            record.op_type, &record.bs_key.block, &record.bs_key.slice,
-            wbuffer->bf.buff);
+    wbuffer->bf.length = rebuild_binlog_log_to_buff(
+            record.op_type, &record.bs_key.block,
+            &record.bs_key.slice, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&ctx->wctx.writer, wbuffer);
     return 0;
 }
@@ -205,10 +206,9 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
     for (rctx=ctx->wctx_array.contexts; rctx<wend; rctx++) {
         rctx->data_version = 0;
         thread_index = rctx - ctx->wctx_array.contexts;
-        rebuild_binlog_get_repaly_subdir_name(
-                REBUILD_BINLOG_SUBDIR_NAME_REPLAY_INPUT,
+        rebuild_binlog_get_subdir_name(
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
                 thread_index, subdir_name, sizeof(subdir_name));
-
         if ((result=init_binlog_writer(&rctx->wctx.writer,
                         subdir_name)) != 0)
         {

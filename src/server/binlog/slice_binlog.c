@@ -75,6 +75,11 @@ int slice_binlog_set_binlog_index(const int binlog_index)
             writer, binlog_index);
 }
 
+void slice_binlog_writer_set_flags(const short flags)
+{
+    sf_binlog_writer_set_flags(&binlog_writer.writer, flags);
+}
+
 int slice_binlog_set_next_version()
 {
     return sf_binlog_writer_change_next_version(&binlog_writer.
