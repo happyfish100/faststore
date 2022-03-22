@@ -26,15 +26,18 @@
 #include "../binlog/slice_binlog.h"
 #include "../storage/object_block_index.h"
 #include "binlog_spliter.h"
+#include "rebuild_thread.h"
 #include "store_path_rebuild.h"
 
-#define DATA_REBUILD_REDO_STAGE_REMOVE_SLICE    1
+#define DATA_REBUILD_REDO_STAGE_DUMP_SLICE      1
 #define DATA_REBUILD_REDO_STAGE_RENAME_SLICE    2
 #define DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG    3
-#define DATA_REBUILD_REDO_STAGE_REBUILDING      4
+#define DATA_REBUILD_REDO_STAGE_RESPLIT_BINLOG  4 //for rebuild_threads change
+#define DATA_REBUILD_REDO_STAGE_REBUILDING      5
+#define DATA_REBUILD_REDO_STAGE_CLEANUP         6
 
-#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
 #define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE  "current_stage"
+#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
 #define DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
 
 
@@ -475,7 +478,7 @@ static int redo(DataRebuildRedoContext *redo_ctx)
     int result;
 
     switch (redo_ctx->current_stage) {
-        case DATA_REBUILD_REDO_STAGE_REMOVE_SLICE:
+        case DATA_REBUILD_REDO_STAGE_DUMP_SLICE:
             if ((result=backup_slice_binlogs(redo_ctx)) != 0) {
                 return result;
             }
@@ -506,7 +509,17 @@ static int redo(DataRebuildRedoContext *redo_ctx)
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
+        case DATA_REBUILD_REDO_STAGE_RESPLIT_BINLOG:
         case DATA_REBUILD_REDO_STAGE_REBUILDING:
+            if ((result=rebuild_thread_do(DATA_REBUILD_THREADS)) != 0) {
+                return result;
+            }
+
+            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_CLEANUP;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                return result;
+            }
+        case DATA_REBUILD_REDO_STAGE_CLEANUP:
             //TODO
             break;
         default:
@@ -595,7 +608,7 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
             redo_ctx.binlog_file_count, long_to_comma_str(
                 get_current_time_ms() - start_time, time_used));
 
-    redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_REMOVE_SLICE;
+    redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_DUMP_SLICE;
 
     current_time = g_current_time;
     localtime_r(&current_time, &tm_current);
