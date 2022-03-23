@@ -24,7 +24,8 @@
 extern "C" {
 #endif
 
-    int store_path_rebuild_dump_data(const int64_t total_slice_count);
+    int store_path_rebuild_dump_data(const int64_t total_trunk_count,
+            const int64_t total_slice_count);
 
     int store_path_rebuild_redo();
 

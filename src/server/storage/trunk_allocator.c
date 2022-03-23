@@ -22,6 +22,8 @@
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
+#include "../binlog/trunk_binlog.h"
+#include "../dio/trunk_write_thread.h"
 #include "../server_global.h"
 #include "trunk_maker.h"
 #include "storage_allocator.h"
@@ -388,4 +390,31 @@ void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)
             trunk_info->status, trunk_info->used.count, trunk_info->used.bytes,
             trunk_info->size, trunk_info->free_start,
             FS_TRUNK_AVAIL_SPACE(trunk_info));
+}
+
+int trunk_allocator_dump_trunks_to_file(FSTrunkAllocator *allocator,
+        SFBufferedWriter *writer, int64_t *trunk_count)
+{
+    int result;
+    UniqSkiplistIterator it;
+    FSTrunkFileInfo *trunk_info;
+
+    *trunk_count = 0;
+    uniq_skiplist_iterator(allocator->trunks.by_id.skiplist, &it);
+    while ((trunk_info=uniq_skiplist_next(&it)) != NULL) {
+        if (SF_BUFFERED_WRITER_REMAIN(*writer) <
+                FS_TRUNK_BINLOG_MAX_RECORD_SIZE)
+        {
+            if ((result=sf_buffered_writer_save(writer)) != 0) {
+                break;
+            }
+        }
+
+        writer->buffer.current += trunk_binlog_log_to_buff(
+                FS_IO_TYPE_CREATE_TRUNK, allocator->path_info->store.index,
+                &trunk_info->id_info, trunk_info->size, writer->buffer.current);
+        (*trunk_count)++;
+    }
+
+    return result;
 }

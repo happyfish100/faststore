@@ -508,3 +508,41 @@ int fs_move_allocator_ptr_array(FSTrunkAllocatorPtrArray **src_array,
 
     return result;
 }
+
+int storage_allocator_dump_trunks_to_file(const char *filename,
+            int64_t *total_trunk_count)
+{
+    int result;
+    int64_t trunk_count;
+    FSTrunkAllocator **pp;
+    FSTrunkAllocator **end;
+    SFBufferedWriter writer;
+
+    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
+        return result;
+    }
+
+    *total_trunk_count = 0;
+    end = g_allocator_mgr->allocator_ptr_array.allocators +
+        (STORAGE_CFG.max_store_path_index + 1);
+    for (pp=g_allocator_mgr->allocator_ptr_array.allocators; pp<end; pp++) {
+        if (*pp == NULL) {
+            continue;
+        }
+
+        if ((result=trunk_allocator_dump_trunks_to_file(*pp,
+                        &writer, &trunk_count)) == 0)
+        {
+            *total_trunk_count += trunk_count;
+        } else {
+            break;
+        }
+    }
+
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+        result = sf_buffered_writer_save(&writer);
+    }
+
+    sf_buffered_writer_destroy(&writer);
+    return result;
+}

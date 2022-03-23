@@ -322,11 +322,11 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=trunk_prealloc_init()) != 0) {
+        if ((result=store_path_rebuild_redo()) != 0) {
             break;
         }
 
-        if ((result=store_path_rebuild_redo()) != 0) {
+        if ((result=trunk_prealloc_init()) != 0) {
             break;
         }
 
