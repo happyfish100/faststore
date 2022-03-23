@@ -24,6 +24,10 @@
 #define REBUILD_BINLOG_SUBDIR_NAME_REPLAY        "replay"
 #define REBUILD_BINLOG_SUBDIR_NAME_REDISPATCH    "redispatch"
 
+#define REBUILD_BACKUP_SUBDIR_NAME_STR     "bak"
+#define REBUILD_BACKUP_SUBDIR_NAME_LEN     \
+    (sizeof(REBUILD_BACKUP_SUBDIR_NAME_STR) - 1)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

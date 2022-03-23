@@ -51,7 +51,17 @@ typedef struct binlog_clean_redo_context {
     int current_stage;
 } BinlogCleanRedoContext;
 
-#define MIGRATE_SUBDIR_NAME         "migrate"
+#define MIGRATE_SUBDIR_NAME     "migrate"
+#define BACKUP_SUBDIR_NAME_STR  "bak"
+#define BACKUP_SUBDIR_NAME_LEN  (sizeof(BACKUP_SUBDIR_NAME_STR) - 1)
+
+#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
+#define BINLOG_REDO_STAGE_RENAME_SLICE    2
+#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
+
+#define BINLOG_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
+#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
+#define BINLOG_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
 
 static inline const char *get_slice_dump_filename(const
         int binlog_index, char *filename, const int size)
@@ -167,14 +177,6 @@ static inline const char *get_slice_mark_filename(
     return filename;
 }
 
-#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
-#define BINLOG_REDO_STAGE_RENAME_SLICE    2
-#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
-
-#define BINLOG_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
-#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define BINLOG_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
-
 static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
 {
     char buff[256];
@@ -258,16 +260,21 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     slice_binlog_get_filepath(binlog_filepath, sizeof(binlog_filepath));
     len = strlen(binlog_filepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_filepath))
+    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
+                backup_subdir) >= sizeof(binlog_filepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    sprintf(backup_filepath, "%s/%s", binlog_filepath,
-            redo_ctx->backup_subdir);
+    len = sprintf(backup_filepath, "%s/%s", binlog_filepath,
+            BACKUP_SUBDIR_NAME_STR);
+    if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
+        return result;
+    }
+
+    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
@@ -331,16 +338,21 @@ static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     replica_binlog_get_base_path(binlog_basepath, sizeof(binlog_basepath));
     len = strlen(binlog_basepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_basepath))
+    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
+                backup_subdir) >= sizeof(binlog_basepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    sprintf(backup_filepath, "%s/%s", binlog_basepath,
-            redo_ctx->backup_subdir);
+    len = sprintf(backup_filepath, "%s/%s", binlog_basepath,
+            BACKUP_SUBDIR_NAME_STR);
+    if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
+        return result;
+    }
+    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
+
     backup_count = 0;
     data_group_count = FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX);
     for (data_group_id=1; data_group_id<=data_group_count; data_group_id++) {

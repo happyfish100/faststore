@@ -334,16 +334,21 @@ static int backup_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 
     slice_binlog_get_filepath(binlog_filepath, sizeof(binlog_filepath));
     len = strlen(binlog_filepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_filepath))
+    if (len + 2 + + REBUILD_BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
+                backup_subdir) >= sizeof(binlog_filepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    sprintf(backup_filepath, "%s/%s", binlog_filepath,
-            redo_ctx->backup_subdir);
+    len = sprintf(backup_filepath, "%s/%s", binlog_filepath,
+            REBUILD_BACKUP_SUBDIR_NAME_STR);
+    if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
+        return result;
+    }
+
+    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }

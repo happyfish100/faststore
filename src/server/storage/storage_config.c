@@ -708,8 +708,6 @@ static int set_data_rebuild_path_index()
         return errno != 0 ? errno : EPERM;
     }
 
-    //TODO
-    /*
     if (child_count > 1) {
         logError("file: "__FILE__", line: %d, "
                 "data rebuild path: %s not empty, child count: %d",
@@ -717,7 +715,6 @@ static int set_data_rebuild_path_index()
         DATA_REBUILD_PATH_INDEX = -1;
         return ENOTEMPTY;
     }
-    */
 
     DATA_REBUILD_PATH_INDEX = pentry->index;
     return 0;
