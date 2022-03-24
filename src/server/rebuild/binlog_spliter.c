@@ -187,6 +187,42 @@ static int init_binlog_writer(SFBinlogWriterInfo *writer,
             subdir_name, next_version, BINLOG_BUFFER_SIZE, ring_size);
 }
 
+static int check_unlink_subdir(const char *subdir_name)
+{
+    int result;
+    int write_index;
+    int binlog_index;
+    char filepath[PATH_MAX];
+    char filename[PATH_MAX];
+
+    sf_binlog_writer_get_filepath(DATA_PATH_STR, subdir_name,
+            filepath, sizeof(filepath));
+    if (access(filepath, F_OK) != 0) {
+        if (errno == ENOENT) {
+            return 0;
+        }
+        return errno != 0 ? errno : EPERM;
+    }
+
+    if ((result=sf_binlog_writer_get_binlog_index(DATA_PATH_STR,
+                    subdir_name, &write_index)) != 0)
+    {
+        return result == ENOENT ? 0 : result;
+    }
+
+    for (binlog_index=0; binlog_index<=write_index; binlog_index++) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                binlog_index, filename, sizeof(filename));
+        if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
+            return result;
+        }
+    }
+
+    sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+            subdir_name, filename, sizeof(filename));
+    return fc_delete_file_ex(filename, "binlog index");
+}
+
 static int init_binlog_writers(BinlogSpliterContext *ctx,
         const int split_count)
 {
@@ -209,6 +245,10 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
         rebuild_binlog_get_subdir_name(
                 REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
                 thread_index, subdir_name, sizeof(subdir_name));
+        if ((result=check_unlink_subdir(subdir_name)) != 0) {
+            return result;
+        }
+
         if ((result=init_binlog_writer(&rctx->wctx.writer,
                         subdir_name)) != 0)
         {
