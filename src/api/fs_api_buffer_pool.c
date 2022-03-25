@@ -37,7 +37,7 @@ static int init_buffer_allocator(FSAPIBufferAllocator *allocator)
     element_size = sizeof(FSAPIBuffer) + allocator->buffer_size;
     if ((result=fast_mblock_init_ex1(&allocator->mblock, "io-buffer",
                     element_size, alloc_elements_once, 0,
-                    (fast_mblock_alloc_init_func)
+                    (fast_mblock_object_init_func)
                     buffer_alloc_init, allocator, true)) != 0)
     {
         return result;

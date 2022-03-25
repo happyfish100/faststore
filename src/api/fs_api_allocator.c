@@ -86,7 +86,7 @@ static int init_write_combine_allocators(FSAPIContext *api_ctx,
 
     if ((result=fast_mblock_init_ex1(&ctx->write_combine.task_slice_pair,
                     "task-slice-pair", sizeof(FSAPIWaitingTaskSlicePair),
-                    4096, 0, (fast_mblock_alloc_init_func)
+                    4096, 0, (fast_mblock_object_init_func)
                     task_slice_pair_alloc_init,
                     &ctx->write_combine.task_slice_pair, true)) != 0)
     {
@@ -95,7 +95,7 @@ static int init_write_combine_allocators(FSAPIContext *api_ctx,
 
     if ((result=fast_mblock_init_ex1(&ctx->write_combine.waiting_task,
                     "waiting-task", sizeof(FSAPIWaitingTask), 1024, 0,
-                    (fast_mblock_alloc_init_func)waiting_task_alloc_init,
+                    (fast_mblock_object_init_func)waiting_task_alloc_init,
                     &ctx->write_combine.waiting_task, true)) != 0)
     {
         return result;
@@ -103,7 +103,7 @@ static int init_write_combine_allocators(FSAPIContext *api_ctx,
 
     if ((result=fast_mblock_init_ex1(&ctx->write_combine.slice.allocator,
                     "wcombine-slice", sizeof(FSAPISliceEntry), 8, 0,
-                    (fast_mblock_alloc_init_func)wcmb_slice_entry_alloc_init,
+                    (fast_mblock_object_init_func)wcmb_slice_entry_alloc_init,
                     ctx, true)) != 0)
     {
         return result;
@@ -113,7 +113,7 @@ static int init_write_combine_allocators(FSAPIContext *api_ctx,
         api_ctx->write_done_callback.arg_extra_size;
     if ((result=fast_mblock_init_ex1(&ctx->write_combine.callback_arg,
                     "write-done-callback-arg", element_size, 1024, 0,
-                    (fast_mblock_alloc_init_func)callback_arg_alloc_init,
+                    (fast_mblock_object_init_func)callback_arg_alloc_init,
                     &ctx->write_combine.callback_arg, true)) != 0)
     {
         return result;
@@ -136,7 +136,7 @@ static int init_read_ahead_allocators(FSAPIContext *api_ctx,
 
     if ((result=fast_mblock_init_ex1(&ctx->read_ahead.block,
                     "preread-block", sizeof(FSPrereadBlockHEntry), 8192, 0,
-                    (fast_mblock_alloc_init_func)pread_block_entry_alloc_init,
+                    (fast_mblock_object_init_func)pread_block_entry_alloc_init,
                     &ctx->read_ahead.block, true)) != 0)
     {
         return result;
@@ -144,7 +144,7 @@ static int init_read_ahead_allocators(FSAPIContext *api_ctx,
 
     if ((result=fast_mblock_init_ex1(&ctx->read_ahead.slice,
                     "preread-slice", sizeof(FSPrereadSliceEntry), 8192, 0,
-                    (fast_mblock_alloc_init_func)pread_slice_entry_alloc_init,
+                    (fast_mblock_object_init_func)pread_slice_entry_alloc_init,
                     &ctx->read_ahead.slice, true)) != 0)
     {
         return result;
