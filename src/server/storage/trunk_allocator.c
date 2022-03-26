@@ -406,7 +406,7 @@ int trunk_allocator_dump_trunks_to_file(FSTrunkAllocator *allocator,
                 FS_TRUNK_BINLOG_MAX_RECORD_SIZE)
         {
             if ((result=sf_buffered_writer_save(writer)) != 0) {
-                break;
+                return result;
             }
         }
 
@@ -416,5 +416,5 @@ int trunk_allocator_dump_trunks_to_file(FSTrunkAllocator *allocator,
         (*trunk_count)++;
     }
 
-    return result;
+    return 0;
 }
