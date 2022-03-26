@@ -161,9 +161,10 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
-                "add trunk fail, trunk id: %"PRId64", "
-                "errno: %d, error info: %s", __LINE__,
-                id_info->id, result, STRERROR(result));
+                "add trunk fail, path index: %d, subdir id: %"PRId64", "
+                "trunk id: %"PRId64", errno: %d, error info: %s",
+                __LINE__, allocator->path_info->store.index,
+                id_info->subdir, id_info->id, result, STRERROR(result));
         fast_mblock_free_object(&G_TRUNK_ALLOCATOR, trunk_info);
         trunk_info = NULL;
     }
@@ -411,8 +412,9 @@ int trunk_allocator_dump_trunks_to_file(FSTrunkAllocator *allocator,
         }
 
         writer->buffer.current += trunk_binlog_log_to_buff(
-                FS_IO_TYPE_CREATE_TRUNK, allocator->path_info->store.index,
-                &trunk_info->id_info, trunk_info->size, writer->buffer.current);
+                FS_IO_TYPE_CREATE_TRUNK, allocator->path_info->
+                store.index, &trunk_info->id_info, trunk_info->
+                size, writer->buffer.current);
         (*trunk_count)++;
     }
 

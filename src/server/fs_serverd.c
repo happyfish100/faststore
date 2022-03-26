@@ -322,7 +322,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=store_path_rebuild_redo()) != 0) {
+        if ((result=store_path_rebuild_redo_step2()) != 0) {
             break;
         }
 

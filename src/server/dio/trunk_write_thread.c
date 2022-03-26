@@ -340,7 +340,8 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
     return 0;
 }
 
-static int do_create_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob)
+static int do_create_trunk(TrunkWriteThreadContext *ctx,
+        TrunkWriteIOBuffer *iob)
 {
     char trunk_filename[PATH_MAX];
     int fd;
@@ -392,7 +393,8 @@ static int do_create_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob
     return result;
 }
 
-static int do_delete_trunk(TrunkWriteThreadContext *ctx, TrunkWriteIOBuffer *iob)
+static int do_delete_trunk(TrunkWriteThreadContext *ctx,
+        TrunkWriteIOBuffer *iob)
 {
     char trunk_filename[PATH_MAX];
     int result;

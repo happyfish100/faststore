@@ -628,129 +628,98 @@ static int unlink_dump_subdir(DataRebuildRedoContext *redo_ctx)
     return rebuild_binlog_reader_rmdir(filepath);
 }
 
-static int redo(DataRebuildRedoContext *redo_ctx)
+
+static int redo_prepare(DataRebuildRedoContext *redo_ctx)
 {
     int result;
-    char filepath[PATH_MAX];
 
-    switch (redo_ctx->current_stage) {
-        case DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK:
-            if ((result=backup_trunk_binlogs(redo_ctx)) != 0) {
-                return result;
-            }
-
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_RENAME_TRUNK;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_RENAME_TRUNK:
-            if ((result=rename_trunk_binlogs(redo_ctx)) != 0) {
-                return result;
-            }
-            if (redo_ctx->binlog_file_count == 0) {
-                break;
-            }
-
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_BACKUP_SLICE;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_BACKUP_SLICE:
-            if ((result=backup_slice_binlogs(redo_ctx)) != 0) {
-                return result;
-            }
-
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_RENAME_SLICE;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_RENAME_SLICE:
-            if ((result=rename_slice_binlogs(redo_ctx)) != 0) {
-                logError("file: "__FILE__", line: %d, "
-                        "rename slice binlogs fail, "
-                        "errno: %d, error info: %s",
-                        __LINE__, result, STRERROR(result));
-                return result;
-            }
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG:
-            if ((result=split_binlog(redo_ctx)) != 0) {
-                return result;
-            }
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_REBUILDING:
-            if ((result=unlink_dump_subdir(redo_ctx)) != 0) {
-                return result;
-            }
-            if ((result=rebuild_thread_do(DATA_REBUILD_THREADS)) != 0) {
-                return result;
-            }
-
-            redo_ctx->current_stage = DATA_REBUILD_REDO_STAGE_CLEANUP;
-            if ((result=write_to_redo_file(redo_ctx)) != 0) {
-                return result;
-            }
-            //continue next stage
-        case DATA_REBUILD_REDO_STAGE_CLEANUP:
-            if ((result=rebuild_cleanup(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
-                            DATA_REBUILD_THREADS)) != 0)
-            {
-                return result;
-            }
-            break;
-        default:
-            logError("file: "__FILE__", line: %d, "
-                    "unkown stage: %d", __LINE__,
-                    redo_ctx->current_stage);
-            return EINVAL;
-    }
-
-    if ((result=fc_delete_file_ex(redo_ctx->redo_filename,
-                    "redo mark")) != 0)
-    {
-        return result;
-    }
-
-    snprintf(filepath, sizeof(filepath),
-            "%s/%s/%s", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
-    return rebuild_binlog_reader_rmdir(filepath);
-}
-
-int store_path_rebuild_redo()
-{
-    int result;
-    DataRebuildRedoContext redo_ctx;
-
-    get_slice_mark_filename(redo_ctx.redo_filename,
-            sizeof(redo_ctx.redo_filename));
-    if (access(redo_ctx.redo_filename, F_OK) != 0) {
+    get_slice_mark_filename(redo_ctx->redo_filename,
+            sizeof(redo_ctx->redo_filename));
+    if (access(redo_ctx->redo_filename, F_OK) != 0) {
         if (errno == ENOENT) {
-            return 0;
+            return ENOENT;
         }
 
         result = (errno != 0 ? errno : EPERM);
         logError("file: "__FILE__", line: %d, "
                 "access slice mark file: %s fail, "
                 "errno: %d, error info: %s", __LINE__,
-                redo_ctx.redo_filename, result, STRERROR(result));
+                redo_ctx->redo_filename, result, STRERROR(result));
         return result;
     }
 
-    if ((result=load_from_redo_file(&redo_ctx)) != 0) {
-        return result;
+    return load_from_redo_file(redo_ctx);
+}
+
+int store_path_rebuild_redo_step1()
+{
+    DataRebuildRedoContext redo_ctx;
+    int result;
+
+    if ((result=redo_prepare(&redo_ctx)) != 0) {
+        return (result == ENOENT ? 0 : result);
+    }
+
+    switch (redo_ctx.current_stage) {
+        case DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK:
+            if ((result=backup_trunk_binlogs(&redo_ctx)) != 0) {
+                return result;
+            }
+
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_RENAME_TRUNK;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case DATA_REBUILD_REDO_STAGE_RENAME_TRUNK:
+            if ((result=rename_trunk_binlogs(&redo_ctx)) != 0) {
+                return result;
+            }
+            if (redo_ctx.binlog_file_count == 0) {
+                break;
+            }
+
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_BACKUP_SLICE;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case DATA_REBUILD_REDO_STAGE_BACKUP_SLICE:
+            if ((result=backup_slice_binlogs(&redo_ctx)) != 0) {
+                return result;
+            }
+
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_RENAME_SLICE;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case DATA_REBUILD_REDO_STAGE_RENAME_SLICE:
+            if ((result=rename_slice_binlogs(&redo_ctx)) != 0) {
+                logError("file: "__FILE__", line: %d, "
+                        "rename slice binlogs fail, "
+                        "errno: %d, error info: %s",
+                        __LINE__, result, STRERROR(result));
+                return result;
+            }
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
+            result = write_to_redo_file(&redo_ctx);
+            break;
+        default:
+            return 0;
+    }
+
+    return result;
+}
+
+int store_path_rebuild_redo_step2()
+{
+    DataRebuildRedoContext redo_ctx;
+    char filepath[PATH_MAX];
+    int result;
+
+    if ((result=redo_prepare(&redo_ctx)) != 0) {
+        return (result == ENOENT ? 0 : result);
     }
 
     if (redo_ctx.current_stage == DATA_REBUILD_REDO_STAGE_REBUILDING &&
@@ -765,7 +734,54 @@ int store_path_rebuild_redo()
         }
     }
 
-    return redo(&redo_ctx);
+    switch (redo_ctx.current_stage) {
+        case DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG:
+            if ((result=split_binlog(&redo_ctx)) != 0) {
+                return result;
+            }
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_REBUILDING;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case DATA_REBUILD_REDO_STAGE_REBUILDING:
+            if ((result=unlink_dump_subdir(&redo_ctx)) != 0) {
+                return result;
+            }
+            if ((result=rebuild_thread_do(DATA_REBUILD_THREADS)) != 0) {
+                return result;
+            }
+
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_CLEANUP;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case DATA_REBUILD_REDO_STAGE_CLEANUP:
+            if ((result=rebuild_cleanup(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+                            DATA_REBUILD_THREADS)) != 0)
+            {
+                return result;
+            }
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "unkown stage: %d", __LINE__,
+                    redo_ctx.current_stage);
+            return EINVAL;
+    }
+
+    if ((result=fc_delete_file_ex(redo_ctx.redo_filename,
+                    "redo mark")) != 0)
+    {
+        return result;
+    }
+
+    snprintf(filepath, sizeof(filepath),
+            "%s/%s/%s", DATA_PATH_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME,
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
+    return rebuild_binlog_reader_rmdir(filepath);
 }
 
 static inline int dump_trunk_binlog()
@@ -850,5 +866,9 @@ int store_path_rebuild_dump_data(const int64_t total_trunk_count,
             DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK:
             DATA_REBUILD_REDO_STAGE_BACKUP_SLICE);
     redo_ctx.rebuild_threads = DATA_REBUILD_THREADS;
-    return write_to_redo_file(&redo_ctx);
+    if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+        return result;
+    }
+
+    return store_path_rebuild_redo_step1();
 }

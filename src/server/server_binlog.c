@@ -31,6 +31,7 @@
 #include "server_binlog.h"
 #include "binlog/binlog_check.h"
 #include "binlog/binlog_repair.h"
+#include "rebuild/store_path_rebuild.h"
 
 static int do_binlog_check()
 {
@@ -73,6 +74,10 @@ int server_binlog_init()
     }
 
     if ((result=replica_binlog_init()) != 0) {
+        return result;
+    }
+
+    if ((result=store_path_rebuild_redo_step1()) != 0) {
         return result;
     }
 

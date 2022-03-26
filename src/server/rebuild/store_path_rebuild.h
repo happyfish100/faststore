@@ -27,7 +27,11 @@ extern "C" {
     int store_path_rebuild_dump_data(const int64_t total_trunk_count,
             const int64_t total_slice_count);
 
-    int store_path_rebuild_redo();
+    // finish binlog dump
+    int store_path_rebuild_redo_step1();
+
+    //split binlog and replay
+    int store_path_rebuild_redo_step2();
 
 #ifdef __cplusplus
 }
