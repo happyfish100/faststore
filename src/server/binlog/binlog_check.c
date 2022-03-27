@@ -260,18 +260,6 @@ static int do_load_data_versions(const char *subdir_name,
         return result;
     }
 
-    /*
-    {
-        int64_t line_count;
-
-        fc_get_file_line_count_ex(reader.filename,
-                reader.position.offset, &line_count);
-
-        logInfo("head -n %"PRId64" %s, index: %d, offset: %"PRId64,
-                line_count + 1, reader.filename, pos->index, pos->offset); 
-    }
-    */
-
     while ((result=binlog_reader_integral_read(&reader,
                     reader.binlog_buffer.buff,
                     reader.binlog_buffer.size,
@@ -285,10 +273,6 @@ static int do_load_data_versions(const char *subdir_name,
     if (result == ENOENT) {
         result = 0;
     }
-    /*
-    logInfo("subdir_name: %s, index: %d, offset: %"PRId64", count: %"PRId64,
-            subdir_name, pos->index, pos->offset, varray->count);
-            */
 
     binlog_reader_destroy(&reader);
     return result;

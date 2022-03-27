@@ -207,19 +207,11 @@ static inline int do_rebuild(DataRebuildThreadInfo *thread)
             return result;
         }
 
-        logInfo("thread: [%d], line: %d, writer_last_version: %"PRId64", "
-                "thread->max_sn: %"PRId64, thread->thread_index, __LINE__,
-                sf_binlog_writer_get_last_version(slice_writer), thread->max_sn);
-
         while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
                     slice_writer) < thread->max_sn)
         {
             fc_sleep_ms(1);
         }
-
-        logInfo("thread: [%d], line: %d, writer_last_version: %"PRId64", "
-                "thread->max_sn: %"PRId64, thread->thread_index, __LINE__,
-                sf_binlog_writer_get_last_version(slice_writer), thread->max_sn);
 
         if ((result=rebuild_binlog_reader_save_position(
                         &thread->reader)) != 0)
