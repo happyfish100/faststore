@@ -25,7 +25,8 @@ extern "C" {
 #endif
 
     int binlog_spliter_do(ServerBinlogReaderArray *rda,
-            const int read_threads, const int split_count);
+            const int read_threads, const int split_count,
+            int64_t *slice_count);
 
 #ifdef __cplusplus
 }

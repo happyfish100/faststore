@@ -26,6 +26,7 @@
 typedef struct data_read_thread_info {
     ServerBinlogReaderArray rda;
     BufferInfo buffer;
+    int64_t slice_count;
     struct binlog_spliter_context *ctx;
 } DataReadThreadInfo;
 
@@ -109,6 +110,7 @@ static int parse_buffer(DataReadThreadInfo *thread, ServerBinlogReader *reader)
             return result;
         }
 
+        thread->slice_count++;
         line_start = line_end + 1;
     }
 
@@ -282,8 +284,8 @@ static void destroy_binlog_writers(BinlogSpliterContext *ctx)
 }
 
 static int do_split(BinlogSpliterContext *ctx,
-        ServerBinlogReaderArray *rda,
-        const int read_threads)
+        ServerBinlogReaderArray *rda, const int read_threads,
+        int64_t *slice_count)
 {
     int result;
     int thread_count;
@@ -295,6 +297,7 @@ static int do_split(BinlogSpliterContext *ctx,
     DataReadThreadInfo *end;
     ServerBinlogReader *reader;
 
+    *slice_count = 0;
     if (rda->count < read_threads) {
         thread_count = rda->count;
     } else {
@@ -325,6 +328,7 @@ static int do_split(BinlogSpliterContext *ctx,
         }
         reader += thread->rda.count;
         thread->ctx = ctx;
+        thread->slice_count = 0;
         if ((result=fc_create_thread(&tid, (void *(*)(void *))
                         data_read_thread_run, thread,
                         SF_G_THREAD_STACK_SIZE)) != 0)
@@ -341,23 +345,25 @@ static int do_split(BinlogSpliterContext *ctx,
     } while (SF_G_CONTINUE_FLAG);
 
     for (thread=ctx->read_ctx.thread_array.threads; thread<end; thread++) {
+        *slice_count += thread->slice_count;
         fc_free_buffer(&thread->buffer);
     }
     free(ctx->read_ctx.thread_array.threads);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
-int binlog_spliter_do(ServerBinlogReaderArray *rda,
-        const int read_threads, const int split_count)
+int binlog_spliter_do(ServerBinlogReaderArray *rda, const int read_threads,
+        const int split_count, int64_t *slice_count)
 {
     int result;
     BinlogSpliterContext ctx;
 
     if ((result=init_binlog_writers(&ctx, split_count)) != 0) {
+        *slice_count = 0;
         return result;
     }
 
-    result = do_split(&ctx, rda, read_threads);
+    result = do_split(&ctx, rda, read_threads, slice_count);
     destroy_binlog_writers(&ctx);
     return result;
 }

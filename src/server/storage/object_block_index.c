@@ -1273,7 +1273,8 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
 
 int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
-        const char *filename, const bool need_padding)
+        const char *filename, int64_t *slice_count,
+        const bool need_padding)
 {
     const int64_t data_version = 0;
     const int source = BINLOG_SOURCE_DUMP;
@@ -1287,6 +1288,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
 
+    *slice_count = 0;
     if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
         return result;
     }
@@ -1304,6 +1306,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         do {
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                ++(*slice_count);
                 if (SF_BUFFERED_WRITER_REMAIN(writer) <
                         FS_SLICE_BINLOG_MAX_RECORD_SIZE)
                 {
@@ -1325,12 +1328,14 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         result = EINTR;
     }
 
-    if (need_padding && result == 0) {
+    if ((need_padding || *slice_count == 0) && result == 0) {
         FSBlockKey bkey;
+        int count;
 
         bkey.oid = 1;
         bkey.offset = 0;
-        for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
+        count = (need_padding ? LOCAL_BINLOG_CHECK_LAST_SECONDS : 1);
+        for (i=1; i<=count; i++) {
             if (SF_BUFFERED_WRITER_REMAIN(writer) <
                     FS_SLICE_BINLOG_MAX_RECORD_SIZE)
             {
@@ -1447,7 +1452,8 @@ static int remove_slices_to_file(OBEntry *ob, DumpSliceContext *ctx)
 
 int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
-        const int rebuild_store_index, const char *filename)
+        const int rebuild_store_index, const char *filename,
+        int64_t *slice_count)
 {
     int result;
     int bytes;
@@ -1459,6 +1465,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
     OBSliceEntry **sp;
     UniqSkiplistIterator it;
 
+    *slice_count = 0;
     ctx.slice_parray.alloc = 16 * 1024;
     bytes = sizeof(OBSliceEntry *) * ctx.slice_parray.alloc;
     if ((ctx.slice_parray.slices=fc_malloc(bytes)) == NULL) {
@@ -1501,6 +1508,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
                 if (result != 0) {
                     break;
                 }
+                *slice_count += ctx.slice_parray.count;
             }
 
             ob = ob->next;

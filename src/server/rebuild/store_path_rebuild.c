@@ -48,12 +48,14 @@
 
 
 typedef int (*dump_slices_to_file_callback)(const int binlog_index,
-        const int64_t start_index, const int64_t end_index);
+        const int64_t start_index, const int64_t end_index,
+        int64_t *slice_count);
 
 typedef struct data_dump_thread_context {
     int thread_index;
     int64_t start_index;
     int64_t end_index;
+    int64_t slice_count;
     struct data_rebuild_context *dump_ctx;
 } DataDumpThreadContext;
 
@@ -71,7 +73,7 @@ typedef struct data_rebuild_redo_context {
     char redo_filename[PATH_MAX];
     char backup_subdir[NAME_MAX];
     int current_stage;
-    int binlog_file_count;
+    int binlog_file_count;  //slice binlog file count
     int rebuild_threads;
 } DataRebuildRedoContext;
 
@@ -133,7 +135,8 @@ static inline int check_make_subdirs()
 }
 
 static inline int dump_slices_to_file(const int binlog_index,
-        const int64_t start_index, const int64_t end_index)
+        const int64_t start_index, const int64_t end_index,
+        int64_t *slice_count)
 {
     char filename[PATH_MAX];
 
@@ -142,23 +145,24 @@ static inline int dump_slices_to_file(const int binlog_index,
     {
         return ENAMETOOLONG;
     }
-    return ob_index_dump_slices_to_file_ex(&g_ob_hashtable,
-            start_index, end_index, filename, false);
+    return ob_index_dump_slices_to_file_ex(&g_ob_hashtable, start_index,
+            end_index, filename, slice_count, false);
 }
 
-static void data_dump_thread_run(DataDumpThreadContext *thread_ctx,
+static void data_dump_thread_run(DataDumpThreadContext *thread,
         void *thread_data)
 {
-    if (dump_slices_to_file(thread_ctx->thread_index, thread_ctx->
-                start_index, thread_ctx->end_index) != 0)
+    if (dump_slices_to_file(thread->thread_index, thread->start_index,
+                thread->end_index, &thread->slice_count) != 0)
     {
         sf_terminate_myself();
     }
-    __sync_sub_and_fetch(&thread_ctx->dump_ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread->dump_ctx->running_threads, 1);
 }
 
 static inline int remove_slices_to_file(const int binlog_index,
-        const int64_t start_index, const int64_t end_index)
+        const int64_t start_index, const int64_t end_index,
+        int64_t *slice_count)
 {
     char subdir_name[64];
     char filename[PATH_MAX];
@@ -172,23 +176,24 @@ static inline int remove_slices_to_file(const int binlog_index,
         return ENAMETOOLONG;
     }
     return ob_index_remove_slices_to_file(start_index, end_index,
-            DATA_REBUILD_PATH_INDEX, filename);
+            DATA_REBUILD_PATH_INDEX, filename, slice_count);
 }
 
-static void rebuild_dump_thread_run(DataDumpThreadContext *thread_ctx,
+static void rebuild_dump_thread_run(DataDumpThreadContext *thread,
         void *thread_data)
 {
-    if (remove_slices_to_file(thread_ctx->thread_index, thread_ctx->
-                start_index, thread_ctx->end_index) != 0)
+    if (remove_slices_to_file(thread->thread_index, thread->start_index,
+                thread->end_index, &thread->slice_count) != 0)
     {
         sf_terminate_myself();
     }
-    __sync_sub_and_fetch(&thread_ctx->dump_ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread->dump_ctx->running_threads, 1);
 }
 
 static int dump_slices(const int thread_count,
         dump_slices_to_file_callback dump_callback,
-        fc_thread_pool_callback thread_run)
+        fc_thread_pool_callback thread_run,
+        int64_t *total_slice_count)
 {
     int result;
     int bytes;
@@ -199,7 +204,8 @@ static int dump_slices(const int thread_count,
     DataDumpThreadContext *end;
 
     if (thread_count == 1) {
-        return dump_callback(0, 0, g_ob_hashtable.capacity);
+        return dump_callback(0, 0, g_ob_hashtable.
+                capacity, total_slice_count);
     }
 
     bytes = sizeof(DataDumpThreadContext) * thread_count;
@@ -236,6 +242,11 @@ static int dump_slices(const int thread_count,
         }
     } while (SF_G_CONTINUE_FLAG);
 
+    *total_slice_count = 0;
+    for (ctx=dump_ctx.thread_array.contexts; ctx<end; ctx++) {
+        *total_slice_count += ctx->slice_count;
+    }
+
     free(dump_ctx.thread_array.contexts);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
@@ -246,13 +257,11 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 #define MIN_SLICES_PER_THREAD  2000000LL
     int thread_count;
     int64_t start_time;
+    int64_t remove_slice_count;
+    int64_t keep_slice_count;
     char time_used[32];
     int result;
 
-    logInfo("file: "__FILE__", line: %d, "
-            "begin dump slice binlog ...", __LINE__);
-
-    start_time = get_current_time_ms();
     thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
         MIN_SLICES_PER_THREAD;
     if (thread_count == 0) {
@@ -262,20 +271,35 @@ static int dump_slice_binlog(const int64_t total_slice_count,
     }
     *binlog_file_count = thread_count;
 
+    logInfo("file: "__FILE__", line: %d, "
+            "begin remove slice binlog ...", __LINE__);
+    start_time = get_current_time_ms();
+
     result = dump_slices(thread_count, remove_slices_to_file,
-            (fc_thread_pool_callback)rebuild_dump_thread_run);
+            (fc_thread_pool_callback)rebuild_dump_thread_run,
+            &remove_slice_count);
     if (result != 0) {
         return result;
     }
 
+    logInfo("file: "__FILE__", line: %d, "
+            "remove slice binlog, slice count: %"PRId64", "
+            "time used: %s ms", __LINE__, remove_slice_count,
+            long_to_comma_str(get_current_time_ms() -
+                start_time, time_used));
+
+    logInfo("file: "__FILE__", line: %d, "
+            "begin dump slice binlog ...", __LINE__);
+    start_time = get_current_time_ms();
+
     result = dump_slices(thread_count, dump_slices_to_file,
-            (fc_thread_pool_callback)data_dump_thread_run);
+            (fc_thread_pool_callback)data_dump_thread_run,
+            &keep_slice_count);
     if (result == 0) {
         logInfo("file: "__FILE__", line: %d, "
-                "dump slice binlog, total slice count: %"PRId64", "
+                "dump slice binlog, slice count: %"PRId64", "
                 "binlog file count: %d, time used: %s ms", __LINE__,
-                total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
-                *binlog_file_count, long_to_comma_str(
+                keep_slice_count, *binlog_file_count, long_to_comma_str(
                     get_current_time_ms() - start_time, time_used));
     }
 
@@ -473,6 +497,9 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 static int split_binlog(DataRebuildRedoContext *redo_ctx)
 {
     ServerBinlogReaderArray rda;
+    int64_t slice_count;
+    int64_t start_time;
+    char time_used[32];
     char subdir_name[64];
     ServerBinlogReader *reader;
     ServerBinlogReader *end;
@@ -480,6 +507,10 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
     int read_threads;
     int split_count;
     int result;
+
+    logInfo("file: "__FILE__", line: %d, "
+            "begin split slice binlog ...", __LINE__);
+    start_time = get_current_time_ms();
 
     if ((rda.readers=fc_malloc(sizeof(ServerBinlogReader) *
                     redo_ctx->binlog_file_count)) == NULL)
@@ -504,7 +535,15 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
     rda.count = redo_ctx->binlog_file_count;
     split_count = DATA_REBUILD_THREADS;
     read_threads = FC_MIN(SYSTEM_CPU_COUNT, split_count);
-    result = binlog_spliter_do(&rda, read_threads, split_count);
+    if ((result=binlog_spliter_do(&rda, read_threads,
+                    split_count, &slice_count)) == 0)
+    {
+        logInfo("file: "__FILE__", line: %d, "
+                "split slice binlog done, slice count: %"PRId64", "
+                "time used: %s ms", __LINE__, slice_count,
+                long_to_comma_str(get_current_time_ms() -
+                    start_time, time_used));
+    }
 
     for (reader=rda.readers; reader<end; reader++) {
         binlog_reader_destroy(reader);
@@ -517,6 +556,9 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
 static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
 {
     ServerBinlogReaderArray rda;
+    int64_t slice_count;
+    int64_t start_time;
+    char time_used[32];
     char subdir_name[64];
     char input_path[PATH_MAX];
     char replay_path[PATH_MAX];
@@ -528,6 +570,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
     int read_threads;
     int result;
 
+    start_time = get_current_time_ms();
     snprintf(input_path, sizeof(input_path), "%s/%s/%s", DATA_PATH_STR,
             FS_REBUILD_BINLOG_SUBDIR_NAME, redo_ctx->backup_subdir);
     if (access(input_path, F_OK) != 0) {
@@ -571,7 +614,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
     rda.count = old_rebuild_threads;
     read_threads = FC_MIN(SYSTEM_CPU_COUNT, new_rebuild_threads);
     if ((result=binlog_spliter_do(&rda, read_threads,
-                    new_rebuild_threads)) == 0)
+                    new_rebuild_threads, &slice_count)) == 0)
     {
         redo_ctx->rebuild_threads = new_rebuild_threads;
         if ((result=write_to_redo_file(redo_ctx)) != 0) {
@@ -584,6 +627,12 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
             rebuild_binlog_reader_unlink_subdir(subdir_name);
         }
         rebuild_binlog_reader_rmdir(input_path);
+
+        logInfo("file: "__FILE__", line: %d, "
+                "re-split slice binlog done, slice count: %"PRId64", "
+                "time used: %s ms", __LINE__, slice_count,
+                long_to_comma_str(get_current_time_ms() -
+                    start_time, time_used));
     }
 
     for (reader=rda.readers; reader<end; reader++) {
@@ -675,13 +724,16 @@ int store_path_rebuild_redo_step1()
             if ((result=rename_trunk_binlogs(&redo_ctx)) != 0) {
                 return result;
             }
-            if (redo_ctx.binlog_file_count == 0) {
-                break;
-            }
 
-            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_BACKUP_SLICE;
+            redo_ctx.current_stage = (redo_ctx.binlog_file_count > 0 ?
+                    DATA_REBUILD_REDO_STAGE_BACKUP_SLICE :
+                    DATA_REBUILD_REDO_STAGE_CLEANUP);
             if ((result=write_to_redo_file(&redo_ctx)) != 0) {
                 return result;
+            }
+
+            if (redo_ctx.binlog_file_count == 0) {
+                break;
             }
             //continue next stage
         case DATA_REBUILD_REDO_STAGE_BACKUP_SLICE:
@@ -710,6 +762,30 @@ int store_path_rebuild_redo_step1()
     }
 
     return result;
+}
+
+static int slice_binlog_padding_for_check()
+{
+    const int64_t data_version = 0;
+    const int source = BINLOG_SOURCE_REBUILD;
+    int result;
+    int i;
+    time_t current_time;
+    FSBlockKey bkey;
+
+    current_time = g_current_time;
+    bkey.oid = 1;
+    bkey.offset = 0;
+    for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
+        if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
+                        __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
+                        data_version, source)) != 0)
+        {
+            return result;
+        }
+    }
+
+    return 0;
 }
 
 int store_path_rebuild_redo_step2()
@@ -771,6 +847,12 @@ int store_path_rebuild_redo_step2()
             return EINVAL;
     }
 
+    if (redo_ctx.binlog_file_count > 0) {
+        if ((result=slice_binlog_padding_for_check()) != 0) {
+            return result;
+        }
+    }
+
     if ((result=fc_delete_file_ex(redo_ctx.redo_filename,
                     "redo mark")) != 0)
     {
@@ -801,7 +883,7 @@ static inline int dump_trunk_binlog()
                     filename, &total_trunk_count)) == 0)
     {
         logInfo("file: "__FILE__", line: %d, "
-                "dump trunk binlog, total trunk count: %"PRId64", "
+                "dump trunk binlog done, total trunk count: %"PRId64", "
                 "time used: %s ms", __LINE__, total_trunk_count,
                 long_to_comma_str(get_current_time_ms() -
                     start_time, time_used));

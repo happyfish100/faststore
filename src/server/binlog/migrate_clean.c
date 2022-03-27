@@ -31,6 +31,7 @@ typedef struct data_dump_thread_context {
     int thread_index;
     int64_t start_index;
     int64_t end_index;
+    int64_t slice_count;
     struct data_dump_context *dump_ctx;
 } DataDumpThreadContext;
 
@@ -80,7 +81,8 @@ static inline int check_make_subdir()
 }
 
 static inline int dump_slices_to_file(const int binlog_index,
-        const int64_t start_index, const int64_t end_index)
+        const int64_t start_index, const int64_t end_index,
+        int64_t *slice_count)
 {
     char filename[PATH_MAX];
 
@@ -89,22 +91,23 @@ static inline int dump_slices_to_file(const int binlog_index,
     {
         return ENAMETOOLONG;
     }
-    return ob_index_dump_slices_to_file(start_index, end_index, filename);
+    return ob_index_dump_slices_to_file(start_index,
+            end_index, filename, slice_count);
 }
 
-static void data_dump_thread_run(DataDumpThreadContext *thread_ctx,
+static void data_dump_thread_run(DataDumpThreadContext *thread,
         void *thread_data)
 {
-    if (dump_slices_to_file(thread_ctx->thread_index, thread_ctx->
-                start_index, thread_ctx->end_index) != 0)
+    if (dump_slices_to_file(thread->thread_index, thread->start_index,
+                thread->end_index, &thread->slice_count) != 0)
     {
         sf_terminate_myself();
     }
-    __sync_sub_and_fetch(&thread_ctx->dump_ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread->dump_ctx->running_threads, 1);
 }
 
 static int dump_slice_binlog(const int64_t total_slice_count,
-        int *binlog_file_count)
+        int64_t *dump_slice_count, int *binlog_file_count)
 {
 #define MIN_SLICES_PER_THREAD  2000000LL
     int result;
@@ -126,7 +129,8 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 
     *binlog_file_count = thread_count;
     if (thread_count == 1) {
-        return dump_slices_to_file(0, 0, g_ob_hashtable.capacity);
+        return dump_slices_to_file(0, 0, g_ob_hashtable.
+                capacity, dump_slice_count);
     }
 
     bytes = sizeof(DataDumpThreadContext) * thread_count;
@@ -164,6 +168,11 @@ static int dump_slice_binlog(const int64_t total_slice_count,
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
+
+    *dump_slice_count = 0;
+    for (ctx=dump_ctx.thread_array.contexts; ctx<end; ctx++) {
+        *dump_slice_count += ctx->slice_count;
+    }
 
     free(dump_ctx.thread_array.contexts);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
@@ -461,6 +470,7 @@ int migrate_clean_binlog(const int64_t total_slice_count,
 {
     int result;
     BinlogCleanRedoContext redo_ctx;
+    int64_t dump_slice_count;
     int64_t start_time;
     time_t current_time;
     struct tm tm_current;
@@ -475,18 +485,18 @@ int migrate_clean_binlog(const int64_t total_slice_count,
                 "begin dump slice binlog ...", __LINE__);
 
         start_time = get_current_time_ms();
-        if ((result=dump_slice_binlog(total_slice_count,
+        if ((result=dump_slice_binlog(total_slice_count, &dump_slice_count,
                         &redo_ctx.binlog_file_count)) != 0)
         {
             return result;
         }
 
         logInfo("file: "__FILE__", line: %d, "
-                "dump slice binlog, total slice count: %"PRId64", "
+                "dump slice binlog, slice count: %"PRId64", "
                 "binlog file count: %d, time used: %s ms", __LINE__,
-                total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
-                redo_ctx.binlog_file_count, long_to_comma_str(
-                    get_current_time_ms() - start_time, time_used));
+                dump_slice_count, redo_ctx.binlog_file_count,
+                long_to_comma_str(get_current_time_ms() -
+                    start_time, time_used));
 
         redo_ctx.current_stage = BINLOG_REDO_STAGE_REMOVE_SLICE;
     } else {

@@ -30,6 +30,8 @@
 typedef struct data_rebuild_thread_info {
     int thread_index;
     int64_t max_sn;
+    int64_t slice_count;
+    int64_t skip_count;
     BufferInfo rbuffer;
     ServerBinlogReader reader;
     FSSliceOpContext op_ctx;
@@ -117,6 +119,7 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
     } else {
         if ((result=fetch_slice_data(thread)) != 0) {
             if (result == ENODATA) {
+                thread->skip_count++;
                 return 0;
             }
 
@@ -181,6 +184,7 @@ static int parse_buffer(DataRebuildThreadInfo *thread)
             break;
         }
 
+        thread->slice_count++;
         line.str = line_start;
         line.len = line_end - line_start;
         if ((result=deal_line(thread, &line)) != 0) {
@@ -259,6 +263,8 @@ static int init_thread(DataRebuildThreadInfo *thread)
     }
 
     thread->max_sn = 0;
+    thread->slice_count = 0;
+    thread->skip_count = 0;
     thread->op_ctx.info.source = BINLOG_SOURCE_REBUILD;
     thread->op_ctx.info.write_binlog.log_replica = false;
     thread->op_ctx.info.data_version = 0;
@@ -292,6 +298,10 @@ int rebuild_thread_do(const int thread_count)
 {
     int result;
     int bytes;
+    int64_t slice_count;
+    int64_t skip_count;
+    int64_t start_time;
+    char time_used[32];
     pthread_t tid;
     DataRebuildThreadInfo *thread;
     DataRebuildThreadInfo *end;
@@ -302,6 +312,12 @@ int rebuild_thread_do(const int thread_count)
     if (ctx.thread_array.threads == NULL) {
         return ENOMEM;
     }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "start %d data rebuild threads ...",
+            __LINE__, thread_count);
+
+    start_time = get_current_time_ms();
 
     slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     ctx.running_threads = thread_count;
@@ -328,12 +344,25 @@ int rebuild_thread_do(const int thread_count)
     } while (SF_G_CONTINUE_FLAG);
     slice_binlog_writer_set_flags(0);
 
+    slice_count = 0;
+    skip_count = 0;
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
+        slice_count += thread->slice_count;
+        skip_count += thread->skip_count;
         destroy_thread(thread);
     }
 
     free(ctx.thread_array.threads);
-    return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
+    if (!SF_G_CONTINUE_FLAG) {
+        return EINTR;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data rebuild done, slice count {total: %"PRId64", skip: %"PRId64
+            "}, time used: %s ms", __LINE__, slice_count, skip_count,
+            long_to_comma_str(get_current_time_ms() - start_time, time_used));
+
+    return 0;
 }
 
 int rebuild_cleanup(const char *dirname, const int thread_count)
