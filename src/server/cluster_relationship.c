@@ -903,7 +903,72 @@ static int cluster_select_leader()
 	return 0;
 }
 
-static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
+static void cluster_relationship_resume_master(
+        FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *ds_end;
+
+    group = new_master->dg;
+    if (FC_ATOMIC_GET(group->master) != old_master) {
+        return;
+    }
+    if (FC_ATOMIC_GET(new_master->status) != FS_DS_STATUS_ACTIVE) {
+        return;
+    }
+
+    //TODO notify the master to unset
+    logInfo("data_group_id: %d, unset master server_id: %d",
+            group->id, old_master->cs->server->id);
+
+    if (FC_ATOMIC_GET(new_master->status) != FS_DS_STATUS_ACTIVE) {
+        //TODO rollback
+        return;
+    }
+
+    if (!__sync_bool_compare_and_swap(&group->master,
+                old_master, new_master))
+    {
+        if (FC_ATOMIC_GET(group->master) == NULL) {
+            old_master = NULL;
+            if (!__sync_bool_compare_and_swap(&group->master,
+                        old_master, new_master))
+            {
+                return;
+            }
+        } else {
+            return;
+        }
+    }
+
+    ds_end = group->data_server_array.servers +
+        group->data_server_array.count;
+    for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
+        if (ds != new_master && FC_ATOMIC_GET(ds->status) ==
+                FS_DS_STATUS_ACTIVE)
+        {
+            __sync_bool_compare_and_swap(&ds->status,
+                    FS_DS_STATUS_ACTIVE, FS_DS_STATUS_OFFLINE);
+        }
+    }
+
+    if (old_master != NULL) {
+        __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
+    }
+    __sync_bool_compare_and_swap(&new_master->is_master, 0, 1);
+    cluster_relationship_on_master_change(old_master, new_master);
+
+    for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
+        if (ds->cs != CLUSTER_LEADER_ATOM_PTR) {
+            cluster_topology_sync_group_data_servers(ds->cs, group);
+        }
+    }
+}
+
+static void cluster_relationship_on_status_change(
+        FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
 {
     FSClusterDataServerInfo *master;
@@ -912,6 +977,14 @@ static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
         __sync_add_and_fetch(&ds->dg->master, 0);
     if (master == NULL) {
         return;
+    }
+
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
+        if (RESUME_MASTER_ROLE && (ds != master) && ds->is_preseted &&
+                (new_status == FS_DS_STATUS_ACTIVE))
+        {
+            cluster_relationship_resume_master(master, ds);
+        }
     }
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
@@ -996,7 +1069,8 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status, const int source)
 {
     bool changed;
-    changed = cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
+    changed = cluster_relationship_set_ds_status_ex(
+            ds, old_status, new_status);
     if (!changed) {
         return changed;
     }
@@ -1006,7 +1080,8 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
     return changed;
 }
 
-int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
+int cluster_relationship_on_master_change(
+        FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
     FSClusterDataGroupInfo *group;
@@ -1033,7 +1108,7 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     if (group->myself == new_master) {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_ACTIVE;
-        ds = group->myself;
+        ds = (old_status != FS_DS_STATUS_ACTIVE ? group->myself : NULL);
     } else {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_OFFLINE;

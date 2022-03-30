@@ -86,6 +86,9 @@ int cluster_topology_offline_slave_data_servers(
 void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
         const int source, const int event_type, const bool notify_self);
 
+void cluster_topology_sync_group_data_servers(FSClusterServerInfo *cs,
+        FSClusterDataGroupInfo *group);
+
 void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs);
 
 int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *

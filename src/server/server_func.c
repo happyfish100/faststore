@@ -84,6 +84,8 @@ static int load_master_election_config(const char *filename)
         return result;
     }
 
+    RESUME_MASTER_ROLE = iniGetBoolValue(section_name,
+            "resume_master_role", &ini_context, true);
     MASTER_ELECTION_TIMEOUTS = FS_DEFAULT_MASTER_ELECTION_TIMEOUTS;
     MASTER_ELECTION_FAILOVER = iniGetBoolValue(section_name,
             "failover", &ini_context, true);
@@ -163,6 +165,11 @@ static int load_leader_election_config(const char *cluster_filename)
             &ini_ctx, "leader_lost_timeout", 3, 1, 300);
     LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
             &ini_ctx, "max_wait_time", 30, 1, 3600);
+    if ((result=sf_load_quorum_config(&LEADER_ELECTION_QUORUM,
+                    &ini_ctx)) != 0)
+    {
+        return result;
+    }
 
     iniFreeContext(&ini_context);
     return 0;
@@ -292,7 +299,8 @@ static void server_log_configs()
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
-            "leader-election {leader_lost_timeout: %ds, "
+            "leader-election {quorum: %s, "
+            "leader_lost_timeout: %ds, "
             "max_wait_time: %ds}",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
@@ -304,12 +312,13 @@ static void server_log_configs()
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
+            sf_get_quorum_caption(LEADER_ELECTION_QUORUM),
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME);
 
     len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
-            ", master-election {failover=%s", (MASTER_ELECTION_FAILOVER ?
-                "true" : "false"));
+            ", master-election {resume_master_role: %d, failover=%s",
+            RESUME_MASTER_ROLE, (MASTER_ELECTION_FAILOVER ? "true" : "false"));
     if (MASTER_ELECTION_FAILOVER) {
         if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
             len += snprintf(sz_server_config + len, sizeof(sz_server_config)
