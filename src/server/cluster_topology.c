@@ -183,39 +183,29 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
     }
 }
 
-void cluster_topology_sync_group_data_servers(FSClusterServerInfo *cs,
-        FSClusterDataGroupInfo *group)
+void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
 {
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gend;
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *ds_end;
     FSDataServerChangeEvent *event;
     bool notify;
 
-    if (cs->notify_ctx.task == NULL) {
-        return;
-    }
-
-    ds_end = group->data_server_array.servers + group->data_server_array.count;
-    for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
-        event = cs->notify_ctx.events + (ds->dg->index *
-                CLUSTER_SERVER_ARRAY.count + ds->cs->server_index);
-        if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
-            event->source = FS_EVENT_SOURCE_CS_LEADER;
-            event->type = FS_EVENT_TYPE_STATUS_CHANGE |
-                FS_EVENT_TYPE_DV_CHANGE | FS_EVENT_TYPE_MASTER_CHANGE;
-            fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
-        }
-    }
-}
-
-void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
-{
-    FSClusterDataGroupInfo *group;
-    FSClusterDataGroupInfo *gend;
-
     gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
-        cluster_topology_sync_group_data_servers(cs, group);
+        ds_end = group->data_server_array.servers +
+            group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
+            event = cs->notify_ctx.events + (ds->dg->index *
+                    CLUSTER_SERVER_ARRAY.count + ds->cs->server_index);
+            if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
+                event->source = FS_EVENT_SOURCE_CS_LEADER;
+                event->type = FS_EVENT_TYPE_STATUS_CHANGE |
+                    FS_EVENT_TYPE_DV_CHANGE | FS_EVENT_TYPE_MASTER_CHANGE;
+                fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
+            }
+        }
     }
 }
 
@@ -345,10 +335,7 @@ static void cluster_topology_offline_data_server(
 
     notify = downgrade_data_server_status(ds, unset_master);
     if (unset_master && FC_ATOMIC_GET(ds->is_master)) {
-        __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
-        if (__sync_bool_compare_and_swap(&ds->dg->master, ds, NULL)) {
-            cluster_relationship_on_master_change(ds, NULL);
-
+        if (master_election_set_master(ds->dg, ds, NULL)) {
             end = ds->dg->data_server_array.servers +
                 ds->dg->data_server_array.count;
             for (cur=ds->dg->data_server_array.servers; cur<end; cur++) {

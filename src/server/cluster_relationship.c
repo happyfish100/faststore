@@ -903,68 +903,37 @@ static int cluster_select_leader()
 	return 0;
 }
 
-static void cluster_relationship_resume_master(
+static bool cluster_resume_master(FSClusterDataGroupInfo *group,
         FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
-    FSClusterDataGroupInfo *group;
-    FSClusterDataServerInfo *ds;
-    FSClusterDataServerInfo *ds_end;
-
-    group = new_master->dg;
     if (FC_ATOMIC_GET(group->master) != old_master) {
-        return;
+        return false;
     }
-    if (FC_ATOMIC_GET(new_master->status) != FS_DS_STATUS_ACTIVE) {
-        return;
+    if (FC_ATOMIC_GET(new_master->cs->status) != FS_SERVER_STATUS_ACTIVE) {
+        return false;
     }
 
     //TODO notify the master to unset
     logInfo("data_group_id: %d, unset master server_id: %d",
             group->id, old_master->cs->server->id);
 
-    if (FC_ATOMIC_GET(new_master->status) != FS_DS_STATUS_ACTIVE) {
-        //TODO rollback
-        return;
-    }
-
-    if (!__sync_bool_compare_and_swap(&group->master,
-                old_master, new_master))
-    {
+    if (!master_election_set_master(group, old_master, new_master)) {
         if (FC_ATOMIC_GET(group->master) == NULL) {
             old_master = NULL;
-            if (!__sync_bool_compare_and_swap(&group->master,
-                        old_master, new_master))
-            {
-                return;
+            if (!master_election_set_master(group, old_master, new_master)) {
+                return false;
             }
         } else {
-            return;
+            //TODO rollback
+            return false;
         }
     }
 
-    ds_end = group->data_server_array.servers +
-        group->data_server_array.count;
-    for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
-        if (ds != new_master && FC_ATOMIC_GET(ds->status) ==
-                FS_DS_STATUS_ACTIVE)
-        {
-            __sync_bool_compare_and_swap(&ds->status,
-                    FS_DS_STATUS_ACTIVE, FS_DS_STATUS_OFFLINE);
-        }
-    }
-
-    if (old_master != NULL) {
-        __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
-    }
-    __sync_bool_compare_and_swap(&new_master->is_master, 0, 1);
-    cluster_relationship_on_master_change(old_master, new_master);
-
-    for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
-        if (ds->cs != CLUSTER_LEADER_ATOM_PTR) {
-            cluster_topology_sync_group_data_servers(ds->cs, group);
-        }
-    }
+    cluster_topology_data_server_chg_notify(new_master,
+            FS_EVENT_SOURCE_CS_LEADER,
+            FS_EVENT_TYPE_MASTER_CHANGE, true);
+    return true;
 }
 
 static void cluster_relationship_on_status_change(
@@ -973,8 +942,7 @@ static void cluster_relationship_on_status_change(
 {
     FSClusterDataServerInfo *master;
 
-    master = (FSClusterDataServerInfo *)
-        __sync_add_and_fetch(&ds->dg->master, 0);
+    master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
     if (master == NULL) {
         return;
     }
@@ -983,7 +951,11 @@ static void cluster_relationship_on_status_change(
         if (RESUME_MASTER_ROLE && (ds != master) && ds->is_preseted &&
                 (new_status == FS_DS_STATUS_ACTIVE))
         {
-            cluster_relationship_resume_master(master, ds);
+            cluster_resume_master(ds->dg, master, ds);
+            master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
+            if (master == NULL) {
+                return;
+            }
         }
     }
 
@@ -1080,29 +1052,20 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
     return changed;
 }
 
-int cluster_relationship_on_master_change(
+void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
         FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
-    FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *ds;
     int old_status;
     int new_status;
 
-    if (old_master != NULL) {
-        group = old_master->dg;
-    } else if (new_master != NULL) {
-        group = new_master->dg;
-    } else {
-        return EINVAL;
-    }
-
     if (new_master == old_master) {
-        return 0;
+        return;
     }
 
     if (group->myself == NULL) {
-        return 0;
+        return;
     }
 
     if (group->myself == new_master) {
@@ -1127,8 +1090,6 @@ int cluster_relationship_on_master_change(
     if (new_master != NULL && group->myself != new_master) {
         recovery_thread_check_push_to_queue(group->myself);
     }
-
-    return 0;
 }
 
 static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
@@ -1160,16 +1121,14 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         return;
     }
 
-    old_master = (FSClusterDataServerInfo *)
-        __sync_add_and_fetch(&ds->dg->master, 0);
+    old_master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
     __sync_bool_compare_and_swap(&ds->is_master,
             is_master, body_part->is_master);
-    if (__sync_add_and_fetch(&ds->is_master, 0)) {
+    if (FC_ATOMIC_GET(ds->is_master)) {
         new_master = ds;
         if (new_master != old_master) {
             if (old_master != NULL) {
-                __sync_bool_compare_and_swap(&old_master->
-                        is_master, true, false);
+                __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
             }
             __sync_bool_compare_and_swap(&ds->dg->master,
                     old_master, new_master);
@@ -1180,14 +1139,13 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         new_master = NULL;
         __sync_bool_compare_and_swap(&ds->dg->master,
                 old_master, new_master);
-
         logDebug("data_group_id: %d, unset master server_id: %d",
                 ds->dg->id, ds->cs->server->id);
     } else {
         return;
     }
 
-    cluster_relationship_on_master_change(old_master, new_master);
+    cluster_relationship_on_master_change(ds->dg, old_master, new_master);
 }
 
 static int cluster_process_leader_push(SFResponseInfo *response,

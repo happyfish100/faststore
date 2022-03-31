@@ -183,8 +183,8 @@ typedef struct fs_replication_ptr_array {
 struct fs_cluster_data_server_info;
 typedef struct fs_data_server_change_event {
     struct fs_cluster_data_server_info *ds;
-    short source;
-    short type;
+    short source;  //for hint/debug only
+    short type;    //for hint/debug only
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
