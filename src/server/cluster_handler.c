@@ -175,6 +175,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 {
     int result;
     int server_id;
+    int64_t key;
     FSProtoJoinLeaderReq *req;
     FSProtoJoinLeaderResp *resp;
     FSClusterServerInfo *peer;
@@ -188,6 +189,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 
     req = (FSProtoJoinLeaderReq *)REQUEST.body;
     server_id = buff2int(req->server_id);
+    key = buff2long(req->key);
     peer = fs_get_server_by_id(server_id);
     if (peer == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -232,6 +234,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return result;
     }
 
+    peer->key = key;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
 
@@ -551,6 +554,80 @@ static int cluster_deal_next_leader(struct fast_task_info *task)
     }
 }
 
+static int cluster_deal_unset_master(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    int leader_id;
+    int64_t key;
+    FSProtoUnsetMasterReq *req;
+    FSClusterServerInfo *leader;
+    FSClusterDataServerInfo *ds;
+
+    logInfo("file: "__FILE__", line: %d, func: %s",
+            __LINE__, __FUNCTION__);
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoUnsetMasterReq))) != 0)
+    {
+        return result;
+    }
+
+    if ((leader=CLUSTER_LEADER_ATOM_PTR) == NULL) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "leader not exist");
+        return EINVAL;
+    }
+    /*
+    if (CLUSTER_MYSELF_PTR == leader) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "can't request myself");
+        return EINVAL;
+    }
+    */
+
+    req = (FSProtoUnsetMasterReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    leader_id = buff2int(req->leader_id);
+    key = buff2long(req->key);
+    if (leader_id != leader->server->id) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "invalid leader server id: %d != %d",
+                leader_id, leader->server->id);
+        return EINVAL;
+    }
+    if (key != CLUSTER_MYSELF_PTR->key) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "key: %"PRId64" != mine: %"PRId64,
+                key, CLUSTER_MYSELF_PTR->key);
+        return EPERM;
+    }
+    logInfo("file: "__FILE__", line: %d, func: %s, data_group_id: %d",
+            __LINE__, __FUNCTION__, data_group_id);
+
+    if ((ds=fs_get_my_data_server(data_group_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d NOT belongs to me", data_group_id);
+        return ENOENT;
+    }
+    if (!__sync_add_and_fetch(&ds->is_master, 0)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d, i am NOT master", data_group_id);
+        return EINVAL;
+    }
+
+    __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
+    __sync_bool_compare_and_swap(&ds->dg->master, ds, NULL);
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_UNSET_MASTER_RESP;
+
+    logInfo("file: "__FILE__", line: %d, func: %s",
+            __LINE__, __FUNCTION__);
+    return 0;
+}
+
 int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
 {
     sf_proto_init_task_context(task, &TASK_CTX.common);
@@ -603,6 +680,9 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
             case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:
                 result = cluster_deal_next_leader(task);
+                break;
+            case FS_CLUSTER_PROTO_UNSET_MASTER_REQ:
+                result = cluster_deal_unset_master(task);
                 break;
             case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
                 result = cluster_deal_join_leader(task);

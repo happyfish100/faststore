@@ -163,8 +163,9 @@ static int proto_join_leader(FSClusterServerInfo *leader,
     SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_JOIN_LEADER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
-    req = (FSProtoJoinLeaderReq *)(out_buff + sizeof(FSProtoHeader));
+    req = (FSProtoJoinLeaderReq *)(header + 1);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
+    long2buff(CLUSTER_MYSELF_PTR->key, req->key);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
@@ -182,6 +183,59 @@ static int proto_join_leader(FSClusterServerInfo *leader,
         }
     }
 
+    return result;
+}
+
+static int proto_unset_master(FSClusterDataServerInfo *master,
+        ConnectionInfo *conn, const int network_timeout)
+{
+	int result;
+	FSProtoHeader *header;
+    FSProtoUnsetMasterReq *req;
+    SFResponseInfo response;
+	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoUnsetMasterReq)];
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_UNSET_MASTER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+
+    req = (FSProtoUnsetMasterReq *)(header + 1);
+    int2buff(CLUSTER_MY_SERVER_ID, req->leader_id);
+    int2buff(master->dg->id, req->data_group_id);
+    long2buff(master->cs->key, req->key);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
+                    sizeof(out_buff), &response, network_timeout,
+                    FS_CLUSTER_PROTO_UNSET_MASTER_RESP)) != 0)
+    {
+        sf_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
+
+static int cluster_unset_master(FSClusterDataServerInfo *master)
+{
+    const int connect_timeout = 2;
+    const int network_timeout = 3;
+    ConnectionInfo conn;
+    int result;
+
+    /*
+    if (master->cs == CLUSTER_MYSELF_PTR) {
+        __sync_bool_compare_and_swap(&master->is_master, 1, 0);
+        return 0;
+    }
+    */
+
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        master->cs->server), &conn, connect_timeout)) != 0)
+    {
+        return result;
+    }
+
+    result = proto_unset_master(master, &conn, network_timeout);
+    conn_pool_disconnect_server(&conn);
     return result;
 }
 
@@ -900,7 +954,24 @@ static int cluster_select_leader()
         }
     }
 
+    CLUSTER_MYSELF_PTR->key = g_current_time | ((int64_t)(rand() +
+                CLUSTER_MY_SERVER_ID) << 32);
 	return 0;
+}
+
+static void unset_master_rollback(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master)
+{
+    if (FC_ATOMIC_GET(group->master) == old_master) {
+        if (old_master->cs == CLUSTER_MYSELF_PTR) {
+            __sync_bool_compare_and_swap(&old_master->is_master, 0, 1);
+        }
+
+        /* rollback */
+        cluster_topology_data_server_chg_notify(old_master,
+                FS_EVENT_SOURCE_CS_LEADER,
+                FS_EVENT_TYPE_MASTER_CHANGE, true);
+    }
 }
 
 static bool cluster_resume_master(FSClusterDataGroupInfo *group,
@@ -914,9 +985,15 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
         return false;
     }
 
-    //TODO notify the master to unset
-    logInfo("data_group_id: %d, unset master server_id: %d",
-            group->id, old_master->cs->server->id);
+    logInfo("file: "__FILE__", line: %d, "
+            "data_group_id: %d, try to resume master server id from %d to %d",
+            __LINE__, group->id, old_master->cs->server->id,
+            new_master->cs->server->id);
+
+    if (cluster_unset_master(old_master) != 0) {
+        unset_master_rollback(group, old_master);
+        return false;
+    }
 
     if (!master_election_set_master(group, old_master, new_master)) {
         if (FC_ATOMIC_GET(group->master) == NULL) {
@@ -925,10 +1002,15 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
                 return false;
             }
         } else {
-            //TODO rollback
+            unset_master_rollback(group, old_master);
             return false;
         }
     }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data_group_id: %d, resume master server id from %d to %d",
+            __LINE__, group->id, old_master->cs->server->id,
+            new_master->cs->server->id);
 
     cluster_topology_data_server_chg_notify(new_master,
             FS_EVENT_SOURCE_CS_LEADER,

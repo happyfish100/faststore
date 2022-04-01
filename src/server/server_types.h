@@ -222,6 +222,7 @@ typedef struct fs_cluster_server_info {
     int link_index;         //for next links
     time_t last_ping_time;  //for the leader
     int64_t leader_version; //for generation check
+    int64_t key;            //for leader call follower to unset master
     FSClusterServerSpaceStat space_stat;
 } FSClusterServerInfo;
 
