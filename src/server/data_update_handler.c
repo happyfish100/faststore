@@ -351,7 +351,7 @@ static void log_data_operation_error(struct fast_task_info *task,
 
     len += snprintf(buff + len, sizeof(buff) - len,
             ", errno: %d, error info: %s",
-            op->ctx->result, STRERROR(op->ctx->result));
+            op->ctx->result, sf_strerror(op->ctx->result));
     log_it1(LOG_ERR, buff, len);
 }
 
@@ -360,10 +360,12 @@ static void master_data_update_done_notify(FSDataOperation *op)
     struct fast_task_info *task;
 
     task = (struct fast_task_info *)op->arg;
+
+    FC_ATOMIC_DEC(op->ctx->info.myself->master_dealing_count);
     if (op->ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
-                "%s", STRERROR(op->ctx->result));
+                "%s", sf_strerror(op->ctx->result));
 
         log_data_operation_error(task, op);
         TASK_CTX.common.log_level = LOG_NOTHING;
@@ -489,6 +491,7 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
     }
 
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        FC_ATOMIC_INC(op_ctx->info.myself->master_dealing_count);
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
         result = du_slave_check_data_version(task, op_ctx, &skipped);
@@ -506,6 +509,10 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
                    task, op_ctx)) != 0)
     {
         const char *caption;
+
+        if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+            FC_ATOMIC_DEC(op_ctx->info.myself->master_dealing_count);
+        }
         caption = fs_get_data_operation_caption(operation);
         if (operation == DATA_OPERATION_BLOCK_DELETE) {
             set_block_op_error_msg(task, op_ctx, caption, result);

@@ -113,8 +113,9 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
         return ENOENT;
     }
 
-    bytes = sizeof(FSClusterDataServerInfo) * server_group->server_array.count;
-    group->data_server_array.servers = (FSClusterDataServerInfo *)fc_malloc(bytes);
+    bytes = sizeof(FSClusterDataServerInfo) *
+        server_group->server_array.count;
+    group->data_server_array.servers = fc_malloc(bytes);
     if (group->data_server_array.servers == NULL) {
         return ENOMEM;
     }
@@ -122,7 +123,8 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
     group->data_server_array.count = server_group->server_array.count;
 
     master_index = group->hash_code % server_group->server_array.count;
-    end = server_group->server_array.servers + server_group->server_array.count;
+    end = server_group->server_array.servers +
+        server_group->server_array.count;
     for (pp=server_group->server_array.servers,
             ds=group->data_server_array.servers;
             pp < end; pp++, ds++)

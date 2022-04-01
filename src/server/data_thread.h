@@ -19,6 +19,7 @@
 #define _DATA_THREAD_H_
 
 #include "fastcommon/fc_queue.h"
+#include "fastcommon/fc_atomic.h"
 #include "storage/slice_op.h"
 
 #define DATA_OPERATION_NONE           '\0'
@@ -82,7 +83,7 @@ extern "C" {
 
         /* hash_code = FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block); */
         hash_code = op_ctx->info.data_group_id;
-        if (__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
+        if (FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
             context = g_data_thread_vars.thread_arrays.master.contexts +
                  hash_code % g_data_thread_vars.thread_arrays.master.count;
         } else {

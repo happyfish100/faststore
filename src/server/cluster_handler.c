@@ -564,8 +564,6 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
     FSClusterServerInfo *leader;
     FSClusterDataServerInfo *ds;
 
-    logInfo("file: "__FILE__", line: %d, func: %s",
-            __LINE__, __FUNCTION__);
     if ((result=server_expect_body_length(sizeof(
                         FSProtoUnsetMasterReq))) != 0)
     {
@@ -578,14 +576,12 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
                 "leader not exist");
         return EINVAL;
     }
-    /*
     if (CLUSTER_MYSELF_PTR == leader) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
                 "can't request myself");
         return EINVAL;
     }
-    */
 
     req = (FSProtoUnsetMasterReq *)REQUEST.body;
     data_group_id = buff2int(req->data_group_id);
@@ -605,15 +601,13 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
                 key, CLUSTER_MYSELF_PTR->key);
         return EPERM;
     }
-    logInfo("file: "__FILE__", line: %d, func: %s, data_group_id: %d",
-            __LINE__, __FUNCTION__, data_group_id);
 
     if ((ds=fs_get_my_data_server(data_group_id)) == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d NOT belongs to me", data_group_id);
         return ENOENT;
     }
-    if (!__sync_add_and_fetch(&ds->is_master, 0)) {
+    if (!FC_ATOMIC_GET(ds->is_master)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data_group_id: %d, i am NOT master", data_group_id);
         return EINVAL;
@@ -623,8 +617,41 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
     __sync_bool_compare_and_swap(&ds->dg->master, ds, NULL);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_UNSET_MASTER_RESP;
 
-    logInfo("file: "__FILE__", line: %d, func: %s",
-            __LINE__, __FUNCTION__);
+    return 0;
+}
+
+static int cluster_deal_get_ds_status(struct fast_task_info *task)
+{
+    int result;
+    int data_group_id;
+    FSProtoGetDSStatusReq *req;
+    FSProtoGetDSStatusResp *resp;
+    FSClusterDataServerInfo *ds;
+
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoGetDSStatusReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoGetDSStatusReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    if ((ds=fs_get_my_data_server(data_group_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d NOT belongs to me", data_group_id);
+        return ENOENT;
+    }
+
+    resp = (FSProtoGetDSStatusResp *)REQUEST.body;
+    resp->is_master = FC_ATOMIC_GET(ds->is_master);
+    resp->status = FC_ATOMIC_GET(ds->status);
+    int2buff(FC_ATOMIC_GET(ds->master_dealing_count),
+            resp->master_dealing_count);
+    long2buff(FC_ATOMIC_GET(ds->data.version), resp->data_version);
+
+    RESPONSE.header.body_len = sizeof(FSProtoGetDSStatusResp);
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_GET_DS_STATUS_RESP;
+    TASK_CTX.common.response_done = true;
     return 0;
 }
 
@@ -683,6 +710,9 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 break;
             case FS_CLUSTER_PROTO_UNSET_MASTER_REQ:
                 result = cluster_deal_unset_master(task);
+                break;
+            case FS_CLUSTER_PROTO_GET_DS_STATUS_REQ:
+                result = cluster_deal_get_ds_status(task);
                 break;
             case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
                 result = cluster_deal_join_leader(task);

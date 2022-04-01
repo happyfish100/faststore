@@ -65,10 +65,12 @@
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ   71
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP  72
-#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     75  //notify next leader to other servers
-#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      76  //commit next leader to other servers
-#define FS_CLUSTER_PROTO_UNSET_MASTER_REQ        77
-#define FS_CLUSTER_PROTO_UNSET_MASTER_RESP       78
+#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     73  //notify next leader to other servers
+#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      74  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_UNSET_MASTER_REQ        75
+#define FS_CLUSTER_PROTO_UNSET_MASTER_RESP       76
+#define FS_CLUSTER_PROTO_GET_DS_STATUS_REQ       77
+#define FS_CLUSTER_PROTO_GET_DS_STATUS_RESP      78
 #define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
 
 //replication commands
@@ -307,6 +309,18 @@ typedef struct fs_proto_unset_master_req {
     char leader_id[4];
     char key[8];
 } FSProtoUnsetMasterReq;
+
+typedef struct fs_proto_get_ds_status_req {
+    char data_group_id[4];
+} FSProtoGetDSStatusReq;
+
+typedef struct fs_proto_get_ds_status_resp {
+    char is_master;
+    char status;
+    char padding[2];
+    char master_dealing_count[4];
+    char data_version[8];
+} FSProtoGetDSStatusResp;
 
 typedef struct fs_proto_push_data_server_status_header  {
     char current_version[8];

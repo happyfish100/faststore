@@ -240,6 +240,7 @@ struct fs_cluster_data_group_info;
 typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
+    volatile int master_dealing_count;
     char is_preseted;
     volatile char is_master;
     volatile char status;   //the data server status
