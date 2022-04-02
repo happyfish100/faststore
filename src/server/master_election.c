@@ -395,10 +395,10 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return last;
     }
 
-    master_index = group->hash_code % active_count;
+    master_index = group->election.hash_code % active_count;
     /*
     logInfo("data_group_id: %d, active_count: %d, master_index: %d, hash_code: %d",
-            group->id, active_count, master_index, group->hash_code);
+            group->id, active_count, master_index, group->election.hash_code);
             */
 
     ds = online_data_servers[master_index];

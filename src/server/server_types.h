@@ -269,11 +269,11 @@ typedef struct fs_cluster_data_server_array {
 } FSClusterDataServerArray;
 
 typedef struct fs_cluster_data_group_info {
-    short id;
-    short index;
-    uint32_t hash_code;  //for master election
+    int id;
+    int index;
 
     struct {
+        uint32_t hash_code;  //for master assignment
         volatile short in_queue;
         volatile short in_delay_queue;
         int retry_count;

@@ -1106,6 +1106,10 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
         FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
+    int64_t start_time_us;
+    int64_t time_used;
+    char time_buff[32];
+
     if (FC_ATOMIC_GET(group->master) != old_master) {
         return false;
     }
@@ -1113,10 +1117,11 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
         return false;
     }
 
-    logInfo("file: "__FILE__", line: %d, "
-            "data_group_id: %d, try to resume master server id from %d to %d",
-            __LINE__, group->id, old_master->cs->server->id,
-            new_master->cs->server->id);
+    start_time_us = get_current_time_us();
+    logDebug("file: "__FILE__", line: %d, "
+            "data_group_id: %d, try to resume master from server id "
+            "%d to %d ...", __LINE__, group->id, old_master->
+            cs->server->id, new_master->cs->server->id);
 
     __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
     if (check_swap_master(old_master, new_master) != 0) {
@@ -1135,10 +1140,12 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
         }
     }
 
+    time_used = get_current_time_us() - start_time_us;
     logInfo("file: "__FILE__", line: %d, "
-            "data_group_id: %d, resume master server id from %d to %d",
-            __LINE__, group->id, old_master->cs->server->id,
-            new_master->cs->server->id);
+            "data_group_id: %d, resume master from server id %d to %d "
+            "successfully, time used: %s us", __LINE__, group->id,
+            old_master->cs->server->id, new_master->cs->server->id,
+            long_to_comma_str(time_used, time_buff));
 
     cluster_topology_data_server_chg_notify(new_master,
             FS_EVENT_SOURCE_CS_LEADER,
