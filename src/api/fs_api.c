@@ -350,7 +350,7 @@ static int read_ahead_init(FSAPIContext *api_ctx)
     int64_t element_limit = 100 * 1000;
     const int64_t min_ttl_ms = 5 * 1000;
     const int64_t max_ttl_ms = 300 * 1000;
-    const double low_water_mark_ratio = 0.01;
+    const double low_water_mark_ratio = 0.10;
     int result;
 
     if ((result=preread_otid_htable_init(api_ctx->common.

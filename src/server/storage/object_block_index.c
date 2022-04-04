@@ -1385,24 +1385,25 @@ typedef struct {
     SFBufferedWriter writer;
 } DumpSliceContext;
 
-static inline int write_slice_to_file(OBEntry *ob, const int slice_type,
-        const FSSliceSize *ssize, DumpSliceContext *ctx)
+static inline int write_slice_index_to_file(OBEntry *ob,
+        const int slice_type, const FSSliceSize *ssize,
+        SFBufferedWriter *writer)
 {
     int result;
 
-    if (SF_BUFFERED_WRITER_REMAIN(ctx->writer) <
+    if (SF_BUFFERED_WRITER_REMAIN(*writer) <
             FS_SLICE_BINLOG_MAX_RECORD_SIZE)
     {
-        if ((result=sf_buffered_writer_save(&ctx->writer)) != 0) {
+        if ((result=sf_buffered_writer_save(writer)) != 0) {
             return result;
         }
     }
 
-    ctx->writer.buffer.current += rebuild_binlog_log_to_buff(
+    writer->buffer.current += rebuild_binlog_log_to_buff(
             slice_type == OB_SLICE_TYPE_FILE ?
             BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE,
-            &ob->bkey, ssize, ctx->writer.buffer.current);
+            &ob->bkey, ssize, writer->buffer.current);
     return 0;
 }
 
@@ -1428,8 +1429,8 @@ static int remove_slices_to_file(OBEntry *ob, DumpSliceContext *ctx)
             continue;
         }
 
-        if ((result=write_slice_to_file(ob, slice_type,
-                        &ssize, ctx)) != 0)
+        if ((result=write_slice_index_to_file(ob, slice_type,
+                        &ssize, &ctx->writer)) != 0)
         {
             return result;
         }
@@ -1437,8 +1438,8 @@ static int remove_slices_to_file(OBEntry *ob, DumpSliceContext *ctx)
         SET_SLICE_TYPE_SSIZE(slice_type, ssize, *sp);
     }
 
-    if ((result=write_slice_to_file(ob, slice_type,
-                    &ssize, ctx)) != 0)
+    if ((result=write_slice_index_to_file(ob, slice_type,
+                    &ssize, &ctx->writer)) != 0)
     {
         return result;
     }
@@ -1527,3 +1528,97 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
     sf_buffered_writer_destroy(&ctx.writer);
     return result;
 }
+
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
+static int dump_slice_index_to_file(OBEntry *ob,
+        SFBufferedWriter *writer, int *slice_count)
+{
+    int result;
+    int slice_type;
+    FSSliceSize ssize;
+    UniqSkiplistIterator it;
+    OBSliceEntry *slice;
+
+    uniq_skiplist_iterator(ob->slices, &it);
+    if ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) == NULL) {
+        *slice_count = 0;
+        return 0;
+    }
+
+    *slice_count = 1;
+    SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
+    while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+        if (slice->ssize.offset == (ssize.offset + ssize.length)
+                && slice->type == slice_type)
+        {
+            ssize.length += slice->ssize.length;
+            continue;
+        }
+
+        if ((result=write_slice_index_to_file(ob, slice_type,
+                        &ssize, writer)) != 0)
+        {
+            return result;
+        }
+
+        ++(*slice_count);
+        SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
+    }
+
+    if ((result=write_slice_index_to_file(ob, slice_type,
+                    &ssize, writer)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
+int ob_index_dump_slice_index_to_file(const char *filename,
+        int64_t *total_slice_count)
+{
+    int result;
+    int slice_count;
+    SFBufferedWriter writer;
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+
+    *total_slice_count = 0;
+    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
+        return result;
+    }
+
+    end = g_ob_hashtable.buckets + g_ob_hashtable.capacity;
+    for (bucket=g_ob_hashtable.buckets; result == 0 &&
+            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+    {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            if ((result=dump_slice_index_to_file(ob, &writer,
+                            &slice_count)) != 0)
+            {
+                break;
+            }
+
+            *total_slice_count += slice_count;
+            ob = ob->next;
+        } while (ob != NULL && result == 0);
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    }
+
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+        result = sf_buffered_writer_save(&writer);
+    }
+
+    sf_buffered_writer_destroy(&writer);
+    return result;
+}
+#endif

@@ -159,6 +159,11 @@ extern "C" {
             const int rebuild_store_index, const char *filename,
             int64_t *slice_count);
 
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
+    int ob_index_dump_slice_index_to_file(const char *filename,
+            int64_t *total_slice_count);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

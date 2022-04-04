@@ -65,6 +65,30 @@ static int do_binlog_check()
     return result;
 }
 
+static int dump_slice_index()
+{
+    int result;
+    int64_t total_slice_count;
+    char filepath[PATH_MAX];
+    char filename[PATH_MAX];
+
+    snprintf(filepath, sizeof(filepath), "%s/dump", DATA_PATH_STR);
+    if ((result=fc_check_mkdir(filepath, 0755)) != 0) {
+        return result;
+    }
+
+    snprintf(filename, sizeof(filename), "%s/slice.index", filepath);
+    if ((result=ob_index_dump_slice_index_to_file(filename,
+                    &total_slice_count)) == 0)
+    {
+        logInfo("file: "__FILE__", line: %d, "
+                "dump %"PRId64" slices to file %s",
+                __LINE__, total_slice_count, filename);
+    }
+
+    return result;
+}
+
 int server_binlog_init()
 {
     int result;
@@ -92,6 +116,12 @@ int server_binlog_init()
     if ((result=slice_binlog_load()) != 0) {
         return result;
     }
+
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
+    if ((result=dump_slice_index()) != 0) {
+        return result;
+    }
+#endif
 
     return 0;
 }
