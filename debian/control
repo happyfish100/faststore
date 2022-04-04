@@ -13,24 +13,24 @@ Homepage: http://github.com/happyfish100/faststore
 Package: faststore
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.56),
-         libserverframe (>= 1.1.13),
-         fastcfs-auth-client (>= 3.0.0),
-         fastcfs-auth-config (>= 2.0.0),
+Depends: libfastcommon (>= ${libfastcommon:Version}),
+         libserverframe (>= ${libserverframe:Version}),
+         fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
+         fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
          faststore-server (= ${binary:Version}),
          faststore-client (= ${binary:Version}),
-         ${misc:Depends}, ${shlibs:Depends}
+         ${misc:Depends}
 Description: a high performance distributed file storage service
  a high performance distributed file storage service.
 
 Package: faststore-server
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.56),
-         libserverframe (>= 1.1.13),
-         fastcfs-auth-client (>= 3.0.0),
-         fastcfs-auth-config (>= 2.0.0),
-         faststore-config (>= 1.0.0),
+Depends: libfastcommon (>= ${libfastcommon:Version}),
+         libserverframe (>= ${libserverframe:Version}),
+         fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
+         fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
+         faststore-config (>= ${faststore-config:Version}),
          ${misc:Depends}, ${shlibs:Depends}
 Description: FastStore server
  FastStore server
@@ -38,11 +38,11 @@ Description: FastStore server
 Package: faststore-client
 Architecture: any
 Multi-Arch: foreign
-Depends: libfastcommon (>= 1.0.56),
-         libserverframe (>= 1.1.13),
-         fastcfs-auth-client (>= 3.0.0),
-         fastcfs-auth-config (>= 2.0.0),
-         faststore-config (>= 1.0.0),
+Depends: libfastcommon (>= ${libfastcommon:Version}),
+         libserverframe (>= ${libserverframe:Version}),
+         fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
+         fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
+         faststore-config (>= ${faststore-config:Version}),
          ${misc:Depends}, ${shlibs:Depends}
 Description: FastStore client library and tools
  FastStore client library and tools
@@ -51,13 +51,13 @@ Package: faststore-dev
 Architecture: any
 Multi-Arch: foreign
 Depends: faststore-client (= ${binary:Version}),
-         ${misc:Depends}, ${shlibs:Depends}
+         ${misc:Depends}
 Description: header files of FastStore client library
  This package provides the header files of libfsclient and libfsapi
 
 Package: faststore-config
 Architecture: any
 Multi-Arch: foreign
-Depends: ${misc:Depends}, ${shlibs:Depends}
+Depends: ${misc:Depends}
 Description: faststore config files for sample
  faststore config files for sample including server and client
