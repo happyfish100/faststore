@@ -69,8 +69,8 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
                 new_status == FS_DS_STATUS_RECOVERING ||
                 new_status == FS_DS_STATUS_ONLINE)
         {
-            if (cluster_relationship_swap_report_ds_status(ds,
-                        new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
+            if (cluster_relationship_swap_report_ds_status(ds, new_status,
+                        old_status, FS_EVENT_SOURCE_SELF_REPORT))
             {  //rollback status
                 logWarning("file: "__FILE__", line: %d, "
                         "data group id: %d, data recovery continuous fail "

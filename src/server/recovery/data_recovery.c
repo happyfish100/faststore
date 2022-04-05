@@ -621,6 +621,7 @@ int data_recovery_start(FSClusterDataServerInfo *ds)
         return result;
     }
 
+    FC_ATOMIC_SET(ds->recovery.until_version, 0);
     ctx.catch_up = DATA_RECOVERY_CATCH_UP_DOING;
     do {
         if ((ctx.master=data_recovery_get_master(&ctx, &result)) == NULL) {

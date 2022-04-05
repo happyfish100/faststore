@@ -104,7 +104,6 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
 
     fs_calc_block_hashcode(&op_ctx->info.bs_key.block);
     op_ctx->info.data_group_id = FS_DATA_GROUP_ID(op_ctx->info.bs_key.block);
-
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -114,7 +113,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     }
 
     if (master_only) {
-        if (!__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
+        if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
@@ -122,31 +121,25 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
         }
     } else {
         int status;
-        status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
+        status = FC_ATOMIC_GET(op_ctx->info.myself->status);
         if (op_ctx->info.is_update) {
-            while (SF_G_CONTINUE_FLAG) {
-                if (status == FS_DS_STATUS_ACTIVE) {
+            while (status == FS_DS_STATUS_ONLINE && SF_G_CONTINUE_FLAG) {
+                if (!FC_ATOMIC_GET(op_ctx->info.myself->
+                            recovery.in_progress))
+                {
+                    status = FC_ATOMIC_GET(op_ctx->info.myself->status);
+                    logInfo("file: "__FILE__", line: %d, "
+                            "rpc data group id: %d, recovery in "
+                            "progress: 0, data version: %"PRId64", "
+                            "until_version: %"PRId64", status: %d",
+                            __LINE__, op_ctx->info.data_group_id,
+                            op_ctx->info.data_version,
+                            FC_ATOMIC_GET(op_ctx->info.myself->
+                                recovery.until_version), status);
                     break;
-                } else if (status == FS_DS_STATUS_ONLINE) {
-                    if (!__sync_add_and_fetch(&op_ctx->info.myself->
-                                recovery.in_progress, 0))
-                    {
-                        status = FC_ATOMIC_GET(op_ctx->info.myself->status);
-                        logInfo("file: "__FILE__", line: %d, "
-                                "rpc data group id: %d, recovery in "
-                                "progress: 0, data version: %"PRId64", "
-                                "until_version: %"PRId64", status: %d",
-                                __LINE__, op_ctx->info.data_group_id,
-                                op_ctx->info.data_version,
-                                FC_ATOMIC_GET(op_ctx->info.myself->
-                                    recovery.until_version), status);
-                        break;
-                    }
+                }
 
-                    if (wait_recovery_done(op_ctx->info.myself, op_ctx) == 0) {
-                        break;
-                    }
-                } else {
+                if (wait_recovery_done(op_ctx->info.myself, op_ctx) == 0) {
                     break;
                 }
                 status = FC_ATOMIC_GET(op_ctx->info.myself->status);

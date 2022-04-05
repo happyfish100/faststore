@@ -555,6 +555,7 @@ static void replay_output(BinlogReplayContext *replay_ctx)
     DataRecoveryContext *ctx;
     ReplayStatInfo *stat;
     char prompt[32];
+    char until_version_prompt[64];
     char total_tm_buff[32];
     char fetch_tm_buff[32];
     char dedup_tm_buff[32];
@@ -590,11 +591,16 @@ static void replay_output(BinlogReplayContext *replay_ctx)
     long_to_comma_str(ctx->time_used.fetch, fetch_tm_buff);
     long_to_comma_str(ctx->time_used.dedup, dedup_tm_buff);
     long_to_comma_str(ctx->time_used.replay, replay_tm_buff);
+    if (ctx->is_online) {
+        sprintf(until_version_prompt, ", until_version: %"PRId64,
+                FC_ATOMIC_GET(ctx->ds->recovery.until_version));
+    } else {
+        *until_version_prompt = '\0';
+    }
     logInfo("file: "__FILE__", line: %d, "
             "data group id: %d, loop_count: %d, start_data_version: %"
-            PRId64", last_data_version: %"PRId64", until_version: %"
-            PRId64", data recovery %s, is_online: %d. "
-            "all : {total : %"PRId64", success : %"PRId64", "
+            PRId64", last_data_version: %"PRId64"%s, data recovery %s, "
+            "is_online: %d. all : {total : %"PRId64", success : %"PRId64", "
             "fail : %"PRId64", ignore : %"PRId64"%s}, "
             "write : {total : %"PRId64", success : %"PRId64", "
             "ignore : %"PRId64"}, "
@@ -604,9 +610,8 @@ static void replay_output(BinlogReplayContext *replay_ctx)
             "ignore : %"PRId64"}, total time used: %s ms {fetch: %s ms, "
             "dedup: %s ms, replay: %s ms}", __LINE__,
             ctx->ds->dg->id, ctx->loop_count, replay_ctx->start_data_version,
-            ctx->fetch.last_data_version, __sync_fetch_and_add(&ctx->
-                ds->recovery.until_version, 0), prompt, ctx->is_online,
-            replay_ctx->total_count, success_count,
+            ctx->fetch.last_data_version, until_version_prompt, prompt,
+            ctx->is_online, replay_ctx->total_count, success_count,
             fail_count, ignore_count, skip_count_buff,
             stat->write.total, stat->write.success, stat->write.ignore,
             stat->allocate.total, stat->allocate.success, stat->allocate.ignore,

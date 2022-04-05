@@ -194,7 +194,7 @@ static int fetch_binlog_check_peer(struct fast_task_info *task,
         return result;
     }
 
-    status = __sync_add_and_fetch(&(*peer)->status, 0);
+    status = FC_ATOMIC_GET((*peer)->status);
     if ((status == FS_DS_STATUS_ACTIVE) ||
             (status == FS_DS_STATUS_ONLINE && !catch_up))
     {
@@ -396,7 +396,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         FSReplication *replication;
 
         replication = replication_channel_get(slave);
-        repl_version =  __sync_add_and_fetch(&replication->version, 0);
+        repl_version = FC_ATOMIC_GET(replication->version);
         if (!replication_channel_is_ready(replication)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, slave id: %d, the replica connection "
@@ -433,12 +433,12 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     if (is_online) {
-        until_version = __sync_add_and_fetch(&myself->data.version, 0);
+        until_version = FC_ATOMIC_GET(myself->data.version);
     } else {
         until_version = 0;
     }
-    return replica_fetch_binlog_first_output(task, is_online,
-            repl_version, until_version);
+    return replica_fetch_binlog_first_output(task,
+            is_online, repl_version, until_version);
 }
 
 static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
@@ -496,7 +496,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
         return result;
     }
 
-    status = __sync_add_and_fetch(&slave->status, 0);
+    status = FC_ATOMIC_GET(slave->status);
     if (status != FS_DS_STATUS_ONLINE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, slave id: %d, "
@@ -516,7 +516,7 @@ static int replica_deal_active_confirm(struct fast_task_info *task)
         return EBUSY;
     }
 
-    current_version =  __sync_add_and_fetch(&replication->version, 0);
+    current_version = FC_ATOMIC_GET(replication->version);
     if (repl_version != current_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, slave id: %d, the replication channel "
