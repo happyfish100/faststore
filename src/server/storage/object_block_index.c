@@ -1610,7 +1610,7 @@ static int do_write_slice_index(OBEntry *ob, const int slice_type,
     return 0;
 #else
     return write_slice_index_to_file(ob, slice_type,
-            &ssize, &dump_ctx->writer);
+            ssize, &dump_ctx->writer);
 #endif
 }
 
