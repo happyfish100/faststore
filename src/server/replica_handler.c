@@ -900,7 +900,9 @@ static int replica_deal_slice_read(struct fast_task_info *task)
         return result;
     }
 
-    if (OP_CTX_INFO.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
+    if (OP_CTX_INFO.bs_key.slice.length > (task->size -
+                sizeof(FSProtoHeader)))
+    {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "read slice length: %d > task buffer size: %d",
                 OP_CTX_INFO.bs_key.slice.length, (int)(

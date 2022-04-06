@@ -503,11 +503,13 @@ static void fetch_data_run(void *arg, void *thread_data)
         {
             if (read_bytes != task->op_ctx.info.bs_key.slice.length) {
                 logWarning("file: "__FILE__", line: %d, "
-                        "data group id: %d, block {oid: %"PRId64", "
-                        "offset: %"PRId64"}, slice {offset: %d, "
-                        "length: %d}, read bytes: %d != slice length, "
+                        "data group id: %d, is_online: %d, block "
+                        "{oid: %"PRId64", offset: %"PRId64"}, "
+                        "slice {offset: %d, length: %d}, "
+                        "read bytes: %d != slice length, "
                         "maybe delete later?", __LINE__,
                         thread_ctx->replay_ctx->recovery_ctx->ds->dg->id,
+                        thread_ctx->replay_ctx->recovery_ctx->is_online,
                         task->op_ctx.info.bs_key.block.oid,
                         task->op_ctx.info.bs_key.block.offset,
                         task->op_ctx.info.bs_key.slice.offset,

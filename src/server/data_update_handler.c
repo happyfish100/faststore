@@ -484,6 +484,12 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
     }
 
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) { //check again
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, i am NOT master",
+                    op_ctx->info.data_group_id);
+            return SF_RETRIABLE_ERROR_NOT_MASTER;
+        }
         FC_ATOMIC_INC(op_ctx->info.myself->master_dealing_count);
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
