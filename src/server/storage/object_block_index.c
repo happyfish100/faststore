@@ -25,6 +25,7 @@
 #include "../binlog/slice_binlog.h"
 #include "../rebuild/rebuild_binlog.h"
 #include "storage_allocator.h"
+#include "slice_op.h"
 #include "object_block_index.h"
 
 #define SLICE_ARRAY_FIXED_COUNT  64
@@ -1530,8 +1531,91 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 }
 
 #ifdef FS_DUMP_SLICE_FOR_DEBUG
+
+#define FS_DUMP_SLICE_CALC_CRC32 32
+
+typedef struct {
+#if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
+    FSSliceBlockedOpContext bctx;
+#endif
+    SFBufferedWriter writer;
+} DumpSliceIndexContext;
+
+#if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
+static inline int calc_slice_crc32(OBEntry *ob, const FSSliceSize *ssize,
+        DumpSliceIndexContext *dump_ctx, int *crc32)
+{
+    int result;
+    FSBlockSliceKeyInfo bs_key;
+#ifdef OS_LINUX
+    AlignedReadBuffer **aligned_buffer;
+    AlignedReadBuffer **aligned_bend;
+#endif
+
+    bs_key.block = ob->bkey;
+    bs_key.slice = *ssize;
+    if ((result=fs_slice_blocked_read(&dump_ctx->bctx,
+                    &bs_key, 0)) != 0)
+    {
+        return result;
+    }
+
+#ifdef OS_LINUX
+    *crc32 = CRC32_XINIT;
+    aligned_bend = dump_ctx->bctx.op_ctx.aio_buffer_parray.buffers +
+        dump_ctx->bctx.op_ctx.aio_buffer_parray.count;
+    for (aligned_buffer=dump_ctx->bctx.op_ctx.aio_buffer_parray.buffers;
+            aligned_buffer<aligned_bend; aligned_buffer++)
+    {
+        *crc32 = CRC32_ex((*aligned_buffer)->buff + (*aligned_buffer)->
+                offset, (*aligned_buffer)->length, *crc32);
+    }
+
+    fs_release_aio_buffers(&dump_ctx->bctx.op_ctx);
+#else
+    *crc32 = CRC32(dump_ctx->bctx.op_ctx.info.buff,
+            dump_ctx->bctx.op_ctx.done_bytes);
+#endif
+
+    return 0;
+}
+#endif
+
+static int do_write_slice_index(OBEntry *ob, const int slice_type,
+        const FSSliceSize *ssize, DumpSliceIndexContext *dump_ctx)
+{
+#if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
+    int result;
+    int crc32;
+
+    if ((result=calc_slice_crc32(ob, ssize, dump_ctx, &crc32)) != 0) {
+        return result;
+    }
+
+    if (SF_BUFFERED_WRITER_REMAIN(dump_ctx->writer) <
+            FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+    {
+        if ((result=sf_buffered_writer_save(&dump_ctx->writer)) != 0) {
+            return result;
+        }
+    }
+
+    dump_ctx->writer.buffer.current += sprintf(dump_ctx->writer.buffer.
+            current, "%c %"PRId64" %"PRId64" %d %d %d %u\n",
+            slice_type == OB_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
+            BINLOG_OP_TYPE_ALLOC_SLICE, ob->bkey.oid, ob->bkey.offset,
+            ssize->offset, ssize->length, dump_ctx->bctx.op_ctx.done_bytes,
+            crc32);
+
+    return 0;
+#else
+    return write_slice_index_to_file(ob, slice_type,
+            &ssize, &dump_ctx->writer);
+#endif
+}
+
 static int dump_slice_index_to_file(OBEntry *ob,
-        SFBufferedWriter *writer, int *slice_count)
+        DumpSliceIndexContext *dump_ctx, int *slice_count)
 {
     int result;
     int slice_type;
@@ -1555,8 +1639,8 @@ static int dump_slice_index_to_file(OBEntry *ob,
             continue;
         }
 
-        if ((result=write_slice_index_to_file(ob, slice_type,
-                        &ssize, writer)) != 0)
+        if ((result=do_write_slice_index(ob, slice_type,
+                        &ssize, dump_ctx)) != 0)
         {
             return result;
         }
@@ -1565,8 +1649,8 @@ static int dump_slice_index_to_file(OBEntry *ob,
         SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
     }
 
-    if ((result=write_slice_index_to_file(ob, slice_type,
-                    &ssize, writer)) != 0)
+    if ((result=do_write_slice_index(ob, slice_type,
+                    &ssize, dump_ctx)) != 0)
     {
         return result;
     }
@@ -1579,13 +1663,20 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 {
     int result;
     int slice_count;
-    SFBufferedWriter writer;
+    DumpSliceIndexContext dump_ctx;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
 
     *total_slice_count = 0;
-    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
+
+#if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
+    if ((result=fs_slice_blocked_op_ctx_init(&dump_ctx.bctx)) != 0) {
+        return result;
+    }
+#endif
+
+    if ((result=sf_buffered_writer_init(&dump_ctx.writer, filename)) != 0) {
         return result;
     }
 
@@ -1599,7 +1690,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 
         ob = *bucket;
         do {
-            if ((result=dump_slice_index_to_file(ob, &writer,
+            if ((result=dump_slice_index_to_file(ob, &dump_ctx,
                             &slice_count)) != 0)
             {
                 break;
@@ -1614,11 +1705,15 @@ int ob_index_dump_slice_index_to_file(const char *filename,
         result = EINTR;
     }
 
-    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
-        result = sf_buffered_writer_save(&writer);
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(dump_ctx.writer) > 0) {
+        result = sf_buffered_writer_save(&dump_ctx.writer);
     }
 
-    sf_buffered_writer_destroy(&writer);
+#if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
+    fs_slice_blocked_op_ctx_destroy(&dump_ctx.bctx);
+#endif
+
+    sf_buffered_writer_destroy(&dump_ctx.writer);
     return result;
 }
 #endif

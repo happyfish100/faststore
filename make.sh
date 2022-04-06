@@ -6,7 +6,7 @@ TARGET_CONF_PATH=$DESTDIR/etc/fdir
 DEBUG_FLAG=0
 
 export CC=gcc
-CFLAGS='-Wall -DFS_DUMP_SLICE_FOR_DEBUG=1'
+CFLAGS='-Wall -DFS_DUMP_SLICE_FOR_DEBUG=32'
 #CFLAGS='-Wall'
 GCC_VERSION=$(gcc -dM -E -  < /dev/null | grep -w __GNUC__ | awk '{print $NF;}')
 if [ -n "$GCC_VERSION" ] && [ $GCC_VERSION -ge 7 ]; then
