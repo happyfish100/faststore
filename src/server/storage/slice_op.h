@@ -118,6 +118,13 @@ extern "C" {
     int fs_log_delete_slices(FSSliceOpContext *op_ctx);
     int fs_log_delete_block(FSSliceOpContext *op_ctx);
 
+    int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx);
+
+    void fs_slice_blocked_op_ctx_destroy(FSSliceBlockedOpContext *bctx);
+
+    int fs_slice_blocked_read(FSSliceBlockedOpContext *bctx,
+            FSBlockSliceKeyInfo *bs_key, const int ignore_errno);
+
 #ifdef __cplusplus
 }
 #endif

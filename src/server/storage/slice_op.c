@@ -945,3 +945,102 @@ int fs_log_delete_block(FSSliceOpContext *op_ctx)
 
     return 0;
 }
+
+static void fs_slice_rw_done_callback(FSSliceOpContext *op_ctx,
+        FSSliceBlockedOpContext *bctx)
+{
+    PTHREAD_MUTEX_LOCK(&bctx->notify.lcp.lock);
+    bctx->notify.finished = true;
+    pthread_cond_signal(&bctx->notify.lcp.cond);
+    PTHREAD_MUTEX_UNLOCK(&bctx->notify.lcp.lock);
+}
+
+int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx)
+{
+    int result;
+
+    ob_index_init_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+
+#ifdef OS_LINUX
+    bctx->op_ctx.info.buffer_type = fs_buffer_type_array;
+    bctx->buffer_size = 0;
+    bctx->op_ctx.info.buff = NULL;
+#else
+    bctx->buffer_size = 256 * 1024;
+    bctx->op_ctx.info.buff = (char *)fc_malloc(bctx->buffer_size);
+    if (bctx->op_ctx.info.buff == NULL) {
+        return ENOMEM;
+    }
+#endif
+
+    if ((result=init_pthread_lock_cond_pair(&bctx->notify.lcp)) != 0) {
+        return result;
+    }
+
+    bctx->notify.finished = false;
+    bctx->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
+        fs_slice_rw_done_callback;
+    bctx->op_ctx.arg = bctx;
+    return 0;
+}
+
+void fs_slice_blocked_op_ctx_destroy(FSSliceBlockedOpContext *bctx)
+{
+    ob_index_free_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+    destroy_pthread_lock_cond_pair(&bctx->notify.lcp);
+
+#ifdef OS_LINUX
+#else
+    if (bctx->op_ctx.info.buff != NULL) {
+        free(bctx->op_ctx.info.buff);
+        bctx->op_ctx.info.buff = NULL;
+    }
+#endif
+}
+
+int fs_slice_blocked_read(FSSliceBlockedOpContext *bctx,
+        FSBlockSliceKeyInfo *bs_key, const int ignore_errno)
+{
+    int result;
+
+    bctx->op_ctx.info.bs_key = *bs_key;
+    bctx->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(bs_key->block);
+
+#ifdef OS_LINUX
+#else
+    if (bctx->buffer_size < bs_key->slice.length) {
+        char *buff;
+        int buffer_size;
+
+        buffer_size = bctx->buffer_size * 2;
+        while (buffer_size < bs_key->slice.length) {
+            buffer_size *= 2;
+        }
+        buff = (char *)fc_malloc(buffer_size);
+        if (buff == NULL) {
+            return ENOMEM;
+        }
+
+        free(bctx->op_ctx.info.buff);
+        bctx->op_ctx.info.buff = buff;
+        bctx->buffer_size = buffer_size;
+    }
+#endif
+
+    if ((result=fs_slice_read(&bctx->op_ctx)) == 0) {
+        PTHREAD_MUTEX_LOCK(&bctx->notify.lcp.lock);
+        while (!bctx->notify.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&bctx->notify.lcp.cond,
+                    &bctx->notify.lcp.lock);
+        }
+        result = bctx->notify.finished ? bctx->op_ctx.result : EINTR;
+        bctx->notify.finished = false;  /* reset for next call */
+        PTHREAD_MUTEX_UNLOCK(&bctx->notify.lcp.lock);
+    }
+
+    if (result != 0) {
+        fs_log_rw_error(&bctx->op_ctx, result, ignore_errno, "read");
+    }
+
+    return result;
+}

@@ -51,14 +51,8 @@ typedef struct trunk_reclaim_slice_array {
 typedef struct trunk_reclaim_context {
     TrunkReclaimBlockArray barray;
     TrunkReclaimSliceArray sarray;
-    FSSliceOpContext op_ctx;
-    int buffer_size;
-    struct {
-        bool finished;
-        pthread_lock_cond_pair_t lcp; //for notify
-    } notify;
+    FSSliceBlockedOpContext bctx;
 } TrunkReclaimContext;
-
 
 #ifdef __cplusplus
 extern "C" {

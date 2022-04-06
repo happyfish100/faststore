@@ -167,6 +167,15 @@ typedef struct fs_slice_op_buffer_context {
     SharedBuffer *buffer;
 } FSSliceOpBufferContext;
 
+typedef struct fs_slice_blocked_op_context {
+    FSSliceOpContext op_ctx;
+    int buffer_size;
+    struct {
+        bool finished;
+        pthread_lock_cond_pair_t lcp; //for notify
+    } notify;
+} FSSliceBlockedOpContext;
+
 typedef struct fs_trunk_file_info {
     struct fs_trunk_allocator *allocator;
     FSTrunkIdInfo id_info;

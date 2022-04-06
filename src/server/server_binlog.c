@@ -65,6 +65,7 @@ static int do_binlog_check()
     return result;
 }
 
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
 static int dump_slice_index()
 {
     int result;
@@ -88,6 +89,7 @@ static int dump_slice_index()
 
     return result;
 }
+#endif
 
 int server_binlog_init()
 {
