@@ -931,8 +931,8 @@ int fs_log_delete_block(FSSliceOpContext *op_ctx)
 
     current_time = g_current_time;
     if ((result=slice_binlog_log_del_block(&op_ctx->info.bs_key.block,
-                    current_time, op_ctx->info.sn, op_ctx->info.data_version,
-                    op_ctx->info.source)) != 0)
+                    current_time, op_ctx->info.sn, op_ctx->info.
+                    data_version, op_ctx->info.source)) != 0)
     {
         return result;
     }

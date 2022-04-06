@@ -522,6 +522,16 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
         }
     }
 
+    if (result == 0) {
+        if (fsync(fd) != 0) {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "sync to trunk file: %s fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    trunk_filename, result, STRERROR(result));
+        }
+    }
+
     if (result != 0) {
         clear_write_fd(ctx);
 
@@ -571,6 +581,11 @@ static int batch_write(TrunkWriteThreadContext *ctx)
 
             fast_mblock_free_object(&ctx->mblock, *iob);
         }
+
+        logCrit("file: "__FILE__", line: %d, "
+                "write slice fail, result: %d",
+                __LINE__, result);
+        sf_terminate_myself();
     }
 
     /*
