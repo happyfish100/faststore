@@ -126,7 +126,7 @@ typedef struct fs_slice_op_context {
     void *arg;  //for signal data thread or nio task
     volatile short counter;
     short result;
-    int done_bytes;
+    volatile int done_bytes;
 
     struct {
         bool deal_done;  //for continue deal check

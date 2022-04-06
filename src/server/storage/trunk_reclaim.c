@@ -241,7 +241,7 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
     }
 
     rctx->bctx.op_ctx.info.bs_key.slice.length =
-        rctx->bctx.op_ctx.done_bytes;
+        FC_ATOMIC_GET(rctx->bctx.op_ctx.done_bytes);
     if ((result=fs_slice_write(&rctx->bctx.op_ctx)) == 0) {
         PTHREAD_MUTEX_LOCK(&rctx->bctx.notify.lcp.lock);
         while (!rctx->bctx.notify.finished && SF_G_CONTINUE_FLAG) {

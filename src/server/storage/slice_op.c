@@ -151,7 +151,8 @@ static void slice_write_done(struct trunk_write_io_buffer
 
     op_ctx = (FSSliceOpContext *)record->notify.arg;
     if (result == 0) {
-        op_ctx->done_bytes += record->slice->ssize.length;
+        __sync_add_and_fetch(&op_ctx->done_bytes,
+                record->slice->ssize.length);
     } else {
         op_ctx->result = result;
     }
@@ -652,7 +653,7 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
         const int result)
 {
     if (result == 0) {
-        op_ctx->done_bytes += slice->ssize.length;
+        __sync_add_and_fetch(&op_ctx->done_bytes, slice->ssize.length);
     } else {
         op_ctx->result = result;
     }
@@ -770,7 +771,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             {
                 return result;
             }
-            op_ctx->done_bytes += hole_len;
+            __sync_add_and_fetch(&op_ctx->done_bytes, hole_len);
 
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
@@ -844,7 +845,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
         if (hole_len > 0) {
             memset(ps, 0, hole_len);
             ps += hole_len;
-            op_ctx->done_bytes += hole_len;
+            __sync_add_and_fetch(&op_ctx->done_bytes, hole_len);
 
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
