@@ -65,11 +65,12 @@ static inline int fetch_slice_data(DataRebuildThreadInfo *thread)
                     thread->op_ctx.info.buff, &read_bytes)) == 0)
     {
         if (read_bytes != thread->op_ctx.info.bs_key.slice.length) {
-            logWarning("file: "__FILE__", line: %d, "
+            logWarning("file: "__FILE__", line: %d, data_group_id: %d, "
                     "block {oid: %"PRId64", offset: %"PRId64"}, "
                     "slice {offset: %d, length: %d}, "
                     "read bytes: %d != slice length, "
                     "maybe delete later?", __LINE__,
+                    thread->op_ctx.info.data_group_id,
                     thread->op_ctx.info.bs_key.block.oid,
                     thread->op_ctx.info.bs_key.block.offset,
                     thread->op_ctx.info.bs_key.slice.offset,
@@ -78,19 +79,21 @@ static inline int fetch_slice_data(DataRebuildThreadInfo *thread)
             thread->op_ctx.info.bs_key.slice.length = read_bytes;
         }
     } else if (thread->op_ctx.result == ENODATA) {
-        logWarning("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, data_group_id: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, "
                 "slice {offset: %d, length: %d}, slice not exist, "
                 "maybe delete later?", __LINE__,
+                thread->op_ctx.info.data_group_id,
                 thread->op_ctx.info.bs_key.block.oid,
                 thread->op_ctx.info.bs_key.block.offset,
                 thread->op_ctx.info.bs_key.slice.offset,
                 thread->op_ctx.info.bs_key.slice.length);
     } else {
-        logError("file: "__FILE__", line: %d, "
+        logError("file: "__FILE__", line: %d, data_group_id: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, "
                 "slice {offset: %d, length: %d}, "
                 "fetch data fail, errno: %d, error info: %s", __LINE__,
+                thread->op_ctx.info.data_group_id,
                 thread->op_ctx.info.bs_key.block.oid,
                 thread->op_ctx.info.bs_key.block.offset,
                 thread->op_ctx.info.bs_key.slice.offset,

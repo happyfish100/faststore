@@ -374,7 +374,7 @@ bool cluster_topology_activate_server(FSClusterServerInfo *cs)
 
     end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
     for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&(*ds)->dg->master, 0) == NULL) {
+        if (FC_ATOMIC_GET((*ds)->dg->master) == NULL) {
             master_election_queue_push((*ds)->dg);
         }
     }

@@ -437,7 +437,9 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     } else {
         FSClusterDataServerInfo *master;
 
-        if ((master=fs_get_data_server(data_group_id, my_server_id)) == NULL) {
+        if ((master=fs_get_data_server(data_group_id,
+                        my_server_id)) == NULL)
+        {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data_group_id: %d, my_server_id: %d not exist",
                     data_group_id, my_server_id);

@@ -29,7 +29,7 @@ static void usage(char *argv[])
     fprintf(stderr, "Usage: %s [-c config_filename=%s] <-i oid> "
             "[-O block_offset=0] [-o slice_offset=0] "
             "[-l slice_length=0 for auto] [-f overwrite local file] "
-            "[-n namespace or poolname=fs] <filename>\n", argv[0],
+            "[-n namespace or poolname=fs] <local_filename>\n", argv[0],
             FS_CLIENT_DEFAULT_CONFIG_FILENAME);
 }
 
