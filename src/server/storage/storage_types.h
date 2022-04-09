@@ -192,6 +192,7 @@ typedef struct fs_trunk_file_info {
         struct fs_trunk_file_info *next;
     } alloc;  //for space allocate
 
+    volatile int reffer_count;  //for waiting slice write done
     struct {
         volatile char event;
         int64_t last_used_bytes;

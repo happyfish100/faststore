@@ -68,6 +68,7 @@ static inline void push_trunk_util_event_force(FSTrunkAllocator *allocator,
         trunk->free_start += alloc_size;  \
         __sync_sub_and_fetch(&trunk->allocator->path_info-> \
                 trunk_stat.avail, alloc_size);  \
+        FC_ATOMIC_INC(trunk->reffer_count);  \
     } while (0)
 
 void trunk_freelist_keep_water_mark(struct fs_trunk_allocator
@@ -119,6 +120,24 @@ void trunk_freelist_add(FSTrunkFreelist *freelist,
             trunk_stat.avail, avail_bytes);
 }
 
+#define PUSH_TRUNK_UTIL_EVEENT_QUEUE(trunk_info) \
+    do { \
+        fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_REPUSH); \
+        push_trunk_util_event_force(trunk_info->allocator, \
+                trunk_info, FS_TRUNK_UTIL_EVENT_CREATE);   \
+        fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE); \
+    } while (0)
+
+void trunk_freelist_decrease_reffer_count_ex(FSTrunkFileInfo *trunk,
+        const int dec_count)
+{
+    if (__sync_sub_and_fetch(&trunk->reffer_count, dec_count) == 0) {
+        if (FC_ATOMIC_GET(trunk->status) == FS_TRUNK_STATUS_NONE) {
+            PUSH_TRUNK_UTIL_EVEENT_QUEUE(trunk);
+        }
+    }
+}
+
 static void trunk_freelist_remove(FSTrunkFreelist *freelist)
 {
     FSTrunkFileInfo *trunk_info;
@@ -130,11 +149,11 @@ static void trunk_freelist_remove(FSTrunkFreelist *freelist)
     }
     freelist->count--;
 
-    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_REPUSH);
-    push_trunk_util_event_force(trunk_info->allocator,
-            trunk_info, FS_TRUNK_UTIL_EVENT_CREATE);
-    fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
-
+    if (FC_ATOMIC_GET(trunk_info->reffer_count) == 0) {
+        PUSH_TRUNK_UTIL_EVEENT_QUEUE(trunk_info);
+    } else {
+        fs_set_trunk_status(trunk_info, FS_TRUNK_STATUS_NONE);
+    }
     if (freelist->count < freelist->water_mark_trunks) {
         trunk_maker_allocate_ex(trunk_info->allocator,
                 true, false, NULL, NULL);
@@ -202,11 +221,12 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator *allocator,
                 }
                 
                 if (remain_bytes <= 0) {
-                    logInfo("allocator: %p, trunk_info: %p, "
-                            "trunk size: %"PRId64", free start: %"PRId64
-                            ", remain_bytes: %d", trunk_info->allocator,
-                            trunk_info, trunk_info->size,
-                            trunk_info->free_start, remain_bytes);
+                    logInfo("allocator: %p, trunk_info: %p, trunk id: "
+                            "%"PRId64", trunk size: %"PRId64", free start: "
+                            "%"PRId64", remain_bytes: %d", trunk_info->
+                            allocator, trunk_info, trunk_info->id_info.id,
+                            trunk_info->size, trunk_info->free_start,
+                            remain_bytes);
                     abort();
                 }
 

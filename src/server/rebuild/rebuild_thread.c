@@ -285,6 +285,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
         rebuild_write_done_callback;
     thread->op_ctx.arg = thread;
+    ob_index_init_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
     return fs_slice_array_init(&thread->op_ctx.update.sarray);
 }
 
@@ -294,6 +295,7 @@ static void destroy_thread(DataRebuildThreadInfo *thread)
     fc_free_buffer(&thread->rbuffer);
     free(thread->op_ctx.info.buff);
     destroy_pthread_lock_cond_pair(&thread->notify.lcp);
+    ob_index_free_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
     fs_slice_array_destroy(&thread->op_ctx.update.sarray);
 }
 
@@ -354,18 +356,14 @@ int rebuild_thread_do(const int thread_count)
         skip_count += thread->skip_count;
         destroy_thread(thread);
     }
-
     free(ctx.thread_array.threads);
-    if (!SF_G_CONTINUE_FLAG) {
-        return EINTR;
-    }
 
     logInfo("file: "__FILE__", line: %d, "
             "data rebuild done, slice count {total: %"PRId64", skip: %"PRId64
             "}, time used: %s ms", __LINE__, slice_count, skip_count,
             long_to_comma_str(get_current_time_ms() - start_time, time_used));
 
-    return 0;
+    return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
 int rebuild_cleanup(const char *dirname, const int thread_count)

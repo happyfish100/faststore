@@ -971,7 +971,7 @@ static int cluster_select_leader()
             if (force_sleep) {
                 sleep_secs = max_sleep_secs;
             } else {
-                sleep_secs = 0;
+                sleep_secs = 1;
             }
         }
 
@@ -980,9 +980,7 @@ static int cluster_select_leader()
                 "< server count: %d, %stry again after %d seconds.",
                 __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
                 prompt, sleep_secs);
-        if (sleep_secs > 0) {
-            sleep(sleep_secs);
-        }
+        sleep(sleep_secs);
         if (max_sleep_secs < 32) {
             max_sleep_secs *= 2;
         }

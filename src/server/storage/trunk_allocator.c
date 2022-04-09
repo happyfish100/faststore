@@ -224,6 +224,7 @@ int trunk_allocator_add_slice(FSTrunkAllocator *allocator, OBSliceEntry *slice)
                 slice->space.id_info.id);
         result = ENOENT;
     } else {
+        trunk_freelist_decrease_reffer_count(trunk_info);
         trunk_info->used.bytes += slice->space.size;
         trunk_info->used.count++;
         fc_list_add_tail(&slice->dlink, &trunk_info->used.slice_head);
