@@ -611,6 +611,37 @@ int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
     return 0;
 }
 
+static void unset_all_data_groups()
+{
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gend;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *send;
+    FSClusterDataServerInfo *master;
+
+    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+        master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
+        if (master != NULL) {
+            __sync_bool_compare_and_swap(&group->master, master, NULL);
+        }
+
+        send = group->data_server_array.servers +
+            group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<send; ds++) {
+            if (FC_ATOMIC_GET(ds->is_master)) {
+                __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
+            }
+
+            if (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ACTIVE) {
+                __sync_bool_compare_and_swap(&ds->status,
+                        FS_DS_STATUS_ACTIVE,
+                        FS_DS_STATUS_OFFLINE);
+            }
+        }
+    }
+}
+
 static inline void cluster_unset_leader()
 {
     FSClusterServerInfo *old_leader;
@@ -619,6 +650,7 @@ static inline void cluster_unset_leader()
     if (old_leader != NULL) {
         old_leader->is_leader = false;
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR, old_leader, NULL);
+        unset_all_data_groups();
     }
 }
 

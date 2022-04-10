@@ -476,6 +476,10 @@ static void select_master_thread_run(void *arg, void *thread_data)
         __sync_bool_compare_and_swap(&group->election.in_queue, 1, 0);
         FC_ATOMIC_DEC(g_master_election_ctx.waiting_count);
 
+        if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+            break;
+        }
+
         result = master_election_select_master(group);
         if (result == EAGAIN) {
             master_election_push_to_delay_queue(group);

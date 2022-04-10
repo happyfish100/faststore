@@ -110,6 +110,14 @@ FSClusterDataServerInfo *data_recovery_get_master(
 {
     FSClusterDataServerInfo *master;
 
+    if (CLUSTER_LEADER_ATOM_PTR == NULL) {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, no leader",
+                __LINE__, ctx->ds->dg->id);
+        *err_no = ENOENT;
+        return NULL;
+    }
+
     master = (FSClusterDataServerInfo *)
         FC_ATOMIC_GET(ctx->ds->dg->master);
     if (master == NULL) {

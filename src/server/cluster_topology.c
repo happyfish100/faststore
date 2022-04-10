@@ -314,7 +314,7 @@ static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
     int old_status;
     int new_status;
 
-    old_status = __sync_fetch_and_add(&ds->status, 0);
+    old_status = FC_ATOMIC_GET(ds->status);
     if (old_status == FS_DS_STATUS_ACTIVE) {
         new_status = FS_DS_STATUS_OFFLINE;
     } else if (remove_recovery_flag) {
@@ -415,7 +415,8 @@ void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
         group->election.start_time_ms = 0;
         group->election.retry_count = 0;
-        send = group->data_server_array.servers + group->data_server_array.count;
+        send = group->data_server_array.servers +
+            group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
             cluster_topology_offline_data_server(ds, false);
         }
