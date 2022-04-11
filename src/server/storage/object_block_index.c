@@ -1063,6 +1063,8 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
             {
                 return result;
             }
+
+            break;
         } else {
             __sync_add_and_fetch(&curr_slice->ref_count, 1);
             if ((result=add_to_slice_ptr_array(sarray, curr_slice)) != 0) {
@@ -1074,6 +1076,56 @@ static int get_slices(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key,
     } while (node != ob->slices->factory->tail);
 
     return sarray->count > 0 ? 0 : ENOENT;
+}
+
+static int get_slice_count(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key)
+{
+    UniqSkiplistNode *node;
+    UniqSkiplistNode *previous;
+    OBSliceEntry target;
+    OBSliceEntry *curr_slice;
+    int slice_end;
+    int curr_end;
+    int count;
+
+    target.ssize = bs_key->slice;
+    node = uniq_skiplist_find_ge_node(ob->slices, &target);
+    if (node == NULL) {
+        previous = UNIQ_SKIPLIST_LEVEL0_TAIL_NODE(ob->slices);
+    } else {
+        previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
+    }
+
+    count = 0;
+    slice_end = bs_key->slice.offset + bs_key->slice.length;
+    if (previous != ob->slices->top) {
+        curr_slice = (OBSliceEntry *)previous->data;
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > bs_key->slice.offset) {  //overlap
+            ++count;
+        }
+    }
+
+    if (node == NULL) {
+        return count;
+    }
+
+    do {
+        curr_slice = (OBSliceEntry *)node->data;
+        if (slice_end <= curr_slice->ssize.offset) {  //not overlap
+            break;
+        }
+
+        ++count;
+        curr_end = curr_slice->ssize.offset + curr_slice->ssize.length;
+        if (curr_end > slice_end) {  //the last slice
+            break;
+        }
+
+        node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
+    } while (node != ob->slices->factory->tail);
+
+    return count;
 }
 
 static void free_slices(OBSlicePtrArray *sarray)
@@ -1123,6 +1175,25 @@ int ob_index_get_slices_ex(OBHashtable *htable,
         free_slices(sarray);
     }
     return result;
+}
+
+int ob_index_get_slice_count_ex(OBHashtable *htable,
+        const FSBlockSliceKeyInfo *bs_key)
+{
+    OBEntry *ob;
+    int count;
+
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
+    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    ob = get_ob_entry(bucket, &bs_key->block, false);
+    if (ob == NULL) {
+        count = 0;
+    } else {
+        count = get_slice_count(ob, bs_key);
+    }
+    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+
+    return count;
 }
 
 void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)

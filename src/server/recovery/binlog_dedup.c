@@ -67,6 +67,7 @@ typedef struct {
             int64_t remove;
         } binlog_counts;
     } out;
+    DataRecoveryContext *recovery_ctx;
 } BinlogDedupContext;
 
 static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
@@ -98,7 +99,6 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
     int result;
     int r;
     int op_type;
-    int target_len;
     int dec_alloc;
 
     result = 0;
@@ -147,21 +147,19 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                     result = ob_index_delete_slices_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key,
                             NULL, &dec_alloc, false);
-                    target_len = dedup_ctx->record.bs_key.slice.length;
                 } else {
                     result = ob_index_delete_block_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key.
                             block, NULL, &dec_alloc, false);
-                    target_len = FS_FILE_BLOCK_SIZE;
+                    dedup_ctx->record.bs_key.slice.offset = 0;
+                    dedup_ctx->record.bs_key.slice.length =
+                        FS_FILE_BLOCK_SIZE;
                 }
 
-                if (dec_alloc != target_len) {
-                    if (op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
-                        dedup_ctx->record.bs_key.slice.offset = 0;
-                        dedup_ctx->record.bs_key.slice.length =
-                            FS_FILE_BLOCK_SIZE;
-                    }
-
+                if (dec_alloc != dedup_ctx->record.bs_key.slice.length ||
+                        ob_index_get_slice_count_ex(&g_ob_hashtable,
+                            &dedup_ctx->record.bs_key) > 0)
+                {
                     if ((r=add_slice(&dedup_ctx->htables.remove,
                                     &dedup_ctx->record,
                                     OB_SLICE_TYPE_FILE)) == 0)
@@ -170,6 +168,22 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                     } else {
                         result = r;
                     }
+
+                    /*
+                    if (dec_alloc == dedup_ctx->record.bs_key.slice.length) {
+                        logDebug("file: "__FILE__", line: %d, "
+                                "data group id: %d, KEEP DELETE block "
+                                "{oid: %"PRId64", offset: %"PRId64"}, "
+                                "slice {offset: %d, length: %d}, "
+                                "old slice count: %d", __LINE__,
+                                dedup_ctx->recovery_ctx->ds->dg->id,
+                                dedup_ctx->record.bs_key.block.oid,
+                                dedup_ctx->record.bs_key.block.offset,
+                                dedup_ctx->record.bs_key.slice.offset,
+                                dedup_ctx->record.bs_key.slice.length,
+                                ob_index_get_slice_count(&dedup_ctx->record.bs_key));
+                    }
+                    */
                 }
 
                 dedup_ctx->rstat.remove.total++;
@@ -647,6 +661,7 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 
     start_time = get_current_time_ms();
     memset(&dedup_ctx, 0, sizeof(dedup_ctx));
+    dedup_ctx.recovery_ctx = ctx;
     ctx->arg = &dedup_ctx;
 
     if ((result=init_htables(ctx)) != 0) {

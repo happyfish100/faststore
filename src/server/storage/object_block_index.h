@@ -37,6 +37,9 @@ extern "C" {
 #define ob_index_get_slices(bs_key, sarray, is_reclaim) \
     ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray, is_reclaim)
 
+#define ob_index_get_slice_count(bs_key) \
+    ob_index_get_slice_count_ex(&g_ob_hashtable, bs_key)
+
 #define ob_index_get_ob_entry(bkey) \
     ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey)
 
@@ -89,6 +92,9 @@ extern "C" {
     int ob_index_get_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key,
             OBSlicePtrArray *sarray, const bool is_reclaim);
+
+    int ob_index_get_slice_count_ex(OBHashtable *htable,
+            const FSBlockSliceKeyInfo *bs_key);
 
     static inline void ob_index_init_slice_ptr_array(OBSlicePtrArray *sarray)
     {

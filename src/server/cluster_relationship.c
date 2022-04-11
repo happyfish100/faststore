@@ -1123,7 +1123,7 @@ static int check_swap_master(FSClusterDataServerInfo *old_master,
     }
 
     if (old_status.master_dealing_count != 0) {
-        logError("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, old master server id: %d 's "
                 "dealing count: %d != 0!", __LINE__,
                 old_master->dg->id, old_master->cs->server->id,
@@ -1136,7 +1136,7 @@ static int check_swap_master(FSClusterDataServerInfo *old_master,
     }
 
     if (new_status.data_version != old_status.data_version) {
-        logError("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, new master server id: %d 's "
                 "data_version: %"PRId64" != old master server id: %d 's "
                 "data_version: %"PRId64"!", __LINE__, new_master->dg->id,
