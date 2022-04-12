@@ -284,7 +284,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
     }
 
-    long2buff(__sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+    long2buff(FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
             req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;

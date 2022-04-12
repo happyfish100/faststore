@@ -53,6 +53,7 @@ typedef struct fs_cluster_server_status {
     char is_leader;
     char leader_hint;
     char force_election;
+    int last_heartbeat_time;
     int server_id;
     int up_time;
     int last_shutdown_time;
@@ -151,6 +152,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
     server_status->force_election = resp->force_election;
     server_status->server_id = buff2int(resp->server_id);
     server_status->up_time = buff2int(resp->up_time);
+    server_status->last_heartbeat_time = buff2int(resp->last_heartbeat_time);
     server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
     server_status->version = buff2long(resp->version);
     return 0;
@@ -383,6 +385,11 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
+    sub = status1->last_heartbeat_time - status2->last_heartbeat_time;
+    if (sub != 0) {
+        return sub;
+    }
+
     sub = (int)status1->force_election - (int)status2->force_election;
     if (sub != 0) {
         return sub;
@@ -420,6 +427,7 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         server_status->leader_hint = (MYSELF_IS_LEADER ? 1 : 0);
         server_status->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
         server_status->up_time = g_sf_global_vars.up_time;
+        server_status->last_heartbeat_time = CLUSTER_LAST_HEARTBEAT_TIME;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
         server_status->version = __sync_add_and_fetch(
                 &CLUSTER_CURRENT_VERSION, 0);
@@ -495,12 +503,14 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         restart_interval = cs_status[i].up_time -
             cs_status[i].last_shutdown_time;
         logDebug("file: "__FILE__", line: %d, "
-                "server_id: %d, ip addr %s:%u, version: %"PRId64", "
-                "is_leader: %d, up_time: %d, restart interval: %d",
-                __LINE__, cs_status[i].server_id,
+                "%d. server_id: %d, ip addr %s:%u, version: %"PRId64", "
+                "is_leader: %d, leader_hint: %d, last_heartbeat_time: %d, "
+                "up_time: %d, restart interval: %d", __LINE__,
+                i + 1, cs_status[i].server_id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
                 cs_status[i].version, cs_status[i].is_leader,
+                cs_status[i].leader_hint, cs_status[i].last_heartbeat_time,
                 ALIGN_TIME(cs_status[i].up_time),
                 ALIGN_TIME(restart_interval));
     }
@@ -966,8 +976,8 @@ static int cluster_select_leader()
         }
 
         ++i;
-        if ((server_status.up_time - server_status.last_shutdown_time > 3600
-                    && g_current_time - server_status.up_time < 600) &&
+        if ((server_status.up_time - server_status.last_shutdown_time >
+                    3600) && (server_status.last_heartbeat_time == 0) &&
                 !FORCE_LEADER_ELECTION)
         {
             sprintf(prompt, "the candidate leader server id: %d, "
@@ -1726,15 +1736,17 @@ static int follower_ping(FSClusterServerInfo *leader,
     }
 
     result = proto_ping_leader(leader, conn, network_timeout);
-    if (result == 0 && g_current_time - last_stat_time >= 10) {
-        last_stat_time = g_current_time;
-        storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
-        result = proto_report_disk_space(conn,
-                &CLUSTER_MYSELF_PTR->space_stat);
-    }
-    if (result != 0) {
+    if (result == 0) {
+        if (g_current_time - last_stat_time >= 10) {
+            last_stat_time = g_current_time;
+            storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+            result = proto_report_disk_space(conn,
+                    &CLUSTER_MYSELF_PTR->space_stat);
+        }
+    } else {
         conn_pool_disconnect_server(conn);
     }
+
     return result;
 }
 
@@ -1798,6 +1810,7 @@ static void *cluster_thread_entrance(void *arg)
             {
                 fail_count = 0;
                 ping_start_time = g_current_time;
+                CLUSTER_LAST_HEARTBEAT_TIME = g_current_time;
                 sleep_seconds = 0;
             } else if (is_ping) {
                 ++fail_count;

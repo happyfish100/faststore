@@ -59,6 +59,9 @@ typedef struct server_global_vars {
 
         volatile uint64_t current_version;
 
+        /* follower ping leader or leader check brain-split */
+        volatile time_t last_heartbeat_time;
+
         SFContext sf_context;  //for cluster communication
     } cluster;
 
@@ -144,6 +147,7 @@ typedef struct server_global_vars {
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 
+#define CLUSTER_LAST_HEARTBEAT_TIME g_server_global_vars.cluster.last_heartbeat_time
 #define CLUSTER_CURRENT_VERSION   g_server_global_vars.cluster.current_version
 #define SLICE_BINLOG_SN           g_server_global_vars.data.slice_binlog_sn
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \
