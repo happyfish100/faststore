@@ -58,9 +58,16 @@ static int do_binlog_check()
         if (result == 0 && (flags & BINLOG_CHECK_RESULT_SLICE_DIRTY)) {
             result = binlog_consistency_repair_slice(&ctx);
         }
+
+        if (result == 0) {
+            logInfo("binlog_consistency_check from_timestamp: %d, "
+                    "replica count: %"PRId64", slice count: %"PRId64", "
+                    "flags: %d", (int)ctx.from_timestamp,
+                    ctx.version_arrays.replica.count,
+                    ctx.version_arrays.slice.count, flags);
+        }
     }
 
-    logInfo("binlog_consistency_check result: %d, flags: %d", result, flags);
     binlog_consistency_destroy(&ctx);
     return result;
 }

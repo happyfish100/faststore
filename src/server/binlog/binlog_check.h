@@ -37,6 +37,8 @@ typedef struct {
 } BinlogDataGroupVersionArray;
 
 typedef struct {
+    time_t from_timestamp;
+
     struct {
         BinlogDataGroupVersionArray replica;
         BinlogDataGroupVersionArray slice;

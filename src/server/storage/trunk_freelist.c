@@ -250,7 +250,7 @@ int trunk_freelist_alloc_space(struct fs_trunk_allocator *allocator,
         }
 
         if (freelist->head == NULL) {
-            result = SF_G_CONTINUE_FLAG ? ENOSPC : EINTR;
+            result = (SF_G_CONTINUE_FLAG ? ENOSPC : EINTR);
             break;
         }
 

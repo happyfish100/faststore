@@ -52,14 +52,17 @@ typedef struct {
 } BinlogRepairWriter;
 
 typedef struct {
+    int64_t keep_count;
+    int64_t delete_count;
     struct {
-        const char *subdir_name;
         int data_group_id;
+        const char *subdir_name;
         struct sf_binlog_writer_info *writer;
         SFBinlogFilePosition *pos;
         BinlogDataGroupVersionArray *varray;
     } input;
     BinlogRepairWriter out_writer;
+    BinlogConsistencyContext *ctx;
 } BinlogRepairContext;
 
 static void binlog_repair_get_sys_data_filename(char *filename, const int size)
@@ -305,7 +308,7 @@ static inline int write_one_line(BinlogRepairContext *ctx, string_t *line)
     return 0;
 }
 
-static int binlog_filter_buffer(BinlogRepairContext *ctx,
+static int binlog_filter_buffer(BinlogRepairContext *repair_ctx,
         ServerBinlogReader *reader, const int length)
 {
     int result;
@@ -340,23 +343,30 @@ static int binlog_filter_buffer(BinlogRepairContext *ctx,
             break;
         }
 
-        fs_calc_block_hashcode(&fields.bkey);
-        if (BINLOG_REPAIR_KEEP_RECORD(fields.op_type, fields.data_version)) {
+        if ((fields.timestamp < repair_ctx->ctx->from_timestamp) ||
+                BINLOG_REPAIR_KEEP_RECORD(fields.op_type,
+                    fields.data_version))
+        {
             keep = true;
         } else {
+            fs_calc_block_hashcode(&fields.bkey);
             dg_version.data_version = fields.data_version;
             dg_version.data_group_id = FS_DATA_GROUP_ID(fields.bkey);
-            keep = bsearch(&dg_version, ctx->input.varray->versions,
-                    ctx->input.varray->count, sizeof(BinlogDataGroupVersion),
+            keep = bsearch(&dg_version, repair_ctx->input.varray->versions,
+                    repair_ctx->input.varray->count,
+                    sizeof(BinlogDataGroupVersion),
                     (int (*)(const void *, const void *))
                     binlog_compare_dg_version) != NULL;
         }
 
         if (keep) {
-            if ((result=write_one_line(ctx, &line)) != 0) {
+            repair_ctx->keep_count++;
+            if ((result=write_one_line(repair_ctx, &line)) != 0) {
                 sprintf(error_info, "write to file fail");
                 break;
             }
+        } else {
+            repair_ctx->delete_count++;
         }
 
         line_start = line_end;
@@ -467,8 +477,8 @@ static int binlog_repair_finish(const int data_group_id,
     rename_count = 0;
     for (index=start_binlog_index; index<=end_binlog_index; index++) {
         binlog_reader_get_filename_ex(subdir_name,
-                BINLOG_REPAIR_FILE_EXT_NAME,
-                index, src_filename, sizeof(src_filename));
+                BINLOG_REPAIR_FILE_EXT_NAME, index,
+                src_filename, sizeof(src_filename));
         if (access(src_filename, F_OK) != 0) {
             result = errno != 0 ? errno : EPERM;
             if (result == ENOENT) {
@@ -558,6 +568,8 @@ static int binlog_repair(BinlogRepairContext *ctx)
     int current_windex;
     int64_t file_size;
 
+    ctx->keep_count = 0;
+    ctx->delete_count = 0;
     current_windex = sf_binlog_get_current_write_index(ctx->input.writer);
     if (ctx->input.pos->index == current_windex) {
         binlog_reader_get_filename(ctx->input.subdir_name,
@@ -592,6 +604,8 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     int result;
     int data_group_id;
     int index;
+    int64_t total_keep_count;
+    int64_t total_delete_count;
     BinlogRepairContext repair_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     SFBinlogFilePosition *replica;
@@ -602,7 +616,10 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     {
         return result;
     }
+    repair_ctx.ctx = ctx;
 
+    total_keep_count = 0;
+    total_delete_count = 0;
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
         index = replica - ctx->positions.replicas;
@@ -617,6 +634,23 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
         if ((result=binlog_repair(&repair_ctx)) != 0) {
             break;
         }
+
+        total_keep_count += repair_ctx.keep_count;
+        if (repair_ctx.delete_count > 0) {
+            total_delete_count += repair_ctx.delete_count;
+            logInfo("file: "__FILE__", line: %d, "
+                    "repair replica binlog for data group id: %d, "
+                    "keep count: %"PRId64", delete count: %"PRId64,
+                    __LINE__, data_group_id, repair_ctx.keep_count,
+                    repair_ctx.delete_count);
+        }
+    }
+
+    if (result == 0 && total_delete_count > 0) {
+        logInfo("file: "__FILE__", line: %d, "
+                "repair %d replica binlogs done, total keep count: %"PRId64
+                ", total delete count: %"PRId64, __LINE__, ctx->positions.
+                dg_count, total_keep_count, total_delete_count);
     }
 
     repair_context_destroy(&repair_ctx);
@@ -638,8 +672,14 @@ int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx)
     repair_ctx.input.subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
     repair_ctx.input.writer = slice_binlog_get_writer();
     repair_ctx.input.pos = &ctx->positions.slice;
-    result = binlog_repair(&repair_ctx);
-
+    if ((result=binlog_repair(&repair_ctx)) == 0) {
+        if (repair_ctx.delete_count > 0) {
+            logInfo("file: "__FILE__", line: %d, "
+                    "repair slice binlog done, keep count: %"PRId64", "
+                    "delete count: %"PRId64, __LINE__, repair_ctx.
+                    keep_count, repair_ctx.delete_count);
+        }
+    }
     repair_context_destroy(&repair_ctx);
     return result;
 }

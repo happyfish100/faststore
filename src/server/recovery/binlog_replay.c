@@ -258,6 +258,14 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
             operation = DATA_OPERATION_SLICE_DELETE;
             success_ptr = &thread_ctx->stat.remove.success;
             break;
+        case BINLOG_OP_TYPE_DEL_BLOCK:
+            thread_ctx->stat.remove.total++;
+            operation = DATA_OPERATION_BLOCK_DELETE;
+            success_ptr = &thread_ctx->stat.remove.success;
+            break;
+        case BINLOG_OP_TYPE_NO_OP:
+            log_padding = true;
+            break;
         default:
             logError("file: "__FILE__", line: %d, "
                     "unkown op type: %c (0x%02x)",
@@ -284,7 +292,9 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
         if (result == 0) {
             (*success_ptr)++;
         } else if (result == ENOENT) {
-            if (operation == DATA_OPERATION_SLICE_DELETE) {
+            if (operation == DATA_OPERATION_SLICE_DELETE ||
+                    operation == DATA_OPERATION_BLOCK_DELETE)
+            {
                 result = 0;
                 log_padding = true;
                 thread_ctx->stat.remove.ignore++;
