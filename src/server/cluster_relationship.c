@@ -970,7 +970,9 @@ static int cluster_select_leader()
         }
         if ((active_count == CLUSTER_SERVER_ARRAY.count) ||
                 (active_count >= 2 && (server_status.is_leader ||
-                                       server_status.leader_hint)))
+                                       server_status.leader_hint)) ||
+                (start_time - server_status.last_heartbeat_time <=
+                 LEADER_ELECTION_LOST_TIMEOUT + 1))
         {
             break;
         }
