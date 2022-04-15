@@ -35,7 +35,6 @@ extern "C" {
 
 int server_storage_init();
 void server_storage_destroy();
-void server_storage_terminate();
 
 #ifdef __cplusplus
 }

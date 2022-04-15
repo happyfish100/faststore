@@ -139,7 +139,3 @@ void server_binlog_destroy()
     slice_binlog_destroy();
     replica_binlog_destroy();
 }
- 
-void server_binlog_terminate()
-{
-}

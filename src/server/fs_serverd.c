@@ -393,7 +393,6 @@ int main(int argc, char *argv[])
     }
 
     trunk_write_thread_terminate();
-    server_binlog_terminate();
     server_replication_terminate();
     server_recovery_terminate();
 
@@ -408,6 +407,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    server_binlog_destroy();
     server_storage_destroy();
     sf_service_destroy();
 
