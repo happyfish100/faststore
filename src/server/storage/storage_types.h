@@ -149,6 +149,7 @@ typedef struct fs_slice_op_context {
     } info;
 
     struct {
+        int timestamp;      //for log to binlog
         int space_changed;  //increase /decrease space in bytes for slice operate
         FSSliceSNPairArray sarray;
     } update;  //for slice update
