@@ -140,6 +140,27 @@ extern "C" {
     int replica_binlog_unpack_records(const string_t *buffer,
             ReplicaBinlogRecord *records, const int size, int *count);
 
+    static inline int replica_binlog_log_slice_to_buff(const time_t
+            current_time, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key, const int source,
+            const int op_type, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64" %d %d\n", (int64_t)current_time, data_version,
+                source, op_type, bs_key->block.oid, bs_key->block.offset,
+                bs_key->slice.offset, bs_key->slice.length);
+    }
+
+    static inline int replica_binlog_log_block_to_buff(const time_t
+            current_time, const int64_t data_version,
+            const FSBlockKey *bkey, const int source,
+            const int op_type, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64"\n", (int64_t)current_time, data_version,
+                source, op_type, bkey->oid, bkey->offset);
+    }
+
     int replica_binlog_log_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
             const FSBlockSliceKeyInfo *bs_key, const int source,

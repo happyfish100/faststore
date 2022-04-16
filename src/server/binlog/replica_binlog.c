@@ -439,11 +439,8 @@ int replica_binlog_log_slice(const time_t current_time,
     }
 
     wbuffer->tag = source;
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
-            (int64_t)current_time, data_version, source,
-            op_type, bs_key->block.oid, bs_key->block.offset,
-            bs_key->slice.offset, bs_key->slice.length);
+    wbuffer->bf.length = replica_binlog_log_slice_to_buff(current_time,
+            data_version, bs_key, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
@@ -462,10 +459,8 @@ int replica_binlog_log_block(const time_t current_time,
     }
 
     wbuffer->tag = source;
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
-            (int64_t)current_time, data_version,
-            source, op_type, bkey->oid, bkey->offset);
+    wbuffer->bf.length = replica_binlog_log_block_to_buff(current_time,
+            data_version, bkey, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
