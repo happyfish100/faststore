@@ -50,6 +50,8 @@
 #define FS_THREAD_STAGE_CLEANUP    2
 #define FS_THREAD_STAGE_FINISHED   3
 
+#define BINLOG_REPLAY_POSITION_FILENAME  "position.mark"
+
 struct binlog_replay_context;
 struct replay_thread_context;
 
@@ -98,6 +100,12 @@ typedef struct replay_thread_context {
 
 typedef struct binlog_replay_context {
     volatile int continue_flag;
+
+    struct {
+        int fd;
+        char filename[PATH_MAX];
+    } position;
+
     int64_t start_time;
     int64_t total_count;
     int64_t start_data_version;
@@ -141,7 +149,7 @@ static int replay_task_alloc_init(void *element, void *args)
     task = (ReplayTaskInfo *)element;
     task->op_ctx.notify_func = slice_write_done_notify;
     task->op_ctx.info.source = BINLOG_SOURCE_REPLAY;
-    task->op_ctx.info.write_binlog.log_replica = true;
+    task->op_ctx.info.write_binlog.log_replica = false;
     task->op_ctx.info.buff = (char *)(task + 1);
 
     if ((result=fs_slice_array_init(&task->op_ctx.update.sarray)) != 0) {
@@ -224,6 +232,48 @@ static inline void binlog_replay_fail(BinlogReplayContext *replay_ctx)
     FC_ATOMIC_SET(replay_ctx->continue_flag, 0);
 }
 
+static int write_replay_position(BinlogReplayContext *replay_ctx,
+        const int64_t data_version)
+{
+    char buff[32];
+    int result;
+    int len;
+
+    if (lseek(replay_ctx->position.fd, 0, SEEK_SET) < 0) {
+        result = (errno != 0 ? errno : EIO);
+        logError("file: "__FILE__", line: %d, "
+                "lseek file %s fail, errno: %d, error info: %s",
+                __LINE__, replay_ctx->position.filename,
+                result, STRERROR(result));
+        return result;
+    }
+
+    len = sprintf(buff, "%-20"PRId64, data_version);
+    if (fc_safe_write(replay_ctx->position.fd, buff, len) != len) {
+        result = (errno != 0 ? errno : EIO);
+        logError("file: "__FILE__", line: %d, "
+                "write file %s fail, errno: %d, error info: %s",
+                __LINE__, replay_ctx->position.filename,
+                result, STRERROR(result));
+        return result;
+    }
+
+    if (fsync(replay_ctx->position.fd) != 0) {
+        result = (errno != 0 ? errno : EIO);
+        logError("file: "__FILE__", line: %d, "
+                "fsync file %s fail, errno: %d, error info: %s",
+                __LINE__, replay_ctx->position.filename,
+                result, STRERROR(result));
+        return result;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "write data version: %"PRId64" to position file %s",
+            __LINE__, data_version, replay_ctx->position.filename);
+
+    return 0;
+}
+
 static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
 {
     int result;
@@ -303,17 +353,14 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
     }
 
     if (result == 0) {
+        if (thread_ctx->common.total_count % 100 == 0) {
+            result = write_replay_position(replay_ctx,
+                    task->op_ctx.info.data_version);
+        }
+
         if (log_padding) {
             DataRecoveryContext *ctx;
-
             ctx = replay_ctx->recovery_ctx;
-            if ((result=replica_binlog_log_no_op(ctx->ds->dg->id,
-                            task->op_ctx.info.data_version,
-                            &task->op_ctx.info.bs_key.block)) != 0)
-            {
-                return result;
-            }
-
             FC_ATOMIC_SET(ctx->ds->data.version,
                     task->op_ctx.info.data_version);
         }
@@ -857,46 +904,131 @@ static void replay_finish(DataRecoveryContext *ctx)
     waiting_work_threads_exit(ctx);
 }
 
-static int do_replay_binlog(DataRecoveryContext *ctx)
+static inline const char *get_replay_position_filename(
+        DataRecoveryContext *ctx,
+        char *filename, const int size)
+{
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char filepath[PATH_MAX];
+
+    data_recovery_get_subdir_name(ctx,
+            RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
+            subdir_name);
+    sf_binlog_writer_get_filepath(DATA_PATH_STR, subdir_name,
+            filepath, sizeof(filepath));
+    snprintf(filename, size, "%s/%s", filepath,
+            BINLOG_REPLAY_POSITION_FILENAME);
+    return filename;
+}
+
+static inline int get_replay_last_data_version(BinlogReplayContext
+        *replay_ctx, uint64_t *last_data_version)
+{
+    const int64_t offset = 0;
+    int64_t file_size;
+    int result;
+    char buff[32];
+
+    if (access(replay_ctx->position.filename, F_OK) != 0) {
+        result = (errno != 0 ? errno : EPERM);
+        if (result == ENOENT) {
+            *last_data_version = 0;
+            return 0;
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "access file %s fail, errno: %d, error info: %s",
+                    __LINE__, replay_ctx->position.filename,
+                    result, STRERROR(result));
+            return result;
+        }
+    }
+
+    if ((result=getFileContentEx(replay_ctx->position.filename,
+                    buff, offset, &file_size)) != 0)
+    {
+        return result;
+    }
+
+    *last_data_version = strtoll(buff, NULL, 10);
+    return 0;
+}
+
+static int replay_prepare(DataRecoveryContext *ctx)
 {
     BinlogReplayContext *replay_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
     uint64_t last_data_version;
-    SFBinlogFilePosition position;
+    struct {
+        SFBinlogFilePosition holder;
+        SFBinlogFilePosition *ptr;
+    } position;
 
     replay_ctx = (BinlogReplayContext *)ctx->arg;
-    last_data_version = __sync_add_and_fetch(
-            &ctx->ds->data.version, 0);
+    get_replay_position_filename(ctx, replay_ctx->position.filename,
+            sizeof(replay_ctx->position.filename));
+    if ((result=get_replay_last_data_version(replay_ctx,
+                    &last_data_version)) != 0)
+    {
+        return result;
+    }
+
     data_recovery_get_subdir_name(ctx,
             RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
-    if ((result=replica_binlog_get_position_by_dv(subdir_name,
-                    NULL, last_data_version, &position, true)) == 0)
-    {
-        if ((result=binlog_read_thread_init(&replay_ctx->
-                        rdthread_ctx, subdir_name, NULL,
-                        &position, BINLOG_BUFFER_SIZE)) != 0)
+    if (last_data_version == 0) {
+        position.ptr = NULL;
+        result = 0;
+    } else {
+        position.ptr = &position.holder;
+        if ((result=replica_binlog_get_position_by_dv(subdir_name, NULL,
+                        last_data_version, &position.holder, true)) != 0)
         {
-            if (result == ENOENT) {
-                logWarning("file: "__FILE__", line: %d, "
-                        "%s, the replay / deduped binlog not exist, "
-                        "cleanup!", __LINE__, subdir_name);
-                data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
-            }
+            return result;
         }
     }
 
-    if (result != 0) {
+    if ((result=binlog_read_thread_init(&replay_ctx->
+                    rdthread_ctx, subdir_name, NULL,
+                    position.ptr, BINLOG_BUFFER_SIZE)) == 0)
+    {
+        if ((replay_ctx->position.fd=open(replay_ctx->position.filename,
+                        O_WRONLY | O_CREAT | O_TRUNC, 0644)) < 0)
+        {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, "
+                    "open file %s fail, errno: %d, error info: %s",
+                    __LINE__, replay_ctx->position.filename,
+                    result, STRERROR(result));
+        }
+    } else {
+        if (result == ENOENT) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "%s, the replay / deduped binlog not exist, "
+                    "cleanup!", __LINE__, subdir_name);
+            data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
+        }
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "%s, replay start offset: %"PRId64" ...",
+            __LINE__, subdir_name, (position.ptr != NULL ?
+                position.ptr->offset : 0));
+
+    return result;
+}
+
+static int do_replay_binlog(DataRecoveryContext *ctx)
+{
+    BinlogReplayContext *replay_ctx;
+    int result;
+
+    replay_ctx = (BinlogReplayContext *)ctx->arg;
+    if ((result=replay_prepare(ctx)) != 0) {
         waiting_work_threads_exit(ctx);
         return result;
     }
 
-    logDebug("file: "__FILE__", line: %d, "
-            "%s, replay start offset: %"PRId64" ...",
-            __LINE__, subdir_name, position.offset);
-
-    result = 0;
     while (SF_G_CONTINUE_FLAG && FC_ATOMIC_GET(
                 replay_ctx->continue_flag))
     {
@@ -909,11 +1041,9 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
 
         if (FC_LOG_BY_LEVEL(LOG_DEBUG)) {
             logDebug("data group id: %d, replay thread running stage: %d, "
-                    "errno: %d, buffer length: %d",
-                    ctx->ds->dg->id, FC_ATOMIC_GET(replay_ctx->
-                        replay_thread.common.stage),
-                    replay_ctx->r->err_no,
-                    replay_ctx->r->buffer.length);
+                    "errno: %d, buffer length: %d", ctx->ds->dg->id,
+                    FC_ATOMIC_GET(replay_ctx->replay_thread.common.stage),
+                    replay_ctx->r->err_no, replay_ctx->r->buffer.length);
         }
 
         if (replay_ctx->r->err_no == ENOENT) {
@@ -927,7 +1057,8 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
             break;
         }
 
-        binlog_read_thread_return_result_buffer(&replay_ctx->rdthread_ctx,
+        binlog_read_thread_return_result_buffer(
+                &replay_ctx->rdthread_ctx,
                 replay_ctx->r);
     }
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
@@ -937,9 +1068,16 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     }
     replay_finish(ctx);
 
-    if (result == 0 && __sync_add_and_fetch(&replay_ctx->fail_count, 0) > 0) {
-        return EBUSY;
+    if (result == 0) {
+        if (FC_ATOMIC_GET(replay_ctx->fail_count) > 0) {
+            result = EBUSY;
+        } else {
+            result = write_replay_position(replay_ctx,
+                    ctx->fetch.last_data_version);
+        }
     }
+    close(replay_ctx->position.fd);
+
     return result;
 }
 
@@ -1102,11 +1240,19 @@ int data_recovery_replay_binlog(DataRecoveryContext *ctx)
 
 int data_recovery_unlink_replay_binlog(DataRecoveryContext *ctx)
 {
-    char full_filename[PATH_MAX];
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char full_filename[PATH_MAX];
+    int result;
 
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
+    data_recovery_get_subdir_name(ctx,
+            RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
             subdir_name);
-    binlog_reader_get_filename(subdir_name, 0, full_filename, sizeof(full_filename));
+    binlog_reader_get_filename(subdir_name, 0,
+            full_filename, sizeof(full_filename));
+    if ((result=fc_delete_file(full_filename)) != 0) {
+        return result;
+    }
+
+    get_replay_position_filename(ctx, full_filename, sizeof(full_filename));
     return fc_delete_file(full_filename);
 }
