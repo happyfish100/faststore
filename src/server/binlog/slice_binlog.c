@@ -58,8 +58,7 @@ static int init_binlog_writer()
     }
 
     return sf_binlog_writer_init_thread(&binlog_writer.thread, "slice",
-            &binlog_writer.writer, SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,
-            FS_SLICE_BINLOG_MAX_RECORD_SIZE);
+            &binlog_writer.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 struct sf_binlog_writer_info *slice_binlog_get_writer()

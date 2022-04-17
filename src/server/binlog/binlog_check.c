@@ -214,8 +214,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
         }
 
         if ((fields.timestamp >= from_timestamp) &&
-                !BINLOG_IS_INTERNAL_RECORD(fields.op_type,
-                    fields.data_version))
+                FS_IS_BINLOG_SOURCE_RPC(fields.source))
         {
             fs_calc_block_hashcode(&fields.bkey);
             if ((result=check_alloc_version_array(varray)) != 0) {

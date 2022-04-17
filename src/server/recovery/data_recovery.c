@@ -306,6 +306,10 @@ static int waiting_binlog_write_done(DataRecoveryContext *ctx,
     char filename[PATH_MAX];
     char prompt[64];
 
+    if (waiting_data_version == 0) {
+        return 0;
+    }
+
     result = ETIMEDOUT;
     replica_binlog_get_subdir_name(subdir_name, ctx->ds->dg->id);
     for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
@@ -443,19 +447,29 @@ static int log_to_replica_binlog(DataRecoveryContext *ctx)
     uint64_t last_data_version;
     int result;
 
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
+            subdir_name);
     if ((result=replica_binlog_get_last_dv(ctx->ds->dg->id,
                     &last_data_version)) != 0)
     {
-        return result;
+        if (result != ENOENT) {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, get replica last data version "
+                    "fail, errno: %d, error info: %s", __LINE__,
+                    ctx->ds->dg->id, result, STRERROR(result));
+            return result;
+        }
+
+        position.index = 0;
+        position.offset = 0;
+    } else {
+        if ((result=replica_binlog_get_position_by_dv(subdir_name,
+                        NULL, last_data_version, &position, true)) != 0)
+        {
+            return result;
+        }
     }
 
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
-            subdir_name);
-    if ((result=replica_binlog_get_position_by_dv(subdir_name,
-                    NULL, last_data_version, &position, true)) != 0)
-    {
-        return result;
-    }
     if ((result=binlog_read_thread_init(&rdthread_ctx, subdir_name,
                     NULL, &position, BINLOG_BUFFER_SIZE)) != 0)
     {
@@ -491,18 +505,19 @@ static int log_to_replica_binlog(DataRecoveryContext *ctx)
     return result;
 }
 
-static int data_recovery_log_to_replica(DataRecoveryContext *ctx)
+static int data_recovery_log_to_replica(DataRecoveryContext *ctx,
+        const uint64_t old_data_version)
 {
     int result;
 
-    if ((result=waiting_binlog_write_done(ctx, FC_ATOMIC_GET(
-                        ctx->ds->data.version), "old")) != 0)
+    if ((result=waiting_binlog_write_done(ctx,
+                    old_data_version, "old")) != 0)
     {
         return result;
     }
 
     if ((result=replica_binlog_writer_change_order_by(ctx->ds,
-                    SF_BINLOG_THREAD_TYPE_ORDER_BY_NONE)) != 0)
+                    SF_BINLOG_WRITER_TYPE_ORDER_BY_NONE)) != 0)
     {
         return result;
     }
@@ -518,7 +533,7 @@ static int data_recovery_log_to_replica(DataRecoveryContext *ctx)
     }
 
     if ((result=replica_binlog_writer_change_order_by(ctx->ds,
-                    SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION)) != 0)
+                    SF_BINLOG_WRITER_TYPE_ORDER_BY_VERSION)) != 0)
     {
         return result;
     }
@@ -622,6 +637,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
     int64_t binlog_size;
     int64_t start_time;
     int64_t dedup_start_time;
+    uint64_t old_data_version;
 
     ctx->start_time = get_current_time_ms();
     start_time = 0;
@@ -671,6 +687,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             break;
     }
 
+    old_data_version = FC_ATOMIC_GET(ctx->ds->data.version);
     switch (ctx->stage) {
         case DATA_RECOVERY_STAGE_REPLAY:
             if ((result=data_recovery_replay_binlog(ctx)) != 0) {
@@ -682,7 +699,9 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                 return result;
             }
         case DATA_RECOVERY_STAGE_LOG:
-            if ((result=data_recovery_log_to_replica(ctx)) != 0) {
+            if ((result=data_recovery_log_to_replica(ctx,
+                            old_data_version)) != 0)
+            {
                 return result;
             }
 

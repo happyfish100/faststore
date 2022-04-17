@@ -259,7 +259,6 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
 
         if ((result=sf_binlog_writer_init_thread(&rctx->wctx.thread,
                         subdir_name, &rctx->wctx.writer,
-                        SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,
                         FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
         {
             return result;

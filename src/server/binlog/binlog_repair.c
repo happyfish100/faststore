@@ -344,8 +344,7 @@ static int binlog_filter_buffer(BinlogRepairContext *repair_ctx,
         }
 
         if ((fields.timestamp < repair_ctx->ctx->from_timestamp) ||
-                BINLOG_REPAIR_KEEP_RECORD(fields.op_type,
-                    fields.data_version))
+                BINLOG_REPAIR_KEEP_RECORD(fields.source))
         {
             keep = true;
         } else {
