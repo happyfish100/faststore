@@ -45,14 +45,15 @@ typedef struct {
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
 
-static inline void get_fetched_binlog_filename(DataRecoveryContext *ctx,
-        char *full_filename, const int size)
+static inline const char *data_recovery_get_fetched_binlog_filename(
+        DataRecoveryContext *ctx, char *full_filename, const int size)
 {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
 
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
             subdir_name);
     binlog_reader_get_filename(subdir_name, 0, full_filename, size);
+    return full_filename;
 }
 
 static int check_and_open_binlog_file(DataRecoveryContext *ctx)
@@ -66,7 +67,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     bool unlink_flag;
 
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
-    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+    data_recovery_get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     unlink_flag = false;
     ctx->fetch.last_data_version = __sync_fetch_and_add(
             &ctx->ds->data.version, 0);
@@ -656,7 +657,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         char full_filename[PATH_MAX];
         ReplicaBinlogRecord record;
 
-        get_fetched_binlog_filename(ctx,full_filename,
+        data_recovery_get_fetched_binlog_filename(ctx,full_filename,
                 sizeof(full_filename));
         if ((result=replica_binlog_get_last_record(
                         full_filename, &record)) == 0)
@@ -673,6 +674,7 @@ int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx)
 {
     char full_filename[PATH_MAX];
 
-    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+    data_recovery_get_fetched_binlog_filename(ctx,
+            full_filename, sizeof(full_filename));
     return fc_delete_file(full_filename);
 }

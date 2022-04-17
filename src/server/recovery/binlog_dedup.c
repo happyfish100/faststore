@@ -115,9 +115,8 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
             break;
         }
 
-        line_end++;
         line.str = p;
-        line.len = line_end - p;
+        line.len = ++line_end - p;
         if ((result=replica_binlog_record_unpack(&line,
                         &dedup_ctx->record, error_info)) != 0)
         {
@@ -194,7 +193,10 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                     result = 0;
                 }
                 break;
+            case BINLOG_OP_TYPE_NO_OP:
+                break;
             default:
+                result = EINVAL;
                 break;
         }
 
