@@ -235,6 +235,16 @@ int replica_binlog_set_my_data_version(const int data_group_id)
     return set_my_data_version(myself);
 }
 
+int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
+        *myself, const short order_by)
+{
+    SFBinlogWriterInfo *writer;
+
+    writer = binlog_writer_array.writers[myself->dg->id -
+        binlog_writer_array.base_id];
+    return sf_binlog_writer_change_order_by(writer, order_by);
+}
+
 int replica_binlog_init()
 {
     const bool use_fixed_buffer_size = true;
@@ -279,7 +289,7 @@ int replica_binlog_init()
     binlog_writer_array.base_id = min_id;
     writer = binlog_writer_array.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
-                    "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_FIXED,
+                    "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
                     SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,
                     FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
                     use_fixed_buffer_size)) != 0)
@@ -612,9 +622,12 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
             return result;
         }
 
-        if (last_data_version >= first_data_version) {
+        if (last_data_version + 1 >= first_data_version) {
             pos->index = binlog_index;
             pos->offset = 0;
+            if (last_data_version + 1 == first_data_version) {
+                return 0;
+            }
             return find_position(subdir_name, writer, last_data_version,
                     pos, ignore_dv_overflow);
         }
