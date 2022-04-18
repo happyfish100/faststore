@@ -939,6 +939,7 @@ static inline int get_replay_last_data_version(BinlogReplayContext
         }
     }
 
+    file_size = sizeof(buff);
     if ((result=getFileContentEx(replay_ctx->position.filename,
                     buff, offset, &file_size)) != 0)
     {

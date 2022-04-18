@@ -538,8 +538,8 @@ static int data_recovery_log_to_replica(DataRecoveryContext *ctx,
         return result;
     }
 
-    replica_binlog_set_data_version(ctx->ds, ctx->fetch.last_data_version);
-    return 0;
+    return replica_binlog_set_data_version(ctx->ds,
+            ctx->fetch.last_data_version);
 }
 
 static int proto_active_confirm(ConnectionInfo *conn,

@@ -232,7 +232,7 @@ extern "C" {
     int replica_binlog_reader_init(struct server_binlog_reader *reader,
             const int data_group_id, const uint64_t last_data_version);
 
-    bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
+    int replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
             const uint64_t new_version);
 
     int replica_binlog_set_my_data_version(const int data_group_id);
