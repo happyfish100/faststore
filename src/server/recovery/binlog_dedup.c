@@ -653,41 +653,6 @@ static int init_htables(DataRecoveryContext *ctx)
     return 0;
 }
 
-static int rename_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
-{
-    char fetch_subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    char replay_subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    char fetch_filename[PATH_MAX];
-    char replay_filename[PATH_MAX];
-    int result;
-
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
-            fetch_subdir_name);
-    binlog_reader_get_filename(fetch_subdir_name, 0,
-            fetch_filename, sizeof(fetch_filename));
-    if ((result=fc_get_file_line_count(fetch_filename, binlog_count)) == 0) {
-        logInfo("file: "__FILE__", line: %d, "
-                "dedup data group id: %d done, binlog count: %"PRId64,
-                __LINE__, ctx->ds->dg->id, *binlog_count);
-    }
-
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_REPLAY,
-            replay_subdir_name);
-    binlog_reader_get_filename(replay_subdir_name, 0,
-            replay_filename, sizeof(replay_filename));
-    
-    if (rename(fetch_filename, replay_filename) != 0) {
-        result = (errno != 0 ? errno : EPERM);
-        logError("file: "__FILE__", line: %d, "
-                "rename %s to %s fail, errno: %d, error info: %s",
-                __LINE__, fetch_filename, replay_filename,
-                result, STRERROR(result));
-        return result;
-    }
-
-    return 0;
-}
-
 int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 {
     int result;
@@ -695,11 +660,6 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
-
-    if (0) {
-        //TODO: remove me!
-        return rename_binlog(ctx, binlog_count);
-    }
 
     start_time = get_current_time_ms();
     memset(&dedup_ctx, 0, sizeof(dedup_ctx));

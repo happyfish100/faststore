@@ -267,10 +267,6 @@ static int write_replay_position(BinlogReplayContext *replay_ctx,
         return result;
     }
 
-    logInfo("file: "__FILE__", line: %d, "
-            "write data version: %"PRId64" to position file %s",
-            __LINE__, data_version, replay_ctx->position.filename);
-
     return 0;
 }
 
@@ -353,7 +349,7 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
     }
 
     if (result == 0) {
-        if (thread_ctx->common.total_count % 100 == 0) {
+        if (thread_ctx->common.total_count % 1000 == 0) {
             result = write_replay_position(replay_ctx,
                     task->op_ctx.info.data_version);
         }
@@ -1253,6 +1249,7 @@ int data_recovery_unlink_replay_binlog(DataRecoveryContext *ctx)
         return result;
     }
 
-    get_replay_position_filename(ctx, full_filename, sizeof(full_filename));
+    get_replay_position_filename(ctx, full_filename,
+            sizeof(full_filename));
     return fc_delete_file(full_filename);
 }
