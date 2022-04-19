@@ -666,6 +666,7 @@ int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx)
     {
         return result;
     }
+    repair_ctx.ctx = ctx;
 
     repair_ctx.input.data_group_id = 0;
     repair_ctx.input.subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
