@@ -1007,7 +1007,7 @@ static int replay_prepare(DataRecoveryContext *ctx)
         }
     }
 
-    logInfo("file: "__FILE__", line: %d, "
+    logDebug("file: "__FILE__", line: %d, "
             "%s, replay start offset: %"PRId64" ...",
             __LINE__, subdir_name, (position.ptr != NULL ?
                 position.ptr->offset : 0));

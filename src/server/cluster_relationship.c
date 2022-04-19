@@ -380,12 +380,12 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
-    sub = (int)status1->leader_hint - (int)status2->leader_hint;
-    if (sub != 0) {
+    sub = status1->last_heartbeat_time - status2->last_heartbeat_time;
+    if (!(sub >= -3 && sub <= 3)) {
         return sub;
     }
 
-    sub = status1->last_heartbeat_time - status2->last_heartbeat_time;
+    sub = (int)status1->leader_hint - (int)status2->leader_hint;
     if (sub != 0) {
         return sub;
     }
