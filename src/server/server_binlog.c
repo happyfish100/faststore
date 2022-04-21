@@ -83,6 +83,9 @@ static int dump_slice_index()
     char filepath[PATH_MAX];
     char filename[PATH_MAX];
 
+    logInfo("file: "__FILE__", line: %d, "
+            "dump slices to file for debug ...", __LINE__);
+
     start_time_ms = get_current_time_ms();
     snprintf(filepath, sizeof(filepath), "%s/dump", DATA_PATH_STR);
     if ((result=fc_check_mkdir(filepath, 0755)) != 0) {
