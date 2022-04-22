@@ -1060,6 +1060,9 @@ static int do_replay_binlog(DataRecoveryContext *ctx)
     }
     binlog_read_thread_terminate(&replay_ctx->rdthread_ctx);
 
+    if (!SF_G_CONTINUE_FLAG && result == 0) {
+        result = EINTR;
+    }
     if (result != 0) {
         binlog_replay_fail(replay_ctx);
     }

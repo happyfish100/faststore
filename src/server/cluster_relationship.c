@@ -945,7 +945,7 @@ static int cluster_select_leader()
     int max_sleep_secs;
     int sleep_secs;
     int remain_time;
-    bool log_connect_error;
+    bool need_log;
     bool force_sleep;
     time_t start_time;
     time_t last_log_time;
@@ -969,15 +969,20 @@ static int cluster_select_leader()
     max_sleep_secs = 1;
     i = 0;
     while (CLUSTER_LEADER_ATOM_PTR == NULL) {
-        if (sleep_secs > 1 || g_current_time - last_log_time >= 10) {
-            log_connect_error = true;
+        if (sleep_secs > 1) {
+            need_log = true;
             last_log_time = g_current_time;
+        } else if (g_current_time - last_log_time > 8) {
+            need_log = ((i + 1) % 10 == 0);
+            if (need_log) {
+                last_log_time = g_current_time;
+            }
         } else {
-            log_connect_error = false;
+            need_log = false;
         }
 
         if ((result=cluster_get_leader(&server_status,
-                        log_connect_error, &active_count)) != 0)
+                        need_log, &active_count)) != 0)
         {
             return result;
         }
@@ -988,7 +993,7 @@ static int cluster_select_leader()
                 !FORCE_LEADER_ELECTION)
         {
             sleep_secs = 1;
-            if (log_connect_error) {
+            if (need_log) {
                 logWarning("file: "__FILE__", line: %d, "
                         "round %dth select leader fail because alive server "
                         "count: %d < half of total server count: %d, "
@@ -1050,7 +1055,7 @@ static int cluster_select_leader()
             }
         }
 
-        if (log_connect_error) {
+        if (need_log) {
             logWarning("file: "__FILE__", line: %d, "
                     "round %dth select leader, alive server count: %d "
                     "< server count: %d, %stry again after %d seconds.",
