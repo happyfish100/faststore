@@ -50,6 +50,7 @@ static inline void set_data_version(FSSliceOpContext *op_ctx)
 {
     uint64_t old_version;
 
+    op_ctx->update.timestamp = g_current_time;
     if (!op_ctx->info.write_binlog.log_replica) {
         return;
     }
@@ -74,50 +75,33 @@ static inline void set_data_version(FSSliceOpContext *op_ctx)
     }
 }
 
-static inline void free_slice_array(FSSliceSNPairArray *array)
-{
-    FSSliceSNPair *slice_sn_pair;
-    FSSliceSNPair *slice_sn_end;
-
-    slice_sn_end = array->slice_sn_pairs + array->count;
-    for (slice_sn_pair=array->slice_sn_pairs;
-            slice_sn_pair<slice_sn_end; slice_sn_pair++)
-    {
-        ob_index_free_slice(slice_sn_pair->slice);
-    }
-    array->count = 0;
-}
-
 int fs_log_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
-    time_t current_time;
     int result;
 
     result = 0;
-    current_time = g_current_time;
     slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
         op_ctx->update.sarray.count;
     for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
         if ((result=slice_binlog_log_add_slice(slice_sn_pair->slice,
-                        current_time, slice_sn_pair->sn, op_ctx->info.
-                        data_version, op_ctx->info.source)) != 0)
+                        op_ctx->update.timestamp, slice_sn_pair->sn,
+                        op_ctx->info.data_version, op_ctx->info.source)) != 0)
         {
             break;
         }
     }
 
     if (result == 0 && op_ctx->info.write_binlog.log_replica) {
-        result = replica_binlog_log_write_slice(current_time,
-                op_ctx->info.data_group_id, op_ctx->info.
-                data_version, &op_ctx->info.bs_key,
-                op_ctx->info.source);
+        result = replica_binlog_log_write_slice(op_ctx->update.timestamp,
+                op_ctx->info.data_group_id, op_ctx->info.data_version,
+                &op_ctx->info.bs_key, op_ctx->info.source);
     }
 
-    free_slice_array(&op_ctx->update.sarray);
+    fs_slice_array_release(&op_ctx->update.sarray);
     return result;
 }
 
@@ -154,7 +138,7 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
     } while (0);
 
     if (op_ctx->result != 0) {
-        free_slice_array(&op_ctx->update.sarray);
+        fs_slice_array_release(&op_ctx->update.sarray);
     }
 }
 
@@ -165,7 +149,8 @@ static void slice_write_done(struct trunk_write_io_buffer
 
     op_ctx = (FSSliceOpContext *)record->notify.arg;
     if (result == 0) {
-        op_ctx->done_bytes += record->slice->ssize.length;
+        __sync_add_and_fetch(&op_ctx->done_bytes,
+                record->slice->ssize.length);
     } else {
         op_ctx->result = result;
     }
@@ -552,6 +537,10 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         }
     }
 
+    if (count == 0) {   //NOT need to allocate space
+        return 0;
+    }
+
     do {
         if (op_ctx->update.sarray.alloc < count *
                 FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC)
@@ -602,7 +591,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
     }
 
     if (result != 0) {
-        free_slice_array(&op_ctx->update.sarray);
+        fs_slice_array_release(&op_ctx->update.sarray);
     }
 
     /*
@@ -618,17 +607,19 @@ int fs_log_slice_allocate(FSSliceOpContext *op_ctx)
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
     int result;
-    time_t current_time;
 
-    current_time = g_current_time;
+    if (op_ctx->update.sarray.count == 0) {  //NOT log when no change
+        return 0;
+    }
+
     slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +
         op_ctx->update.sarray.count;
     for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
         if ((result=slice_binlog_log_add_slice(slice_sn_pair->slice,
-                        current_time, slice_sn_pair->sn, op_ctx->info.
-                        data_version, op_ctx->info.source)) != 0)
+                        op_ctx->update.timestamp, slice_sn_pair->sn,
+                        op_ctx->info.data_version, op_ctx->info.source)) != 0)
         {
             return result;
         }
@@ -637,10 +628,9 @@ int fs_log_slice_allocate(FSSliceOpContext *op_ctx)
     }
 
     if (op_ctx->info.write_binlog.log_replica) {
-        if ((result=replica_binlog_log_alloc_slice(current_time,
-                        op_ctx->info.data_group_id, op_ctx->info.
-                        data_version, &op_ctx->info.bs_key,
-                        op_ctx->info.source)) != 0)
+        if ((result=replica_binlog_log_alloc_slice(op_ctx->update.timestamp,
+                        op_ctx->info.data_group_id, op_ctx->info.data_version,
+                        &op_ctx->info.bs_key, op_ctx->info.source)) != 0)
         {
             return result;
         }
@@ -658,7 +648,7 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
         const int result)
 {
     if (result == 0) {
-        op_ctx->done_bytes += slice->ssize.length;
+        __sync_add_and_fetch(&op_ctx->done_bytes, slice->ssize.length);
     } else {
         op_ctx->result = result;
     }
@@ -776,7 +766,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             {
                 return result;
             }
-            op_ctx->done_bytes += hole_len;
+            __sync_add_and_fetch(&op_ctx->done_bytes, hole_len);
 
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
@@ -850,7 +840,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
         if (hole_len > 0) {
             memset(ps, 0, hole_len);
             ps += hole_len;
-            op_ctx->done_bytes += hole_len;
+            __sync_add_and_fetch(&op_ctx->done_bytes, hole_len);
 
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
@@ -897,21 +887,18 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
 int fs_log_delete_slices(FSSliceOpContext *op_ctx)
 {
     int result;
-    time_t current_time;
 
-    current_time = g_current_time;
     if ((result=slice_binlog_log_del_slice(&op_ctx->info.bs_key,
-                    current_time, op_ctx->info.sn, op_ctx->info.
-                    data_version, op_ctx->info.source)) != 0)
+                    op_ctx->update.timestamp, op_ctx->info.sn,
+                    op_ctx->info.data_version, op_ctx->info.source)) != 0)
     {
         return result;
     }
 
     if (op_ctx->info.write_binlog.log_replica) {
-        return replica_binlog_log_del_slice(current_time,
-                op_ctx->info.data_group_id, op_ctx->info.
-                data_version, &op_ctx->info.bs_key,
-                op_ctx->info.source);
+        return replica_binlog_log_del_slice(op_ctx->update.timestamp,
+                op_ctx->info.data_group_id, op_ctx->info.data_version,
+                &op_ctx->info.bs_key, op_ctx->info.source);
     }
     return 0;
 }
@@ -933,21 +920,118 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
 int fs_log_delete_block(FSSliceOpContext *op_ctx)
 {
     int result;
-    time_t current_time;
 
-    current_time = g_current_time;
     if ((result=slice_binlog_log_del_block(&op_ctx->info.bs_key.block,
-                    current_time, op_ctx->info.sn, op_ctx->info.data_version,
-                    op_ctx->info.source)) != 0)
+                    op_ctx->update.timestamp, op_ctx->info.sn, op_ctx->info.
+                    data_version, op_ctx->info.source)) != 0)
     {
         return result;
     }
 
     if (op_ctx->info.write_binlog.log_replica) {
-        return replica_binlog_log_del_block(current_time,
+        return replica_binlog_log_del_block(op_ctx->update.timestamp,
                 op_ctx->info.data_group_id, op_ctx->info.data_version,
                 &op_ctx->info.bs_key.block, op_ctx->info.source);
     }
 
     return 0;
+}
+
+static void fs_slice_rw_done_callback(FSSliceOpContext *op_ctx,
+        FSSliceBlockedOpContext *bctx)
+{
+    PTHREAD_MUTEX_LOCK(&bctx->notify.lcp.lock);
+    bctx->notify.finished = true;
+    pthread_cond_signal(&bctx->notify.lcp.cond);
+    PTHREAD_MUTEX_UNLOCK(&bctx->notify.lcp.lock);
+}
+
+int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx)
+{
+    int result;
+
+    ob_index_init_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+
+#ifdef OS_LINUX
+    bctx->op_ctx.info.buffer_type = fs_buffer_type_array;
+    bctx->buffer_size = 0;
+    bctx->op_ctx.info.buff = NULL;
+#else
+    bctx->buffer_size = 256 * 1024;
+    bctx->op_ctx.info.buff = (char *)fc_malloc(bctx->buffer_size);
+    if (bctx->op_ctx.info.buff == NULL) {
+        return ENOMEM;
+    }
+#endif
+
+    if ((result=init_pthread_lock_cond_pair(&bctx->notify.lcp)) != 0) {
+        return result;
+    }
+
+    bctx->notify.finished = false;
+    bctx->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
+        fs_slice_rw_done_callback;
+    bctx->op_ctx.arg = bctx;
+    return 0;
+}
+
+void fs_slice_blocked_op_ctx_destroy(FSSliceBlockedOpContext *bctx)
+{
+    ob_index_free_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+    destroy_pthread_lock_cond_pair(&bctx->notify.lcp);
+
+#ifdef OS_LINUX
+#else
+    if (bctx->op_ctx.info.buff != NULL) {
+        free(bctx->op_ctx.info.buff);
+        bctx->op_ctx.info.buff = NULL;
+    }
+#endif
+}
+
+int fs_slice_blocked_read(FSSliceBlockedOpContext *bctx,
+        FSBlockSliceKeyInfo *bs_key, const int ignore_errno)
+{
+    int result;
+
+    bctx->op_ctx.info.bs_key = *bs_key;
+    bctx->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(bs_key->block);
+
+#ifdef OS_LINUX
+#else
+    if (bctx->buffer_size < bs_key->slice.length) {
+        char *buff;
+        int buffer_size;
+
+        buffer_size = bctx->buffer_size * 2;
+        while (buffer_size < bs_key->slice.length) {
+            buffer_size *= 2;
+        }
+        buff = (char *)fc_malloc(buffer_size);
+        if (buff == NULL) {
+            return ENOMEM;
+        }
+
+        free(bctx->op_ctx.info.buff);
+        bctx->op_ctx.info.buff = buff;
+        bctx->buffer_size = buffer_size;
+    }
+#endif
+
+    if ((result=fs_slice_read(&bctx->op_ctx)) == 0) {
+        PTHREAD_MUTEX_LOCK(&bctx->notify.lcp.lock);
+        while (!bctx->notify.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&bctx->notify.lcp.cond,
+                    &bctx->notify.lcp.lock);
+        }
+        result = bctx->notify.finished ? bctx->op_ctx.result : EINTR;
+        bctx->notify.finished = false;  /* reset for next call */
+        PTHREAD_MUTEX_UNLOCK(&bctx->notify.lcp.lock);
+    }
+
+    if (result != 0) {
+        fs_log_rw_error(&bctx->op_ctx, result, ignore_errno, "read");
+    }
+
+    return result;
 }

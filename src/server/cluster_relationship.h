@@ -23,6 +23,7 @@
 #include "fastcommon/fc_atomic.h"
 #include "server_types.h"
 #include "server_group_info.h"
+#include "master_election.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -61,7 +62,8 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
 
 void cluster_relationship_trigger_report_ds_status(FSClusterDataServerInfo *ds);
 
-int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
+void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master);
 
 void cluster_relationship_add_to_inactive_sarray(FSClusterServerInfo *cs);
@@ -71,12 +73,17 @@ void cluster_relationship_remove_from_inactive_sarray(FSClusterServerInfo *cs);
 static inline bool cluster_relationship_swap_server_status(
         FSClusterServerInfo *cs, const int old_status, const int new_status)
 {
-    if (__sync_bool_compare_and_swap(&cs->status, old_status, new_status)) {
+    bool success;
+
+    master_election_lock();
+    success = __sync_bool_compare_and_swap(&cs->status,
+            old_status, new_status);
+    master_election_unlock();
+
+    if (success) {
         cs->status_changed_time = g_current_time;
-        return true;
-    } else {
-        return false;
     }
+    return success;
 }
 
 static inline bool cluster_relationship_set_server_status(

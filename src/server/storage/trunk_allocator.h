@@ -19,6 +19,7 @@
 
 #include "fastcommon/uniq_skiplist.h"
 #include "fastcommon/fc_list.h"
+#include "sf/sf_buffered_writer.h"
 #include "../server_global.h"
 #include "trunk_freelist.h"
 #include "storage_config.h"
@@ -103,6 +104,9 @@ extern "C" {
 
     int trunk_allocator_free(FSTrunkAllocator *allocator,
             const int id, const int size);
+
+    int trunk_allocator_dump_trunks_to_file(FSTrunkAllocator *allocator,
+            SFBufferedWriter *writer, int64_t *trunk_count);
 
     int trunk_allocator_add_slice(FSTrunkAllocator *allocator,
             OBSliceEntry *slice);

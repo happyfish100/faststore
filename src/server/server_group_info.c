@@ -113,16 +113,19 @@ static int init_cluster_data_server_array(FSClusterDataGroupInfo *group)
         return ENOENT;
     }
 
-    bytes = sizeof(FSClusterDataServerInfo) * server_group->server_array.count;
-    group->data_server_array.servers = (FSClusterDataServerInfo *)fc_malloc(bytes);
+    bytes = sizeof(FSClusterDataServerInfo) *
+        server_group->server_array.count;
+    group->data_server_array.servers = fc_malloc(bytes);
     if (group->data_server_array.servers == NULL) {
         return ENOMEM;
     }
     memset(group->data_server_array.servers, 0, bytes);
     group->data_server_array.count = server_group->server_array.count;
 
-    master_index = group->hash_code % server_group->server_array.count;
-    end = server_group->server_array.servers + server_group->server_array.count;
+    master_index = group->election.hash_code %
+        server_group->server_array.count;
+    end = server_group->server_array.servers +
+        server_group->server_array.count;
     for (pp=server_group->server_array.servers,
             ds=group->data_server_array.servers;
             pp < end; pp++, ds++)
@@ -247,8 +250,7 @@ static int init_cluster_data_group_array(const char *filename,
         group = CLUSTER_DATA_RGOUP_ARRAY.groups + data_group_index;
         group->id = data_group_id;
         group->index = data_group_index;
-        group->hash_code = fs_cluster_cfg_get_dg_hash_code(
-                &CLUSTER_CONFIG_CTX, data_group_id - 1);
+        group->election.hash_code = i;
         if ((result=init_cluster_data_server_array(group)) != 0) {
             return result;
         }

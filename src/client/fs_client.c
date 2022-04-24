@@ -406,7 +406,9 @@ int fs_client_slice_write(FSClientContext *client_ctx,
 
     result = FS_CLIENT_SLICE_WRITE_BUF(client_ctx, &conn,
             bs_key, data, write_bytes, inc_alloc);
-    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    if (conn != NULL) {
+        SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    }
     return result;
 }
 
@@ -488,7 +490,9 @@ int fs_client_slice_writev(FSClientContext *client_ctx,
         }
     }
 
-    SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    if (conn != NULL) {
+        SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
+    }
     return result;
 }
 
@@ -556,18 +560,10 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
     }
 
     if (result == 0) {
-        return *read_bytes > 0 ? 0 : ENODATA;
+        return (*read_bytes > 0 ? 0 : ENODATA);
     } else {
         return SF_UNIX_ERRNO(result, EIO);
     }
-/*
-    if (*read_bytes > 0) {
-        return 0;
-        //return result == ENODATA ? 0 : result;
-    } else {
-        return  ? ENODATA : result;
-    }
-    */
 }
 
 #define GET_MASTER_CONNECTION(cm, arg1, result)        \

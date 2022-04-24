@@ -23,12 +23,6 @@
 #include "../storage/object_block_index.h"
 #include "binlog_types.h"
 
-#define REPLICA_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
-#define REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
-#define REPLICA_BINLOG_OP_TYPE_DEL_SLICE    BINLOG_OP_TYPE_DEL_SLICE
-#define REPLICA_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
-#define REPLICA_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
-
 struct server_binlog_reader;
 
 typedef struct replica_binlog_record {
@@ -136,6 +130,19 @@ extern "C" {
                 data_version, &position, &record_len);
     }
 
+    static inline int replica_binlog_get_last_dv(const int data_group_id,
+            uint64_t *data_version)
+    {
+        char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+        char filename[PATH_MAX];
+
+        replica_binlog_get_subdir_name(subdir_name, data_group_id);
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                replica_binlog_get_current_write_index(
+                    data_group_id), filename, sizeof(filename));
+        return replica_binlog_get_last_data_version(filename, data_version);
+    }
+
     int replica_binlog_get_position_by_dv(const char *subdir_name,
             SFBinlogWriterInfo *writer, const uint64_t last_data_version,
             SFBinlogFilePosition *pos, const bool ignore_dv_overflow);
@@ -145,6 +152,27 @@ extern "C" {
 
     int replica_binlog_unpack_records(const string_t *buffer,
             ReplicaBinlogRecord *records, const int size, int *count);
+
+    static inline int replica_binlog_log_slice_to_buff(const time_t
+            current_time, const int64_t data_version,
+            const FSBlockSliceKeyInfo *bs_key, const int source,
+            const int op_type, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64" %d %d\n", (int64_t)current_time, data_version,
+                source, op_type, bs_key->block.oid, bs_key->block.offset,
+                bs_key->slice.offset, bs_key->slice.length);
+    }
+
+    static inline int replica_binlog_log_block_to_buff(const time_t
+            current_time, const int64_t data_version,
+            const FSBlockKey *bkey, const int source,
+            const int op_type, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64"\n", (int64_t)current_time, data_version,
+                source, op_type, bkey->oid, bkey->offset);
+    }
 
     int replica_binlog_log_slice(const time_t current_time,
             const int data_group_id, const int64_t data_version,
@@ -161,7 +189,7 @@ extern "C" {
     {
         return replica_binlog_log_block(current_time, data_group_id,
                 data_version, bkey, source,
-                REPLICA_BINLOG_OP_TYPE_DEL_BLOCK);
+                BINLOG_OP_TYPE_DEL_BLOCK);
     }
 
     static inline int replica_binlog_log_no_op(const int data_group_id,
@@ -169,7 +197,7 @@ extern "C" {
     {
         return replica_binlog_log_block(g_current_time, data_group_id,
                 data_version, bkey, BINLOG_SOURCE_REPLAY,
-                REPLICA_BINLOG_OP_TYPE_NO_OP);
+                BINLOG_OP_TYPE_NO_OP);
     }
 
     static inline int replica_binlog_log_write_slice(const time_t current_time,
@@ -178,7 +206,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_WRITE_SLICE);
+                BINLOG_OP_TYPE_WRITE_SLICE);
     }
 
     static inline int replica_binlog_log_alloc_slice(const time_t current_time,
@@ -187,7 +215,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE);
+                BINLOG_OP_TYPE_ALLOC_SLICE);
     }
 
     static inline int replica_binlog_log_del_slice(const time_t current_time,
@@ -196,7 +224,7 @@ extern "C" {
     {
         return replica_binlog_log_slice(current_time, data_group_id,
                 data_version, bs_key, source,
-                REPLICA_BINLOG_OP_TYPE_DEL_SLICE);
+                BINLOG_OP_TYPE_DEL_SLICE);
     }
 
     const char *replica_binlog_get_op_type_caption(const int op_type);
@@ -204,10 +232,13 @@ extern "C" {
     int replica_binlog_reader_init(struct server_binlog_reader *reader,
             const int data_group_id, const uint64_t last_data_version);
 
-    bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
+    int replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
             const uint64_t new_version);
 
     int replica_binlog_set_my_data_version(const int data_group_id);
+
+    int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
+            *myself, const short order_by);
 
     int replica_binlog_get_last_lines(const int data_group_id, char *buff,
             const int buff_size, int *count, int *length);

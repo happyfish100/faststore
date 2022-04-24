@@ -37,14 +37,7 @@
 #include "shared_thread_pool.h"
 #include "master_election.h"
 
-typedef struct fs_master_election_context {
-    volatile int is_running;
-    volatile int waiting_count;
-    struct common_blocked_queue queue;
-    struct common_blocked_queue delay_queue;
-} FSMasterElectionContext;
-
-static FSMasterElectionContext master_election_ctx = {0, 0};
+FSMasterElectionContext g_master_election_ctx = {0, 0};
 
 int master_election_init()
 {
@@ -58,15 +51,19 @@ int master_election_init()
     } else {
         alloc_elements_once = CLUSTER_DATA_RGOUP_ARRAY.count;
     }
-    if ((result=common_blocked_queue_init_ex(&master_election_ctx.
+    if ((result=common_blocked_queue_init_ex(&g_master_election_ctx.
                     queue, alloc_elements_once)) != 0)
     {
         return result;
     }
 
-    if ((result=common_blocked_queue_init_ex(&master_election_ctx.
+    if ((result=common_blocked_queue_init_ex(&g_master_election_ctx.
                     delay_queue, alloc_elements_once)) != 0)
     {
+        return result;
+    }
+
+    if ((result=init_pthread_lock(&g_master_election_ctx.lock)) != 0) {
         return result;
     }
 
@@ -80,12 +77,64 @@ void master_election_destroy()
 static inline int master_election_push_to_delay_queue(
         FSClusterDataGroupInfo *group)
 {
-    if (__sync_bool_compare_and_swap(&group->election.in_delay_queue, 0, 1)) {
-        return common_blocked_queue_push(&master_election_ctx.
+    if (__sync_bool_compare_and_swap(&group->election.
+                in_delay_queue, 0, 1))
+    {
+        return common_blocked_queue_push(&g_master_election_ctx.
                 delay_queue, group);
     }
 
     return 0;
+}
+
+bool master_election_set_master(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    bool success;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *ds_end;
+
+    master_election_lock();
+    if (new_master != NULL && FC_ATOMIC_GET(new_master->
+                cs->status) != FS_SERVER_STATUS_ACTIVE)
+    {
+        success = false;
+    } else {
+        success = __sync_bool_compare_and_swap(&group->master,
+                old_master, new_master);
+        if (success) {
+            if (old_master != NULL) {
+                __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
+            }
+            if (new_master != NULL) {
+                __sync_bool_compare_and_swap(&new_master->is_master, 0, 1);
+            }
+        }
+    }
+
+    if (success) {
+        ds_end = group->data_server_array.servers +
+            group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
+            if (ds != new_master && FC_ATOMIC_GET(ds->status) ==
+                    FS_DS_STATUS_ACTIVE)
+            {
+                __sync_bool_compare_and_swap(&ds->status,
+                        FS_DS_STATUS_ACTIVE, FS_DS_STATUS_OFFLINE);
+                cluster_topology_data_server_chg_notify(ds,
+                        FS_EVENT_SOURCE_CS_LEADER,
+                        FS_EVENT_TYPE_STATUS_CHANGE, true);
+            }
+        }
+    }
+    master_election_unlock();
+
+    if (success) {
+        cluster_relationship_on_master_change(group, old_master, new_master);
+    }
+
+    return success;
 }
 
 void master_election_unset_all_masters()
@@ -99,10 +148,7 @@ void master_election_unset_all_masters()
         master = (FSClusterDataServerInfo *)__sync_fetch_and_add(
                 &group->master, 0);
         if (master != NULL) {
-            if (__sync_bool_compare_and_swap(&group->master, master, NULL)) {
-                __sync_bool_compare_and_swap(&master->is_master, 1, 0);
-                cluster_relationship_on_master_change(master, NULL);
-
+            if (master_election_set_master(group, master, NULL)) {
                 cluster_topology_data_server_chg_notify(master,
                         FS_EVENT_SOURCE_CS_LEADER,
                         FS_EVENT_TYPE_MASTER_CHANGE, true);
@@ -314,7 +360,10 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     }
 
     if (max_data_version == -1) {
-        *result = ENOENT;
+        *result = EAGAIN;
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, no active server!",
+                __LINE__, group->id);
         return NULL;
     }
 
@@ -343,6 +392,9 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
 
     if (active_count == 0) {
         *result = ENOENT;
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, no active server!",
+                __LINE__, group->id);
         return NULL;
     }
 
@@ -351,10 +403,10 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return last;
     }
 
-    master_index = group->hash_code % active_count;
+    master_index = group->election.hash_code % active_count;
     /*
     logInfo("data_group_id: %d, active_count: %d, master_index: %d, hash_code: %d",
-            group->id, active_count, master_index, group->hash_code);
+            group->id, active_count, master_index, group->election.hash_code);
             */
 
     ds = online_data_servers[master_index];
@@ -372,7 +424,7 @@ static int master_election_select_master(FSClusterDataGroupInfo *group)
     FSClusterDataServerInfo *master;
     int result;
 
-    if (__sync_add_and_fetch(&group->master, 0) != NULL) {
+    if (FC_ATOMIC_GET(group->master) != NULL) {
         return 0;
     }
 
@@ -381,12 +433,10 @@ static int master_election_select_master(FSClusterDataGroupInfo *group)
         return result;
     }
 
-    if (__sync_bool_compare_and_swap(&group->master, NULL, master)) {
+    if (master_election_set_master(group, NULL, master)) {
         int64_t time_used;
         char time_buff[32];
 
-        __sync_bool_compare_and_swap(&master->is_master, 0, 1);
-        cluster_relationship_on_master_change(NULL, master);
         cluster_topology_data_server_chg_notify(master,
                 FS_EVENT_SOURCE_CS_LEADER,
                 FS_EVENT_TYPE_MASTER_CHANGE, true);
@@ -398,10 +448,12 @@ static int master_election_select_master(FSClusterDataGroupInfo *group)
                 "is_preseted: %d, retry count: %d, time used: %s ms",
                 __LINE__, group->id, master->cs->server->id,
                 master->is_preseted, group->election.retry_count, time_buff);
+    } else if (FC_ATOMIC_GET(group->master) == NULL) {
+        return EAGAIN;
     }
+
     group->election.start_time_ms = 0;
     group->election.retry_count = 0;
-
     return 0;
 }
 
@@ -416,13 +468,17 @@ static void select_master_thread_run(void *arg, void *thread_data)
 
     while (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         if ((group=(FSClusterDataGroupInfo *)common_blocked_queue_timedpop_sec(
-                        &master_election_ctx.queue, timeout)) == NULL)
+                        &g_master_election_ctx.queue, timeout)) == NULL)
         {
             break;
         }
 
-        FC_ATOMIC_DEC(master_election_ctx.waiting_count);
         __sync_bool_compare_and_swap(&group->election.in_queue, 1, 0);
+        FC_ATOMIC_DEC(g_master_election_ctx.waiting_count);
+
+        if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+            break;
+        }
 
         result = master_election_select_master(group);
         if (result == EAGAIN) {
@@ -430,15 +486,16 @@ static void select_master_thread_run(void *arg, void *thread_data)
         }
     }
 
+    __sync_bool_compare_and_swap(&g_master_election_ctx.is_running, 1, 0);
     logDebug("file: "__FILE__", line: %d, "
             "select_master_thread exit.", __LINE__);
-
-    __sync_bool_compare_and_swap(&master_election_ctx.is_running, 1, 0);
 }
 
 static inline int master_election_thread_start()
 {
-    if (__sync_bool_compare_and_swap(&master_election_ctx.is_running, 0, 1)) {
+    if (__sync_bool_compare_and_swap(&g_master_election_ctx.
+                is_running, 0, 1))
+    {
         return shared_thread_pool_run(select_master_thread_run, NULL);
     } else {
         return 0;
@@ -452,46 +509,55 @@ void master_election_deal_delay_queue()
     FSClusterDataGroupInfo *group;
 
     if ((node=common_blocked_queue_try_pop_all_nodes(
-                    &master_election_ctx.delay_queue)) != NULL)
+                    &g_master_election_ctx.delay_queue)) != NULL)
     {
         current = node;
         do {
             group = (FSClusterDataGroupInfo *)current->data;
-            if (__sync_add_and_fetch(&group->master, 0) == NULL) {
+            __sync_bool_compare_and_swap(&group->
+                    election.in_delay_queue, 1, 0);
+            if (FC_ATOMIC_GET(group->master) == NULL) {
                 master_election_queue_push(group);
             }
-            __sync_bool_compare_and_swap(&group->election.in_delay_queue, 1, 0);
 
             current = current->next;
         } while (current != NULL);
 
-        common_blocked_queue_free_all_nodes(&master_election_ctx.
+        common_blocked_queue_free_all_nodes(
+                &g_master_election_ctx.
                 delay_queue, node);
-    }
-
-    /* check for rare case */
-    if (FC_ATOMIC_GET(master_election_ctx.waiting_count) > 0 &&
-            FC_ATOMIC_GET(master_election_ctx.is_running) == 0)
-    {
-        master_election_thread_start();
     }
 }
 
 int master_election_queue_push(FSClusterDataGroupInfo *group)
 {
     int result;
+    int i;
+    int waiting_count;
 
-    if (FC_ATOMIC_GET(master_election_ctx.is_running) == 0) {
+    if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
         master_election_thread_start();
     }
 
     if (__sync_bool_compare_and_swap(&group->election.in_queue, 0, 1)) {
-        if ((result=common_blocked_queue_push(&master_election_ctx.
-                        queue, group)) == 0)
+        waiting_count = FC_ATOMIC_INC(g_master_election_ctx.waiting_count);
+        if ((result=common_blocked_queue_push(&g_master_election_ctx.
+                        queue, group)) != 0)
         {
-            FC_ATOMIC_INC(master_election_ctx.waiting_count);
+            FC_ATOMIC_DEC(g_master_election_ctx.waiting_count);
+            return result;
         }
-        return result;
+
+        /* check to start election thread for rare case */
+        i = 0;
+        while ((FC_ATOMIC_GET(g_master_election_ctx.waiting_count) ==
+                    waiting_count) && i++ < 10)
+        {
+            if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
+                master_election_thread_start();
+            }
+            fc_sleep_ms(10);
+        }
     }
 
     return 0;

@@ -126,13 +126,13 @@ typedef struct fs_slice_op_context {
     void *arg;  //for signal data thread or nio task
     volatile short counter;
     short result;
-    int done_bytes;
+    volatile int done_bytes;
 
     struct {
         bool deal_done;  //for continue deal check
         bool is_update;
         struct {
-            bool log_replica;  //false for trunk reclaim
+            bool log_replica;  //false for trunk reclaim and data rebuild
         } write_binlog;
         char source;           //for binlog write
         int data_group_id;
@@ -149,11 +149,12 @@ typedef struct fs_slice_op_context {
     } info;
 
     struct {
+        int timestamp;      //for log to binlog
         int space_changed;  //increase /decrease space in bytes for slice operate
         FSSliceSNPairArray sarray;
     } update;  //for slice update
 
-    struct ob_slice_ptr_array slice_ptr_array;
+    struct ob_slice_ptr_array slice_ptr_array;  //for slice read
 
 #ifdef OS_LINUX
     iovec_array_t iovec_array;
@@ -166,6 +167,15 @@ typedef struct fs_slice_op_buffer_context {
     FSSliceOpContext op_ctx;
     SharedBuffer *buffer;
 } FSSliceOpBufferContext;
+
+typedef struct fs_slice_blocked_op_context {
+    FSSliceOpContext op_ctx;
+    int buffer_size;
+    struct {
+        bool finished;
+        pthread_lock_cond_pair_t lcp; //for notify
+    } notify;
+} FSSliceBlockedOpContext;
 
 typedef struct fs_trunk_file_info {
     struct fs_trunk_allocator *allocator;
@@ -183,6 +193,7 @@ typedef struct fs_trunk_file_info {
         struct fs_trunk_file_info *next;
     } alloc;  //for space allocate
 
+    volatile int reffer_count;  //for waiting slice write done
     struct {
         volatile char event;
         int64_t last_used_bytes;

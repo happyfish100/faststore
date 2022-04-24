@@ -175,29 +175,15 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     return 0;
 }
 
-bool replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
+int replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
         const uint64_t new_version)
 {
     SFBinlogWriterInfo *writer;
-    uint64_t old_version;
 
     writer = binlog_writer_array.writers[myself->dg->id -
         binlog_writer_array.base_id];
-    while (1) {
-        old_version = __sync_fetch_and_add(&myself->data.version, 0);
-        if (old_version == new_version) {
-            break;
-        }
-
-        if (__sync_bool_compare_and_swap(&myself->data.version,
-                    old_version, new_version))
-        {
-            sf_binlog_writer_change_next_version(writer, new_version + 1);
-            return true;
-        }
-    }
-
-    return false;
+    FC_ATOMIC_SET(myself->data.version, new_version);
+    return sf_binlog_writer_change_next_version(writer, new_version + 1);
 }
 
 static int set_my_data_version(FSClusterDataServerInfo *myself)
@@ -213,14 +199,15 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
     }
 
     old_version = __sync_fetch_and_add(&myself->data.version, 0);
-    if (replica_binlog_set_data_version(myself, new_version)) {
+    if (new_version != old_version) {
+        result = replica_binlog_set_data_version(myself, new_version);
         logDebug("file: "__FILE__", line: %d, data_group_id: %d, "
                 "old version: %"PRId64", new version: %"PRId64,
                 __LINE__, myself->dg->id, old_version,
                 myself->data.version);
     }
 
-    return 0;
+    return result;
 }
 
 int replica_binlog_set_my_data_version(const int data_group_id)
@@ -233,6 +220,16 @@ int replica_binlog_set_my_data_version(const int data_group_id)
         return ENOENT;
     }
     return set_my_data_version(myself);
+}
+
+int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
+        *myself, const short order_by)
+{
+    SFBinlogWriterInfo *writer;
+
+    writer = binlog_writer_array.writers[myself->dg->id -
+        binlog_writer_array.base_id];
+    return sf_binlog_writer_change_order_by(writer, order_by);
 }
 
 int replica_binlog_init()
@@ -279,8 +276,7 @@ int replica_binlog_init()
     binlog_writer_array.base_id = min_id;
     writer = binlog_writer_array.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
-                    "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_FIXED,
-                    SF_BINLOG_THREAD_TYPE_ORDER_BY_VERSION,
+                    "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
                     FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
                     use_fixed_buffer_size)) != 0)
     {
@@ -397,13 +393,13 @@ int replica_binlog_record_unpack(const string_t *line,
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
             BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
     switch (record->op_type) {
-        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
-        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             result = unpack_slice_record(cols, count, record, error_info);
             break;
-        case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
-        case REPLICA_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_NO_OP:
             result = unpack_block_record(cols, count, record, error_info);
             break;
         default:
@@ -439,11 +435,8 @@ int replica_binlog_log_slice(const time_t current_time,
     }
 
     wbuffer->tag = source;
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
-            (int64_t)current_time, data_version, source,
-            op_type, bs_key->block.oid, bs_key->block.offset,
-            bs_key->slice.offset, bs_key->slice.length);
+    wbuffer->bf.length = replica_binlog_log_slice_to_buff(current_time,
+            data_version, bs_key, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
@@ -462,10 +455,8 @@ int replica_binlog_log_block(const time_t current_time,
     }
 
     wbuffer->tag = source;
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
-            (int64_t)current_time, data_version,
-            source, op_type, bkey->oid, bkey->offset);
+    wbuffer->bf.length = replica_binlog_log_block_to_buff(current_time,
+            data_version, bkey, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
     return 0;
 }
@@ -617,9 +608,12 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
             return result;
         }
 
-        if (last_data_version >= first_data_version) {
+        if (last_data_version + 1 >= first_data_version) {
             pos->index = binlog_index;
             pos->offset = 0;
+            if (last_data_version + 1 == first_data_version) {
+                return 0;
+            }
             return find_position(subdir_name, writer, last_data_version,
                     pos, ignore_dv_overflow);
         }
@@ -658,15 +652,15 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
 const char *replica_binlog_get_op_type_caption(const int op_type)
 {
     switch (op_type) {
-        case REPLICA_BINLOG_OP_TYPE_WRITE_SLICE:
+        case BINLOG_OP_TYPE_WRITE_SLICE:
             return "write slice";
-        case REPLICA_BINLOG_OP_TYPE_ALLOC_SLICE:
+        case BINLOG_OP_TYPE_ALLOC_SLICE:
             return "alloc slice";
-        case REPLICA_BINLOG_OP_TYPE_DEL_SLICE:
+        case BINLOG_OP_TYPE_DEL_SLICE:
             return "delete slice";
-        case REPLICA_BINLOG_OP_TYPE_DEL_BLOCK:
+        case BINLOG_OP_TYPE_DEL_BLOCK:
             return "delete block";
-        case REPLICA_BINLOG_OP_TYPE_NO_OP:
+        case BINLOG_OP_TYPE_NO_OP:
             return "no op";
         default:
             return "unkown";
@@ -747,8 +741,8 @@ static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
         return sub;
     }
 
-    if (r1->op_type == REPLICA_BINLOG_OP_TYPE_DEL_BLOCK ||
-        r1->op_type == REPLICA_BINLOG_OP_TYPE_NO_OP)
+    if (r1->op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
+        r1->op_type == BINLOG_OP_TYPE_NO_OP)
     {
         return 0;
     }

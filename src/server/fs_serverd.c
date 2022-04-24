@@ -41,6 +41,7 @@
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
 #include "common/fs_types.h"
+#include "client/fs_client.h"
 #include "server_types.h"
 #include "server_global.h"
 #include "server_func.h"
@@ -56,6 +57,7 @@
 #include "server_replication.h"
 #include "server_recovery.h"
 #include "storage/slice_op.h"
+#include "rebuild/store_path_rebuild.h"
 #include "dio/trunk_write_thread.h"
 #include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"
@@ -75,7 +77,7 @@ static int init_nio_task(struct fast_task_info *task)
     task->network_timeout = SF_G_NETWORK_TIMEOUT;
     slice_sn_parray = &((FSServerTaskArg *)task->arg)->
         context.slice_op_ctx.update.sarray;
-    return fs_init_slice_op_ctx(slice_sn_parray);
+    return fs_slice_array_init(slice_sn_parray);
 }
 
 static int parse_cmd_options(int argc, char *argv[])
@@ -83,17 +85,22 @@ static int parse_cmd_options(int argc, char *argv[])
     int ch;
     const struct option longopts[] = {
         {FS_FORCE_ELECTION_LONG_OPTION_STR, no_argument, NULL, 'f'},
+        {FS_DATA_REBUILD_LONG_OPTION_STR, required_argument, NULL, 'R'},
         {FS_MIGRATE_CLEAN_LONG_OPTION_STR, no_argument, NULL, 'C'},
         SF_COMMON_LONG_OPTIONS,
         {NULL, 0, NULL, 0}
     };
 
-    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"fC",
+    DATA_REBUILD_PATH_STR = NULL;
+    while ((ch = getopt_long(argc, argv, SF_COMMON_OPT_STRING"fCR:",
                     longopts, NULL)) != -1)
     {
         switch (ch) {
             case 'f':
                 FORCE_LEADER_ELECTION = true;
+                break;
+            case 'R':
+                DATA_REBUILD_PATH_STR = optarg;
                 break;
             case 'C':
                 MIGRATE_CLEAN_ENABLED = true;
@@ -103,6 +110,14 @@ static int parse_cmd_options(int argc, char *argv[])
             default:
                 break;
         }
+    }
+
+    if (DATA_REBUILD_PATH_STR != NULL && MIGRATE_CLEAN_ENABLED) {
+        fprintf(stderr, "Error: option --%s and --%s "
+                "can't appear at the same time!\n\n",
+                FS_DATA_REBUILD_LONG_OPTION_STR,
+                FS_MIGRATE_CLEAN_LONG_OPTION_STR);
+        return EINVAL;
     }
 
     return 0;
@@ -116,6 +131,11 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
              FS_FORCE_ELECTION_LONG_OPTION_LEN}, 'f', false,
         "-f | --"FS_FORCE_ELECTION_LONG_OPTION_STR
             ": force leader election"},
+
+        {{FS_DATA_REBUILD_LONG_OPTION_STR,
+             FS_DATA_REBUILD_LONG_OPTION_LEN}, 'R', true,
+        "-R | --"FS_DATA_REBUILD_LONG_OPTION_STR
+            " <store_path>: data rebuilding for the store path"},
 
         {{FS_MIGRATE_CLEAN_LONG_OPTION_STR,
              FS_MIGRATE_CLEAN_LONG_OPTION_LEN}, 'C', false,
@@ -295,20 +315,28 @@ int main(int argc, char *argv[])
         }
 
         if ((result=storage_allocator_prealloc_trunk_freelists()) != 0) {
-            return result;
+            break;
         }
 
         if ((result=server_recovery_init(config_filename)) != 0) {
             break;
         }
 
+        if ((result=store_path_rebuild_redo_step2()) != 0) {
+            break;
+        }
+
         if ((result=trunk_prealloc_init()) != 0) {
-            return result;
+            break;
         }
 
         if ((result=fcfs_auth_for_server_start(&AUTH_CTX)) != 0) {
             break;
         }
+
+        /* set read rule for data group recovery */
+        g_fs_client_vars.client_ctx.common_cfg.read_rule =
+            sf_data_read_rule_master_only;
 
         common_handler_init();
         //sched_print_all_entries();
@@ -365,7 +393,6 @@ int main(int argc, char *argv[])
     }
 
     trunk_write_thread_terminate();
-    server_binlog_terminate();
     server_replication_terminate();
     server_recovery_terminate();
 
@@ -380,6 +407,7 @@ int main(int argc, char *argv[])
         }
     }
 
+    server_binlog_destroy();
     server_storage_destroy();
     sf_service_destroy();
 

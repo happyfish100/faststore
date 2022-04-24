@@ -58,7 +58,7 @@ static int slice_op_buffer_ctx_init(void *element, void *args)
     FSSliceSNPairArray *slice_sn_parray;
     slice_sn_parray = &((FSSliceOpBufferContext *)
             element)->op_ctx.update.sarray;
-    return fs_init_slice_op_ctx(slice_sn_parray);
+    return fs_slice_array_init(slice_sn_parray);
 }
 
 int replication_callee_init_allocator(FSServerContext *server_context)

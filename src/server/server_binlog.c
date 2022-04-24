@@ -31,6 +31,7 @@
 #include "server_binlog.h"
 #include "binlog/binlog_check.h"
 #include "binlog/binlog_repair.h"
+#include "rebuild/store_path_rebuild.h"
 
 static int do_binlog_check()
 {
@@ -57,12 +58,54 @@ static int do_binlog_check()
         if (result == 0 && (flags & BINLOG_CHECK_RESULT_SLICE_DIRTY)) {
             result = binlog_consistency_repair_slice(&ctx);
         }
+
+        if (result == 0) {
+            logInfo("binlog_consistency_check from_timestamp: %d, "
+                    "replica count: %"PRId64", slice count: %"PRId64", "
+                    "flags: %d", (int)ctx.from_timestamp,
+                    ctx.version_arrays.replica.count,
+                    ctx.version_arrays.slice.count, flags);
+        }
     }
 
-    logInfo("binlog_consistency_check result: %d, flags: %d", result, flags);
     binlog_consistency_destroy(&ctx);
     return result;
 }
+
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
+static int dump_slice_index()
+{
+    int result;
+    int64_t total_slice_count;
+    int64_t start_time_ms;
+    int64_t end_time_ms;
+    char time_buff[32];
+    char filepath[PATH_MAX];
+    char filename[PATH_MAX];
+
+    logInfo("file: "__FILE__", line: %d, "
+            "dump slices to file for debug ...", __LINE__);
+
+    start_time_ms = get_current_time_ms();
+    snprintf(filepath, sizeof(filepath), "%s/dump", DATA_PATH_STR);
+    if ((result=fc_check_mkdir(filepath, 0755)) != 0) {
+        return result;
+    }
+
+    snprintf(filename, sizeof(filename), "%s/slice.index", filepath);
+    if ((result=ob_index_dump_slice_index_to_file(filename,
+                    &total_slice_count)) == 0)
+    {
+        end_time_ms = get_current_time_ms();
+        long_to_comma_str(end_time_ms - start_time_ms, time_buff);
+        logInfo("file: "__FILE__", line: %d, "
+                "dump %"PRId64" slices to file %s, time used: %s ms",
+                __LINE__, total_slice_count, filename, time_buff);
+    }
+
+    return result;
+}
+#endif
 
 int server_binlog_init()
 {
@@ -73,6 +116,10 @@ int server_binlog_init()
     }
 
     if ((result=replica_binlog_init()) != 0) {
+        return result;
+    }
+
+    if ((result=store_path_rebuild_redo_step1()) != 0) {
         return result;
     }
 
@@ -88,6 +135,12 @@ int server_binlog_init()
         return result;
     }
 
+#ifdef FS_DUMP_SLICE_FOR_DEBUG
+    if ((result=dump_slice_index()) != 0) {
+        return result;
+    }
+#endif
+
     return 0;
 }
 
@@ -95,8 +148,4 @@ void server_binlog_destroy()
 {
     slice_binlog_destroy();
     replica_binlog_destroy();
-}
- 
-void server_binlog_terminate()
-{
 }

@@ -107,16 +107,22 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     }
 
     if (op_type == FS_IO_TYPE_CREATE_TRUNK) {
-        if ((result=storage_allocator_add_trunk(path_index,
-                       &id_info, trunk_size)) != 0)
+        if (path_index == DATA_REBUILD_PATH_INDEX) {
+            DATA_REBUILD_TRUNK_COUNT++;
+            result = 0;
+        } else if ((result=storage_allocator_add_trunk(path_index,
+                        &id_info, trunk_size)) != 0)
         {
             snprintf(error_info, sizeof(error_info),
                     "add trunk fail, errno: %d, error info: %s",
                     result, STRERROR(result));
         }
     } else if (op_type == FS_IO_TYPE_DELETE_TRUNK) {
-        if ((result=storage_allocator_delete_trunk(path_index,
-                        &id_info)) != 0)
+        if (path_index == DATA_REBUILD_PATH_INDEX) {
+            DATA_REBUILD_TRUNK_COUNT--;
+            result = 0;
+        } else if ((result=storage_allocator_delete_trunk(
+                        path_index, &id_info)) != 0)
         {
             snprintf(error_info, sizeof(error_info),
                     "delete trunk fail, errno: %d, error info: %s",
@@ -138,9 +144,17 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     return result;
 }
 
-int trunk_sf_binlog_get_current_write_index()
+int trunk_binlog_get_current_write_index()
 {
     return sf_binlog_get_current_write_index(&binlog_writer.writer);
+}
+
+int trunk_binlog_set_binlog_index(const int binlog_index)
+{
+    /* force write to binlog index file */
+    binlog_writer.writer.fw.binlog.index = -1;
+    return sf_binlog_writer_set_binlog_index(&binlog_writer.
+            writer, binlog_index);
 }
 
 static int init_binlog_writer()
@@ -175,10 +189,8 @@ int trunk_binlog_write(const char op_type, const int path_index,
         return ENOMEM;
     }
 
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
-            "%d %c %d %"PRId64" %"PRId64" %"PRId64"\n",
-            (int)g_current_time, op_type, path_index, id_info->id,
-            id_info->subdir, file_size);
+    wbuffer->bf.length = trunk_binlog_log_to_buff(op_type,
+            path_index, id_info, file_size, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(&binlog_writer.thread, wbuffer);
     return 0;
 }

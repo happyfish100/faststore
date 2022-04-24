@@ -69,8 +69,8 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
                 new_status == FS_DS_STATUS_RECOVERING ||
                 new_status == FS_DS_STATUS_ONLINE)
         {
-            if (cluster_relationship_swap_report_ds_status(ds,
-                        new_status, old_status, FS_EVENT_SOURCE_SELF_REPORT))
+            if (cluster_relationship_swap_report_ds_status(ds, new_status,
+                        old_status, FS_EVENT_SOURCE_SELF_REPORT))
             {  //rollback status
                 logWarning("file: "__FILE__", line: %d, "
                         "data group id: %d, data recovery continuous fail "
@@ -208,7 +208,7 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
                 fc_sleep_ms(10);
                 break;
             }
-
+            //continue to deal
         case FS_DS_STATUS_OFFLINE:
             fc_thread_pool_run(&recovery_thread_ctx.tpool,
                     recovery_thread_run_task, ds);
@@ -229,7 +229,7 @@ static void *recovery_thread_entrance(void *arg)
     while (SF_G_CONTINUE_FLAG) {
         ds = (FSClusterDataServerInfo *)common_blocked_queue_pop(
                 &recovery_thread_ctx.queue);
-        if (ds != NULL) {
+        if (ds != NULL && CLUSTER_LEADER_ATOM_PTR != NULL) {
             recovery_thread_deal(ds);
         }
     }
@@ -283,7 +283,9 @@ int recovery_thread_check_push_to_queue(FSClusterDataServerInfo *ds)
         return EALREADY;
     }
 
-    if (FC_ATOMIC_GET(ds->dg->master) == NULL) {
+    if (FC_ATOMIC_GET(ds->dg->master) == NULL ||
+            CLUSTER_LEADER_ATOM_PTR == NULL)
+    {
         return ENOENT;
     }
 

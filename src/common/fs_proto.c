@@ -118,6 +118,14 @@ const char *fs_get_cmd_caption(const int cmd)
             return "PRE_SET_NEXT_LEADER";
         case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:
             return "COMMIT_NEXT_LEADER";
+        case FS_CLUSTER_PROTO_UNSET_MASTER_REQ:
+            return "UNSET_MASTER_REQ";
+        case FS_CLUSTER_PROTO_UNSET_MASTER_RESP:
+            return "UNSET_MASTER_RESP";
+        case FS_CLUSTER_PROTO_GET_DS_STATUS_REQ:
+            return "GET_DS_STATUS_REQ";
+        case FS_CLUSTER_PROTO_GET_DS_STATUS_RESP:
+            return "GET_DS_STATUS_RESP";
         case FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS:
             return "PUSH_DATA_SERVER_STATUS";
         case FS_REPLICA_PROTO_JOIN_SERVER_REQ:

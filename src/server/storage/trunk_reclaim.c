@@ -31,46 +31,19 @@
 #include "slice_op.h"
 #include "trunk_reclaim.h"
 
-static void reclaim_slice_rw_done_callback(FSSliceOpContext *op_ctx,
-        TrunkReclaimContext *rctx)
-{
-    PTHREAD_MUTEX_LOCK(&rctx->notify.lcp.lock);
-    rctx->notify.finished = true;
-    pthread_cond_signal(&rctx->notify.lcp.cond);
-    PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
-}
-
 int trunk_reclaim_init_ctx(TrunkReclaimContext *rctx)
 {
     int result;
 
-    ob_index_init_slice_ptr_array(&rctx->op_ctx.slice_ptr_array);
-    rctx->op_ctx.info.source = BINLOG_SOURCE_RECLAIM;
-    rctx->op_ctx.info.write_binlog.log_replica = false;
-    rctx->op_ctx.info.data_version = 0;
-    rctx->op_ctx.info.myself = NULL;
-
-#ifdef OS_LINUX
-    rctx->op_ctx.info.buffer_type = fs_buffer_type_array;
-    rctx->buffer_size = 0;
-    rctx->op_ctx.info.buff = NULL;
-#else
-    rctx->buffer_size = 256 * 1024;
-    rctx->op_ctx.info.buff = (char *)fc_malloc(rctx->buffer_size);
-    if (rctx->op_ctx.info.buff == NULL) {
-        return ENOMEM;
-    }
-#endif
-
-    if ((result=init_pthread_lock_cond_pair(&rctx->notify.lcp)) != 0) {
+    rctx->bctx.op_ctx.info.source = BINLOG_SOURCE_RECLAIM;
+    rctx->bctx.op_ctx.info.write_binlog.log_replica = false;
+    rctx->bctx.op_ctx.info.data_version = 0;
+    rctx->bctx.op_ctx.info.myself = NULL;
+    if ((result=fs_slice_blocked_op_ctx_init(&rctx->bctx)) != 0) {
         return result;
     }
 
-    rctx->notify.finished = false;
-    rctx->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
-        reclaim_slice_rw_done_callback;
-    rctx->op_ctx.arg = rctx;
-    return fs_init_slice_op_ctx(&rctx->op_ctx.update.sarray);
+    return fs_slice_array_init(&rctx->bctx.op_ctx.update.sarray);
 }
 
 static int realloc_rb_array(TrunkReclaimBlockArray *array,
@@ -167,6 +140,7 @@ static int convert_to_rs_array(FSTrunkAllocator *allocator,
             rs = rs_array->slices + rs_array->count;
         }
 
+        rs->type = slice->type;
         rs->bs_key.block = slice->ob->bkey;
         rs->bs_key.slice = slice->ssize;
         rs++;
@@ -225,7 +199,7 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
                     &block->ob->bkey, &slice->bs_key.block) == 0)
         {
             if (tail->bs_key.slice.offset + tail->bs_key.slice.length ==
-                    slice->bs_key.slice.offset)
+                    slice->bs_key.slice.offset && tail->type == slice->type)
             {  //combine slices
                 tail->bs_key.slice.length += slice->bs_key.slice.length;
             } else {
@@ -243,109 +217,62 @@ static int combine_to_rb_array(TrunkReclaimSliceArray *sarray,
     return 0;
 }
 
-static int migrate_prepare(TrunkReclaimContext *rctx,
-        FSBlockSliceKeyInfo *bs_key)
-{
-    rctx->op_ctx.info.bs_key = *bs_key;
-    rctx->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(bs_key->block);
-
-#ifdef OS_LINUX
-#else
-    if (rctx->buffer_size < bs_key->slice.length) {
-        char *buff;
-        int buffer_size;
-
-        buffer_size = rctx->buffer_size * 2;
-        while (buffer_size < bs_key->slice.length) {
-            buffer_size *= 2;
-        }
-        buff = (char *)fc_malloc(buffer_size);
-        if (buff == NULL) {
-            return ENOMEM;
-        }
-
-        free(rctx->op_ctx.info.buff);
-        rctx->op_ctx.info.buff = buff;
-        rctx->buffer_size = buffer_size;
-    }
-#endif
-
-    return 0;
-}
-
-static inline void log_rw_error(FSSliceOpContext *op_ctx,
-        const int result, const int ignore_errno, const char *caption)
-{
-    int log_level;
-    log_level = (result == ignore_errno) ? LOG_DEBUG : LOG_ERR;
-    log_it_ex(&g_log_context, log_level,
-            "file: "__FILE__", line: %d, %s slice fail, "
-            "oid: %"PRId64", block offset: %"PRId64", "
-            "slice offset: %d, length: %d, "
-            "errno: %d, error info: %s", __LINE__, caption,
-            op_ctx->info.bs_key.block.oid,
-            op_ctx->info.bs_key.block.offset,
-            op_ctx->info.bs_key.slice.offset,
-            op_ctx->info.bs_key.slice.length,
-            result, STRERROR(result));
-}
-
 static int migrate_one_slice(TrunkReclaimContext *rctx,
-        FSBlockSliceKeyInfo *bs_key)
+        TrunkReclaimSliceInfo *slice)
 {
     int result;
 
-    if ((result=migrate_prepare(rctx, bs_key)) != 0) {
-        return result;
-    }
-
-    if ((result=fs_slice_read(&rctx->op_ctx)) == 0) {
-        PTHREAD_MUTEX_LOCK(&rctx->notify.lcp.lock);
-        while (!rctx->notify.finished && SF_G_CONTINUE_FLAG) {
-            pthread_cond_wait(&rctx->notify.lcp.cond,
-                    &rctx->notify.lcp.lock);
+    if (slice->type == OB_SLICE_TYPE_ALLOC) {
+        rctx->bctx.op_ctx.info.bs_key = slice->bs_key;
+        rctx->bctx.op_ctx.info.data_group_id = FS_DATA_GROUP_ID(
+                slice->bs_key.block);
+        if ((result=fs_slice_allocate(&rctx->bctx.op_ctx)) == 0) {
+            return fs_log_slice_allocate(&rctx->bctx.op_ctx);
+        } else {
+            fs_log_rw_error(&rctx->bctx.op_ctx, result, 0, "allocate");
+            return result;
         }
-        result = rctx->notify.finished ? rctx->op_ctx.result : EINTR;
-        rctx->notify.finished = false;  /* reset for next call */
-        PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
     }
 
-    if (result != 0) {
-        log_rw_error(&rctx->op_ctx, result, ENOENT, "read");
+    if ((result=fs_slice_blocked_read(&rctx->bctx,
+                    &slice->bs_key, ENOENT)) != 0)
+    {
         return result == ENOENT ? 0 : result;
     }
 
-    rctx->op_ctx.info.bs_key.slice.length = rctx->op_ctx.done_bytes;
-    if ((result=fs_slice_write(&rctx->op_ctx)) == 0) {
-        PTHREAD_MUTEX_LOCK(&rctx->notify.lcp.lock);
-        while (!rctx->notify.finished && SF_G_CONTINUE_FLAG) {
-            pthread_cond_wait(&rctx->notify.lcp.cond,
-                    &rctx->notify.lcp.lock);
+    rctx->bctx.op_ctx.info.bs_key.slice.length =
+        FC_ATOMIC_GET(rctx->bctx.op_ctx.done_bytes);
+    if ((result=fs_slice_write(&rctx->bctx.op_ctx)) == 0) {
+        PTHREAD_MUTEX_LOCK(&rctx->bctx.notify.lcp.lock);
+        while (!rctx->bctx.notify.finished && SF_G_CONTINUE_FLAG) {
+            pthread_cond_wait(&rctx->bctx.notify.lcp.cond,
+                    &rctx->bctx.notify.lcp.lock);
         }
-        if (rctx->notify.finished) {
-            rctx->notify.finished = false;  /* reset for next call */
+        if (rctx->bctx.notify.finished) {
+            rctx->bctx.notify.finished = false;  /* reset for next call */
         } else {
-            rctx->op_ctx.result = EINTR;
+            rctx->bctx.op_ctx.result = EINTR;
         }
-        PTHREAD_MUTEX_UNLOCK(&rctx->notify.lcp.lock);
+        PTHREAD_MUTEX_UNLOCK(&rctx->bctx.notify.lcp.lock);
     } else {
-        rctx->op_ctx.result = result;
+        rctx->bctx.op_ctx.result = result;
     }
 
     if (result == 0) {
-        fs_write_finish(&rctx->op_ctx);  //for add slice index and cleanup
+        fs_write_finish(&rctx->bctx.op_ctx);  //for add slice index and cleanup
     }
 
 #ifdef OS_LINUX
-    fs_release_aio_buffers(&rctx->op_ctx);
+    fs_release_aio_buffers(&rctx->bctx.op_ctx);
 #endif
 
-    if (rctx->op_ctx.result != 0) {
-        log_rw_error(&rctx->op_ctx, rctx->op_ctx.result, 0, "write");
-        return rctx->op_ctx.result;
+    if (rctx->bctx.op_ctx.result != 0) {
+        fs_log_rw_error(&rctx->bctx.op_ctx, rctx->bctx.
+                op_ctx.result, 0, "write");
+        return rctx->bctx.op_ctx.result;
     }
 
-    return fs_log_slice_write(&rctx->op_ctx);
+    return fs_log_slice_write(&rctx->bctx.op_ctx);
 }
 
 static int migrate_one_block(TrunkReclaimContext *rctx,
@@ -356,7 +283,7 @@ static int migrate_one_block(TrunkReclaimContext *rctx,
 
     slice = block->head;
     while (slice != NULL) {
-        if ((result=migrate_one_slice(rctx, &slice->bs_key)) != 0) {
+        if ((result=migrate_one_slice(rctx, slice)) != 0) {
             return result;
         }
         slice = slice->next;

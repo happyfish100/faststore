@@ -45,14 +45,15 @@ typedef struct {
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
 
-static inline void get_fetched_binlog_filename(DataRecoveryContext *ctx,
-        char *full_filename, const int size)
+static inline const char *data_recovery_get_fetched_binlog_filename(
+        DataRecoveryContext *ctx, char *full_filename, const int size)
 {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
 
     data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
             subdir_name);
     binlog_reader_get_filename(subdir_name, 0, full_filename, size);
+    return full_filename;
 }
 
 static int check_and_open_binlog_file(DataRecoveryContext *ctx)
@@ -66,7 +67,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     bool unlink_flag;
 
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
-    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+    data_recovery_get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
     unlink_flag = false;
     ctx->fetch.last_data_version = __sync_fetch_and_add(
             &ctx->ds->data.version, 0);
@@ -131,8 +132,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
         ctx->fetch.last_data_version = ctx->ds->data.version;
     }
 
-    if ((fetch_ctx->fd=open(full_filename, O_WRONLY | O_CREAT | O_APPEND,
-                    0644)) < 0)
+    if ((fetch_ctx->fd=open(full_filename, O_WRONLY |
+                    O_CREAT | O_APPEND, 0644)) < 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "open binlog file %s fail, errno: %d, error info: %s",
@@ -359,7 +360,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         if (ctx->is_online) {
             if (!first_bheader->is_online) {
                 int old_status;
-                old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
+                old_status = FC_ATOMIC_GET(ctx->ds->status);
                 logWarning("file: "__FILE__", line: %d, "
                         "server %s:%u, data group id: %d, "
                         "my status: %d (%s), unexpect is_online: %d",
@@ -390,7 +391,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         return 0;
     }
 
-    if (write(((BinlogFetchContext *)ctx->arg)->fd,
+    if (fc_safe_write(((BinlogFetchContext *)ctx->arg)->fd,
                 binlog.str, binlog.len) != binlog.len)
     {
         result = errno != 0 ? errno : EPERM;
@@ -547,6 +548,7 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
 static int check_online_me(DataRecoveryContext *ctx)
 {
 #define RETRY_TIMES  3
+    uint64_t old_until_version;
     int old_status;
     int i;
 
@@ -555,7 +557,7 @@ static int check_online_me(DataRecoveryContext *ctx)
         return 0;
     }
 
-    old_status = __sync_add_and_fetch(&ctx->ds->status, 0);
+    old_status = FC_ATOMIC_GET(ctx->ds->status);
     if (!(old_status == FS_DS_STATUS_REBUILDING ||
                 old_status == FS_DS_STATUS_RECOVERING))
     {
@@ -590,7 +592,11 @@ static int check_online_me(DataRecoveryContext *ctx)
                 ctx->master->cs->server->id, prompt, i);
     }
 
-    FC_ATOMIC_SET(ctx->ds->recovery.until_version, 0); //for hold RPC replication
+    old_until_version = FC_ATOMIC_GET(ctx->ds->recovery.until_version);
+    if (old_until_version != 0) {
+        /* for hold RPC replication */
+        FC_ATOMIC_CAS(ctx->ds->recovery.until_version, old_until_version, 0);
+    }
     if (!cluster_relationship_swap_report_ds_status(ctx->ds,
                 old_status, FS_DS_STATUS_ONLINE,
                 FS_EVENT_SOURCE_SELF_REPORT))
@@ -651,7 +657,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         char full_filename[PATH_MAX];
         ReplicaBinlogRecord record;
 
-        get_fetched_binlog_filename(ctx,full_filename,
+        data_recovery_get_fetched_binlog_filename(ctx,full_filename,
                 sizeof(full_filename));
         if ((result=replica_binlog_get_last_record(
                         full_filename, &record)) == 0)
@@ -668,6 +674,7 @@ int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx)
 {
     char full_filename[PATH_MAX];
 
-    get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+    data_recovery_get_fetched_binlog_filename(ctx,
+            full_filename, sizeof(full_filename));
     return fc_delete_file(full_filename);
 }

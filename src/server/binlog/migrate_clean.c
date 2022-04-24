@@ -27,22 +27,23 @@
 #include "replica_binlog.h"
 #include "migrate_clean.h"
 
-typedef struct slice_clean_thread_context {
+typedef struct data_dump_thread_context {
     int thread_index;
     int64_t start_index;
     int64_t end_index;
-    struct slice_clean_context *clean_ctx;
-} SliceCleanThreadContext;
+    int64_t slice_count;
+    struct data_dump_context *dump_ctx;
+} DataDumpThreadContext;
 
-typedef struct slice_clean_thread_ctx_array {
-    SliceCleanThreadContext *contexts;
+typedef struct data_dump_thread_ctx_array {
+    DataDumpThreadContext *contexts;
     int count;
-} SliceCleanThreadCtxArray;
+} DataDumpThreadCtxArray;
 
-typedef struct slice_clean_context {
+typedef struct data_dump_context {
     volatile int running_threads;
-    SliceCleanThreadCtxArray clean_thread_array;
-} SliceCleanContext;
+    DataDumpThreadCtxArray thread_array;
+} DataDumpContext;
 
 typedef struct binlog_clean_redo_context {
     char redo_filename[PATH_MAX];
@@ -51,26 +52,37 @@ typedef struct binlog_clean_redo_context {
     int current_stage;
 } BinlogCleanRedoContext;
 
+#define MIGRATE_SUBDIR_NAME     "migrate"
+#define BACKUP_SUBDIR_NAME_STR  "bak"
+#define BACKUP_SUBDIR_NAME_LEN  (sizeof(BACKUP_SUBDIR_NAME_STR) - 1)
+
+#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
+#define BINLOG_REDO_STAGE_RENAME_SLICE    2
+#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
+
+#define BINLOG_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
+#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
+#define BINLOG_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
+
 static inline const char *get_slice_dump_filename(const
         int binlog_index, char *filename, const int size)
 {
-#define DUMP_FILENAME_AFFIX_STR  ".dump"
-#define DUMP_FILENAME_AFFIX_LEN  (sizeof(DUMP_FILENAME_AFFIX_STR) - 1)
-    int len;
-
-    slice_binlog_get_filename(binlog_index, filename, size);
-    len = strlen(filename);
-    if (len + DUMP_FILENAME_AFFIX_LEN >= size) {
-        return NULL;
-    }
-
-    memcpy(filename + len, DUMP_FILENAME_AFFIX_STR, DUMP_FILENAME_AFFIX_LEN);
-    *(filename + len + DUMP_FILENAME_AFFIX_LEN) = '\0';
+    snprintf(filename, size, "%s/%s/slice-%03d.dmp", DATA_PATH_STR,
+            MIGRATE_SUBDIR_NAME, binlog_index);
     return filename;
 }
 
+static inline int check_make_subdir()
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/%s",
+            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+    return fc_check_mkdir(path, 0755);
+}
+
 static inline int dump_slices_to_file(const int binlog_index,
-        const int64_t start_index, const int64_t end_index)
+        const int64_t start_index, const int64_t end_index,
+        int64_t *slice_count)
 {
     char filename[PATH_MAX];
 
@@ -79,22 +91,23 @@ static inline int dump_slices_to_file(const int binlog_index,
     {
         return ENAMETOOLONG;
     }
-    return ob_index_dump_slices_to_file(start_index, end_index, filename);
+    return ob_index_dump_slices_to_file(start_index,
+            end_index, filename, slice_count);
 }
 
-static void slice_clean_thread_run(SliceCleanThreadContext *thread_ctx,
+static void data_dump_thread_run(DataDumpThreadContext *thread,
         void *thread_data)
 {
-    if (dump_slices_to_file(thread_ctx->thread_index, thread_ctx->
-                start_index, thread_ctx->end_index) != 0)
+    if (dump_slices_to_file(thread->thread_index, thread->start_index,
+                thread->end_index, &thread->slice_count) != 0)
     {
         sf_terminate_myself();
     }
-    __sync_sub_and_fetch(&thread_ctx->clean_ctx->running_threads, 1);
+    __sync_sub_and_fetch(&thread->dump_ctx->running_threads, 1);
 }
 
 static int dump_slice_binlog(const int64_t total_slice_count,
-        int *binlog_file_count)
+        int64_t *dump_slice_count, int *binlog_file_count)
 {
 #define MIN_SLICES_PER_THREAD  2000000LL
     int result;
@@ -102,9 +115,9 @@ static int dump_slice_binlog(const int64_t total_slice_count,
     int thread_count;
     int64_t buckets_per_thread;
     int64_t start_index;
-    SliceCleanContext clean_ctx;
-    SliceCleanThreadContext *ctx;
-    SliceCleanThreadContext *end;
+    DataDumpContext dump_ctx;
+    DataDumpThreadContext *ctx;
+    DataDumpThreadContext *end;
 
     thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
         MIN_SLICES_PER_THREAD;
@@ -116,31 +129,32 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 
     *binlog_file_count = thread_count;
     if (thread_count == 1) {
-        return dump_slices_to_file(0, 0, g_ob_hashtable.capacity);
+        return dump_slices_to_file(0, 0, g_ob_hashtable.
+                capacity, dump_slice_count);
     }
 
-    bytes = sizeof(SliceCleanThreadContext) * thread_count;
-    clean_ctx.clean_thread_array.contexts = fc_malloc(bytes);
-    if (clean_ctx.clean_thread_array.contexts == NULL) {
+    bytes = sizeof(DataDumpThreadContext) * thread_count;
+    dump_ctx.thread_array.contexts = fc_malloc(bytes);
+    if (dump_ctx.thread_array.contexts == NULL) {
         return ENOMEM;
     }
 
-    clean_ctx.running_threads = thread_count;
+    dump_ctx.running_threads = thread_count;
     buckets_per_thread = (g_ob_hashtable.capacity +
             thread_count - 1) / thread_count;
-    end = clean_ctx.clean_thread_array.contexts + thread_count;
-    for (ctx=clean_ctx.clean_thread_array.contexts,
+    end = dump_ctx.thread_array.contexts + thread_count;
+    for (ctx=dump_ctx.thread_array.contexts,
             start_index=0; ctx<end; ctx++)
     {
-        ctx->thread_index = ctx - clean_ctx.clean_thread_array.contexts;
+        ctx->thread_index = ctx - dump_ctx.thread_array.contexts;
         ctx->start_index = start_index;
         ctx->end_index = start_index + buckets_per_thread;
         if (ctx->end_index > g_ob_hashtable.capacity) {
             ctx->end_index = g_ob_hashtable.capacity;
         }
-        ctx->clean_ctx = &clean_ctx;
+        ctx->dump_ctx = &dump_ctx;
         if ((result=shared_thread_pool_run((fc_thread_pool_callback)
-                        slice_clean_thread_run, ctx)) != 0)
+                        data_dump_thread_run, ctx)) != 0)
         {
             return result;
         }
@@ -150,29 +164,27 @@ static int dump_slice_binlog(const int64_t total_slice_count,
 
     do {
         fc_sleep_ms(10);
-        if (__sync_add_and_fetch(&clean_ctx.running_threads, 0) == 0) {
+        if (__sync_add_and_fetch(&dump_ctx.running_threads, 0) == 0) {
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
 
+    *dump_slice_count = 0;
+    for (ctx=dump_ctx.thread_array.contexts; ctx<end; ctx++) {
+        *dump_slice_count += ctx->slice_count;
+    }
+
+    free(dump_ctx.thread_array.contexts);
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.slice_dump.flag",
-            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/.migrate_clean.flag",
+            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
     return filename;
 }
-
-#define BINLOG_REDO_STAGE_REMOVE_SLICE    1
-#define BINLOG_REDO_STAGE_RENAME_SLICE    2
-#define BINLOG_REDO_STAGE_REMOVE_REPLICA  3
-
-#define BINLOG_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
-#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define BINLOG_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
 
 static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
 {
@@ -257,16 +269,21 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     slice_binlog_get_filepath(binlog_filepath, sizeof(binlog_filepath));
     len = strlen(binlog_filepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_filepath))
+    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
+                backup_subdir) >= sizeof(binlog_filepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    sprintf(backup_filepath, "%s/%s", binlog_filepath,
-            redo_ctx->backup_subdir);
+    len = sprintf(backup_filepath, "%s/%s", binlog_filepath,
+            BACKUP_SUBDIR_NAME_STR);
+    if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
+        return result;
+    }
+
+    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
@@ -294,7 +311,7 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 
 static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
 {
-    const bool overwritten = false;
+    const bool overwritten = true;
     int result;
     int last_index;
     int binlog_index;
@@ -330,16 +347,21 @@ static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)
 
     replica_binlog_get_base_path(binlog_basepath, sizeof(binlog_basepath));
     len = strlen(binlog_basepath);
-    if (len + 1 + strlen(redo_ctx->backup_subdir) >=
-            sizeof(binlog_basepath))
+    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
+                backup_subdir) >= sizeof(binlog_basepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    sprintf(backup_filepath, "%s/%s", binlog_basepath,
-            redo_ctx->backup_subdir);
+    len = sprintf(backup_filepath, "%s/%s", binlog_basepath,
+            BACKUP_SUBDIR_NAME_STR);
+    if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
+        return result;
+    }
+    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
+
     backup_count = 0;
     data_group_count = FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX);
     for (data_group_id=1; data_group_id<=data_group_count; data_group_id++) {
@@ -417,6 +439,10 @@ int migrate_clean_redo()
     int result;
     BinlogCleanRedoContext redo_ctx;
 
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
     get_slice_mark_filename(redo_ctx.redo_filename,
             sizeof(redo_ctx.redo_filename));
     if (access(redo_ctx.redo_filename, F_OK) != 0) {
@@ -444,25 +470,33 @@ int migrate_clean_binlog(const int64_t total_slice_count,
 {
     int result;
     BinlogCleanRedoContext redo_ctx;
+    int64_t dump_slice_count;
     int64_t start_time;
     time_t current_time;
     struct tm tm_current;
     char time_used[32];
 
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
     if (dump_slice_index) {
+        logInfo("file: "__FILE__", line: %d, "
+                "begin dump slice binlog ...", __LINE__);
+
         start_time = get_current_time_ms();
-        if ((result=dump_slice_binlog(total_slice_count,
+        if ((result=dump_slice_binlog(total_slice_count, &dump_slice_count,
                         &redo_ctx.binlog_file_count)) != 0)
         {
             return result;
         }
 
         logInfo("file: "__FILE__", line: %d, "
-                "dump slice binlog, total slice count: %"PRId64", "
+                "dump slice binlog, slice count: %"PRId64", "
                 "binlog file count: %d, time used: %s ms", __LINE__,
-                total_slice_count + LOCAL_BINLOG_CHECK_LAST_SECONDS,
-                redo_ctx.binlog_file_count, long_to_comma_str(
-                    get_current_time_ms() - start_time, time_used));
+                dump_slice_count, redo_ctx.binlog_file_count,
+                long_to_comma_str(get_current_time_ms() -
+                    start_time, time_used));
 
         redo_ctx.current_stage = BINLOG_REDO_STAGE_REMOVE_SLICE;
     } else {

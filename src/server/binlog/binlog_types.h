@@ -44,19 +44,16 @@
 #define BINLOG_OP_TYPE_NO_OP        'N'
 
 #define BINLOG_SOURCE_RECLAIM       'M'  //by trunk reclaim
+#define BINLOG_SOURCE_REBUILD       'B'  //by data rebuild
 #define BINLOG_SOURCE_DUMP          'F'  //by binlog dump
 #define BINLOG_SOURCE_RPC_MASTER    'C'  //by user call (master side)
 #define BINLOG_SOURCE_RPC_SLAVE     'c'  //by user call (slave side)
 #define BINLOG_SOURCE_REPLAY        'r'  //by binlog replay  (slave side)
 
-#define BINLOG_IS_INTERNAL_RECORD(op_type, data_version)  \
-    (op_type == BINLOG_OP_TYPE_NO_OP || data_version == 0)
-
-#define BINLOG_REPAIR_KEEP_RECORD(op_type, data_version)  \
-    BINLOG_IS_INTERNAL_RECORD(op_type, data_version)
-
 #define FS_IS_BINLOG_SOURCE_RPC(source) \
     (source == BINLOG_SOURCE_RPC_MASTER || source == BINLOG_SOURCE_RPC_SLAVE)
+
+#define BINLOG_REPAIR_KEEP_RECORD(source) !FS_IS_BINLOG_SOURCE_RPC(source)
 
 struct fs_binlog_record;
 

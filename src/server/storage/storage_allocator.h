@@ -89,6 +89,9 @@ extern "C" {
                 allocators[path_index], id_info->id);
     }
 
+    int storage_allocator_dump_trunks_to_file(const char *filename,
+            int64_t *total_trunk_count);
+
     static inline int storage_allocator_normal_alloc_ex(
             const uint32_t blk_hc, const int size,
             FSTrunkSpaceWithVersion *spaces,

@@ -52,7 +52,3 @@ void server_storage_destroy()
     trunk_binlog_destroy();
     trunk_id_info_destroy();
 }
- 
-void server_storage_terminate()
-{
-}

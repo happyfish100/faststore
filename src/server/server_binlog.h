@@ -32,7 +32,6 @@ extern "C" {
 
 int server_binlog_init();
 void server_binlog_destroy();
-void server_binlog_terminate();
 
 #ifdef __cplusplus
 }

@@ -50,8 +50,8 @@
 #define FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ     45
 #define FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP    46
 
-#define FS_SERVICE_PROTO_GET_MASTER_REQ           51
-#define FS_SERVICE_PROTO_GET_MASTER_RESP          52
+#define FS_SERVICE_PROTO_GET_MASTER_REQ          51
+#define FS_SERVICE_PROTO_GET_MASTER_RESP         52
 
 //cluster commands
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
@@ -65,8 +65,12 @@
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ   71
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP  72
-#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     75  //notify next leader to other servers
-#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      76  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER     73  //notify next leader to other servers
+#define FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER      74  //commit next leader to other servers
+#define FS_CLUSTER_PROTO_UNSET_MASTER_REQ        75
+#define FS_CLUSTER_PROTO_UNSET_MASTER_RESP       76
+#define FS_CLUSTER_PROTO_GET_DS_STATUS_REQ       77
+#define FS_CLUSTER_PROTO_GET_DS_STATUS_RESP      78
 #define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
 
 //replication commands
@@ -171,6 +175,7 @@ typedef struct fs_proto_get_server_status_resp {
     char server_id[4];
     char up_time[4];
     char version[8];
+    char last_heartbeat_time[4];
     char last_shutdown_time[4];
     char is_leader;
     char leader_hint;
@@ -284,7 +289,8 @@ typedef struct fs_proto_get_slaves_resp_body_part {
 } FSProtoGetSlavesRespBodyPart;
 
 typedef struct fs_proto_join_leader_req {
-    char server_id[4];     //the slave server id
+    char server_id[4];   //the follower server id
+    char key[8];         //for leader call follower to unset master
     FSProtoConfigSigns config_signs;
 } FSProtoJoinLeaderReq;
 
@@ -299,8 +305,23 @@ typedef struct fs_proto_join_server_req {
     FSProtoConfigSigns config_signs;
 } FSProtoJoinServerReq;
 
-typedef struct fs_proto_join_server_resp {
-} FSProtoJoinServerResp;
+typedef struct fs_proto_unset_master_req {
+    char data_group_id[4];
+    char leader_id[4];
+    char key[8];
+} FSProtoUnsetMasterReq;
+
+typedef struct fs_proto_get_ds_status_req {
+    char data_group_id[4];
+} FSProtoGetDSStatusReq;
+
+typedef struct fs_proto_get_ds_status_resp {
+    char is_master;
+    char status;
+    char padding[2];
+    char master_dealing_count[4];
+    char data_version[8];
+} FSProtoGetDSStatusResp;
 
 typedef struct fs_proto_push_data_server_status_header  {
     char current_version[8];

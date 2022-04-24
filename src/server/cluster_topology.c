@@ -120,7 +120,6 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
     FSDataServerChangeEvent *event;
     struct fast_task_info *task;
     bool notify;
-    int in_queue;
 
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
     for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
@@ -151,8 +150,6 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
 
         event = cs->notify_ctx.events + (ds->dg->index *
                 CLUSTER_SERVER_ARRAY.count + ds->cs->server_index);
-
-        in_queue = __sync_add_and_fetch(&event->in_queue, 0);
         if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
             /*
             logInfo("file: "__FILE__", line: %d, "
@@ -161,7 +158,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     "data version: %"PRId64", event {source: %c, type: %d}, "
                     "ds: %p", __LINE__, ds->dg->id, ds->cs->server->id,
                     FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(ds->status),
-                    cs->server->id, in_queue,
+                    cs->server->id, FC_ATOMIC_GET(event->in_queue),
                     FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
                     source, event_type, event->ds);
                     */
@@ -179,7 +176,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                     "data version: %"PRId64", event {source: %c, type: %d}, "
                     "ds: %p", __LINE__, ds->dg->id, ds->cs->server->id,
                     FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(ds->status),
-                    cs->server->id, in_queue,
+                    cs->server->id, FC_ATOMIC_GET(event->in_queue),
                     FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
                     source, event_type, event->ds);
         }
@@ -197,7 +194,8 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
 
     gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
-        ds_end = group->data_server_array.servers + group->data_server_array.count;
+        ds_end = group->data_server_array.servers +
+            group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
             event = cs->notify_ctx.events + (ds->dg->index *
                     CLUSTER_SERVER_ARRAY.count + ds->cs->server_index);
@@ -286,7 +284,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
     }
 
-    long2buff(__sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0),
+    long2buff(FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
             req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;
@@ -316,7 +314,7 @@ static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
     int old_status;
     int new_status;
 
-    old_status = __sync_fetch_and_add(&ds->status, 0);
+    old_status = FC_ATOMIC_GET(ds->status);
     if (old_status == FS_DS_STATUS_ACTIVE) {
         new_status = FS_DS_STATUS_OFFLINE;
     } else if (remove_recovery_flag) {
@@ -337,10 +335,7 @@ static void cluster_topology_offline_data_server(
 
     notify = downgrade_data_server_status(ds, unset_master);
     if (unset_master && FC_ATOMIC_GET(ds->is_master)) {
-        __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
-        if (__sync_bool_compare_and_swap(&ds->dg->master, ds, NULL)) {
-            cluster_relationship_on_master_change(ds, NULL);
-
+        if (master_election_set_master(ds->dg, ds, NULL)) {
             end = ds->dg->data_server_array.servers +
                 ds->dg->data_server_array.count;
             for (cur=ds->dg->data_server_array.servers; cur<end; cur++) {
@@ -379,7 +374,7 @@ bool cluster_topology_activate_server(FSClusterServerInfo *cs)
 
     end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
     for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
-        if (__sync_fetch_and_add(&(*ds)->dg->master, 0) == NULL) {
+        if (FC_ATOMIC_GET((*ds)->dg->master) == NULL) {
             master_election_queue_push((*ds)->dg);
         }
     }
@@ -420,7 +415,8 @@ void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
         group->election.start_time_ms = 0;
         group->election.retry_count = 0;
-        send = group->data_server_array.servers + group->data_server_array.count;
+        send = group->data_server_array.servers +
+            group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
             cluster_topology_offline_data_server(ds, false);
         }

@@ -27,6 +27,7 @@
 #include "sf/sf_service.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "common/fs_proto.h"
+#include "client/fs_client.h"
 #include "server_global.h"
 #include "server_binlog.h"
 #include "server_group_info.h"
@@ -83,6 +84,8 @@ static int load_master_election_config(const char *filename)
         return result;
     }
 
+    RESUME_MASTER_ROLE = iniGetBoolValue(section_name,
+            "resume_master_role", &ini_context, true);
     MASTER_ELECTION_TIMEOUTS = FS_DEFAULT_MASTER_ELECTION_TIMEOUTS;
     MASTER_ELECTION_FAILOVER = iniGetBoolValue(section_name,
             "failover", &ini_context, true);
@@ -162,6 +165,11 @@ static int load_leader_election_config(const char *cluster_filename)
             &ini_ctx, "leader_lost_timeout", 3, 1, 300);
     LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
             &ini_ctx, "max_wait_time", 30, 1, 3600);
+    if ((result=sf_load_quorum_config(&LEADER_ELECTION_QUORUM,
+                    &ini_ctx)) != 0)
+    {
+        return result;
+    }
 
     iniFreeContext(&ini_context);
     return 0;
@@ -285,28 +293,32 @@ static void server_log_configs()
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
+            "rebuild_threads = %d, "
             "binlog_buffer_size = %d KB, "
             "local_binlog_check_last_seconds = %d s, "
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
-            "leader-election {leader_lost_timeout: %ds, "
+            "leader-election {quorum: %s, "
+            "leader_lost_timeout: %ds, "
             "max_wait_time: %ds}",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
+            DATA_REBUILD_THREADS,
             BINLOG_BUFFER_SIZE / 1024,
             LOCAL_BINLOG_CHECK_LAST_SECONDS,
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
+            sf_get_quorum_caption(LEADER_ELECTION_QUORUM),
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME);
 
     len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
-            ", master-election {failover=%s", (MASTER_ELECTION_FAILOVER ?
-                "true" : "false"));
+            ", master-election {resume_master_role: %d, failover=%s",
+            RESUME_MASTER_ROLE, (MASTER_ELECTION_FAILOVER ? "true" : "false"));
     if (MASTER_ELECTION_FAILOVER) {
         if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
             len += snprintf(sz_server_config + len, sizeof(sz_server_config)
@@ -376,11 +388,69 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
     return storage_config_load(&STORAGE_CFG, full_filename);
 }
 
+static int init_net_retry_config(const char *config_filename)
+{
+    IniFullContext ini_ctx;
+    IniContext ini_context;
+    int result;
+
+    if ((result=iniLoadFromFile(config_filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, config_filename, result);
+        return result;
+    }
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, config_filename,
+            "data_recovery", &ini_context);
+    result = sf_load_net_retry_config(&g_fs_client_vars.
+            client_ctx.common_cfg.net_retry_cfg, &ini_ctx);
+
+    iniFreeContext(&ini_context);
+    return result;
+}
+
+static int server_init_client(const char *config_filename)
+{
+    int result;
+    const bool bg_thread_enabled = false;
+
+    /* set read rule for store path rebuild */
+    g_fs_client_vars.client_ctx.common_cfg.read_rule =
+        sf_data_read_rule_any_available;
+
+    g_fs_client_vars.client_ctx.common_cfg.connect_timeout =
+        SF_G_CONNECT_TIMEOUT;
+    g_fs_client_vars.client_ctx.common_cfg.network_timeout =
+        SF_G_NETWORK_TIMEOUT;
+    snprintf(g_fs_client_vars.base_path,
+            sizeof(g_fs_client_vars.base_path),
+            "%s", SF_G_BASE_PATH_STR);
+    g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
+    g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
+        client_ctx.cluster_cfg.ptr->replica_group_index;
+    if ((result=init_net_retry_config(config_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.
+                    client_ctx, &g_fs_client_vars.client_ctx.cm,
+                    bg_thread_enabled)) != 0)
+    {
+        return result;
+    }
+    g_fs_client_vars.client_ctx.inited = true;
+    g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
+
+    return 0;
+}
+
 int server_load_config(const char *filename)
 {
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
+    char *rebuild_threads;
     int result;
 
     if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
@@ -440,6 +510,22 @@ int server_load_config(const char *filename)
             "recovery_max_queue_depth", FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH,
             FS_MIN_RECOVERY_MAX_QUEUE_DEPTH, FS_MAX_RECOVERY_MAX_QUEUE_DEPTH);
 
+    rebuild_threads = iniGetStrValue(full_ini_ctx.section_name,
+            "rebuild_threads", full_ini_ctx.context);
+    if (rebuild_threads == NULL || strcmp(rebuild_threads,
+                "RECOVERY_THREADS") == 0)
+    {
+        DATA_REBUILD_THREADS = RECOVERY_THREADS_PER_DATA_GROUP *
+            RECOVERY_MAX_QUEUE_DEPTH;
+        if (DATA_REBUILD_THREADS > FS_MAX_DATA_REBUILD_THREADS) {
+            DATA_REBUILD_THREADS = FS_MAX_DATA_REBUILD_THREADS;
+        }
+    } else {
+        DATA_REBUILD_THREADS = iniGetIntCorrectValue(&full_ini_ctx,
+                "rebuild_threads", FS_DEFAULT_DATA_REBUILD_THREADS,
+                FS_MIN_DATA_REBUILD_THREADS, FS_MAX_DATA_REBUILD_THREADS);
+    }
+
     LOCAL_BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
             "local_binlog_check_last_seconds", &ini_context,
             FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS);
@@ -493,5 +579,5 @@ int server_load_config(const char *filename)
     server_log_configs();
     storage_config_to_log(&STORAGE_CFG);
 
-    return 0;
+    return server_init_client(filename);
 }

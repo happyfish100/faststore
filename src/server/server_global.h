@@ -40,12 +40,14 @@ typedef struct server_global_vars {
             FSClusterConfig ctx;
             bool migrate_clean;
             struct {
+                SFElectionQuorum quorum;
                 bool force;
                 int leader_lost_timeout;
                 int max_wait_time;
             } leader_election;
 
             struct {
+                bool resume_master_role;
                 bool failover;
                 char policy;
                 int timeouts;   //in seconds
@@ -56,6 +58,9 @@ typedef struct server_global_vars {
         FSClusterDataGroupArray data_group_array;
 
         volatile uint64_t current_version;
+
+        /* follower ping leader or leader check brain-split */
+        volatile time_t last_heartbeat_time;
 
         SFContext sf_context;  //for cluster communication
     } cluster;
@@ -71,6 +76,13 @@ typedef struct server_global_vars {
 
     struct {
         FSStorageConfig cfg;
+        int rebuild_threads;
+        struct {
+            int64_t trunk_count;         //trunk count in trunk binlog
+            volatile int64_t slice_count;//slice count in slice binlog
+            int index;
+            const char *str;
+        } rebuild_path;
     } storage;
 
     struct {
@@ -98,6 +110,16 @@ typedef struct server_global_vars {
 #define MIGRATE_CLEAN_ENABLED  g_server_global_vars.cluster. \
     config.migrate_clean
 
+#define DATA_REBUILD_PATH_STR    g_server_global_vars.storage.rebuild_path.str
+#define DATA_REBUILD_PATH_INDEX  g_server_global_vars.storage.rebuild_path.index
+#define DATA_REBUILD_TRUNK_COUNT g_server_global_vars. \
+    storage.rebuild_path.trunk_count
+#define DATA_REBUILD_SLICE_COUNT g_server_global_vars. \
+    storage.rebuild_path.slice_count
+#define DATA_REBUILD_THREADS g_server_global_vars.storage.rebuild_threads
+
+#define LEADER_ELECTION_QUORUM g_server_global_vars.cluster. \
+    config.leader_election.quorum
 #define FORCE_LEADER_ELECTION  g_server_global_vars.cluster. \
     config.leader_election.force
 #define LEADER_ELECTION_LOST_TIMEOUT  g_server_global_vars.cluster. \
@@ -105,6 +127,8 @@ typedef struct server_global_vars {
 #define LEADER_ELECTION_MAX_WAIT_TIME g_server_global_vars.cluster. \
     config.leader_election.max_wait_time
 
+#define RESUME_MASTER_ROLE        g_server_global_vars.cluster. \
+    config.master_election.resume_master_role
 #define MASTER_ELECTION_FAILOVER  g_server_global_vars.cluster. \
     config.master_election.failover
 #define MASTER_ELECTION_POLICY  g_server_global_vars.cluster.   \
@@ -123,6 +147,7 @@ typedef struct server_global_vars {
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
 
+#define CLUSTER_LAST_HEARTBEAT_TIME g_server_global_vars.cluster.last_heartbeat_time
 #define CLUSTER_CURRENT_VERSION   g_server_global_vars.cluster.current_version
 #define SLICE_BINLOG_SN           g_server_global_vars.data.slice_binlog_sn
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \

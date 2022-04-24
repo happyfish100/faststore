@@ -13,28 +13,23 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//server_storage.h
+//rebuild_types.h
 
-#ifndef _SERVER_STORAGE_H_
-#define _SERVER_STORAGE_H_
+#ifndef _REBUILD_TYPES_H_
+#define _REBUILD_TYPES_H_
 
-#include "storage/storage_config.h"
-#include "storage/store_path_index.h"
-#include "storage/trunk_id_info.h"
-#include "storage/trunk_maker.h"
-#include "storage/trunk_prealloc.h"
-#include "storage/trunk_reclaim.h"
-#include "storage/trunk_allocator.h"
-#include "storage/storage_allocator.h"
-#include "storage/object_block_index.h"
-#include "storage/slice_op.h"
+#include "../server_types.h"
+
+#define REBUILD_BINLOG_SUBDIR_NAME_DUMP          "dump"
+#define REBUILD_BINLOG_SUBDIR_NAME_REPLAY        "replay"
+
+#define REBUILD_BACKUP_SUBDIR_NAME_STR     "bak"
+#define REBUILD_BACKUP_SUBDIR_NAME_LEN     \
+    (sizeof(REBUILD_BACKUP_SUBDIR_NAME_STR) - 1)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-int server_storage_init();
-void server_storage_destroy();
 
 #ifdef __cplusplus
 }

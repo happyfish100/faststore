@@ -42,6 +42,7 @@
 #define FS_REPLICA_BINLOG_SUBDIR_NAME    "replica"
 
 #define FS_RECOVERY_BINLOG_SUBDIR_NAME   "recovery"
+#define FS_REBUILD_BINLOG_SUBDIR_NAME    "rebuild"
 
 #define FS_BINLOG_SUBDIR_NAME_SIZE          64
 #define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
@@ -77,6 +78,10 @@
 #define FS_DEFAULT_RECOVERY_MAX_QUEUE_DEPTH              2
 #define FS_MIN_RECOVERY_MAX_QUEUE_DEPTH                  1
 #define FS_MAX_RECOVERY_MAX_QUEUE_DEPTH                 64
+
+#define FS_DEFAULT_DATA_REBUILD_THREADS                  8
+#define FS_MIN_DATA_REBUILD_THREADS                      1
+#define FS_MAX_DATA_REBUILD_THREADS                   1024
 
 #define FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS       3
 #define FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS          3
@@ -129,6 +134,9 @@
 #define FS_MIGRATE_CLEAN_LONG_OPTION_LEN  (sizeof( \
             FS_MIGRATE_CLEAN_LONG_OPTION_STR) - 1)
 
+#define FS_DATA_REBUILD_LONG_OPTION_STR  "data-rebuild"
+#define FS_DATA_REBUILD_LONG_OPTION_LEN  (sizeof( \
+            FS_DATA_REBUILD_LONG_OPTION_STR) - 1)
 
 #define FS_TASK_BUFFER_FRONT_PADDING_SIZE  (sizeof(FSProtoHeader) + \
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \
@@ -175,8 +183,8 @@ typedef struct fs_replication_ptr_array {
 struct fs_cluster_data_server_info;
 typedef struct fs_data_server_change_event {
     struct fs_cluster_data_server_info *ds;
-    short source;
-    short type;
+    short source;  //for hint/debug only
+    short type;    //for hint/debug only
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
@@ -214,6 +222,7 @@ typedef struct fs_cluster_server_info {
     int link_index;         //for next links
     time_t last_ping_time;  //for the leader
     int64_t leader_version; //for generation check
+    int64_t key;            //for leader call follower to unset master
     FSClusterServerSpaceStat space_stat;
 } FSClusterServerInfo;
 
@@ -231,6 +240,7 @@ struct fs_cluster_data_group_info;
 typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
+    volatile int master_dealing_count;
     char is_preseted;
     volatile char is_master;
     volatile char status;   //the data server status
@@ -259,11 +269,11 @@ typedef struct fs_cluster_data_server_array {
 } FSClusterDataServerArray;
 
 typedef struct fs_cluster_data_group_info {
-    short id;
-    short index;
-    uint32_t hash_code;  //for master election
+    int id;
+    int index;
 
     struct {
+        uint32_t hash_code;  //for master assignment
         volatile short in_queue;
         volatile short in_delay_queue;
         int retry_count;

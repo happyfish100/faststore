@@ -13,28 +13,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//server_storage.h
 
-#ifndef _SERVER_STORAGE_H_
-#define _SERVER_STORAGE_H_
+#ifndef _FS_REBUILD_THREAD_H
+#define _FS_REBUILD_THREAD_H
 
-#include "storage/storage_config.h"
-#include "storage/store_path_index.h"
-#include "storage/trunk_id_info.h"
-#include "storage/trunk_maker.h"
-#include "storage/trunk_prealloc.h"
-#include "storage/trunk_reclaim.h"
-#include "storage/trunk_allocator.h"
-#include "storage/storage_allocator.h"
-#include "storage/object_block_index.h"
-#include "storage/slice_op.h"
+#include "../server_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int server_storage_init();
-void server_storage_destroy();
+    int rebuild_thread_do(const int thread_count);
+
+    int rebuild_cleanup(const char *dirname, const int thread_count);
 
 #ifdef __cplusplus
 }

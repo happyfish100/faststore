@@ -104,7 +104,6 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
 
     fs_calc_block_hashcode(&op_ctx->info.bs_key.block);
     op_ctx->info.data_group_id = FS_DATA_GROUP_ID(op_ctx->info.bs_key.block);
-
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -114,7 +113,7 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     }
 
     if (master_only) {
-        if (!__sync_add_and_fetch(&op_ctx->info.myself->is_master, 0)) {
+        if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
@@ -122,31 +121,25 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
         }
     } else {
         int status;
-        status = __sync_add_and_fetch(&op_ctx->info.myself->status, 0);
+        status = FC_ATOMIC_GET(op_ctx->info.myself->status);
         if (op_ctx->info.is_update) {
-            while (SF_G_CONTINUE_FLAG) {
-                if (status == FS_DS_STATUS_ACTIVE) {
+            while (status == FS_DS_STATUS_ONLINE && SF_G_CONTINUE_FLAG) {
+                if (!FC_ATOMIC_GET(op_ctx->info.myself->
+                            recovery.in_progress))
+                {
+                    status = FC_ATOMIC_GET(op_ctx->info.myself->status);
+                    logInfo("file: "__FILE__", line: %d, "
+                            "rpc data group id: %d, recovery in "
+                            "progress: 0, data version: %"PRId64", "
+                            "until_version: %"PRId64", status: %d",
+                            __LINE__, op_ctx->info.data_group_id,
+                            op_ctx->info.data_version,
+                            FC_ATOMIC_GET(op_ctx->info.myself->
+                                recovery.until_version), status);
                     break;
-                } else if (status == FS_DS_STATUS_ONLINE) {
-                    if (!__sync_add_and_fetch(&op_ctx->info.myself->
-                                recovery.in_progress, 0))
-                    {
-                        status = FC_ATOMIC_GET(op_ctx->info.myself->status);
-                        logInfo("file: "__FILE__", line: %d, "
-                                "rpc data group id: %d, recovery in "
-                                "progress: 0, data version: %"PRId64", "
-                                "until_version: %"PRId64", status: %d",
-                                __LINE__, op_ctx->info.data_group_id,
-                                op_ctx->info.data_version,
-                                FC_ATOMIC_GET(op_ctx->info.myself->
-                                    recovery.until_version), status);
-                        break;
-                    }
+                }
 
-                    if (wait_recovery_done(op_ctx->info.myself, op_ctx) == 0) {
-                        break;
-                    }
-                } else {
+                if (wait_recovery_done(op_ctx->info.myself, op_ctx) == 0) {
                     break;
                 }
                 status = FC_ATOMIC_GET(op_ctx->info.myself->status);
@@ -308,7 +301,7 @@ void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
         if ((op_ctx->result=buffer_to_iovec_array(task)) == 0) {
 #endif
 
-            RESPONSE.header.body_len = op_ctx->done_bytes;
+            RESPONSE.header.body_len = FC_ATOMIC_GET(op_ctx->done_bytes);
             TASK_CTX.common.response_done = true;
 
 #ifdef OS_LINUX
@@ -351,7 +344,7 @@ static void log_data_operation_error(struct fast_task_info *task,
 
     len += snprintf(buff + len, sizeof(buff) - len,
             ", errno: %d, error info: %s",
-            op->ctx->result, STRERROR(op->ctx->result));
+            op->ctx->result, sf_strerror(op->ctx->result));
     log_it1(LOG_ERR, buff, len);
 }
 
@@ -360,10 +353,12 @@ static void master_data_update_done_notify(FSDataOperation *op)
     struct fast_task_info *task;
 
     task = (struct fast_task_info *)op->arg;
+
+    FC_ATOMIC_DEC(op->ctx->info.myself->master_dealing_count);
     if (op->ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
                 sizeof(RESPONSE.error.message),
-                "%s", STRERROR(op->ctx->result));
+                "%s", sf_strerror(op->ctx->result));
 
         log_data_operation_error(task, op);
         TASK_CTX.common.log_level = LOG_NOTHING;
@@ -489,6 +484,13 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
     }
 
     if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+        if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) { //check again
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "data group id: %d, i am NOT master",
+                    op_ctx->info.data_group_id);
+            return SF_RETRIABLE_ERROR_NOT_MASTER;
+        }
+        FC_ATOMIC_INC(op_ctx->info.myself->master_dealing_count);
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
         result = du_slave_check_data_version(task, op_ctx, &skipped);
@@ -506,6 +508,10 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
                    task, op_ctx)) != 0)
     {
         const char *caption;
+
+        if (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER) {
+            FC_ATOMIC_DEC(op_ctx->info.myself->master_dealing_count);
+        }
         caption = fs_get_data_operation_caption(operation);
         if (operation == DATA_OPERATION_BLOCK_DELETE) {
             set_block_op_error_msg(task, op_ctx, caption, result);
@@ -686,14 +692,16 @@ int du_handler_deal_client_join(struct fast_task_info *task)
                 SF_CLUSTER_CONFIG_SIGN_LEN) != 0)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "client's cluster.conf is not consistent with mine");
+                "client's servers part of cluster.conf "
+                "is not consistent with mine");
         return EINVAL;
     }
     if (memcmp(req->cluster_cfg_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
                 SF_CLUSTER_CONFIG_SIGN_LEN) != 0)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "client's cluster.conf is not consistent with mine");
+                "client's topology of cluster.conf "
+                "is not consistent with mine");
         return EINVAL;
     }
 

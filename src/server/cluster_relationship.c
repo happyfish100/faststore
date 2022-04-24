@@ -41,11 +41,19 @@
 
 #define ALIGN_TIME(interval) (((interval) / 60) * 60)
 
+typedef struct fs_data_server_status {
+    char is_master;
+    char status;
+    int master_dealing_count;
+    int64_t data_version;
+} FSDataServerStatus;
+
 typedef struct fs_cluster_server_status {
     FSClusterServerInfo *cs;
     char is_leader;
     char leader_hint;
     char force_election;
+    int last_heartbeat_time;
     int server_id;
     int up_time;
     int last_shutdown_time;
@@ -144,6 +152,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
     server_status->force_election = resp->force_election;
     server_status->server_id = buff2int(resp->server_id);
     server_status->up_time = buff2int(resp->up_time);
+    server_status->last_heartbeat_time = buff2int(resp->last_heartbeat_time);
     server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
     server_status->version = buff2long(resp->version);
     return 0;
@@ -163,8 +172,9 @@ static int proto_join_leader(FSClusterServerInfo *leader,
     SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_JOIN_LEADER_REQ,
             sizeof(out_buff) - sizeof(FSProtoHeader));
 
-    req = (FSProtoJoinLeaderReq *)(out_buff + sizeof(FSProtoHeader));
+    req = (FSProtoJoinLeaderReq *)(header + 1);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
+    long2buff(CLUSTER_MYSELF_PTR->key, req->key);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
@@ -182,6 +192,119 @@ static int proto_join_leader(FSClusterServerInfo *leader,
         }
     }
 
+    return result;
+}
+
+static int proto_unset_master(FSClusterDataServerInfo *master,
+        ConnectionInfo *conn, const int network_timeout)
+{
+	int result;
+	FSProtoHeader *header;
+    FSProtoUnsetMasterReq *req;
+    SFResponseInfo response;
+	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoUnsetMasterReq)];
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_UNSET_MASTER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+
+    req = (FSProtoUnsetMasterReq *)(header + 1);
+    int2buff(CLUSTER_MY_SERVER_ID, req->leader_id);
+    int2buff(master->dg->id, req->data_group_id);
+    long2buff(master->cs->key, req->key);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
+                    sizeof(out_buff), &response, network_timeout,
+                    FS_CLUSTER_PROTO_UNSET_MASTER_RESP)) != 0)
+    {
+        sf_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
+
+static int proto_get_ds_status(FSClusterDataServerInfo *ds,
+        ConnectionInfo *conn, const int network_timeout,
+        FSDataServerStatus *ds_status)
+{
+    int result;
+    FSProtoHeader *header;
+    FSProtoGetDSStatusReq *req;
+    FSProtoGetDSStatusResp resp;
+    SFResponseInfo response;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoGetDSStatusReq)];
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_GET_DS_STATUS_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+
+    req = (FSProtoGetDSStatusReq *)(header + 1);
+    int2buff(ds->dg->id, req->data_group_id);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_response(conn, out_buff,
+                    sizeof(out_buff), &response, network_timeout,
+                    FS_CLUSTER_PROTO_GET_DS_STATUS_RESP,
+                    (char *)&resp, sizeof(resp))) == 0)
+    {
+        ds_status->is_master = resp.is_master;
+        ds_status->status = resp.status;
+        ds_status->master_dealing_count = buff2int(
+                resp.master_dealing_count);
+        ds_status->data_version = buff2long(resp.data_version);
+    } else {
+        sf_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
+
+static int cluster_get_ds_status(FSClusterDataServerInfo *ds,
+        FSDataServerStatus *ds_status)
+{
+    const int connect_timeout = 2;
+    const int network_timeout = 3;
+    ConnectionInfo conn;
+    int result;
+
+    if (ds->cs == CLUSTER_MYSELF_PTR) {
+        ds_status->is_master = FC_ATOMIC_GET(ds->is_master);
+        ds_status->status = FC_ATOMIC_GET(ds->status);
+        ds_status->master_dealing_count = FC_ATOMIC_GET(
+                ds->master_dealing_count);
+        ds_status->data_version = FC_ATOMIC_GET(ds->data.version);
+        return 0;
+    }
+
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        ds->cs->server), &conn, connect_timeout)) != 0)
+    {
+        return result;
+    }
+
+    result = proto_get_ds_status(ds, &conn, network_timeout, ds_status);
+    conn_pool_disconnect_server(&conn);
+    return result;
+}
+
+static int cluster_unset_master(FSClusterDataServerInfo *master)
+{
+    const int connect_timeout = 2;
+    const int network_timeout = 3;
+    ConnectionInfo conn;
+    int result;
+
+    if (master->cs == CLUSTER_MYSELF_PTR) {
+        return 0;
+    }
+
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        master->cs->server), &conn, connect_timeout)) != 0)
+    {
+        return result;
+    }
+
+    result = proto_unset_master(master, &conn, network_timeout);
+    conn_pool_disconnect_server(&conn);
     return result;
 }
 
@@ -257,6 +380,11 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
         return sub;
     }
 
+    sub = status1->last_heartbeat_time - status2->last_heartbeat_time;
+    if (!(sub >= -3 && sub <= 3)) {
+        return sub;
+    }
+
     sub = (int)status1->leader_hint - (int)status2->leader_hint;
     if (sub != 0) {
         return sub;
@@ -299,6 +427,7 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         server_status->leader_hint = (MYSELF_IS_LEADER ? 1 : 0);
         server_status->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
         server_status->up_time = g_sf_global_vars.up_time;
+        server_status->last_heartbeat_time = CLUSTER_LAST_HEARTBEAT_TIME;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
         server_status->version = __sync_add_and_fetch(
                 &CLUSTER_CURRENT_VERSION, 0);
@@ -320,7 +449,7 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
 }
 
 static int cluster_get_leader(FSClusterServerStatus *server_status,
-        int *active_count)
+        const bool log_connect_error, int *active_count)
 {
 #define STATUS_ARRAY_FIXED_COUNT  8
 	FSClusterServerInfo *server;
@@ -349,7 +478,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 	end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
 	for (server=CLUSTER_SERVER_ARRAY.servers; server<end; server++) {
 		current_status->cs = server;
-        r = cluster_get_server_status(current_status);
+        r = cluster_get_server_status_ex(current_status, log_connect_error);
 		if (r == 0) {
 			current_status++;
 		} else if (r != ENOENT) {
@@ -374,12 +503,14 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         restart_interval = cs_status[i].up_time -
             cs_status[i].last_shutdown_time;
         logDebug("file: "__FILE__", line: %d, "
-                "server_id: %d, ip addr %s:%u, version: %"PRId64", "
-                "is_leader: %d, up_time: %d, restart interval: %d",
-                __LINE__, cs_status[i].server_id,
+                "%d. server_id: %d, ip addr %s:%u, version: %"PRId64", "
+                "is_leader: %d, leader_hint: %d, last_heartbeat_time: %d, "
+                "up_time: %d, restart interval: %d", __LINE__,
+                i + 1, cs_status[i].server_id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
                 cs_status[i].version, cs_status[i].is_leader,
+                cs_status[i].leader_hint, cs_status[i].last_heartbeat_time,
                 ALIGN_TIME(cs_status[i].up_time),
                 ALIGN_TIME(restart_interval));
     }
@@ -490,6 +621,37 @@ int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
     return 0;
 }
 
+static void unset_all_data_groups()
+{
+    FSClusterDataGroupInfo *group;
+    FSClusterDataGroupInfo *gend;
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *send;
+    FSClusterDataServerInfo *master;
+
+    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
+    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+        master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
+        if (master != NULL) {
+            __sync_bool_compare_and_swap(&group->master, master, NULL);
+        }
+
+        send = group->data_server_array.servers +
+            group->data_server_array.count;
+        for (ds=group->data_server_array.servers; ds<send; ds++) {
+            if (FC_ATOMIC_GET(ds->is_master)) {
+                __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
+            }
+
+            if (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ACTIVE) {
+                __sync_bool_compare_and_swap(&ds->status,
+                        FS_DS_STATUS_ACTIVE,
+                        FS_DS_STATUS_OFFLINE);
+            }
+        }
+    }
+}
+
 static inline void cluster_unset_leader()
 {
     FSClusterServerInfo *old_leader;
@@ -498,6 +660,7 @@ static inline void cluster_unset_leader()
     if (old_leader != NULL) {
         old_leader->is_leader = false;
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR, old_leader, NULL);
+        unset_all_data_groups();
     }
 }
 
@@ -782,8 +945,10 @@ static int cluster_select_leader()
     int max_sleep_secs;
     int sleep_secs;
     int remain_time;
+    bool need_log;
     bool force_sleep;
     time_t start_time;
+    time_t last_log_time;
     char prompt[512];
 	FSClusterServerStatus server_status;
     FSClusterServerInfo *next_leader;
@@ -799,22 +964,58 @@ static int cluster_select_leader()
     }
 
     start_time = g_current_time;
+    last_log_time = 0;
+    sleep_secs = 10;
     max_sleep_secs = 1;
     i = 0;
     while (CLUSTER_LEADER_ATOM_PTR == NULL) {
-        if ((result=cluster_get_leader(&server_status, &active_count)) != 0) {
+        if (sleep_secs > 1) {
+            need_log = true;
+            last_log_time = g_current_time;
+        } else if (g_current_time - last_log_time > 8) {
+            need_log = ((i + 1) % 10 == 0);
+            if (need_log) {
+                last_log_time = g_current_time;
+            }
+        } else {
+            need_log = false;
+        }
+
+        if ((result=cluster_get_leader(&server_status,
+                        need_log, &active_count)) != 0)
+        {
             return result;
         }
+
+        ++i;
+        if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
+                    CLUSTER_SERVER_ARRAY.count, active_count) &&
+                !FORCE_LEADER_ELECTION)
+        {
+            sleep_secs = 1;
+            if (need_log) {
+                logWarning("file: "__FILE__", line: %d, "
+                        "round %dth select leader fail because alive server "
+                        "count: %d < half of total server count: %d, "
+                        "try again after %d seconds.", __LINE__, i,
+                        active_count, CLUSTER_SERVER_ARRAY.count,
+                        sleep_secs);
+            }
+            sleep(sleep_secs);
+            continue;
+        }
+
         if ((active_count == CLUSTER_SERVER_ARRAY.count) ||
                 (active_count >= 2 && (server_status.is_leader ||
-                                       server_status.leader_hint)))
+                                       server_status.leader_hint)) ||
+                (start_time - server_status.last_heartbeat_time <=
+                 LEADER_ELECTION_LOST_TIMEOUT + 1))
         {
             break;
         }
 
-        ++i;
-        if ((server_status.up_time - server_status.last_shutdown_time > 3600
-                    && g_current_time - server_status.up_time < 600) &&
+        if ((server_status.up_time - server_status.last_shutdown_time >
+                    3600) && (server_status.last_heartbeat_time == 0) &&
                 !FORCE_LEADER_ELECTION)
         {
             sprintf(prompt, "the candidate leader server id: %d, "
@@ -850,18 +1051,18 @@ static int cluster_select_leader()
             if (force_sleep) {
                 sleep_secs = max_sleep_secs;
             } else {
-                sleep_secs = 0;
+                sleep_secs = 1;
             }
         }
 
-        logWarning("file: "__FILE__", line: %d, "
-                "round %dth select leader, alive server count: %d "
-                "< server count: %d, %stry again after %d seconds.",
-                __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
-                prompt, sleep_secs);
-        if (sleep_secs > 0) {
-            sleep(sleep_secs);
+        if (need_log) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "round %dth select leader, alive server count: %d "
+                    "< server count: %d, %stry again after %d seconds.",
+                    __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
+                    prompt, sleep_secs);
         }
+        sleep(sleep_secs);
         if (max_sleep_secs < 32) {
             max_sleep_secs *= 2;
         }
@@ -900,18 +1101,175 @@ static int cluster_select_leader()
         }
     }
 
+    CLUSTER_MYSELF_PTR->key = g_current_time | ((int64_t)(rand() +
+                CLUSTER_MY_SERVER_ID) << 32);
 	return 0;
 }
 
-static void cluster_relationship_on_status_change(FSClusterDataServerInfo *ds,
+static void unset_master_rollback(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    bool need_rollback;
+
+    master_election_lock();
+    need_rollback = (FC_ATOMIC_GET(group->master) == old_master);
+    if (need_rollback) {
+        /* rollback */
+        __sync_bool_compare_and_swap(&old_master->is_master, 0, 1);
+    }
+    master_election_unlock();
+
+    if (need_rollback) {
+        cluster_topology_data_server_chg_notify(old_master,
+                FS_EVENT_SOURCE_CS_LEADER,
+                FS_EVENT_TYPE_MASTER_CHANGE, true);
+
+        /* downgrade status for try again */
+        if (FC_ATOMIC_GET(new_master->status) == FS_DS_STATUS_ACTIVE) {
+            cluster_relationship_set_ds_status_ex(new_master,
+                    FS_DS_STATUS_ACTIVE, FS_DS_STATUS_OFFLINE);
+            cluster_topology_data_server_chg_notify(new_master,
+                    FS_EVENT_SOURCE_CS_LEADER,
+                    FS_EVENT_TYPE_STATUS_CHANGE, true);
+        }
+    }
+}
+
+static int check_swap_master(FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    int result;
+    int i;
+    int sleep_ms;
+    FSDataServerStatus old_status;
+    FSDataServerStatus new_status;
+
+    if ((result=cluster_unset_master(old_master)) != 0) {
+        return result;
+    }
+
+    sleep_ms = 10;
+    for (i=0; i<5; i++) {
+        if (i > 0) {
+            sleep_ms *= 2;
+        }
+        fc_sleep_ms(sleep_ms);
+        if ((result=cluster_get_ds_status(old_master, &old_status)) != 0) {
+            return result;
+        }
+
+        if (old_status.master_dealing_count == 0) {
+            break;
+        }
+    }
+
+    /* try again to avoid race case */
+    if (old_status.master_dealing_count == 0) {
+        fc_sleep_ms(10);
+        if ((result=cluster_get_ds_status(old_master, &old_status)) != 0) {
+            return result;
+        }
+    }
+
+    if (old_status.master_dealing_count != 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, old master server id: %d 's "
+                "dealing count: %d != 0!", __LINE__,
+                old_master->dg->id, old_master->cs->server->id,
+                old_status.master_dealing_count);
+        return EBUSY;
+    }
+
+    if ((result=cluster_get_ds_status(new_master, &new_status)) != 0) {
+        return result;
+    }
+
+    if (new_status.data_version != old_status.data_version) {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, new master server id: %d 's "
+                "data_version: %"PRId64" != old master server id: %d 's "
+                "data_version: %"PRId64"!", __LINE__, new_master->dg->id,
+                new_master->cs->server->id, new_status.data_version,
+                old_master->cs->server->id, old_status.data_version);
+        return EBUSY;
+    }
+
+    return 0;
+}
+
+static bool cluster_resume_master(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master,
+        FSClusterDataServerInfo *new_master)
+{
+    int64_t start_time_us;
+    int64_t time_used;
+    char time_buff[32];
+
+    if (FC_ATOMIC_GET(group->master) != old_master) {
+        return false;
+    }
+    if (FC_ATOMIC_GET(new_master->cs->status) != FS_SERVER_STATUS_ACTIVE) {
+        return false;
+    }
+
+    start_time_us = get_current_time_us();
+    logDebug("file: "__FILE__", line: %d, "
+            "data_group_id: %d, try to resume master from server id "
+            "%d to %d ...", __LINE__, group->id, old_master->
+            cs->server->id, new_master->cs->server->id);
+
+    __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
+    if (check_swap_master(old_master, new_master) != 0) {
+        unset_master_rollback(group, old_master, new_master);
+        return false;
+    }
+
+    if (!master_election_set_master(group, old_master, new_master)) {
+        if (FC_ATOMIC_GET(group->master) == NULL) {
+            if (!master_election_set_master(group, NULL, new_master)) {
+                return false;
+            }
+        } else {
+            unset_master_rollback(group, old_master, new_master);
+            return false;
+        }
+    }
+
+    time_used = get_current_time_us() - start_time_us;
+    logInfo("file: "__FILE__", line: %d, "
+            "data_group_id: %d, resume master from server id %d to %d "
+            "successfully, time used: %s us", __LINE__, group->id,
+            old_master->cs->server->id, new_master->cs->server->id,
+            long_to_comma_str(time_used, time_buff));
+
+    cluster_topology_data_server_chg_notify(new_master,
+            FS_EVENT_SOURCE_CS_LEADER,
+            FS_EVENT_TYPE_MASTER_CHANGE, true);
+    return true;
+}
+
+static void cluster_relationship_on_status_change(
+        FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
 {
     FSClusterDataServerInfo *master;
 
-    master = (FSClusterDataServerInfo *)
-        __sync_add_and_fetch(&ds->dg->master, 0);
+    master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
     if (master == NULL) {
         return;
+    }
+
+    if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
+        if (RESUME_MASTER_ROLE && (ds != master) && ds->is_preseted &&
+                (new_status == FS_DS_STATUS_ACTIVE))
+        {
+            cluster_resume_master(ds->dg, master, ds);
+            master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
+            if (master == NULL) {
+                return;
+            }
+        }
     }
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
@@ -996,7 +1354,8 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status, const int source)
 {
     bool changed;
-    changed = cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
+    changed = cluster_relationship_set_ds_status_ex(
+            ds, old_status, new_status);
     if (!changed) {
         return changed;
     }
@@ -1006,34 +1365,26 @@ bool cluster_relationship_swap_report_ds_status(FSClusterDataServerInfo *ds,
     return changed;
 }
 
-int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
+void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
+        FSClusterDataServerInfo *old_master,
         FSClusterDataServerInfo *new_master)
 {
-    FSClusterDataGroupInfo *group;
     FSClusterDataServerInfo *ds;
     int old_status;
     int new_status;
 
-    if (old_master != NULL) {
-        group = old_master->dg;
-    } else if (new_master != NULL) {
-        group = new_master->dg;
-    } else {
-        return EINVAL;
-    }
-
     if (new_master == old_master) {
-        return 0;
+        return;
     }
 
     if (group->myself == NULL) {
-        return 0;
+        return;
     }
 
     if (group->myself == new_master) {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_ACTIVE;
-        ds = group->myself;
+        ds = (old_status != FS_DS_STATUS_ACTIVE ? group->myself : NULL);
     } else {
         old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_OFFLINE;
@@ -1052,8 +1403,6 @@ int cluster_relationship_on_master_change(FSClusterDataServerInfo *old_master,
     if (new_master != NULL && group->myself != new_master) {
         recovery_thread_check_push_to_queue(group->myself);
     }
-
-    return 0;
 }
 
 static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
@@ -1064,7 +1413,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     int old_status;
     int is_master;
 
-    is_master = __sync_add_and_fetch(&ds->is_master, 0);
+    is_master = FC_ATOMIC_GET(ds->is_master);
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
         /* accept ACTIVE => OFFLINE only */
         if (body_part->status == FS_DS_STATUS_OFFLINE) {
@@ -1085,16 +1434,14 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         return;
     }
 
-    old_master = (FSClusterDataServerInfo *)
-        __sync_add_and_fetch(&ds->dg->master, 0);
+    old_master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(ds->dg->master);
     __sync_bool_compare_and_swap(&ds->is_master,
             is_master, body_part->is_master);
-    if (__sync_add_and_fetch(&ds->is_master, 0)) {
+    if (FC_ATOMIC_GET(ds->is_master)) {
         new_master = ds;
         if (new_master != old_master) {
             if (old_master != NULL) {
-                __sync_bool_compare_and_swap(&old_master->
-                        is_master, true, false);
+                __sync_bool_compare_and_swap(&old_master->is_master, 1, 0);
             }
             __sync_bool_compare_and_swap(&ds->dg->master,
                     old_master, new_master);
@@ -1105,14 +1452,13 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         new_master = NULL;
         __sync_bool_compare_and_swap(&ds->dg->master,
                 old_master, new_master);
-
         logDebug("data_group_id: %d, unset master server_id: %d",
                 ds->dg->id, ds->cs->server->id);
     } else {
         return;
     }
 
-    cluster_relationship_on_master_change(old_master, new_master);
+    cluster_relationship_on_master_change(ds->dg, old_master, new_master);
 }
 
 static int cluster_process_leader_push(SFResponseInfo *response,
@@ -1371,6 +1717,7 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
 static int leader_check()
 {
     int result;
+    int active_count;
     int inactive_count;
     static time_t last_stat_time = 0;
 
@@ -1386,6 +1733,19 @@ static int leader_check()
     if (inactive_count > 0) {
         if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
             return result;
+        }
+
+        active_count = CLUSTER_SERVER_ARRAY.count -
+            INACTIVE_SERVER_ARRAY.count;
+        if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
+                    CLUSTER_SERVER_ARRAY.count, active_count))
+        {
+            logWarning("file: "__FILE__", line: %d, "
+                    "trigger re-select leader because alive server "
+                    "count: %d < half of total server count: %d ...",
+                    __LINE__, active_count, CLUSTER_SERVER_ARRAY.count);
+            cluster_unset_leader();
+            return EBUSY;
         }
     }
 
@@ -1430,15 +1790,17 @@ static int follower_ping(FSClusterServerInfo *leader,
     }
 
     result = proto_ping_leader(leader, conn, network_timeout);
-    if (result == 0 && g_current_time - last_stat_time >= 10) {
-        last_stat_time = g_current_time;
-        storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
-        result = proto_report_disk_space(conn,
-                &CLUSTER_MYSELF_PTR->space_stat);
-    }
-    if (result != 0) {
+    if (result == 0) {
+        if (g_current_time - last_stat_time >= 10) {
+            last_stat_time = g_current_time;
+            storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+            result = proto_report_disk_space(conn,
+                    &CLUSTER_MYSELF_PTR->space_stat);
+        }
+    } else {
         conn_pool_disconnect_server(conn);
     }
+
     return result;
 }
 
@@ -1502,6 +1864,7 @@ static void *cluster_thread_entrance(void *arg)
             {
                 fail_count = 0;
                 ping_start_time = g_current_time;
+                CLUSTER_LAST_HEARTBEAT_TIME = g_current_time;
                 sleep_seconds = 0;
             } else if (is_ping) {
                 ++fail_count;

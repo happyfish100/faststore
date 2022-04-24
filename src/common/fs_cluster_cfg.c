@@ -119,7 +119,6 @@ static int load_data_group_count(FSClusterConfig *cluster_cfg,
     for (mapping=cluster_cfg->data_groups.mappings; mapping<mend; mapping++) {
         mapping->data_group_id = (mapping - cluster_cfg->
             data_groups.mappings) + 1;
-        mapping->hash_code = nrand48(g_fs_global_vars.rand48_seeds);
     }
     return 0;
 }

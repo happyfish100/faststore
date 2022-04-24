@@ -55,7 +55,11 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
         client_ctx->common_cfg.network_timeout = SF_DEFAULT_NETWORK_TIMEOUT;
     }
 
-    sf_load_read_rule_config(&client_ctx->common_cfg.read_rule, ini_ctx);
+    if ((result=sf_load_read_rule_config(&client_ctx->common_cfg.
+                    read_rule, ini_ctx)) != 0)
+    {
+        return result;
+    }
 
     if ((result=fs_cluster_cfg_load_from_ini_ex1(client_ctx->
                     cluster_cfg.ptr, ini_ctx,cluster_full_filename,

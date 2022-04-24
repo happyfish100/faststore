@@ -31,11 +31,6 @@
 #define FS_MAX_DATA_GROUPS_PER_SERVER   1024
 #define FS_MAX_GROUP_SERVERS             128
 
-//random seed to generate hash code for master election
-#define FS_DATA_GROUP_MASTER_HC_SEED0   2020
-#define FS_DATA_GROUP_MASTER_HC_SEED1   6024
-#define FS_DATA_GROUP_MASTER_HC_SEED2   9035
-
 #define FS_DS_STATUS_INIT       0
 #define FS_DS_STATUS_REBUILDING 1
 #define FS_DS_STATUS_OFFLINE    2

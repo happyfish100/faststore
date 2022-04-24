@@ -21,12 +21,16 @@
 #include "sf/sf_binlog_writer.h"
 #include "binlog_types.h"
 #include "../storage/object_block_index.h"
+#include "../server_global.h"
 
-#define SLICE_BINLOG_OP_TYPE_WRITE_SLICE  BINLOG_OP_TYPE_WRITE_SLICE
-#define SLICE_BINLOG_OP_TYPE_ALLOC_SLICE  BINLOG_OP_TYPE_ALLOC_SLICE
-#define SLICE_BINLOG_OP_TYPE_DEL_SLICE    BINLOG_OP_TYPE_DEL_SLICE
-#define SLICE_BINLOG_OP_TYPE_DEL_BLOCK    BINLOG_OP_TYPE_DEL_BLOCK
-#define SLICE_BINLOG_OP_TYPE_NO_OP        BINLOG_OP_TYPE_NO_OP
+typedef struct slice_binlog_record {
+    char source;
+    char op_type;
+    OBSliceType slice_type;   //add slice only
+    FSBlockSliceKeyInfo bs_key;
+    FSTrunkSpaceInfo space;   //add slice only
+    int64_t data_version;
+} SliceBinlogRecord;
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,6 +45,10 @@ extern "C" {
     struct sf_binlog_writer_info *slice_binlog_get_writer();
 
     int slice_binlog_set_binlog_index(const int binlog_index);
+
+    void slice_binlog_writer_set_flags(const short flags);
+
+    int slice_binlog_set_next_version();
 
     static inline const char *slice_binlog_get_filepath(
             char *filepath, const int size)
@@ -64,16 +72,16 @@ extern "C" {
                 FS_SLICE_BINLOG_SUBDIR_NAME, filename, size);
     }
 
-    static inline int slice_binlog_log_to_buff(const OBSliceEntry *slice,
-            const time_t current_time, const uint64_t data_version,
+    static inline int slice_binlog_log_add_slice_to_buff(const OBSliceEntry
+            *slice, const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
         return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64
                 " %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
                 (int64_t)current_time, data_version, source,
                 slice->type == OB_SLICE_TYPE_FILE ?
-                SLICE_BINLOG_OP_TYPE_WRITE_SLICE :
-                SLICE_BINLOG_OP_TYPE_ALLOC_SLICE,
+                BINLOG_OP_TYPE_WRITE_SLICE :
+                BINLOG_OP_TYPE_ALLOC_SLICE,
                 slice->ob->bkey.oid, slice->ob->bkey.offset,
                 slice->ssize.offset, slice->ssize.length,
                 slice->space.store->index, slice->space.id_info.id,
@@ -81,14 +89,13 @@ extern "C" {
                 slice->space.size);
     }
 
-    static inline int slice_binlog_log_no_op(const time_t current_time,
-            const uint64_t data_version, const int source, char *buff)
+    static inline int slice_binlog_log_no_op_to_buff(const FSBlockKey *bkey,
+            const time_t current_time, const uint64_t data_version,
+            const int source, char *buff)
     {
-        const int64_t oid = 1;
-        const int64_t offset = 0;
         return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
                 "%"PRId64"\n", (int64_t)current_time, data_version,
-                source, BINLOG_OP_TYPE_NO_OP, oid, offset);
+                source, BINLOG_OP_TYPE_NO_OP, bkey->oid, bkey->offset);
     }
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,
@@ -103,7 +110,14 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source);
 
+    int slice_binlog_log_no_op(const FSBlockKey *bkey,
+            const time_t current_time, const uint64_t sn,
+            const uint64_t data_version, const int source);
+
     void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
+
+    int slice_binlog_record_unpack(const string_t *line,
+            SliceBinlogRecord *record, char *error_info);
 
 #ifdef __cplusplus
 }

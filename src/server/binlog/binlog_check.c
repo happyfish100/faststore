@@ -179,7 +179,8 @@ static int check_alloc_version_array(BinlogDataGroupVersionArray *array)
 }
 
 static int binlog_parse_buffer(ServerBinlogReader *reader,
-        const int length, BinlogDataGroupVersionArray *varray)
+        const int length, const time_t from_timestamp,
+        BinlogDataGroupVersionArray *varray)
 {
     int result;
     string_t line;
@@ -212,12 +213,15 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
             break;
         }
 
-        fs_calc_block_hashcode(&fields.bkey);
-        if ((result=check_alloc_version_array(varray)) != 0) {
-            break;
-        }
+        if ((fields.timestamp >= from_timestamp) &&
+                FS_IS_BINLOG_SOURCE_RPC(fields.source))
+        {
+            fs_calc_block_hashcode(&fields.bkey);
+            if ((result=check_alloc_version_array(varray)) != 0) {
+                sprintf(error_info, "out of memory");
+                break;
+            }
 
-        if (!BINLOG_IS_INTERNAL_RECORD(fields.op_type, fields.data_version)) {
             dg_version = varray->versions + varray->count++;
             dg_version->data_version = fields.data_version;
             dg_version->data_group_id = FS_DATA_GROUP_ID(fields.bkey);
@@ -251,7 +255,7 @@ static int do_load_data_versions(const char *subdir_name,
     ServerBinlogReader reader;
 
     if ((result=binlog_get_position_by_timestamp(subdir_name,
-                    writer, from_timestamp, pos)) != 0)
+                    writer, from_timestamp - 1, pos)) != 0)
     {
         return result;
     }
@@ -260,24 +264,14 @@ static int do_load_data_versions(const char *subdir_name,
         return result;
     }
 
-    /*
-    {
-        int64_t line_count;
-
-        fc_get_file_line_count_ex(reader.filename,
-                reader.position.offset, &line_count);
-
-        logInfo("head -n %"PRId64" %s, index: %d, offset: %"PRId64,
-                line_count + 1, reader.filename, pos->index, pos->offset); 
-    }
-    */
-
     while ((result=binlog_reader_integral_read(&reader,
                     reader.binlog_buffer.buff,
                     reader.binlog_buffer.size,
                     &read_bytes)) == 0)
     {
-        if ((result=binlog_parse_buffer(&reader, read_bytes, varray)) != 0) {
+        if ((result=binlog_parse_buffer(&reader, read_bytes,
+                        from_timestamp, varray)) != 0)
+        {
             break;
         }
     }
@@ -285,10 +279,6 @@ static int do_load_data_versions(const char *subdir_name,
     if (result == ENOENT) {
         result = 0;
     }
-    /*
-    logInfo("subdir_name: %s, index: %d, offset: %"PRId64", count: %"PRId64,
-            subdir_name, pos->index, pos->offset, varray->count);
-            */
 
     binlog_reader_destroy(&reader);
     return result;
@@ -319,8 +309,7 @@ static inline void sort_version_array(BinlogDataGroupVersionArray *varray)
     }
 }
 
-static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
-        const time_t from_timestamp)
+static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
 {
     int result;
     int data_group_id;
@@ -337,7 +326,7 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
                 data_group_id);
         if ((result=do_load_data_versions(subdir_name,
                         replica_binlog_get_writer(data_group_id),
-                        from_timestamp, replica,
+                        ctx->from_timestamp, replica,
                         &ctx->version_arrays.replica)) != 0)
         {
             return result;
@@ -345,8 +334,8 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
     }
 
     if ((result=do_load_data_versions(FS_SLICE_BINLOG_SUBDIR_NAME,
-                    slice_binlog_get_writer(), from_timestamp, &ctx->
-                    positions.slice, &ctx->version_arrays.slice)) != 0)
+                    slice_binlog_get_writer(), ctx->from_timestamp,
+                    &ctx->positions.slice, &ctx->version_arrays.slice)) != 0)
     {
         return result;
     }
@@ -366,8 +355,7 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx,
         }  \
     } while (0)
 
-static int binlog_check(BinlogConsistencyContext *ctx,
-        const time_t from_timestamp, int *flags)
+static int binlog_check(BinlogConsistencyContext *ctx, int *flags)
 {
     int result;
     int compr;
@@ -377,7 +365,7 @@ static int binlog_check(BinlogConsistencyContext *ctx,
     BinlogDataGroupVersion *send;
     BinlogDataGroupVersion *current;
 
-    if ((result=binlog_load_data_versions(ctx, from_timestamp)) != 0) {
+    if ((result=binlog_load_data_versions(ctx)) != 0) {
         return result;
     }
 
@@ -423,7 +411,6 @@ int binlog_consistency_check(BinlogConsistencyContext *ctx, int *flags)
 {
     int result;
     time_t last_timestamp;
-    time_t from_timestamp;
 
     *flags = 0;
     if ((result=binlog_check_get_last_timestamp(&last_timestamp)) != 0) {
@@ -431,9 +418,10 @@ int binlog_consistency_check(BinlogConsistencyContext *ctx, int *flags)
     }
 
     if (last_timestamp <= 0) {
+        ctx->from_timestamp = 0;
         return 0;
     }
 
-    from_timestamp = last_timestamp - LOCAL_BINLOG_CHECK_LAST_SECONDS + 1;
-    return binlog_check(ctx, from_timestamp, flags);
+    ctx->from_timestamp = last_timestamp - LOCAL_BINLOG_CHECK_LAST_SECONDS + 1;
+    return binlog_check(ctx, flags);
 }
