@@ -1741,6 +1741,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 
     *total_slice_count = 0;
 
+    memset(&dump_ctx, 0, sizeof(dump_ctx));
 #if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
     if ((result=fs_slice_blocked_op_ctx_init(&dump_ctx.bctx)) != 0) {
         return result;
