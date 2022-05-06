@@ -54,8 +54,10 @@
 #define FS_SERVICE_PROTO_GET_MASTER_RESP         52
 
 //cluster commands
-#define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ   61
-#define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP  62
+#define FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ  \
+    SF_CLUSTER_PROTO_GET_SERVER_STATUS_REQ
+#define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP \
+    SF_CLUSTER_PROTO_GET_SERVER_STATUS_RESP
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ    63  //report data server status
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP   64
 #define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         65
@@ -159,17 +161,9 @@ typedef struct fs_proto_replica_slice_read_req {
     FSProtoBlockSlice bs;
 } FSProtoReplicaSliceReadReq;
 
-typedef struct {
-    unsigned char servers[16];
-    unsigned char cluster[16];
-} FSProtoConfigSigns;
+typedef SFProtoConfigSigns FSProtoConfigSigns;
 
-typedef struct fs_proto_get_server_status_req {
-    FSProtoConfigSigns config_signs;
-    char server_id[4];  //my server id
-    char is_leader;     //am i leader
-    char padding[3];
-} FSProtoGetServerStatusReq;
+typedef SFProtoGetServerStatusReq FSProtoGetServerStatusReq;
 
 typedef struct fs_proto_get_server_status_resp {
     char server_id[4];

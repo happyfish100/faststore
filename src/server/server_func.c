@@ -26,6 +26,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
+#include "fastcfs/vote/fcfs_vote_client.h"
 #include "common/fs_proto.h"
 #include "client/fs_client.h"
 #include "server_global.h"
@@ -166,13 +167,14 @@ static int load_leader_election_config(const char *cluster_filename)
     LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
             &ini_ctx, "max_wait_time", 30, 1, 3600);
     if ((result=sf_load_quorum_config(&LEADER_ELECTION_QUORUM,
-                    &ini_ctx)) != 0)
+                    &ini_ctx)) == 0)
     {
-        return result;
+        result = fcfs_vote_client_init_for_server(
+                &ini_ctx, &VOTE_NODE_ENABLED);
     }
 
     iniFreeContext(&ini_context);
-    return 0;
+    return result;
 }
 
 static int load_cluster_config(IniContext *ini_context, const char *filename,
@@ -300,6 +302,7 @@ static void server_log_configs()
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
             "leader-election {quorum: %s, "
+            "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
             "max_wait_time: %ds}",
             CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
@@ -313,6 +316,7 @@ static void server_log_configs()
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
             sf_get_quorum_caption(LEADER_ELECTION_QUORUM),
+            VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME);
 

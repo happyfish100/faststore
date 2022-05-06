@@ -32,6 +32,7 @@
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/fast_buffer.h"
 #include "sf/sf_global.h"
+#include "fastcfs/vote/fcfs_vote_client.h"
 #include "common/fs_proto.h"
 #include "server_global.h"
 #include "server_recovery.h"
@@ -111,42 +112,10 @@ static FSClusterRelationshipContext relationship_ctx = {
         entry->next_time = g_current_time + 1; \
     } while (0)
 
-static int proto_get_server_status(ConnectionInfo *conn,
-        const int network_timeout,
+static inline void proto_unpack_server_status(
+        FSProtoGetServerStatusResp *resp,
         FSClusterServerStatus *server_status)
 {
-	int result;
-	FSProtoHeader *header;
-    FSProtoGetServerStatusReq *req;
-    FSProtoGetServerStatusResp *resp;
-    SFResponseInfo response;
-	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoGetServerStatusReq)];
-	char in_body[sizeof(FSProtoGetServerStatusResp)];
-
-    header = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
-
-    req = (FSProtoGetServerStatusReq *)(out_buff + sizeof(FSProtoHeader));
-    int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
-    req->is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR ? 1 : 0);
-    memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
-            SF_CLUSTER_CONFIG_SIGN_LEN);
-    memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
-            SF_CLUSTER_CONFIG_SIGN_LEN);
-    response.error.length = 0;
-	if ((result=sf_send_and_recv_response(conn, out_buff,
-			sizeof(out_buff), &response, network_timeout,
-            FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP, in_body,
-            sizeof(FSProtoGetServerStatusResp))) != 0)
-    {
-        if (result != EOPNOTSUPP) {
-            sf_log_network_error(&response, conn, result);
-        }
-        return result;
-    }
-
-    resp = (FSProtoGetServerStatusResp *)in_body;
     server_status->is_leader = resp->is_leader;
     server_status->leader_hint = resp->leader_hint;
     server_status->force_election = resp->force_election;
@@ -155,6 +124,42 @@ static int proto_get_server_status(ConnectionInfo *conn,
     server_status->last_heartbeat_time = buff2int(resp->last_heartbeat_time);
     server_status->last_shutdown_time = buff2int(resp->last_shutdown_time);
     server_status->version = buff2long(resp->version);
+}
+
+static int proto_get_server_status(ConnectionInfo *conn,
+        const int network_timeout, FSClusterServerStatus *server_status)
+{
+    int result;
+    FSProtoHeader *header;
+    FSProtoGetServerStatusReq *req;
+    SFGetServerStatusRequest status_request;
+    SFResponseInfo response;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoGetServerStatusReq)];
+    FSProtoGetServerStatusResp resp;
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+
+    req = (FSProtoGetServerStatusReq *)(out_buff + sizeof(FSProtoHeader));
+    status_request.server_id = CLUSTER_MY_SERVER_ID;
+    status_request.is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
+    status_request.servers_sign = SERVERS_CONFIG_SIGN_BUF;
+    status_request.cluster_sign = CLUSTER_CONFIG_SIGN_BUF;
+    sf_proto_get_server_status_pack(&status_request, req);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_response(conn, out_buff,
+                    sizeof(out_buff), &response, network_timeout,
+                    FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP, (char *)&resp,
+                    sizeof(FSProtoGetServerStatusResp))) != 0)
+    {
+        if (result != EOPNOTSUPP) {
+            sf_log_network_error(&response, conn, result);
+        }
+        return result;
+    }
+
+    proto_unpack_server_status(&resp, server_status);
     return 0;
 }
 
@@ -448,6 +453,26 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
     }
 }
 
+static int get_vote_server_status(FSClusterServerStatus *server_status)
+{
+    FCFSVoteClientJoinRequest join_request;
+    FSProtoGetServerStatusResp resp;
+    int result;
+
+    join_request.server_id = CLUSTER_MY_SERVER_ID;
+    join_request.is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
+    join_request.group_id = 1234;  //TODO
+    join_request.response_size = sizeof(FSProtoGetServerStatusResp);
+    join_request.service_id = FCFS_VOTE_SERVICE_ID_FSTORE;
+    if ((result=fcfs_vote_client_get_vote(&join_request,
+                    SERVERS_CONFIG_SIGN_BUF, CLUSTER_CONFIG_SIGN_BUF,
+                    (char *)&resp, sizeof(resp))) == 0)
+    {
+        proto_unpack_server_status(&resp, server_status);
+    }
+    return result;
+}
+
 static int cluster_get_leader(FSClusterServerStatus *server_status,
         const bool log_connect_error, int *active_count)
 {
@@ -493,6 +518,15 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
                 "server count: %d", __LINE__,
                 CLUSTER_SERVER_ARRAY.count);
         return result == 0 ? ENOENT : result;
+    }
+
+    if (*active_count < CLUSTER_SERVER_ARRAY.count && VOTE_NODE_ENABLED &&
+            LEADER_ELECTION_QUORUM != sf_election_quorum_any &&
+            CLUSTER_SERVER_ARRAY.count % 2 == 0)
+    {
+        if (get_vote_server_status(current_status) == 0) {
+            ++(*active_count);
+        }
     }
 
 	qsort(cs_status, *active_count, sizeof(FSClusterServerStatus),
@@ -989,8 +1023,8 @@ static int cluster_select_leader()
 
         ++i;
         if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
-                    CLUSTER_SERVER_ARRAY.count, active_count) &&
-                !FORCE_LEADER_ELECTION)
+                    VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
+                    active_count) && !FORCE_LEADER_ELECTION)
         {
             sleep_secs = 1;
             if (need_log) {
@@ -1735,10 +1769,12 @@ static int leader_check()
             return result;
         }
 
+        //TODO
         active_count = CLUSTER_SERVER_ARRAY.count -
             INACTIVE_SERVER_ARRAY.count;
         if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
-                    CLUSTER_SERVER_ARRAY.count, active_count))
+                    VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
+                    active_count))
         {
             logWarning("file: "__FILE__", line: %d, "
                     "trigger re-select leader because alive server "
