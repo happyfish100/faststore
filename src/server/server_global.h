@@ -38,6 +38,7 @@ typedef struct server_global_vars {
         volatile FSClusterServerInfo *leader;
         struct {
             FSClusterConfig ctx;
+            int min_server_group_id;  //for vote node
             bool migrate_clean;
             struct {
                 SFElectionQuorum quorum;
@@ -149,6 +150,9 @@ typedef struct server_global_vars {
 #define CLUSTER_DATA_RGOUP_ARRAY g_server_global_vars.cluster.data_group_array
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
+
+#define CLUSTER_SERVER_GROUP_ID  g_server_global_vars.cluster. \
+    config.min_server_group_id
 
 #define CLUSTER_LAST_HEARTBEAT_TIME g_server_global_vars.cluster.last_heartbeat_time
 #define CLUSTER_CURRENT_VERSION   g_server_global_vars.cluster.current_version

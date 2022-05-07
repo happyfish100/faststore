@@ -199,6 +199,7 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     {
         return result;
     }
+
     if ((result=load_leader_election_config(full_cluster_filename)) != 0) {
         return result;
     }
@@ -291,7 +292,8 @@ static void server_log_configs()
             sz_auth_config, sizeof(sz_auth_config));
 
     len = snprintf(sz_server_config, sizeof(sz_server_config),
-            "my server id = %d, data_path = %s, data_threads = %d, "
+            "my server id = %d, cluster server group id = %d, "
+            "data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
@@ -305,7 +307,8 @@ static void server_log_configs()
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
             "max_wait_time: %ds}",
-            CLUSTER_MY_SERVER_ID, DATA_PATH_STR, DATA_THREAD_COUNT,
+            CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
+            DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
@@ -548,6 +551,17 @@ int server_load_config(const char *filename)
                     full_cluster_filename, sizeof(
                         full_cluster_filename))) != 0)
     {
+        return result;
+    }
+
+    CLUSTER_SERVER_GROUP_ID = fs_cluster_cfg_get_min_server_group_id(
+            &CLUSTER_CONFIG_CTX, CLUSTER_MY_SERVER_ID);
+    if (CLUSTER_SERVER_GROUP_ID < 0) {
+        result = -1 * CLUSTER_SERVER_GROUP_ID;
+        logError("file: "__FILE__", line: %d, "
+                "get min server group id fail, "
+                "errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
         return result;
     }
 

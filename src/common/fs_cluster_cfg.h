@@ -138,6 +138,9 @@ extern "C" {
             const int server_id, FSIdArray **data_group_id_array,
             FCServerInfo **servers, const int size, int *count);
 
+    int fs_cluster_cfg_get_min_server_group_id(FSClusterConfig
+            *cluster_cfg, const int server_id);
+
     static inline int fs_cluster_cfg_get_min_data_group_id(
             const FSIdArray *data_group)
     {

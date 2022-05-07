@@ -42,6 +42,12 @@
 
 #define ALIGN_TIME(interval) (((interval) / 60) * 60)
 
+#define NEED_REQUEST_VOTE_NODE(active_count) \
+    (active_count < CLUSTER_SERVER_ARRAY.count && VOTE_NODE_ENABLED && \
+     LEADER_ELECTION_QUORUM != sf_election_quorum_any && \
+     CLUSTER_SERVER_ARRAY.count % 2 == 0)
+
+
 typedef struct fs_data_server_status {
     char is_master;
     char status;
@@ -453,17 +459,22 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
     }
 }
 
+static inline void fill_join_request(FCFSVoteClientJoinRequest *join_request)
+{
+    join_request->server_id = CLUSTER_MY_SERVER_ID;
+    join_request->is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
+    join_request->group_id = CLUSTER_SERVER_GROUP_ID;
+    join_request->response_size = sizeof(FSProtoGetServerStatusResp);
+    join_request->service_id = FCFS_VOTE_SERVICE_ID_FSTORE;
+}
+
 static int get_vote_server_status(FSClusterServerStatus *server_status)
 {
     FCFSVoteClientJoinRequest join_request;
     FSProtoGetServerStatusResp resp;
     int result;
 
-    join_request.server_id = CLUSTER_MY_SERVER_ID;
-    join_request.is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
-    join_request.group_id = 1234;  //TODO
-    join_request.response_size = sizeof(FSProtoGetServerStatusResp);
-    join_request.service_id = FCFS_VOTE_SERVICE_ID_FSTORE;
+    fill_join_request(&join_request);
     if ((result=fcfs_vote_client_get_vote(&join_request,
                     SERVERS_CONFIG_SIGN_BUF, CLUSTER_CONFIG_SIGN_BUF,
                     (char *)&resp, sizeof(resp))) == 0)
@@ -471,6 +482,15 @@ static int get_vote_server_status(FSClusterServerStatus *server_status)
         proto_unpack_server_status(&resp, server_status);
     }
     return result;
+}
+
+static int notify_vote_next_leader(FSClusterServerStatus *server_status,
+        const unsigned char vote_req_cmd)
+{
+    FCFSVoteClientJoinRequest join_request;
+
+    fill_join_request(&join_request);
+    return fcfs_vote_client_notify_next_leader(&join_request, vote_req_cmd);
 }
 
 static int cluster_get_leader(FSClusterServerStatus *server_status,
@@ -520,10 +540,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         return result == 0 ? ENOENT : result;
     }
 
-    if (*active_count < CLUSTER_SERVER_ARRAY.count && VOTE_NODE_ENABLED &&
-            LEADER_ELECTION_QUORUM != sf_election_quorum_any &&
-            CLUSTER_SERVER_ARRAY.count % 2 == 0)
-    {
+    if (NEED_REQUEST_VOTE_NODE(*active_count)) {
         if (get_vote_server_status(current_status) == 0) {
             ++(*active_count);
         }
@@ -895,7 +912,7 @@ void cluster_relationship_trigger_reselect_leader()
     cluster_unset_leader();
 }
 
-static int cluster_notify_next_leader(FSClusterServerInfo *cs,
+static int cluster_pre_set_next_leader(FSClusterServerInfo *cs,
         FSClusterServerStatus *server_status, bool *bConnectFail)
 {
     FSClusterServerInfo *leader;
@@ -922,7 +939,11 @@ static int cluster_commit_next_leader(FSClusterServerInfo *cs,
     }
 }
 
-static int cluster_notify_leader_changed(FSClusterServerStatus *server_status)
+typedef int (*cluster_notify_next_leader_func)(FSClusterServerInfo *cs,
+        FSClusterServerStatus *server_status, bool *bConnectFail);
+
+static int notify_next_leader(cluster_notify_next_leader_func notify_func,
+        FSClusterServerStatus *server_status, const unsigned char vote_req_cmd)
 {
 	FSClusterServerInfo *server;
 	FSClusterServerInfo *send;
@@ -931,44 +952,47 @@ static int cluster_notify_leader_changed(FSClusterServerStatus *server_status)
 	int success_count;
 
 	result = ENOENT;
-	send = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
 	success_count = 0;
+	send = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
 	for (server=CLUSTER_SERVER_ARRAY.servers; server<send; server++) {
-		if ((result=cluster_notify_next_leader(server,
-				server_status, &bConnectFail)) != 0)
-		{
+		if ((result=notify_func(server, server_status, &bConnectFail)) != 0) {
 			if (!bConnectFail) {
 				return result;
 			}
 		} else {
-			success_count++;
+            ++success_count;
 		}
 	}
 
-	if (success_count == 0) {
-		return result;
-	}
+    if (NEED_REQUEST_VOTE_NODE(success_count)) {
+        if (notify_vote_next_leader(server_status, vote_req_cmd) == 0) {
+            ++success_count;
+        }
+    }
 
-	result = ENOENT;
-	success_count = 0;
-	for (server=CLUSTER_SERVER_ARRAY.servers; server<send; server++) {
-		if ((result=cluster_commit_next_leader(server,
-				server_status, &bConnectFail)) != 0)
-		{
-			if (!bConnectFail)
-			{
-				return result;
-			}
-		} else {
-			success_count++;
-		}
-	}
-
-	if (success_count == 0) {
-		return result;
-	}
+    if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
+                    VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
+                    success_count))
+    {
+        return EAGAIN;
+    }
 
 	return 0;
+}
+
+static inline int cluster_notify_leader_changed(
+        FSClusterServerStatus *server_status)
+{
+    int result;
+
+    if ((result=notify_next_leader(cluster_pre_set_next_leader, server_status,
+                    FCFS_VOTE_SERVICE_PROTO_PRE_SET_NEXT_LEADER)) != 0)
+    {
+        return result;
+    }
+
+    return notify_next_leader(cluster_commit_next_leader, server_status,
+            FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER);
 }
 
 static int cluster_select_leader()
