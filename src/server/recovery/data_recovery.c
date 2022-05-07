@@ -585,7 +585,7 @@ static int active_confirm(DataRecoveryContext *ctx)
     ConnectionInfo conn;
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
-                        ctx->master->cs->server), &conn,
+                        ctx->master->cs->server), &conn, "fstore",
                     SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
     {
         return result;

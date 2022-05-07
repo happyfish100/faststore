@@ -47,6 +47,9 @@
      LEADER_ELECTION_QUORUM != sf_election_quorum_any && \
      CLUSTER_SERVER_ARRAY.count % 2 == 0)
 
+#define NEED_CHECK_VOTE_NODE() \
+    (VOTE_NODE_ENABLED && LEADER_ELECTION_QUORUM != sf_election_quorum_any \
+     && CLUSTER_SERVER_ARRAY.count % 2 == 0)
 
 typedef struct fs_data_server_status {
     char is_master;
@@ -98,8 +101,10 @@ typedef struct fs_cluster_relationship_context {
 
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
+    time_t last_stat_time;
     volatile int immediate_report;
     FastBuffer buffer;
+    ConnectionInfo vote_connection;
 } FSClusterRelationshipContext;
 
 #define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
@@ -107,9 +112,10 @@ typedef struct fs_cluster_relationship_context {
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
 #define NETWORK_BUFFER relationship_ctx.buffer
 #define LEADER_ELECTION relationship_ctx.leader_election
+#define VOTE_CONNECTION relationship_ctx.vote_connection
 
 static FSClusterRelationshipContext relationship_ctx = {
-    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0
+    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0, 0
 };
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
@@ -287,7 +293,8 @@ static int cluster_get_ds_status(FSClusterDataServerInfo *ds,
     }
 
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        ds->cs->server), &conn, connect_timeout)) != 0)
+                        ds->cs->server), &conn, "fstore",
+                    connect_timeout)) != 0)
     {
         return result;
     }
@@ -309,7 +316,8 @@ static int cluster_unset_master(FSClusterDataServerInfo *master)
     }
 
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        master->cs->server), &conn, connect_timeout)) != 0)
+                        master->cs->server), &conn, "fstore",
+                    connect_timeout)) != 0)
     {
         return result;
     }
@@ -446,8 +454,8 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         return 0;
     } else {
         if ((result=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            server_status->cs->server), &conn, connect_timeout,
-                        NULL, log_connect_error)) != 0)
+                            server_status->cs->server), &conn, "fstore",
+                        connect_timeout, NULL, log_connect_error)) != 0)
         {
             return result;
         }
@@ -584,7 +592,8 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     int result;
 
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        cs->server), &conn, SF_G_CONNECT_TIMEOUT)) != 0)
+                        cs->server), &conn, "fstore",
+                    SF_G_CONNECT_TIMEOUT)) != 0)
     {
         *bConnectFail = true;
         return result;
@@ -626,7 +635,8 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     }
 
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        leader->server), &conn, SF_G_CONNECT_TIMEOUT)) != 0)
+                        leader->server), &conn, "fstore",
+                    SF_G_CONNECT_TIMEOUT)) != 0)
     {
         return result;
     }
@@ -709,6 +719,12 @@ static inline void cluster_unset_leader()
 
     old_leader = CLUSTER_LEADER_ATOM_PTR;
     if (old_leader != NULL) {
+        if (CLUSTER_MYSELF_PTR == old_leader && NEED_CHECK_VOTE_NODE()) {
+            if (VOTE_CONNECTION.sock >= 0) {
+                vote_client_proto_close_connection(&VOTE_CONNECTION);
+            }
+        }
+
         old_leader->is_leader = false;
         __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR, old_leader, NULL);
         unset_all_data_groups();
@@ -1772,17 +1788,56 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
     return 0;
 }
 
+static inline int vote_node_active_check()
+{
+    int result;
+    FCFSVoteClientJoinRequest join_request;
+
+    if (VOTE_CONNECTION.sock < 0) {
+        fill_join_request(&join_request);
+        if ((result=fcfs_vote_client_join(&VOTE_CONNECTION,
+                        &join_request)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if ((result=vote_client_proto_active_check(&VOTE_CONNECTION)) == 0) {
+        return result;
+    }
+
+    vote_client_proto_close_connection(&VOTE_CONNECTION);
+    return result;
+}
+
 static int leader_check()
 {
     int result;
     int active_count;
     int inactive_count;
-    static time_t last_stat_time = 0;
+    int vote_node_active;
 
     sleep(1);
-    if (g_current_time - last_stat_time >= 10) {
-        last_stat_time = g_current_time;
+    if (g_current_time - relationship_ctx.last_stat_time >= 10) {
+        relationship_ctx.last_stat_time = g_current_time;
         storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+    }
+
+    if (NEED_CHECK_VOTE_NODE()) {
+        if ((result=vote_node_active_check()) == 0) {
+            vote_node_active = 1;
+        } else {
+            if (result == SF_CLUSTER_ERROR_LEADER_INCONSISTENT) {
+                logWarning("file: "__FILE__", line: %d, "
+                        "trigger re-select leader because leader "
+                        "inconsistent with the vote node", __LINE__);
+                cluster_unset_leader();
+                return EBUSY;
+            }
+            vote_node_active = 0;
+        }
+    } else {
+        vote_node_active = 0;
     }
 
     PTHREAD_MUTEX_LOCK(&INACTIVE_SERVER_ARRAY.lock);
@@ -1793,9 +1848,8 @@ static int leader_check()
             return result;
         }
 
-        //TODO
         active_count = CLUSTER_SERVER_ARRAY.count -
-            INACTIVE_SERVER_ARRAY.count;
+            INACTIVE_SERVER_ARRAY.count + vote_node_active;
         if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
                     VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
                     active_count))
@@ -1820,13 +1874,13 @@ static int follower_ping(FSClusterServerInfo *leader,
     int connect_timeout;
     int network_timeout;
     int result;
-    static time_t last_stat_time = 0;
 
     network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
     if (conn->sock < 0) {
         connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
         if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            leader->server), conn, connect_timeout)) != 0)
+                            leader->server), conn, "fstore",
+                        connect_timeout)) != 0)
         {
             return result;
         }
@@ -1851,8 +1905,8 @@ static int follower_ping(FSClusterServerInfo *leader,
 
     result = proto_ping_leader(leader, conn, network_timeout);
     if (result == 0) {
-        if (g_current_time - last_stat_time >= 10) {
-            last_stat_time = g_current_time;
+        if (g_current_time - relationship_ctx.last_stat_time >= 10) {
+            relationship_ctx.last_stat_time = g_current_time;
             storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
             result = proto_report_disk_space(conn,
                     &CLUSTER_MYSELF_PTR->space_stat);
@@ -2009,9 +2063,9 @@ int cluster_relationship_init()
     int bytes;
     int init_size;
 
+    VOTE_CONNECTION.sock = -1;
     bytes = sizeof(FSClusterServerDetectEntry) * CLUSTER_SERVER_ARRAY.count;
-    INACTIVE_SERVER_ARRAY.entries = (FSClusterServerDetectEntry *)
-        fc_malloc(bytes);
+    INACTIVE_SERVER_ARRAY.entries = fc_malloc(bytes);
     if (INACTIVE_SERVER_ARRAY.entries == NULL) {
         return ENOMEM;
     }
