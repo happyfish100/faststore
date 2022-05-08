@@ -166,7 +166,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
                     sizeof(FSProtoGetServerStatusResp))) != 0)
     {
         if (result != EOPNOTSUPP) {
-            sf_log_network_error(&response, conn, result);
+            fs_log_network_error(&response, conn, result);
         }
         return result;
     }
@@ -205,7 +205,7 @@ static int proto_join_leader(FSClusterServerInfo *leader,
         leader->leader_version = buff2long(resp.leader_version);
     } else {
         if (result != EOPNOTSUPP) {
-            sf_log_network_error(&response, conn, result);
+            fs_log_network_error(&response, conn, result);
         }
     }
 
@@ -234,7 +234,7 @@ static int proto_unset_master(FSClusterDataServerInfo *master,
                     sizeof(out_buff), &response, network_timeout,
                     FS_CLUSTER_PROTO_UNSET_MASTER_RESP)) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -269,7 +269,7 @@ static int proto_get_ds_status(FSClusterDataServerInfo *ds,
                 resp.master_dealing_count);
         ds_status->data_version = buff2long(resp.data_version);
     } else {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -610,7 +610,7 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
                     SF_PROTO_ACK)) != 0)
     {
         if (result != EOPNOTSUPP) {
-            sf_log_network_error(&response, &conn, result);
+            fs_log_network_error(&response, &conn, result);
         }
     }
 
@@ -655,7 +655,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
                     FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
-            sf_log_network_error(&response, &conn, result);
+            fs_log_network_error(&response, &conn, result);
         }
     }
 
@@ -1007,8 +1007,13 @@ static inline int cluster_notify_leader_changed(
         return result;
     }
 
-    return notify_next_leader(cluster_commit_next_leader, server_status,
-            FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER);
+    if ((result=notify_next_leader(cluster_commit_next_leader, server_status,
+                    FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER)) != 0)
+    {
+        cluster_unset_leader();
+    }
+
+    return result;
 }
 
 static int cluster_select_leader()
@@ -1710,7 +1715,7 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
     if (result != 0 && result != EOPNOTSUPP) {
         log_level = (result == SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT
                 ? LOG_WARNING : LOG_ERR);
-        sf_log_network_error_ex(&response, conn, result, log_level);
+        fs_log_network_error_ex(&response, conn, result, log_level);
     }
 
     return result;
@@ -1750,7 +1755,7 @@ static int proto_report_disk_space(ConnectionInfo *conn,
     }
 
     if (result != 0 && result != EOPNOTSUPP) {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -1772,7 +1777,7 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
         if ((result=cluster_recv_from_leader(conn, &response,
                         timeout_ms, true)) != 0)
         {
-            sf_log_network_error(&response, conn, result);
+            fs_log_network_error(&response, conn, result);
             return result;
         }
 

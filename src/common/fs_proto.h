@@ -412,6 +412,20 @@ typedef struct fs_proto_replica_rpc_resp_body_part {
     char padding[2];
 } FSProtoReplicaRPCRespBodyPart;
 
+#define fs_log_network_error_ex(response, conn, result, log_level) \
+    sf_log_network_error_ex(response, conn, "fstore", result, log_level)
+
+#define fs_log_network_error(response, conn, result) \
+    sf_log_network_error(response, conn, "fstore", result)
+
+#define fs_log_network_error_for_update(response, conn, result) \
+    sf_log_network_error_for_update(response, conn, "fstore", result)
+
+#define fs_log_network_error_for_delete(response, \
+        conn, result, enoent_log_level) \
+    sf_log_network_error_for_delete(response, conn, \
+            "fstore", result, enoent_log_level)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

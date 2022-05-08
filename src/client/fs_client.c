@@ -299,11 +299,11 @@ static int do_slice_write(FSClientContext *client_ctx,
                 if (idempotency_client_channel_check_wait(
                             connection_params->channel) == 0)
                 {
-                    if ((conn_result=sf_proto_rebind_idempotency_channel(
-                                    *conn, connection_params->channel->id,
-                                    connection_params->channel->key,
-                                    client_ctx->common_cfg.network_timeout)) == 0)
-                    {
+                    conn_result = sf_proto_rebind_idempotency_channel(*conn,
+                            "fstore", connection_params->channel->id,
+                            connection_params->channel->key,
+                            client_ctx->common_cfg.network_timeout);
+                    if (conn_result == 0) {
                         continue;
                     }
                 }

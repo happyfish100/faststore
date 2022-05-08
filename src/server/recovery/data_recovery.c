@@ -571,7 +571,7 @@ static int proto_active_confirm(ConnectionInfo *conn,
         } else {
             log_level = LOG_ERR;
         }
-        sf_log_network_error_ex(&response, conn, result, log_level);
+        fs_log_network_error_ex(&response, conn, result, log_level);
     }
 
     return result;

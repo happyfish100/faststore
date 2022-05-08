@@ -82,7 +82,7 @@ static int do_slice_write(FSClientContext *client_ctx,
 
     if (result != 0) {
         *inc_alloc = 0;
-        sf_log_network_error_for_update(&response, conn, result);
+        fs_log_network_error_for_update(&response, conn, result);
     }
 
     return result;
@@ -252,7 +252,7 @@ static int do_slice_read(FSClientContext *client_ctx,
 
     *read_bytes = hole_start;
     if (result != 0) {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
         return result;
     } else {
         return *read_bytes > 0 ? 0 : ENODATA;
@@ -319,7 +319,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
         *inc_alloc = buff2int(resp.inc_alloc);
     } else {
         *inc_alloc = 0;
-        sf_log_network_error_for_delete(&response, conn,
+        fs_log_network_error_for_delete(&response, conn,
                 result, enoent_log_level);
     }
 
@@ -356,7 +356,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
         *dec_alloc = buff2int(resp.inc_alloc);
     } else {
         *dec_alloc = 0;
-        sf_log_network_error_for_delete(&response, conn,
+        fs_log_network_error_for_delete(&response, conn,
                 result, enoent_log_level);
     }
 
@@ -402,7 +402,7 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
                     FS_COMMON_PROTO_CLIENT_JOIN_RESP, (char *)&join_resp,
                     sizeof(FSProtoClientJoinResp))) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     } else {
         conn_params->buffer_size = buff2int(join_resp.buffer_size);
     }
@@ -435,7 +435,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
                     FS_SERVICE_PROTO_GET_MASTER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     } else {
         master->server_id = buff2int(server_resp.server_id);
         memcpy(master->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
@@ -476,7 +476,7 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
                     FS_COMMON_PROTO_GET_READABLE_SERVER_RESP,
                     (char *)&server_resp, sizeof(FSProtoGetServerResp))) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     } else {
         server->server_id = buff2int(server_resp.server_id);
         memcpy(server->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
@@ -580,7 +580,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     if (result != 0) {
         gid_array->count = 0;
         cs_array->count = 0;
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     } else {
         p = (char *)(body_header + 1);
         gid_end = gid_array->ids + gid_array->count;
@@ -690,7 +690,7 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
 
     if (result != 0) {
         *count = 0;
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     }
 
     return result;
@@ -729,7 +729,7 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
                     FS_SERVICE_PROTO_SERVICE_STAT_RESP,
                     (char *)&stat_resp, sizeof(FSProtoServiceStatResp))) != 0)
     {
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
     }
 
     SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);

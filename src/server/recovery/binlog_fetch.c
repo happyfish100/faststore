@@ -307,7 +307,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         } else {
             log_level = LOG_ERR;
         }
-        sf_log_network_error_ex(&response, conn, result, log_level);
+        fs_log_network_error_ex(&response, conn, result, log_level);
         return result;
     }
 
@@ -334,7 +334,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 sizeof(response.error.message),
                 "recv data fail, errno: %d, error info: %s",
                 result, STRERROR(result));
-        sf_log_network_error(&response, conn, result);
+        fs_log_network_error(&response, conn, result);
         return result;
     }
 
