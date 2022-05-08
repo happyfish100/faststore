@@ -467,13 +467,15 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
     }
 }
 
-static inline void fill_join_request(FCFSVoteClientJoinRequest *join_request)
+static inline void fill_join_request(FCFSVoteClientJoinRequest *join_request,
+        const bool persistent)
 {
     join_request->server_id = CLUSTER_MY_SERVER_ID;
     join_request->is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
     join_request->group_id = CLUSTER_SERVER_GROUP_ID;
     join_request->response_size = sizeof(FSProtoGetServerStatusResp);
     join_request->service_id = FCFS_VOTE_SERVICE_ID_FSTORE;
+    join_request->persistent = persistent;
 }
 
 static int get_vote_server_status(FSClusterServerStatus *server_status)
@@ -482,7 +484,7 @@ static int get_vote_server_status(FSClusterServerStatus *server_status)
     FSProtoGetServerStatusResp resp;
     int result;
 
-    fill_join_request(&join_request);
+    fill_join_request(&join_request, false);
     if ((result=fcfs_vote_client_get_vote(&join_request,
                     SERVERS_CONFIG_SIGN_BUF, CLUSTER_CONFIG_SIGN_BUF,
                     (char *)&resp, sizeof(resp))) == 0)
@@ -497,7 +499,7 @@ static int notify_vote_next_leader(FSClusterServerStatus *server_status,
 {
     FCFSVoteClientJoinRequest join_request;
 
-    fill_join_request(&join_request);
+    fill_join_request(&join_request, false);
     return fcfs_vote_client_notify_next_leader(&join_request, vote_req_cmd);
 }
 
@@ -549,6 +551,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
     }
 
     if (NEED_REQUEST_VOTE_NODE(*active_count)) {
+        current_status->cs = NULL;
         if (get_vote_server_status(current_status) == 0) {
             ++(*active_count);
         }
@@ -557,21 +560,27 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 	qsort(cs_status, *active_count, sizeof(FSClusterServerStatus),
 		cluster_cmp_server_status);
 
-	for (i=0; i<*active_count; i++) {
+    for (i=0; i<*active_count; i++) {
         int restart_interval;
-        restart_interval = cs_status[i].up_time -
-            cs_status[i].last_shutdown_time;
-        logDebug("file: "__FILE__", line: %d, "
-                "%d. server_id: %d, ip addr %s:%u, version: %"PRId64", "
-                "is_leader: %d, leader_hint: %d, last_heartbeat_time: %d, "
-                "up_time: %d, restart interval: %d", __LINE__,
-                i + 1, cs_status[i].server_id,
-                CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
-                CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
-                cs_status[i].version, cs_status[i].is_leader,
-                cs_status[i].leader_hint, cs_status[i].last_heartbeat_time,
-                ALIGN_TIME(cs_status[i].up_time),
-                ALIGN_TIME(restart_interval));
+
+        if (cs_status[i].cs == NULL) {
+            logDebug("file: "__FILE__", line: %d, "
+                    "%d. status from vote server", __LINE__, i + 1);
+        } else {
+            restart_interval = cs_status[i].up_time -
+                cs_status[i].last_shutdown_time;
+            logDebug("file: "__FILE__", line: %d, "
+                    "%d. server_id: %d, ip addr %s:%u, version: %"PRId64", "
+                    "is_leader: %d, leader_hint: %d, last_heartbeat_time: %d, "
+                    "up_time: %d, restart interval: %d", __LINE__,
+                    i + 1, cs_status[i].server_id,
+                    CLUSTER_GROUP_ADDRESS_FIRST_IP(cs_status[i].cs->server),
+                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs_status[i].cs->server),
+                    cs_status[i].version, cs_status[i].is_leader,
+                    cs_status[i].leader_hint, cs_status[i].last_heartbeat_time,
+                    ALIGN_TIME(cs_status[i].up_time),
+                    ALIGN_TIME(restart_interval));
+        }
     }
 
 	memcpy(server_status, cs_status + (*active_count - 1),
@@ -1799,7 +1808,7 @@ static inline int vote_node_active_check()
     FCFSVoteClientJoinRequest join_request;
 
     if (VOTE_CONNECTION.sock < 0) {
-        fill_join_request(&join_request);
+        fill_join_request(&join_request, true);
         if ((result=fcfs_vote_client_join(&VOTE_CONNECTION,
                         &join_request)) != 0)
         {
