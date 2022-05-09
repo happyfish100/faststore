@@ -766,13 +766,13 @@ static int do_check_brainsplit(FSClusterServerInfo *cs)
     return 0;
 }
 
-static int cluster_check_brainsplit(const int inactive_count)
+static int cluster_check_brainsplit(int *inactive_count)
 {
     FSClusterServerDetectEntry *entry;
     FSClusterServerDetectEntry *end;
     int result;
 
-    end = INACTIVE_SERVER_ARRAY.entries + inactive_count;
+    end = INACTIVE_SERVER_ARRAY.entries + *inactive_count;
     for (entry=INACTIVE_SERVER_ARRAY.entries; entry<end; entry++) {
         if (entry >= INACTIVE_SERVER_ARRAY.entries +
                 INACTIVE_SERVER_ARRAY.count)
@@ -789,6 +789,7 @@ static int cluster_check_brainsplit(const int inactive_count)
         }
 
         if (result == 0 || result == EOPNOTSUPP) {
+            --(*inactive_count);
             cluster_relationship_swap_server_status(entry->cs,
                     FS_SERVER_STATUS_OFFLINE, FS_SERVER_STATUS_ONLINE);
         }
@@ -1858,12 +1859,12 @@ static int leader_check()
     inactive_count = INACTIVE_SERVER_ARRAY.count;
     PTHREAD_MUTEX_UNLOCK(&INACTIVE_SERVER_ARRAY.lock);
     if (inactive_count > 0) {
-        if ((result=cluster_check_brainsplit(inactive_count)) != 0) {
+        if ((result=cluster_check_brainsplit(&inactive_count)) != 0) {
             return result;
         }
 
-        active_count = CLUSTER_SERVER_ARRAY.count -
-            INACTIVE_SERVER_ARRAY.count + vote_node_active;
+        active_count = (CLUSTER_SERVER_ARRAY.count -
+                inactive_count) + vote_node_active;
         if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
                     VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
                     active_count))
