@@ -34,7 +34,7 @@
     SF_QUORUM_NEED_REQUEST_VOTE_NODE(LEADER_ELECTION_QUORUM, \
             VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count, active_count)
 
-#define NEED_CHECK_VOTE_NODE(server_count) \
+#define NEED_CHECK_VOTE_NODE() \
     SF_QUORUM_NEED_CHECK_VOTE_NODE(LEADER_ELECTION_QUORUM, \
             VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count)
 
@@ -962,16 +962,16 @@ typedef int (*cluster_notify_next_leader_func)(FSClusterServerInfo *cs,
         FSClusterServerStatus *server_status, bool *bConnectFail);
 
 static int notify_next_leader(cluster_notify_next_leader_func notify_func,
-        FSClusterServerStatus *server_status, const unsigned char vote_req_cmd)
+        FSClusterServerStatus *server_status, const unsigned
+        char vote_req_cmd, int *success_count)
 {
 	FSClusterServerInfo *server;
 	FSClusterServerInfo *send;
 	int result;
 	bool bConnectFail;
-	int success_count;
 
 	result = ENOENT;
-	success_count = 0;
+	*success_count = 0;
 	send = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
 	for (server=CLUSTER_SERVER_ARRAY.servers; server<send; server++) {
 		if ((result=notify_func(server, server_status, &bConnectFail)) != 0) {
@@ -979,19 +979,24 @@ static int notify_next_leader(cluster_notify_next_leader_func notify_func,
 				return result;
 			}
 		} else {
-            ++success_count;
+            ++(*success_count);
 		}
 	}
 
-    if (NEED_REQUEST_VOTE_NODE(success_count)) {
-        if (notify_vote_next_leader(server_status, vote_req_cmd) == 0) {
-            ++success_count;
+    if (NEED_CHECK_VOTE_NODE()) {
+        result = notify_vote_next_leader(server_status, vote_req_cmd);
+        if (result == 0) {
+            if (*success_count < CLUSTER_SERVER_ARRAY.count) {
+                ++(*success_count);
+            }
+        } else if (result == SF_CLUSTER_ERROR_LEADER_INCONSISTENT) {
+            return -1 * result;
         }
     }
 
     if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
                     VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
-                    success_count))
+                    *success_count))
     {
         return EAGAIN;
     }
@@ -1003,16 +1008,38 @@ static inline int cluster_notify_leader_changed(
         FSClusterServerStatus *server_status)
 {
     int result;
+    int success_count;
+    const char *caption;
 
     if ((result=notify_next_leader(cluster_pre_set_next_leader, server_status,
-                    FCFS_VOTE_SERVICE_PROTO_PRE_SET_NEXT_LEADER)) != 0)
+                    FCFS_VOTE_SERVICE_PROTO_PRE_SET_NEXT_LEADER,
+                    &success_count)) != 0)
     {
         return result;
     }
 
     if ((result=notify_next_leader(cluster_commit_next_leader, server_status,
-                    FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER)) != 0)
+                    FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER,
+                    &success_count)) != 0)
     {
+        if (result == SF_CLUSTER_ERROR_LEADER_INCONSISTENT ||
+                result == -SF_CLUSTER_ERROR_LEADER_INCONSISTENT)
+        {
+            if (result == SF_CLUSTER_ERROR_LEADER_INCONSISTENT) {
+                caption = "other server";
+            } else {
+                caption = "the vote node";
+                result = SF_CLUSTER_ERROR_LEADER_INCONSISTENT;
+            }
+            logWarning("file: "__FILE__", line: %d, "
+                    "trigger re-select leader because leader "
+                    "inconsistent with %s", __LINE__, caption);
+        } else {
+            logWarning("file: "__FILE__", line: %d, "
+                    "trigger re-select leader because alive server "
+                    "count: %d < half of total server count: %d ...",
+                    __LINE__, success_count, CLUSTER_SERVER_ARRAY.count);
+        }
         cluster_relationship_trigger_reselect_leader();
     }
 
