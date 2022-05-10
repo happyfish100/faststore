@@ -13,18 +13,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <time.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
@@ -43,13 +31,12 @@
 #define ALIGN_TIME(interval) (((interval) / 60) * 60)
 
 #define NEED_REQUEST_VOTE_NODE(active_count) \
-    (active_count < CLUSTER_SERVER_ARRAY.count && VOTE_NODE_ENABLED && \
-     LEADER_ELECTION_QUORUM != sf_election_quorum_any && \
-     CLUSTER_SERVER_ARRAY.count % 2 == 0)
+    SF_QUORUM_NEED_REQUEST_VOTE_NODE(LEADER_ELECTION_QUORUM, \
+            VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count, active_count)
 
-#define NEED_CHECK_VOTE_NODE() \
-    (VOTE_NODE_ENABLED && LEADER_ELECTION_QUORUM != sf_election_quorum_any \
-     && CLUSTER_SERVER_ARRAY.count % 2 == 0)
+#define NEED_CHECK_VOTE_NODE(server_count) \
+    SF_QUORUM_NEED_CHECK_VOTE_NODE(LEADER_ELECTION_QUORUM, \
+            VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count)
 
 typedef struct fs_data_server_status {
     char is_master;
@@ -517,7 +504,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 	int i;
 
 	memset(server_status, 0, sizeof(FSClusterServerStatus));
-    if (CLUSTER_SERVER_ARRAY.count < STATUS_ARRAY_FIXED_COUNT) {
+    if (CLUSTER_SERVER_ARRAY.count <= STATUS_ARRAY_FIXED_COUNT) {
         cs_status = status_array;
     } else {
         int bytes;
@@ -544,9 +531,8 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 	*active_count = current_status - cs_status;
     if (*active_count == 0) {
         logError("file: "__FILE__", line: %d, "
-                "get server status fail, "
-                "server count: %d", __LINE__,
-                CLUSTER_SERVER_ARRAY.count);
+                "get server status fail, server count: %d",
+                __LINE__, CLUSTER_SERVER_ARRAY.count);
         return result == 0 ? ENOENT : result;
     }
 
@@ -557,8 +543,9 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         }
     }
 
-	qsort(cs_status, *active_count, sizeof(FSClusterServerStatus),
-		cluster_cmp_server_status);
+    qsort(cs_status, *active_count,
+            sizeof(FSClusterServerStatus),
+            cluster_cmp_server_status);
 
     for (i=0; i<*active_count; i++) {
         int restart_interval;
@@ -722,21 +709,16 @@ static void unset_all_data_groups()
     }
 }
 
-static inline void cluster_unset_leader()
+static inline bool cluster_unset_leader(FSClusterServerInfo *leader)
 {
-    FSClusterServerInfo *old_leader;
-
-    old_leader = CLUSTER_LEADER_ATOM_PTR;
-    if (old_leader != NULL) {
-        if (CLUSTER_MYSELF_PTR == old_leader && NEED_CHECK_VOTE_NODE()) {
-            if (VOTE_CONNECTION.sock >= 0) {
-                vote_client_proto_close_connection(&VOTE_CONNECTION);
-            }
-        }
-
-        old_leader->is_leader = false;
-        __sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR, old_leader, NULL);
+    if (__sync_bool_compare_and_swap(&CLUSTER_LEADER_PTR,
+                leader, NULL))
+    {
+        leader->is_leader = false;
         unset_all_data_groups();
+        return true;
+    } else {
+        return false;
     }
 }
 
@@ -759,7 +741,7 @@ static int do_check_brainsplit(FSClusterServerInfo *cs)
                 "trigger re-select leader ...", __LINE__, cs->server->id,
                 CLUSTER_GROUP_ADDRESS_FIRST_IP(cs->server),
                 CLUSTER_GROUP_ADDRESS_FIRST_PORT(cs->server));
-        cluster_unset_leader();
+        cluster_relationship_trigger_reselect_leader();
         return EEXIST;
     }
 
@@ -935,7 +917,18 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader)
 
 void cluster_relationship_trigger_reselect_leader()
 {
-    cluster_unset_leader();
+    FSClusterServerInfo *leader;
+
+    leader = CLUSTER_LEADER_ATOM_PTR;
+    if (CLUSTER_MYSELF_PTR != leader) {
+        return;
+    }
+
+    if (cluster_unset_leader(leader)) {
+        if (NEED_CHECK_VOTE_NODE()) {
+            vote_client_proto_close_connection(&VOTE_CONNECTION);
+        }
+    }
 }
 
 static int cluster_pre_set_next_leader(FSClusterServerInfo *cs,
@@ -1020,7 +1013,7 @@ static inline int cluster_notify_leader_changed(
     if ((result=notify_next_leader(cluster_commit_next_leader, server_status,
                     FCFS_VOTE_SERVICE_PROTO_COMMIT_NEXT_LEADER)) != 0)
     {
-        cluster_unset_leader();
+        cluster_relationship_trigger_reselect_leader();
     }
 
     return result;
@@ -1817,11 +1810,10 @@ static inline int vote_node_active_check()
         }
     }
 
-    if ((result=vote_client_proto_active_check(&VOTE_CONNECTION)) == 0) {
-        return result;
+    if ((result=vote_client_proto_active_check(&VOTE_CONNECTION)) != 0) {
+        vote_client_proto_close_connection(&VOTE_CONNECTION);
     }
 
-    vote_client_proto_close_connection(&VOTE_CONNECTION);
     return result;
 }
 
@@ -1846,7 +1838,7 @@ static int leader_check()
                 logWarning("file: "__FILE__", line: %d, "
                         "trigger re-select leader because leader "
                         "inconsistent with the vote node", __LINE__);
-                cluster_unset_leader();
+                cluster_relationship_trigger_reselect_leader();
                 return EBUSY;
             }
             vote_node_active = 0;
@@ -1873,7 +1865,7 @@ static int leader_check()
                     "trigger re-select leader because alive server "
                     "count: %d < half of total server count: %d ...",
                     __LINE__, active_count, CLUSTER_SERVER_ARRAY.count);
-            cluster_unset_leader();
+            cluster_relationship_trigger_reselect_leader();
             return EBUSY;
         }
     }
@@ -2007,7 +1999,7 @@ static void *cluster_thread_entrance(void *arg)
                         LEADER_ELECTION_LOST_TIMEOUT)
                 {
                     if (fail_count > 1) {
-                        cluster_unset_leader();
+                        cluster_unset_leader(leader);
                         fail_count = 0;
                     }
                     sleep_seconds = 0;
@@ -2015,7 +2007,7 @@ static void *cluster_thread_entrance(void *arg)
                     sleep_seconds = 1;
                 }
             } else {
-                sleep_seconds = 0;
+                sleep_seconds = 0;  //leader check fail
             }
         }
 
