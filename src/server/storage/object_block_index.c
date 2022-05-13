@@ -1212,6 +1212,24 @@ void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
     }
 }
 
+int64_t ob_index_get_total_slice_count()
+{
+    int64_t slice_count;
+    OBSharedAllocator *allocator;
+    OBSharedAllocator *end;
+
+    slice_count = 0;
+    end = ob_shared_ctx.allocator_array.allocators +
+        ob_shared_ctx.allocator_array.count;
+    for (allocator=ob_shared_ctx.allocator_array.allocators;
+            allocator<end; allocator++)
+    {
+        slice_count += allocator->slice.info.element_used_count;
+    }
+
+    return slice_count;
+}
+
 static int init_slice_ptr_array(OBSlicePtrArray *sarray, const int alloc)
 {
     sarray->slices = (OBSliceEntry **)fc_malloc(

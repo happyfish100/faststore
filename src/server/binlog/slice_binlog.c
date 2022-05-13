@@ -122,6 +122,7 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
     wbuffer->bf.length = slice_binlog_log_add_slice_to_buff(slice,
             current_time, data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
 
@@ -146,6 +147,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
 
@@ -169,6 +171,7 @@ static inline int log_block_update(const FSBlockKey *bkey,
             (int64_t)current_time, data_version, source,
             op_type, bkey->oid, bkey->offset);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
 

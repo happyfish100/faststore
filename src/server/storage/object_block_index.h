@@ -151,6 +151,8 @@ extern "C" {
     void ob_index_get_ob_and_slice_counts(int64_t *ob_count,
             int64_t *slice_count);
 
+    int64_t ob_index_get_total_slice_count();
+
     int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,
             int64_t *slice_count);

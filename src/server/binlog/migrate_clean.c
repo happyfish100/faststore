@@ -490,6 +490,7 @@ int migrate_clean_binlog(const int64_t total_slice_count,
         {
             return result;
         }
+        FC_ATOMIC_SET(SLICE_BINLOG_COUNT, dump_slice_count);
 
         logInfo("file: "__FILE__", line: %d, "
                 "dump slice binlog, slice count: %"PRId64", "

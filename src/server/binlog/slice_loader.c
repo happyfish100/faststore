@@ -103,6 +103,7 @@ typedef struct slice_loader_context {
     volatile bool parse_continue_flag;
     volatile bool data_continue_flag;
     int dealing_threads;
+    int64_t binlog_count;
     int64_t slice_count;
     SliceParseThreadCtxArray parse_thread_array;
     SliceDataThreadCtxArray data_thread_array;
@@ -711,6 +712,7 @@ static void slice_binlog_read_done(BinlogLoaderContext *ctx)
         ctx->total_count += parse_thread->total_count;
     }
 
+    slice_ctx->binlog_count = ctx->total_count;
     waiting_data_threads_finish(slice_ctx,
             &slice_ctx->data_thread_array);
 }
@@ -915,6 +917,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                 ctx.data_thread_array.count) * 2);
 
     if (result == 0) {
+        __sync_add_and_fetch(&SLICE_BINLOG_COUNT, ctx.binlog_count);
         if (DATA_REBUILD_PATH_INDEX >= 0) {
             DATA_REBUILD_SLICE_COUNT = get_total_rebuild_count(
                     &ctx.data_thread_array);
@@ -930,15 +933,16 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         }
 
         if (result == 0) {
-            result = slice_dump_slices_to_trunk(&ctx);
+            if ((result=slice_dump_slices_to_trunk(&ctx)) == 0) {
+                //__sync_add_and_fetch(&SLICE_TOTAL_COUNT, ctx.slice_count);
+            }
         }
     }
     g_ob_hashtable.modify_sallocator = true;
 
     if (result == 0 && MIGRATE_CLEAN_ENABLED) {
         bool dump_slice_index;
-        dump_slice_index = (get_total_skip_count(
-                    &ctx.data_thread_array) > 0);
+        dump_slice_index = (get_total_skip_count(&ctx.data_thread_array) > 0);
         result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
     }
 

@@ -296,6 +296,8 @@ static int dump_slice_binlog(const int64_t total_slice_count,
             (fc_thread_pool_callback)data_dump_thread_run,
             &keep_slice_count);
     if (result == 0) {
+        FC_ATOMIC_SET(SLICE_BINLOG_COUNT, keep_slice_count);
+
         logInfo("file: "__FILE__", line: %d, "
                 "dump slice binlog, slice count: %"PRId64", "
                 "binlog file count: %d, time used: %s ms", __LINE__,

@@ -73,7 +73,6 @@ typedef struct server_global_vars {
         int binlog_buffer_size;
         int local_binlog_check_last_seconds;
         int slave_binlog_check_last_rows;
-        volatile uint64_t slice_binlog_sn;  //slice binlog sn
     } data;
 
     struct {
@@ -94,6 +93,14 @@ typedef struct server_global_vars {
         int active_test_interval;   //round(nework_timeout / 2)
         SFContext sf_context;       //for replica communication
     } replica;
+
+    struct {
+        //volatile int64_t total_count;
+        struct {
+            volatile int64_t record_count;
+            volatile uint64_t sn;  //slice binlog sn
+        } binlog;
+    } slice;
 
     SFSlowLogContext slow_log;
 
@@ -155,8 +162,10 @@ typedef struct server_global_vars {
     config.min_server_group_id
 
 #define CLUSTER_LAST_HEARTBEAT_TIME g_server_global_vars.cluster.last_heartbeat_time
-#define CLUSTER_CURRENT_VERSION   g_server_global_vars.cluster.current_version
-#define SLICE_BINLOG_SN           g_server_global_vars.data.slice_binlog_sn
+#define CLUSTER_CURRENT_VERSION g_server_global_vars.cluster.current_version
+//#define SLICE_TOTAL_COUNT       g_server_global_vars.slice.total_count
+#define SLICE_BINLOG_COUNT      g_server_global_vars.slice.binlog.record_count
+#define SLICE_BINLOG_SN         g_server_global_vars.slice.binlog.sn
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \
     local_binlog_check_last_seconds
 
