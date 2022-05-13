@@ -374,7 +374,13 @@ int main(int argc, char *argv[])
             break;
         }
 
-        result = replication_common_start();
+        if ((result=replication_common_start()) != 0) {
+            break;
+        }
+
+        if ((result=slice_dedup_add_schedule()) != 0) {
+            break;
+        }
     } while (0);
 
     if (result != 0) {

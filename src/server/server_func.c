@@ -212,6 +212,31 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     return server_group_info_init(full_cluster_filename);
 }
 
+static int load_slice_binlog_config(IniContext *ini_context,
+        const char *filename)
+{
+    const char *section_name = "slice-binlog";
+    int result;
+    IniFullContext ini_ctx;
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, section_name, ini_context);
+    SLICE_DEDUP_ENABLED = iniGetBoolValue(section_name,
+            "dedup_enabled", ini_context, true);
+    if ((result=iniGetPercentValue(&ini_ctx, "target_dedup_ratio",
+                    &SLICE_DEDUP_RATIO, 0.10)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=get_time_item_from_conf_ex(&ini_ctx, "dedup_time",
+                    &SLICE_DEDUP_TIME, 3, 0, false)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
 static int load_data_path_config(IniContext *ini_context, const char *filename)
 {
     char *data_path;
@@ -265,6 +290,40 @@ static int load_data_path_config(IniContext *ini_context, const char *filename)
     return 0;
 }
 
+static void master_election_config_to_string(char *buff, const int size)
+{
+    int len;
+
+    len = snprintf(buff, size, "master-election {resume_master_role: %d, "
+            "failover=%s", RESUME_MASTER_ROLE, (MASTER_ELECTION_FAILOVER ?
+                "true" : "false"));
+    if (MASTER_ELECTION_FAILOVER) {
+        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
+            len += snprintf(buff + len, size - len, ", policy=%s",
+                    FS_MASTER_ELECTION_POLICY_STRICT_STR);
+        } else {
+            len += snprintf(buff + len, size - len, ", policy=%s:%d",
+                    FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
+                    MASTER_ELECTION_TIMEOUTS);
+        }
+    }
+    len += snprintf(buff + len, size - len, "}");
+}
+
+static void slice_binlog_config_to_string(char *buff, const int size)
+{
+    int len;
+
+    len = snprintf(buff, size, "slice-binlog {dedup_enabled: %d",
+            SLICE_DEDUP_ENABLED);
+    if (SLICE_DEDUP_ENABLED) {
+        len += snprintf(buff + len, size - len, ", target_dedup_ratio=%.2f%%, "
+                "dedup_time=%02d:%02d", SLICE_DEDUP_RATIO * 100.00,
+                SLICE_DEDUP_TIME.hour, SLICE_DEDUP_TIME.minute);
+    }
+    len += snprintf(buff + len, size - len, "}");
+}
+
 static void server_log_configs()
 {
     char sz_server_config[1024];
@@ -273,8 +332,9 @@ static void server_log_configs()
     char sz_service_config[128];
     char sz_cluster_config[128];
     char sz_replica_config[128];
+    char sz_melection_config[128];
+    char sz_slice_binlog_config[128];
     char sz_auth_config[1024];
-    int len;
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
@@ -291,7 +351,13 @@ static void server_log_configs()
     fcfs_auth_for_server_cfg_to_string(&AUTH_CTX,
             sz_auth_config, sizeof(sz_auth_config));
 
-    len = snprintf(sz_server_config, sizeof(sz_server_config),
+    master_election_config_to_string(sz_melection_config,
+            sizeof(sz_melection_config));
+
+    slice_binlog_config_to_string(sz_slice_binlog_config,
+            sizeof(sz_slice_binlog_config));
+
+    snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, cluster server group id = %d, "
             "data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
@@ -323,30 +389,12 @@ static void server_log_configs()
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME);
 
-    len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
-            ", master-election {resume_master_role: %d, failover=%s",
-            RESUME_MASTER_ROLE, (MASTER_ELECTION_FAILOVER ? "true" : "false"));
-    if (MASTER_ELECTION_FAILOVER) {
-        if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
-            len += snprintf(sz_server_config + len, sizeof(sz_server_config)
-                    - len, ", policy=%s", FS_MASTER_ELECTION_POLICY_STRICT_STR);
-        } else {
-            len += snprintf(sz_server_config + len,
-                    sizeof(sz_server_config) - len,
-                    ", policy=%s:%d",
-                    FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
-                    MASTER_ELECTION_TIMEOUTS);
-        }
-    }
-    len += snprintf(sz_server_config + len,
-            sizeof(sz_server_config) - len, "}");
-
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s, %s", g_fs_global_vars.version.major,
+            "replica: {%s}, %s, %s, %s, %s", g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
             sz_global_config, sz_slowlog_config, sz_service_config,
             sz_cluster_config, sz_replica_config, sz_server_config,
-            sz_auth_config);
+            sz_melection_config, sz_slice_binlog_config, sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -572,6 +620,10 @@ int server_load_config(const char *filename)
     if ((result=sf_load_slow_log_config(filename, &ini_context,
                     &SLOW_LOG_CTX, &SLOW_LOG_CFG)) != 0)
     {
+        return result;
+    }
+
+    if ((result=load_slice_binlog_config(&ini_context, filename)) != 0) {
         return result;
     }
 

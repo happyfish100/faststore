@@ -119,6 +119,10 @@ int server_binlog_init()
         return result;
     }
 
+    if ((result=slice_dedup_redo()) != 0) {
+        return result;
+    }
+
     if ((result=store_path_rebuild_redo_step1()) != 0) {
         return result;
     }

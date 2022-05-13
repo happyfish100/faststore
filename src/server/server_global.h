@@ -97,6 +97,9 @@ typedef struct server_global_vars {
     struct {
         //volatile int64_t total_count;
         struct {
+            bool dedup_enabled;
+            double target_dedup_ratio;
+            TimeInfo dedup_time;
             volatile int64_t record_count;
             volatile uint64_t sn;  //slice binlog sn
         } binlog;
@@ -163,9 +166,15 @@ typedef struct server_global_vars {
 
 #define CLUSTER_LAST_HEARTBEAT_TIME g_server_global_vars.cluster.last_heartbeat_time
 #define CLUSTER_CURRENT_VERSION g_server_global_vars.cluster.current_version
-//#define SLICE_TOTAL_COUNT       g_server_global_vars.slice.total_count
-#define SLICE_BINLOG_COUNT      g_server_global_vars.slice.binlog.record_count
-#define SLICE_BINLOG_SN         g_server_global_vars.slice.binlog.sn
+
+//#define SLICE_TOTAL_COUNT g_server_global_vars.slice.total_count
+#define SLICE_BINLOG_COUNT  g_server_global_vars.slice.binlog.record_count
+#define SLICE_BINLOG_SN     g_server_global_vars.slice.binlog.sn
+
+#define SLICE_DEDUP_ENABLED g_server_global_vars.slice.binlog.dedup_enabled
+#define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.target_dedup_ratio
+#define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup_time
+
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \
     local_binlog_check_last_seconds
 
