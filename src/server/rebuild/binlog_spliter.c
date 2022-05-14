@@ -206,7 +206,7 @@ static int check_unlink_subdir(const char *subdir_name)
         return errno != 0 ? errno : EPERM;
     }
 
-    if ((result=sf_binlog_writer_get_binlog_index(DATA_PATH_STR,
+    if ((result=sf_binlog_writer_get_binlog_last_index(DATA_PATH_STR,
                     subdir_name, &write_index)) != 0)
     {
         return result == ENOENT ? 0 : result;

@@ -66,12 +66,18 @@ struct sf_binlog_writer_info *slice_binlog_get_writer()
     return &binlog_writer.writer;
 }
 
-int slice_binlog_set_binlog_index(const int binlog_index)
+int slice_binlog_set_binlog_start_index(const int start_index)
+{
+    return sf_binlog_writer_set_binlog_start_index(
+            &binlog_writer.writer, start_index);
+}
+
+int slice_binlog_set_binlog_last_index(const int last_index)
 {
     /* force write to binlog index file */
-    binlog_writer.writer.fw.binlog.index = -1;
-    return sf_binlog_writer_set_binlog_index(&binlog_writer.
-            writer, binlog_index);
+    binlog_writer.writer.fw.binlog.last_index = -1;
+    return sf_binlog_writer_set_binlog_last_index(
+            &binlog_writer.writer, last_index);
 }
 
 void slice_binlog_writer_set_flags(const short flags)
@@ -85,9 +91,25 @@ int slice_binlog_set_next_version()
             writer, FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
 }
 
+int slice_binlog_get_binlog_start_index()
+{
+    return sf_binlog_get_start_index(&binlog_writer.writer);
+}
+
 int slice_binlog_get_current_write_index()
 {
     return sf_binlog_get_current_write_index(&binlog_writer.writer);
+}
+
+int slice_binlog_get_binlog_indexes(int *start_index, int *last_index)
+{
+    return sf_binlog_get_indexes(&binlog_writer.writer,
+            start_index, last_index);
+}
+
+int slice_binlog_rotate_file()
+{
+    return sf_binlog_writer_rotate_file(&binlog_writer.writer);
 }
 
 int slice_binlog_init()

@@ -42,13 +42,21 @@ extern "C" {
     int slice_binlog_load();
     int slice_binlog_get_current_write_index();
 
+    int slice_binlog_get_binlog_start_index();
+
+    int slice_binlog_get_binlog_indexes(int *start_index, int *last_index);
+
     struct sf_binlog_writer_info *slice_binlog_get_writer();
 
-    int slice_binlog_set_binlog_index(const int binlog_index);
+    int slice_binlog_set_binlog_start_index(const int start_index);
+
+    int slice_binlog_set_binlog_last_index(const int last_index);
 
     void slice_binlog_writer_set_flags(const short flags);
 
     int slice_binlog_set_next_version();
+
+    int slice_binlog_rotate_file();
 
     static inline const char *slice_binlog_get_filepath(
             char *filepath, const int size)

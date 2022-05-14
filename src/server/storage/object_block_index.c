@@ -1364,13 +1364,14 @@ int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
 int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
         const char *filename, int64_t *slice_count,
-        const bool need_padding)
+        const bool need_padding, const bool need_lock)
 {
     const int64_t data_version = 0;
     const int source = BINLOG_SOURCE_DUMP;
     int result;
     int i;
     SFBufferedWriter writer;
+    pthread_lock_cond_pair_t *lcp = NULL;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
@@ -1388,7 +1389,17 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     for (bucket=htable->buckets+start_index; result == 0 &&
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
     {
+        if (need_lock) {
+            lcp = ob_shared_ctx.lock_array.pairs +
+                (bucket - htable->buckets) %
+                ob_shared_ctx.lock_array.count;
+            PTHREAD_MUTEX_LOCK(&lcp->lock);
+        }
+
         if (*bucket == NULL) {
+            if (need_lock) {
+                PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+            }
             continue;
         }
 
@@ -1412,6 +1423,10 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
 
             ob = ob->next;
         } while (ob != NULL && result == 0);
+
+        if (need_lock) {
+            PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+        }
     }
 
     if (!SF_G_CONTINUE_FLAG) {

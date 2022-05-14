@@ -518,8 +518,8 @@ static int binlog_repair_finish(const int data_group_id,
     if ((rename_count > 0) || (end_binlog_index !=
                 sf_binlog_get_current_write_index(writer)))
     {
-        if ((result=sf_binlog_writer_set_binlog_index(writer,
-                        end_binlog_index)) != 0)
+        if ((result=sf_binlog_writer_set_binlog_last_index(
+                        writer, end_binlog_index)) != 0)
         {
             return result;
         }

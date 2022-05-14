@@ -17,16 +17,258 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/fc_atomic.h"
 #include "../../common/fs_func.h"
+#include "slice_binlog.h"
 #include "slice_dedup.h"
+
+#define DEDUP_SUBDIR_NAME    "dedup"
+
+#define DEDUP_REDO_ITEM_SLICE_COUNT        "slice_count"
+#define DEDUP_REDO_ITEM_BINLOG_INDEX       "binlog_index"
+#define DEDUP_REDO_ITEM_CURRENT_STAGE      "current_stage"
+
+#define DEDUP_REDO_STAGE_RENAME_BINLOG    1
+#define DEDUP_REDO_STAGE_REMOVE_BINLOG    2
+#define DEDUP_REDO_STAGE_FINISH           3
+
+typedef struct slice_binlog_dedup_redo_context {
+    char mark_filename[PATH_MAX];
+    int binlog_index;
+    int current_stage;
+    int64_t slice_count;
+} SliceBinlogDedupRedoContext;
+
+static inline const char *get_slice_dedup_filename(
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/slice/%s/slice.dat",
+            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    return filename;
+}
+
+static inline int check_make_subdir()
+{
+    char path[PATH_MAX];
+    snprintf(path, sizeof(path), "%s/slice/%s",
+            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    return fc_check_mkdir(path, 0755);
+}
+
+static inline const char *get_slice_mark_filename(
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/slice/%s/.dedup.flag",
+            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    return filename;
+}
+
+static int write_to_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    char buff[256];
+    int result;
+    int len;
+
+    len = sprintf(buff, "%s=%d\n"
+            "%s=%d\n"
+            "%s=%"PRId64"\n",
+            DEDUP_REDO_ITEM_BINLOG_INDEX, redo_ctx->binlog_index,
+            DEDUP_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
+            DEDUP_REDO_ITEM_SLICE_COUNT, redo_ctx->slice_count);
+    if ((result=safeWriteToFile(redo_ctx->mark_filename, buff, len)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "write to file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, redo_ctx->mark_filename, result, STRERROR(result));
+    }
+
+    return result;
+}
+
+static int load_from_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    IniContext ini_context;
+    int result;
+
+    if ((result=iniLoadFromFile(redo_ctx->mark_filename,
+                    &ini_context)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "load from file \"%s\" fail, error code: %d",
+                __LINE__, redo_ctx->mark_filename, result);
+        return result;
+    }
+
+    redo_ctx->binlog_index = iniGetIntValue(NULL,
+            DEDUP_REDO_ITEM_BINLOG_INDEX, &ini_context, 0);
+    redo_ctx->current_stage = iniGetIntValue(NULL,
+            DEDUP_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+    redo_ctx->slice_count = iniGetInt64Value(NULL,
+            DEDUP_REDO_ITEM_SLICE_COUNT, &ini_context, 0);
+
+    iniFreeContext(&ini_context);
+    return 0;
+}
+
+static int dedup_rename(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    char dedup_filename[PATH_MAX];
+    char binlog_filename[PATH_MAX];
+
+    if (redo_ctx->slice_count == 0) {
+        return 0;
+    }
+
+    get_slice_dedup_filename(dedup_filename, sizeof(dedup_filename));
+    slice_binlog_get_filename(redo_ctx->binlog_index, binlog_filename,
+            sizeof(binlog_filename));
+    return fc_check_rename(dedup_filename, binlog_filename);
+}
+
+static int remove_binlog_files(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    int result;
+    int start_index;
+
+    if (redo_ctx->slice_count > 0) {
+        start_index = redo_ctx->binlog_index;
+    } else {
+        start_index = redo_ctx->binlog_index + 1;
+    }
+
+    if ((result=slice_binlog_set_binlog_start_index(start_index)) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
+static int dedup_finish(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    return fc_delete_file_ex(redo_ctx->mark_filename, "slice dedup mark");
+}
+
+static int redo(SliceBinlogDedupRedoContext *redo_ctx)
+{
+    int result;
+
+    switch (redo_ctx->current_stage) {
+        case DEDUP_REDO_STAGE_RENAME_BINLOG:
+            if ((result=dedup_rename(redo_ctx)) != 0) {
+                break;
+            }
+
+            redo_ctx->current_stage = DEDUP_REDO_STAGE_REMOVE_BINLOG;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                break;
+            }
+            //continue
+        case DEDUP_REDO_STAGE_REMOVE_BINLOG:
+            if ((result=remove_binlog_files(redo_ctx)) != 0) {
+                break;
+            }
+
+            redo_ctx->current_stage = DEDUP_REDO_STAGE_FINISH;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                break;
+            }
+            //continue
+        case DEDUP_REDO_STAGE_FINISH:
+            if ((result=dedup_finish(redo_ctx)) != 0) {
+                break;
+            }
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, "
+                    "unkown current stage: %d", __LINE__,
+                    redo_ctx->current_stage);
+            return EINVAL;
+    }
+
+    return result;
+}
+
+static int do_dedup()
+{
+    const bool need_padding = false;
+    const bool need_lock = true;
+    int result;
+    SliceBinlogDedupRedoContext redo_ctx;
+    char dedup_filename[PATH_MAX];
+
+    redo_ctx.binlog_index = slice_binlog_get_current_write_index();
+    if ((result=slice_binlog_rotate_file()) != 0) {
+        return result;
+    }
+
+    get_slice_dedup_filename(dedup_filename, sizeof(dedup_filename));
+    if ((result=ob_index_dump_slices_to_file_ex(&g_ob_hashtable,
+                    0, g_ob_hashtable.capacity, dedup_filename,
+                    &redo_ctx.slice_count, need_padding, need_lock)) != 0)
+    {
+        return result;
+    }
+
+    get_slice_mark_filename(redo_ctx.mark_filename,
+            sizeof(redo_ctx.mark_filename));
+    redo_ctx.current_stage = DEDUP_REDO_STAGE_RENAME_BINLOG;
+    if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+        return result;
+    }
+
+    return redo(&redo_ctx);
+}
+
+int slice_dedup_redo()
+{
+    int result;
+    SliceBinlogDedupRedoContext redo_ctx;
+
+    if ((result=check_make_subdir()) != 0) {
+        return result;
+    }
+
+    get_slice_mark_filename(redo_ctx.mark_filename,
+            sizeof(redo_ctx.mark_filename));
+    if (access(redo_ctx.mark_filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            return 0;
+        }
+
+        logError("file: "__FILE__", line: %d, "
+                "access file %s fail, errno: %d, error info: %s",
+                __LINE__, redo_ctx.mark_filename, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=load_from_redo_file(&redo_ctx)) != 0) {
+        return result;
+    }
+
+    return redo(&redo_ctx);
+}
 
 static int slice_dedup_func(void *args)
 {
     static volatile bool dedup_in_progress = false;
+    double dedup_ratio;
+    int64_t slice_count;
 
     if (!dedup_in_progress) {
         dedup_in_progress = true;
 
-        //TODO
+        slice_count = ob_index_get_total_slice_count();
+        if (slice_count > 0) {
+            dedup_ratio = (double)(SLICE_BINLOG_COUNT -
+                    slice_count) / (double)slice_count;
+        } else {
+            dedup_ratio = 0.00;
+        }
+
+        logInfo("slice count: %"PRId64", binlog_count: %"PRId64", dedup_ratio: %.2f%%",
+                slice_count, SLICE_BINLOG_COUNT, dedup_ratio * 100.00);
+        if (dedup_ratio >= SLICE_DEDUP_RATIO) {
+            logInfo("dedup slice binlog ...");
+            do_dedup();
+        }
 
         dedup_in_progress = false;
     }
@@ -34,18 +276,18 @@ static int slice_dedup_func(void *args)
     return 0;
 }
 
-int slice_dedup_redo()
-{
-    return 0;
-}
-
 int slice_dedup_add_schedule()
 {
+    int result;
     ScheduleArray scheduleArray;
     ScheduleEntry scheduleEntry;
 
     if (!SLICE_DEDUP_ENABLED) {
         return 0;
+    }
+
+    if ((result=check_make_subdir()) != 0) {
+        return result;
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),

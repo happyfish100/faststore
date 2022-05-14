@@ -331,7 +331,7 @@ static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
         }
     }
 
-    return slice_binlog_set_binlog_index(last_index);
+    return slice_binlog_set_binlog_last_index(last_index);
 }
 
 static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)

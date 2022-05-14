@@ -57,7 +57,7 @@ extern "C" {
 #define ob_index_dump_slices_to_file(start_index, \
         end_index, filename, slice_count) \
     ob_index_dump_slices_to_file_ex(&g_ob_hashtable, start_index, end_index, \
-            filename, slice_count, end_index == g_ob_hashtable.capacity)
+            filename, slice_count, end_index == g_ob_hashtable.capacity, false)
 
 #define ob_index_remove_slices_to_file(start_index, end_index, \
         rebuild_store_index, filename, slice_count) \
@@ -160,7 +160,7 @@ extern "C" {
     int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,
             const char *filename, int64_t *slice_count,
-            const bool need_padding);
+            const bool need_padding, const bool need_lock);
 
     int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,

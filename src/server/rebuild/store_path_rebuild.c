@@ -138,6 +138,8 @@ static inline int dump_slices_to_file(const int binlog_index,
         const int64_t start_index, const int64_t end_index,
         int64_t *slice_count)
 {
+    const bool need_padding = false;
+    const bool need_lock = false;
     char filename[PATH_MAX];
 
     if (get_slice_dump_filename(binlog_index, filename,
@@ -146,7 +148,7 @@ static inline int dump_slices_to_file(const int binlog_index,
         return ENAMETOOLONG;
     }
     return ob_index_dump_slices_to_file_ex(&g_ob_hashtable, start_index,
-            end_index, filename, slice_count, false);
+            end_index, filename, slice_count, need_padding, need_lock);
 }
 
 static void data_dump_thread_run(DataDumpThreadContext *thread,
@@ -493,7 +495,7 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
         }
     }
 
-    return slice_binlog_set_binlog_index(last_index);
+    return slice_binlog_set_binlog_last_index(last_index);
 }
 
 static int split_binlog(DataRebuildRedoContext *redo_ctx)
