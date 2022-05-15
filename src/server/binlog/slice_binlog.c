@@ -213,6 +213,29 @@ int slice_binlog_log_no_op(const FSBlockKey *bkey,
             source, BINLOG_OP_TYPE_NO_OP);
 }
 
+int slice_binlog_padding_for_check(const int source)
+{
+    const int64_t data_version = 0;
+    int result;
+    int i;
+    time_t current_time;
+    FSBlockKey bkey;
+
+    current_time = g_current_time;
+    bkey.oid = 1;
+    bkey.offset = 0;
+    for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS + 1; i++) {
+        if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
+                        __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
+                        data_version, source)) != 0)
+        {
+            return result;
+        }
+    }
+
+    return 0;
+}
+
 void slice_binlog_writer_stat(FSBinlogWriterStat *stat)
 {
     stat->total_count = binlog_writer.writer.fw.total_count;

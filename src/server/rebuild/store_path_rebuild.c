@@ -768,32 +768,9 @@ int store_path_rebuild_redo_step1()
     return result;
 }
 
-static int slice_binlog_padding_for_check()
-{
-    const int64_t data_version = 0;
-    const int source = BINLOG_SOURCE_REBUILD;
-    int result;
-    int i;
-    time_t current_time;
-    FSBlockKey bkey;
-
-    current_time = g_current_time;
-    bkey.oid = 1;
-    bkey.offset = 0;
-    for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS; i++) {
-        if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
-                        __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
-                        data_version, source)) != 0)
-        {
-            return result;
-        }
-    }
-
-    return 0;
-}
-
 int store_path_rebuild_redo_step2()
 {
+    const int source = BINLOG_SOURCE_REBUILD;
     DataRebuildRedoContext redo_ctx;
     char filepath[PATH_MAX];
     int result;
@@ -852,7 +829,7 @@ int store_path_rebuild_redo_step2()
     }
 
     if (redo_ctx.binlog_file_count > 0) {
-        if ((result=slice_binlog_padding_for_check()) != 0) {
+        if ((result=slice_binlog_padding_for_check(source)) != 0) {
             return result;
         }
     }

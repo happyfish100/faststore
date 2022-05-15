@@ -126,13 +126,13 @@ int binlog_get_last_timestamp(const char *filename, time_t *timestamp)
 }
 
 static int get_start_binlog_index_by_timestamp(const char *subdir_name,
-        const time_t from_timestamp, int *binlog_index)
+        const time_t from_timestamp, const int start_index, int *binlog_index)
 {
     char filename[PATH_MAX];
     int result;
     time_t timestamp;
 
-    while (*binlog_index >= 0) {
+    while (*binlog_index >= start_index) {
         binlog_reader_get_filename(subdir_name, *binlog_index,
                 filename, sizeof(filename));
         result = binlog_get_first_timestamp(filename, &timestamp);
@@ -144,7 +144,7 @@ static int get_start_binlog_index_by_timestamp(const char *subdir_name,
             return result;
         }
 
-        if (*binlog_index == 0) {
+        if (*binlog_index == start_index) {
             break;
         }
         (*binlog_index)--;
@@ -215,14 +215,21 @@ int binlog_get_position_by_timestamp(const char *subdir_name,
 {
     int result;
     int offset;
+    int start_index;
+    int last_index;
     int binlog_index;
     int read_bytes;
     int remain_bytes;
     ServerBinlogReader reader;
 
-    binlog_index = sf_binlog_get_current_write_index(writer);
+    if ((result=sf_binlog_get_indexes(writer, &start_index,
+                    &last_index)) != 0)
+    {
+        return result;
+    }
+    binlog_index = last_index;
     if ((result=get_start_binlog_index_by_timestamp(subdir_name,
-                    from_timestamp, &binlog_index)) != 0)
+                    from_timestamp, start_index, &binlog_index)) != 0)
     {
         return result;
     }

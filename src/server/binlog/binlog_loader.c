@@ -62,6 +62,10 @@ int binlog_loader_load_ex(const char *subdir_name,
 {
     BinlogReadThreadContext read_thread_ctx;
     BinlogLoaderContext parse_ctx;
+    struct {
+        SFBinlogFilePosition holder;
+        SFBinlogFilePosition *ptr;
+    } position;
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
@@ -69,8 +73,21 @@ int binlog_loader_load_ex(const char *subdir_name,
 
     start_time = get_current_time_ms();
 
-    if ((result=binlog_read_thread_init_ex(&read_thread_ctx, subdir_name,
-                    writer, NULL, BINLOG_BUFFER_SIZE, buffer_count)) != 0)
+    if (writer != NULL) {
+        position.holder.index = sf_binlog_get_start_index(writer);
+        position.holder.offset = 0;
+        position.ptr = &position.holder;
+
+        logInfo("subdir_name: %s, position: {index: %d, offset: %"PRId64"}",
+                subdir_name, position.holder.index, position.holder.offset);
+    } else {
+        logInfo("subdir_name: %s, position: NULL", subdir_name);
+        position.ptr = NULL;
+    }
+
+    if ((result=binlog_read_thread_init_ex(&read_thread_ctx,
+                    subdir_name, writer, position.ptr,
+                    BINLOG_BUFFER_SIZE, buffer_count)) != 0)
     {
         return result;
     }

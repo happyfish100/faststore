@@ -122,6 +122,8 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source);
 
+    int slice_binlog_padding_for_check(const int source);
+
     void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
 
     int slice_binlog_record_unpack(const string_t *line,
