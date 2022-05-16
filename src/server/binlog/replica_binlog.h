@@ -59,6 +59,17 @@ extern "C" {
                 subdir_name, filepath, size);
     }
 
+    static inline const char *replica_binlog_get_filename(
+            const int data_group_id, const int binlog_index,
+            char *filename, const int size)
+    {
+        char subdir_name[64];
+
+        replica_binlog_get_subdir_name(subdir_name, data_group_id);
+        return sf_binlog_writer_get_filename(DATA_PATH_STR,
+                subdir_name, binlog_index, filename, size);
+    }
+
     static inline const char *replica_binlog_get_base_path(
             char *filepath, const int size)
     {
@@ -67,6 +78,12 @@ extern "C" {
     }
 
     int replica_binlog_get_current_write_index(const int data_group_id);
+
+    int replica_binlog_get_binlog_indexes(const int data_group_id,
+            int *start_index, int *last_index);
+
+    int replica_binlog_set_binlog_start_index(const int data_group_id,
+            const int start_index);
 
     int replica_binlog_get_first_record(const char *filename,
             ReplicaBinlogRecord *record);

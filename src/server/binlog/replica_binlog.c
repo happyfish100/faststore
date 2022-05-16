@@ -332,6 +332,22 @@ int replica_binlog_get_current_write_index(const int data_group_id)
     return sf_binlog_get_current_write_index(writer);
 }
 
+int replica_binlog_get_binlog_indexes(const int data_group_id,
+        int *start_index, int *last_index)
+{
+    SFBinlogWriterInfo *writer;
+    writer = replica_binlog_get_writer(data_group_id);
+    return sf_binlog_get_indexes(writer, start_index, last_index);
+}
+
+int replica_binlog_set_binlog_start_index(const int data_group_id,
+        const int start_index)
+{
+    SFBinlogWriterInfo *writer;
+    writer = replica_binlog_get_writer(data_group_id);
+    return sf_binlog_writer_set_binlog_start_index(writer, start_index);
+}
+
 static inline int unpack_slice_record(string_t *cols, const int count,
         ReplicaBinlogRecord *record, char *error_info)
 {

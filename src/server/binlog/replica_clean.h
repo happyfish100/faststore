@@ -13,27 +13,19 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-//server_binlog.h
 
-#ifndef _SERVER_BINLOG_H_
-#define _SERVER_BINLOG_H_
+#ifndef _REPLICA_CLEAN_H
+#define _REPLICA_CLEAN_H
 
-#include "binlog/binlog_types.h"
-#include "binlog/binlog_reader.h"
-#include "binlog/binlog_read_thread.h"
-#include "binlog/trunk_binlog.h"
-#include "binlog/slice_binlog.h"
-#include "binlog/slice_dedup.h"
-#include "binlog/replica_binlog.h"
-#include "binlog/replica_clean.h"
-#include "binlog/migrate_clean.h"
+#include "fastcommon/sched_thread.h"
+#include "binlog_types.h"
+#include "../server_global.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-int server_binlog_init();
-void server_binlog_destroy();
+    int replica_clean_add_schedule();
 
 #ifdef __cplusplus
 }
