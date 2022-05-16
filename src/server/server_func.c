@@ -212,6 +212,26 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     return server_group_info_init(full_cluster_filename);
 }
 
+static int load_replica_binlog_config(IniContext *ini_context,
+        const char *filename)
+{
+    const char *section_name = "replica-binlog";
+    int result;
+    IniFullContext ini_ctx;
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, section_name, ini_context);
+    REPLICA_KEEP_DAYS = iniGetIntValue(section_name,
+            "keep_days", ini_context, 30);
+
+    if ((result=get_time_item_from_conf_ex(&ini_ctx, "delete_time",
+                    &REPLICA_DELETE_TIME, 2, 0, false)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
 static int load_slice_binlog_config(IniContext *ini_context,
         const char *filename)
 {
@@ -324,6 +344,13 @@ static void slice_binlog_config_to_string(char *buff, const int size)
     len += snprintf(buff + len, size - len, "}");
 }
 
+static void replica_binlog_config_to_string(char *buff, const int size)
+{
+    snprintf(buff, size, "replica-binlog {keep_days: %d, "
+            "delete_time=%02d:%02d}", REPLICA_KEEP_DAYS,
+            REPLICA_DELETE_TIME.hour, REPLICA_DELETE_TIME.minute);
+}
+
 static void server_log_configs()
 {
     char sz_server_config[1024];
@@ -333,6 +360,7 @@ static void server_log_configs()
     char sz_cluster_config[128];
     char sz_replica_config[128];
     char sz_melection_config[128];
+    char sz_replica_binlog_config[128];
     char sz_slice_binlog_config[128];
     char sz_auth_config[1024];
 
@@ -354,6 +382,8 @@ static void server_log_configs()
     master_election_config_to_string(sz_melection_config,
             sizeof(sz_melection_config));
 
+    replica_binlog_config_to_string(sz_replica_binlog_config,
+            sizeof(sz_replica_binlog_config));
     slice_binlog_config_to_string(sz_slice_binlog_config,
             sizeof(sz_slice_binlog_config));
 
@@ -390,11 +420,12 @@ static void server_log_configs()
             LEADER_ELECTION_MAX_WAIT_TIME);
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s, %s, %s, %s", g_fs_global_vars.version.major,
+            "replica: {%s}, %s, %s, %s, %s, %s", g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
             sz_global_config, sz_slowlog_config, sz_service_config,
             sz_cluster_config, sz_replica_config, sz_server_config,
-            sz_melection_config, sz_slice_binlog_config, sz_auth_config);
+            sz_melection_config, sz_replica_binlog_config,
+            sz_slice_binlog_config, sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -620,6 +651,10 @@ int server_load_config(const char *filename)
     if ((result=sf_load_slow_log_config(filename, &ini_context,
                     &SLOW_LOG_CTX, &SLOW_LOG_CFG)) != 0)
     {
+        return result;
+    }
+
+    if ((result=load_replica_binlog_config(&ini_context, filename)) != 0) {
         return result;
     }
 

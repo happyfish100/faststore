@@ -91,6 +91,11 @@ typedef struct server_global_vars {
         int recovery_threads_per_data_group;
         int recovery_max_queue_depth;
         int active_test_interval;   //round(nework_timeout / 2)
+        struct {
+            int keep_days;
+            TimeInfo delete_time;
+        } binlog;
+
         SFContext sf_context;       //for replica communication
     } replica;
 
@@ -174,6 +179,9 @@ typedef struct server_global_vars {
 #define SLICE_DEDUP_ENABLED g_server_global_vars.slice.binlog.dedup_enabled
 #define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.target_dedup_ratio
 #define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup_time
+
+#define REPLICA_KEEP_DAYS   g_server_global_vars.replica.binlog.keep_days
+#define REPLICA_DELETE_TIME g_server_global_vars.replica.binlog.delete_time
 
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars.data. \
     local_binlog_check_last_seconds
