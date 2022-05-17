@@ -1705,8 +1705,9 @@ static int dump_replica_binlog_to_file(OBEntry *ob, SFBufferedWriter
 }
 
 int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
-        const int data_group_id, const char *filename,
-        int64_t *total_slice_count, int64_t *total_replica_count)
+        const int data_group_id, const int64_t padding_data_version,
+        const char *filename, int64_t *total_slice_count,
+        int64_t *total_replica_count)
 {
     int result;
     SFBufferedWriter writer;
@@ -1754,8 +1755,21 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
         result = EINTR;
     }
 
-    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
-        result = sf_buffered_writer_save(&writer);
+    if (result == 0) {
+        if (SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+            result = sf_buffered_writer_save(&writer);
+        }
+
+        if (result == 0 && padding_data_version > *total_replica_count) {
+            FSBlockKey bkey;
+            bkey.oid = 1;
+            bkey.offset = 0;
+            writer.buffer.current += replica_binlog_log_block_to_buff(
+                    g_current_time, padding_data_version, &bkey,
+                    BINLOG_SOURCE_DUMP, BINLOG_OP_TYPE_NO_OP,
+                    writer.buffer.current);
+            result = sf_buffered_writer_save(&writer);
+        }
     }
 
     sf_buffered_writer_destroy(&writer);

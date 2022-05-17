@@ -77,6 +77,12 @@ static inline void replica_release_reader(struct fast_task_info *task,
 {
     if (REPLICA_READER != NULL) {
         if (reader_inited) {
+            //TODO
+            /*
+            if (binlog_reader_get_writer(REPLICA_READER) == NULL) {
+                fc_delete_file(REPLICA_READER->filename);
+            }
+            */
             binlog_reader_destroy(REPLICA_READER);
         }
         free(REPLICA_READER);
@@ -360,6 +366,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
             sprintf(prompt, "first unmatched data "
                     "version: %"PRId64, first_unmatched_dv);
         } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
+            sprintf(prompt, "replica binlog missed");
         } else {
             sprintf(prompt, "some mistake happen, "
                     "error code is %d", result);
@@ -388,13 +395,27 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
             TASK_CTX.common.log_level = LOG_WARNING;
         } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
             if (last_data_version == 0) {  //accept
-                //dump replica binlog
+                if ((result=replica_binlog_init_dump_reader(data_group_id,
+                                server_id, REPLICA_READER)) != 0)
+                {
+                    if (result != EAGAIN) {
+                        RESPONSE.error.length = sprintf(
+                                RESPONSE.error.message,
+                                "internal server error for "
+                                "dump replica binlog");
+                    }
+                }
             } else {
+                RESPONSE.error.length = sprintf(
+                        RESPONSE.error.message,
+                        "replica binlog missed");
             }
         }
 
-        replica_release_reader(task, false);
-        return result;
+        if (result != 0) {
+            replica_release_reader(task, false);
+            return result;
+        }
     }
 
     if (rheader->catch_up) {

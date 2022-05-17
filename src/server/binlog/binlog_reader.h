@@ -72,6 +72,16 @@ void binlog_reader_destroy(ServerBinlogReader *reader);
 
 int binlog_reader_read(ServerBinlogReader *reader);
 
+static inline SFBinlogWriterInfo *binlog_reader_get_writer(
+        ServerBinlogReader *reader)
+{
+    if (reader->binlog_info.type == binlog_index_type_writer_ptr) {
+        return reader->binlog_info.writer;
+    } else {
+        return NULL;
+    }
+}
+
 #define binlog_reader_get_filename(subdir_name, binlog_index, \
         full_filename, size) \
     binlog_reader_get_filename_ex(subdir_name, "", binlog_index, \

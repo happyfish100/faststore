@@ -266,6 +266,29 @@ extern "C" {
     void replica_binlog_writer_stat(const int data_group_id,
             FSBinlogWriterStat *stat);
 
+    static inline void replica_binlog_get_dump_subdir_name(char *subdir_name,
+            const int data_group_id, const int slave_id)
+    {
+        sprintf(subdir_name, "%s/%d/dump%d",
+                FS_REPLICA_BINLOG_SUBDIR_NAME,
+                data_group_id, slave_id);
+    }
+
+    static inline const char *replica_binlog_get_dump_filename(
+            const int data_group_id, const int slave_id,
+            char *filename, const int size)
+    {
+        char subdir_name[64];
+
+        replica_binlog_get_dump_subdir_name(subdir_name,
+            data_group_id, slave_id);
+        return sf_binlog_writer_get_filename(DATA_PATH_STR,
+                subdir_name, 0, filename, size);
+    }
+
+    int replica_binlog_init_dump_reader(const int data_group_id,
+            const int slave_id, struct server_binlog_reader *reader);
+
 #ifdef __cplusplus
 }
 #endif

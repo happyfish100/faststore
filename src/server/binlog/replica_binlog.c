@@ -14,18 +14,19 @@
  */
 
 #include <limits.h>
-#include <fcntl.h>
+#include <sys/types.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "sf/sf_global.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
+#include "../shared_thread_pool.h"
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "binlog_func.h"
-#include "binlog_reader.h"
 #include "binlog_loader.h"
 #include "replica_binlog.h"
 
@@ -232,6 +233,42 @@ int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
     return sf_binlog_writer_change_order_by(writer, order_by);
 }
 
+static inline const char *replica_binlog_get_mark_filename(
+        const int data_group_id, const int slave_id,
+        char *filename, const int size)
+{
+    char subdir_name[64];
+    char filepath[PATH_MAX];
+
+    replica_binlog_get_dump_subdir_name(subdir_name,
+            data_group_id, slave_id);
+    sf_binlog_writer_get_filepath(DATA_PATH_STR,
+            subdir_name, filepath, sizeof(filepath));
+    snprintf(filename, size, "%s/.dump.mark", filepath);
+    return filename;
+}
+
+static int replica_binlog_delete_mark_filenames(const int data_group_id)
+{
+    int result;
+    FSClusterServerInfo *cs;
+    FSClusterServerInfo *end;
+    char mark_filename[PATH_MAX];
+
+    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
+    for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
+        if (cs != CLUSTER_MYSELF_PTR) {
+            replica_binlog_get_mark_filename(data_group_id, cs->server->id,
+                    mark_filename, sizeof(mark_filename));
+            if ((result=fc_delete_file(mark_filename)) != 0) {
+                return result;
+            }
+        }
+    }
+
+    return 0;
+}
+
 int replica_binlog_init()
 {
     const bool use_fixed_buffer_size = true;
@@ -303,6 +340,12 @@ int replica_binlog_init()
         }
 
         if ((result=set_my_data_version(myself)) != 0) {
+            return result;
+        }
+
+        if ((result=replica_binlog_delete_mark_filenames(
+                        data_group_id)) != 0)
+        {
             return result;
         }
 
@@ -884,4 +927,159 @@ void replica_binlog_writer_stat(const int data_group_id,
     stat->next_version = writer->version_ctx.next;
     stat->waiting_count = writer->version_ctx.ring.waiting_count;
     stat->max_waitings = writer->version_ctx.ring.max_waitings;
+}
+
+static int replica_binlog_dump(const int data_group_id,
+        const int slave_id)
+{
+    int result;
+    int i;
+    uint64_t current_data_version;
+    uint64_t last_data_version;
+    int64_t total_slice_count;
+    int64_t total_replica_count;
+    char tmp_filename[PATH_MAX];
+    char dump_filename[PATH_MAX];
+
+    current_data_version = fs_get_my_ds_data_version(data_group_id);
+    for (i=0; i<=3; i++) {
+        if ((result=replica_binlog_get_last_dv(data_group_id,
+                        &last_data_version)) != 0)
+        {
+            return result;
+        }
+
+        if (last_data_version >= current_data_version) {
+            break;
+        }
+    }
+
+    if (last_data_version < current_data_version) {
+        logError("file: "__FILE__", line: %d, "
+                "data_group_id: %d, waiting replica binlog write done "
+                "timeout, waiting data version: %"PRId64" > the last "
+                "data version: %"PRId64, __LINE__, data_group_id,
+                current_data_version, last_data_version);
+        return EBUSY;
+    }
+
+
+    replica_binlog_get_dump_filename(data_group_id, slave_id,
+            dump_filename, sizeof(dump_filename));
+    snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", dump_filename);
+    if ((result=ob_index_dump_replica_binlog_to_file(data_group_id,
+                    current_data_version, tmp_filename, &total_slice_count,
+                    &total_replica_count)) != 0)
+    {
+        return result;
+    }
+
+    if (rename(tmp_filename, dump_filename) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, "
+                "rename file %s to %s fail, "
+                "errno: %d, error info: %s",
+                __LINE__, tmp_filename, dump_filename,
+                result, STRERROR(result));
+        return result;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data_group_id: %d, slave_id: %d, dump replica binlog success. "
+            "total_slice_count: %"PRId64", total_replica_count: %"PRId64,
+            __LINE__, data_group_id, slave_id, total_slice_count,
+            total_replica_count);
+    return 0;
+}
+
+typedef union {
+    int64_t n;
+    struct {
+        int data_group_id;
+        int slave_id;
+    };
+} ReplicaBinlogDumpArgs;
+
+static void replica_binlog_dump_func(void *arg, void *thread_data)
+{
+    int result;
+    ReplicaBinlogDumpArgs args;
+    char mark_filename[PATH_MAX];
+
+    args.n = (long)arg;
+
+    logInfo("file: "__FILE__", line: %d, "
+            "data_group_id: %d, slave_id: %d", __LINE__,
+            args.data_group_id, args.slave_id);
+    if ((result=replica_binlog_dump(args.data_group_id,
+                    args.slave_id)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "data_group_id: %d, slave_id: %d, dump replica binlog "
+                "fail, result: %d", __LINE__, args.data_group_id,
+                args.slave_id, result);
+    }
+
+    replica_binlog_get_mark_filename(args.data_group_id,
+            args.slave_id, mark_filename, sizeof(mark_filename));
+    fc_delete_file(mark_filename);
+}
+
+int replica_binlog_init_dump_reader(const int data_group_id,
+        const int slave_id, struct server_binlog_reader *reader)
+{
+    int result;
+    char subdir_name[64];
+    struct stat stbuf;
+    ReplicaBinlogDumpArgs args;
+    char filepath[PATH_MAX];
+    char dump_filename[PATH_MAX];
+    char mark_filename[PATH_MAX];
+
+    replica_binlog_get_dump_subdir_name(subdir_name,
+            data_group_id, slave_id);
+    sf_binlog_writer_get_filepath(DATA_PATH_STR,
+            subdir_name, filepath, sizeof(filepath));
+    if ((result=fc_check_mkdir(filepath, 0775)) != 0) {
+        return result;
+    }
+
+    replica_binlog_get_dump_filename(data_group_id, slave_id,
+            dump_filename, sizeof(dump_filename));
+    if (stat(dump_filename, &stbuf) == 0) {
+        if (g_current_time - stbuf.st_mtime <= 86400) {
+            return binlog_reader_init(reader, subdir_name, NULL, NULL);
+        } else {
+            if ((result=fc_delete_file(dump_filename)) != 0) {
+                return result;
+            }
+        }
+    } else if (errno != ENOENT) {
+        result = errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, "
+                "stat file %s fail, errno: %d, error info: %s",
+                __LINE__, dump_filename, result, STRERROR(result));
+        return result;
+    }
+
+    replica_binlog_get_mark_filename(data_group_id, slave_id,
+            mark_filename, sizeof(mark_filename));
+    if (access(mark_filename, F_OK) == 0) {
+        return EAGAIN;
+    }
+
+    if ((result=writeToFile(mark_filename, "OK", 2)) != 0) {
+        return result;
+    }
+
+    args.data_group_id = data_group_id;
+    args.slave_id = slave_id;
+    if ((result=shared_thread_pool_run(replica_binlog_dump_func,
+                    (void *)args.n)) != 0)
+    {
+        fc_delete_file(mark_filename);
+        return result;
+    } else {
+        return EAGAIN;
+    }
 }

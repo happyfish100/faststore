@@ -64,10 +64,12 @@ extern "C" {
     ob_index_remove_slices_to_file_ex(&g_ob_hashtable, start_index, \
             end_index, rebuild_store_index, filename, slice_count)
 
-#define ob_index_dump_replica_binlog_to_file(data_group_id, filename, \
-            total_slice_count, total_replica_count) \
-    ob_index_dump_replica_binlog_to_file_ex(&g_ob_hashtable, data_group_id, \
-            filename, total_slice_count, total_replica_count)
+#define ob_index_dump_replica_binlog_to_file(data_group_id, \
+        padding_data_version, filename, \
+        total_slice_count, total_replica_count) \
+    ob_index_dump_replica_binlog_to_file_ex(&g_ob_hashtable, \
+            data_group_id, padding_data_version, filename, \
+            total_slice_count, total_replica_count)
 
     int ob_index_init();
     void ob_index_destroy();
@@ -173,8 +175,9 @@ extern "C" {
             int64_t *slice_count);
 
     int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
-            const int data_group_id, const char *filename,
-            int64_t *total_slice_count, int64_t *total_replica_count);
+            const int data_group_id, const int64_t padding_data_version,
+            const char *filename, int64_t *total_slice_count,
+            int64_t *total_replica_count);
 
 #ifdef FS_DUMP_SLICE_FOR_DEBUG
     int ob_index_dump_slice_index_to_file(const char *filename,
