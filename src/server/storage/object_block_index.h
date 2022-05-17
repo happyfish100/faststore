@@ -64,6 +64,11 @@ extern "C" {
     ob_index_remove_slices_to_file_ex(&g_ob_hashtable, start_index, \
             end_index, rebuild_store_index, filename, slice_count)
 
+#define ob_index_dump_replica_binlog_to_file(data_group_id, filename, \
+            total_slice_count, total_replica_count) \
+    ob_index_dump_replica_binlog_to_file_ex(&g_ob_hashtable, data_group_id, \
+            filename, total_slice_count, total_replica_count)
+
     int ob_index_init();
     void ob_index_destroy();
 
@@ -166,6 +171,10 @@ extern "C" {
             const int64_t start_index, const int64_t end_index,
             const int rebuild_store_index, const char *filename,
             int64_t *slice_count);
+
+    int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
+            const int data_group_id, const char *filename,
+            int64_t *total_slice_count, int64_t *total_replica_count);
 
 #ifdef FS_DUMP_SLICE_FOR_DEBUG
     int ob_index_dump_slice_index_to_file(const char *filename,

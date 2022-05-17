@@ -605,12 +605,29 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
             SFBinlogFilePosition *pos, const bool ignore_dv_overflow)
 {
     int result;
+    int start_index;
+    int last_index;
     int binlog_index;
     char filename[PATH_MAX];
     uint64_t first_data_version;
 
-    binlog_index = sf_binlog_get_current_write_index(writer);
-    while (binlog_index >= 0) {
+    if ((result=sf_binlog_get_indexes(writer, &start_index,
+                    &last_index)) != 0)
+    {
+        return result;
+    }
+    if (last_data_version == 0) {
+        if (start_index == 0) {
+            pos->index = 0;
+            pos->offset = 0;
+            return 0;
+        } else {
+            return SF_CLUSTER_ERROR_BINLOG_MISSED;
+        }
+    }
+
+    binlog_index = last_index;
+    while (binlog_index >= start_index) {
         sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
                 binlog_index, filename, sizeof(filename));
         if ((result=replica_binlog_get_first_data_version(
@@ -637,9 +654,13 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
         --binlog_index;
     }
 
-    pos->index = 0;
-    pos->offset = 0;
-    return 0;
+    if (start_index == 0) {
+        pos->index = 0;
+        pos->offset = 0;
+        return 0;
+    } else {
+        return SF_CLUSTER_ERROR_BINLOG_MISSED;
+    }
 }
 
 int replica_binlog_reader_init(struct server_binlog_reader *reader,
@@ -652,12 +673,8 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
 
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
     writer = replica_binlog_get_writer(data_group_id);
-    if (last_data_version == 0) {
-        return binlog_reader_init(reader, subdir_name, writer, NULL);
-    }
-
-    if ((result=replica_binlog_get_position_by_dv(subdir_name,
-                    writer, last_data_version, &position, false)) != 0)
+    if ((result=replica_binlog_get_position_by_dv(subdir_name, writer,
+                    last_data_version, &position, false)) != 0)
     {
         return result;
     }

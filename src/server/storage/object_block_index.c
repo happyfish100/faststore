@@ -23,6 +23,7 @@
 #include "sf/sf_buffered_writer.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
+#include "../binlog/replica_binlog.h"
 #include "../rebuild/rebuild_binlog.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
@@ -1631,6 +1632,133 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 
     free(ctx.slice_parray.slices);
     sf_buffered_writer_destroy(&ctx.writer);
+    return result;
+}
+
+static int do_write_replica_binlog(OBEntry *ob, const int slice_type,
+        const FSSliceSize *ssize, const int64_t data_version,
+        SFBufferedWriter *writer)
+{
+    int result;
+    FSBlockSliceKeyInfo bs_key;
+
+    if (SF_BUFFERED_WRITER_REMAIN(*writer) <
+            FS_REPLICA_BINLOG_MAX_RECORD_SIZE)
+    {
+        if ((result=sf_buffered_writer_save(writer)) != 0) {
+            return result;
+        }
+    }
+
+    bs_key.block = ob->bkey;
+    bs_key.slice = *ssize;
+    writer->buffer.current += replica_binlog_log_slice_to_buff(
+            g_current_time, data_version, &bs_key, BINLOG_SOURCE_DUMP,
+            slice_type == OB_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
+            BINLOG_OP_TYPE_ALLOC_SLICE, writer->buffer.current);
+    return 0;
+}
+
+static int dump_replica_binlog_to_file(OBEntry *ob, SFBufferedWriter
+        *writer, int64_t *total_slice_count, int64_t *total_replica_count)
+{
+    int result;
+    int slice_type;
+    FSSliceSize ssize;
+    UniqSkiplistIterator it;
+    OBSliceEntry *slice;
+
+    uniq_skiplist_iterator(ob->slices, &it);
+    if ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) == NULL) {
+        return 0;
+    }
+
+    ++(*total_slice_count);
+    ++(*total_replica_count);
+    SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
+    while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+        ++(*total_slice_count);
+        if (slice->ssize.offset == (ssize.offset + ssize.length)
+                && slice->type == slice_type)
+        {
+            ssize.length += slice->ssize.length;
+            continue;
+        }
+
+        if ((result=do_write_replica_binlog(ob, slice_type, &ssize,
+                        *total_replica_count, writer)) != 0)
+        {
+            return result;
+        }
+
+        ++(*total_replica_count);
+        SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
+    }
+
+    if ((result=do_write_replica_binlog(ob, slice_type, &ssize,
+                    *total_replica_count, writer)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
+int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
+        const int data_group_id, const char *filename,
+        int64_t *total_slice_count, int64_t *total_replica_count)
+{
+    int result;
+    SFBufferedWriter writer;
+    pthread_lock_cond_pair_t *lcp;
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+
+    *total_slice_count = 0;
+    *total_replica_count = 0;
+    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
+        return result;
+    }
+
+    end = htable->buckets + htable->capacity;
+    for (bucket=htable->buckets; result == 0 &&
+            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+    {
+        lcp = ob_shared_ctx.lock_array.pairs +
+            (bucket - htable->buckets) %
+            ob_shared_ctx.lock_array.count;
+        PTHREAD_MUTEX_LOCK(&lcp->lock);
+
+        if (*bucket == NULL) {
+            PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            if (FS_DATA_GROUP_ID(ob->bkey) == data_group_id) {
+                if ((result=dump_replica_binlog_to_file(ob, &writer,
+                                total_slice_count, total_replica_count)) != 0)
+                {
+                    break;
+                }
+            }
+            ob = ob->next;
+        } while (ob != NULL && result == 0);
+
+        PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    }
+
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+        result = sf_buffered_writer_save(&writer);
+    }
+
+    sf_buffered_writer_destroy(&writer);
     return result;
 }
 

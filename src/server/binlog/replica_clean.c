@@ -41,7 +41,6 @@ static int remove_old_binlogs(const int data_group_id,
 
     logInfo("data_group_id: %d, binlog start_index: %d, last_index: %d",
             data_group_id, start_index, last_index);
-    last_index++;  //TODO
 
     for (binlog_index=start_index; binlog_index<last_index; binlog_index++) {
         replica_binlog_get_filename(data_group_id, binlog_index,
@@ -54,13 +53,12 @@ static int remove_old_binlogs(const int data_group_id,
 
         formatDatetime(last_timestamp, "%Y-%m-%d %H:%M:%S",
                 buff, sizeof(buff));
-        logInfo("last time: %s, timestamp: %ld", buff, last_timestamp);
+        logInfo("binlog_index: %d, last time: %s, timestamp: %ld",
+                binlog_index, buff, last_timestamp);
+
         if (last_timestamp >= before_time) {
             continue;
         }
-
-        (*remove_count)++;
-        continue;
 
         if ((result=replica_binlog_set_binlog_start_index(data_group_id,
                         binlog_index + 1)) != 0)
@@ -72,6 +70,8 @@ static int remove_old_binlogs(const int data_group_id,
         {
             return result;
         }
+
+        (*remove_count)++;
     }
 
     return 0;

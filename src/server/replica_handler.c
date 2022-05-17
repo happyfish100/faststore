@@ -359,6 +359,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
             sprintf(prompt, "first unmatched data "
                     "version: %"PRId64, first_unmatched_dv);
+        } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
         } else {
             sprintf(prompt, "some mistake happen, "
                     "error code is %d", result);
@@ -385,6 +386,11 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                     "file, my current data version: %"PRId64, data_group_id,
                     server_id, last_data_version, my_data_version);
             TASK_CTX.common.log_level = LOG_WARNING;
+        } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
+            if (last_data_version == 0) {  //accept
+                //dump replica binlog
+            } else {
+            }
         }
 
         replica_release_reader(task, false);
