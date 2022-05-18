@@ -21,6 +21,41 @@
 #include "replica_binlog.h"
 #include "replica_clean.h"
 
+static int check_last_binlog(const int data_group_id, const int last_index)
+{
+    int result;
+    char binlog_filename[PATH_MAX];
+    struct stat stbuf;
+    time_t first_timestamp;
+    time_t last_timestamp;
+
+    replica_binlog_get_filename(data_group_id, last_index,
+            binlog_filename, sizeof(binlog_filename));
+    if ((result=binlog_get_first_timestamp(binlog_filename,
+                    &first_timestamp)) != 0)
+    {
+        return result;
+    }
+    if ((result=binlog_get_last_timestamp(binlog_filename,
+                    &last_timestamp)) != 0)
+    {
+        return result;
+    }
+
+    if (last_timestamp - first_timestamp <=
+            LOCAL_BINLOG_CHECK_LAST_SECONDS)
+    {
+        return ECANCELED;
+    }
+
+    if (stat(binlog_filename, &stbuf) != 0) {
+        return (errno != 0 ? errno : EPERM);
+    }
+
+    return (stbuf.st_size > FS_REPLICA_BINLOG_MAX_RECORD_SIZE *
+            (SLAVE_BINLOG_CHECK_LAST_ROWS + 1) ? 0 : ECANCELED);
+}
+
 static int remove_old_binlogs(const int data_group_id,
         const time_t before_time, int *remove_count)
 {
@@ -60,8 +95,14 @@ static int remove_old_binlogs(const int data_group_id,
             continue;
         }
 
-        if ((result=replica_binlog_set_binlog_start_index(data_group_id,
-                        binlog_index + 1)) != 0)
+        if (binlog_index + 1 == last_index && check_last_binlog(
+                    data_group_id, last_index) != 0)
+        {
+            continue;
+        }
+
+        if ((result=replica_binlog_set_binlog_start_index(
+                        data_group_id, binlog_index + 1)) != 0)
         {
             return result;
         }
@@ -164,7 +205,7 @@ int replica_clean_add_schedule()
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
-            REPLICA_DELETE_TIME, /* 86400 */ 300, replica_clean_func, NULL, true);
+            REPLICA_DELETE_TIME, /* 86400 */ 60, replica_clean_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);
