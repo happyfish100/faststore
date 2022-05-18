@@ -31,6 +31,13 @@ extern "C" {
             (bkey->offset / FS_FILE_BLOCK_SIZE);
     }
 
+    static inline void fs_fill_padding_bkey(const int data_group_id,
+            FSBlockKey *bkey)
+    {
+        bkey->oid = data_group_id - 1;
+        bkey->offset = 0;
+    }
+
     static inline bool fs_slice_is_overlap(const FSSliceSize *s1,
         const FSSliceSize *s2)
     {

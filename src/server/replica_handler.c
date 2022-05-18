@@ -77,12 +77,9 @@ static inline void replica_release_reader(struct fast_task_info *task,
 {
     if (REPLICA_READER != NULL) {
         if (reader_inited) {
-            //TODO
-            /*
             if (binlog_reader_get_writer(REPLICA_READER) == NULL) {
                 fc_delete_file(REPLICA_READER->filename);
             }
-            */
             binlog_reader_destroy(REPLICA_READER);
         }
         free(REPLICA_READER);
@@ -398,7 +395,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                 if ((result=replica_binlog_init_dump_reader(data_group_id,
                                 server_id, REPLICA_READER)) != 0)
                 {
-                    if (result != EAGAIN) {
+                    if (!(result == EAGAIN || result == EINPROGRESS)) {
                         RESPONSE.error.length = sprintf(
                                 RESPONSE.error.message,
                                 "internal server error for "

@@ -940,7 +940,11 @@ static int replica_binlog_dump(const int data_group_id,
     int64_t total_replica_count;
     char tmp_filename[PATH_MAX];
     char dump_filename[PATH_MAX];
+    int64_t start_time_ms;
+    int64_t time_used;
+    char time_buff[32];
 
+    start_time_ms = get_current_time_ms();
     current_data_version = fs_get_my_ds_data_version(data_group_id);
     for (i=0; i<=3; i++) {
         if ((result=replica_binlog_get_last_dv(data_group_id,
@@ -984,11 +988,13 @@ static int replica_binlog_dump(const int data_group_id,
         return result;
     }
 
+    time_used = get_current_time_ms() - start_time_ms;
+    long_to_comma_str(time_used, time_buff);
     logInfo("file: "__FILE__", line: %d, "
             "data_group_id: %d, slave_id: %d, dump replica binlog success. "
-            "total_slice_count: %"PRId64", total_replica_count: %"PRId64,
-            __LINE__, data_group_id, slave_id, total_slice_count,
-            total_replica_count);
+            "total_slice_count: %"PRId64", total_replica_count: %"PRId64", "
+            "time used: %s ms", __LINE__, data_group_id, slave_id,
+            total_slice_count, total_replica_count, time_buff);
     return 0;
 }
 
@@ -1007,10 +1013,6 @@ static void replica_binlog_dump_func(void *arg, void *thread_data)
     char mark_filename[PATH_MAX];
 
     args.n = (long)arg;
-
-    logInfo("file: "__FILE__", line: %d, "
-            "data_group_id: %d, slave_id: %d", __LINE__,
-            args.data_group_id, args.slave_id);
     if ((result=replica_binlog_dump(args.data_group_id,
                     args.slave_id)) != 0)
     {
@@ -1065,7 +1067,7 @@ int replica_binlog_init_dump_reader(const int data_group_id,
     replica_binlog_get_mark_filename(data_group_id, slave_id,
             mark_filename, sizeof(mark_filename));
     if (access(mark_filename, F_OK) == 0) {
-        return EAGAIN;
+        return EINPROGRESS;
     }
 
     if ((result=writeToFile(mark_filename, "OK", 2)) != 0) {
@@ -1080,6 +1082,6 @@ int replica_binlog_init_dump_reader(const int data_group_id,
         fc_delete_file(mark_filename);
         return result;
     } else {
-        return EAGAIN;
+        return EINPROGRESS;
     }
 }

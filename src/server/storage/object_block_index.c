@@ -21,6 +21,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "sf/sf_buffered_writer.h"
+#include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
@@ -1762,8 +1763,7 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
 
         if (result == 0 && padding_data_version > *total_replica_count) {
             FSBlockKey bkey;
-            bkey.oid = 1;
-            bkey.offset = 0;
+            fs_fill_padding_bkey(data_group_id, &bkey);
             writer.buffer.current += replica_binlog_log_block_to_buff(
                     g_current_time, padding_data_version, &bkey,
                     BINLOG_SOURCE_DUMP, BINLOG_OP_TYPE_NO_OP,

@@ -302,7 +302,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         if (result == EOVERFLOW) {
             result = EAGAIN;
         }
-        if (result == EAGAIN) {
+        if (result == EAGAIN || result == EINPROGRESS) {
             log_level = last_retry ? LOG_WARNING : LOG_DEBUG;
         } else {
             log_level = LOG_ERR;
@@ -409,19 +409,26 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
 {
 #define FETCH_BINLOG_RETRY_TIMES  10
     int result;
+    int log_level;
     int my_status;
     int i;
+    int retry_count;
     int binlog_count;
     int binlog_length;
     int buffer_size;
     int pkg_len;
     int sleep_ms;
+    int max_sleep_ms;
+    int64_t start_time_ms;
+    int64_t time_used;
+    char time_buff[32];
     FSProtoReplicaFetchBinlogFirstReqHeader *rheader;
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaFetchBinlogFirstReqHeader) +
         FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS *
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
 
+    start_time_ms = get_current_time_ms();
     rheader = (FSProtoReplicaFetchBinlogFirstReqHeader *)
         (out_buff + sizeof(FSProtoHeader));
     long2buff(ctx->fetch.last_data_version, rheader->last_data_version);
@@ -449,8 +456,11 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     pkg_len += binlog_length;
     int2buff(binlog_length, rheader->binlog_length);
 
+    result = EINTR;
     sleep_ms = 100;
-    for (i=1; i<=FETCH_BINLOG_RETRY_TIMES; i++) {
+    i = 0;
+    retry_count = 1;
+    while (retry_count <= FETCH_BINLOG_RETRY_TIMES && SF_G_CONTINUE_FLAG) {
         my_status = __sync_add_and_fetch(&ctx->ds->status, 0);
         if (!(my_status == FS_DS_STATUS_REBUILDING ||
                 my_status == FS_DS_STATUS_RECOVERING ||
@@ -468,8 +478,8 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
         result = fetch_binlog_to_local(conn, ctx,
                 FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ,
                 FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP, out_buff,
-                pkg_len, i == FETCH_BINLOG_RETRY_TIMES, is_last);
-        if (result != EAGAIN) {
+                pkg_len, retry_count == FETCH_BINLOG_RETRY_TIMES, is_last);
+        if (!(result == EAGAIN || result == EINPROGRESS)) {
             if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
                 logCrit("file: "__FILE__", line: %d, "
                         "data group id: %d, the replica binlog is "
@@ -478,25 +488,57 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                         __LINE__, ctx->ds->dg->id,
                         ctx->master->cs->server->id);
                 sf_terminate_myself();
+            } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
+                //TODO
+                logCrit("file: "__FILE__", line: %d, "
+                        "data group id: %d, the replica binlog is "
+                        "missed on the master server %d, "
+                        "some mistake happen, program exit abnormally!",
+                        __LINE__, ctx->ds->dg->id,
+                        ctx->master->cs->server->id);
+                sf_terminate_myself();
             }
+
             break;
         }
 
-        cluster_relationship_trigger_report_ds_status(ctx->ds);
+        if (result == EAGAIN) {
+            max_sleep_ms = 1000;
+            cluster_relationship_trigger_report_ds_status(ctx->ds);
+            ++retry_count;
+        } else {   //EINPROGRESS
+            if (sleep_ms < 500) {
+                sleep_ms = 500;
+            }
+            max_sleep_ms = 10000;
+        }
         fc_sleep_ms(sleep_ms);  //waiting for ds status ready on the master
 
         //some thing goes wrong, trigger report to the leader again
-        if (sleep_ms < 1000) {
+        if (sleep_ms < max_sleep_ms) {
             sleep_ms *= 2;
-            if (sleep_ms > 1000) {
-                sleep_ms = 1000;
+            if (sleep_ms > max_sleep_ms) {
+                sleep_ms = max_sleep_ms;
             }
         }
+        ++i;
     }
 
-    logDebug("file: "__FILE__", line: %d, "
-            "data group id: %d, waiting count: %d, result: %d",
-             __LINE__, ctx->ds->dg->id, i, result);
+
+    time_used = get_current_time_ms() - start_time_ms;
+    long_to_comma_str(time_used, time_buff);
+    if (result != 0) {
+        log_level = LOG_WARNING;
+    } else if (time_used > 3000) {
+        log_level = LOG_INFO;
+    } else {
+        log_level = LOG_DEBUG;
+    }
+    log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
+            "data group id: %d, waiting count: %d, result: %d, "
+            "time used: %s ms", __LINE__, ctx->ds->dg->id, i,
+            result, time_buff);
+
     return result == 0 ? 0 : EINVAL;
 }
 

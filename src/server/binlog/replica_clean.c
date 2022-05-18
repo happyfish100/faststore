@@ -164,7 +164,7 @@ int replica_clean_add_schedule()
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
-            REPLICA_DELETE_TIME, /* 86400 */ 60, replica_clean_func, NULL, true);
+            REPLICA_DELETE_TIME, /* 86400 */ 300, replica_clean_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);

@@ -433,6 +433,7 @@ static int deal_binlog_buffer(BinlogReadThreadContext *rdthread_ctx,
                 "binlog file %s, line no: %"PRId64", %s",
                 __LINE__, reader->filename,
                 line_count + 1, error_info);
+        abort();
     }
 
     return result;
