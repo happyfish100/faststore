@@ -356,6 +356,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
             fetch_ctx->buffer->buff;
         ctx->master_repl_version = buff2int(first_bheader->repl_version);
+        ctx->is_full_dump = (first_bheader->is_full_dump == 1);
         fetch_ctx->until_version = buff2long(first_bheader->until_version);
         if (ctx->is_online) {
             if (!first_bheader->is_online) {
@@ -375,8 +376,9 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             data_recovery_notify_replication(ctx->ds);
         }
 
-        logDebug("data group id: %d, is_online: %d, last_data_version: %"PRId64
-                ", until_version: %"PRId64, ctx->ds->dg->id, ctx->is_online,
+        logInfo("data group id: %d, is_full_dump: %d, is_online: %d, "
+                "last_data_version: %"PRId64", until_version: %"PRId64,
+                ctx->ds->dg->id, ctx->is_full_dump, ctx->is_online,
                 ctx->fetch.last_data_version, fetch_ctx->until_version);
     }
 

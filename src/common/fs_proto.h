@@ -89,6 +89,13 @@
 #define FS_REPLICA_PROTO_SLICE_READ_REQ          89
 #define FS_REPLICA_PROTO_SLICE_READ_RESP         90
 
+#define FS_REPLICA_PROTO_QUERY_BINLOG_INFO_REQ   91
+#define FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP  92
+#define FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ   93
+#define FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_RESP  94
+#define FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_REQ    95
+#define FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_RESP   96
+
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
@@ -368,8 +375,9 @@ typedef struct fs_proto_replia_fetch_binlog_resp_body_header {
 
 typedef struct fs_proto_replia_fetch_binlog_first_resp_body_header {
     FSProtoReplicaFetchBinlogRespBodyHeader common;
+    char is_full_dump;      //full dump because old binlogs be deleted
     char is_online;         //tell slave to ONLINE
-    char padding[2];
+    char padding[1];
     char repl_version[4];   //master replication version for check
     char until_version[8];  //for catch up master (including)
     char binlog[0];

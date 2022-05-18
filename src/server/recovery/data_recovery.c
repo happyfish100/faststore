@@ -50,8 +50,9 @@
 
 #define DATA_RECOVERY_STAGE_FETCH   'F'
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
+#define DATA_RECOVERY_STAGE_SYNC    'S'  //sync existing binlogs after full dump
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
-#define DATA_RECOVERY_STAGE_LOG     'L'   //log to replica binlog
+#define DATA_RECOVERY_STAGE_LOG     'L'  //log to replica binlog
 #define DATA_RECOVERY_STAGE_CLEANUP 'C'
 
 int data_recovery_init(const char *config_filename)
@@ -393,14 +394,14 @@ static int deal_binlog_buffer(BinlogReadThreadContext *rdthread_ctx,
             case BINLOG_OP_TYPE_WRITE_SLICE:
             case BINLOG_OP_TYPE_ALLOC_SLICE:
             case BINLOG_OP_TYPE_DEL_SLICE:
-                result = replica_binlog_log_slice(g_current_time,
+                result = replica_binlog_log_slice(record.timestamp,
                         FS_DATA_GROUP_ID(record.bs_key.block),
                         record.data_version, &record.bs_key,
                         BINLOG_SOURCE_REPLAY, record.op_type);
                 break;
             case BINLOG_OP_TYPE_DEL_BLOCK:
             case BINLOG_OP_TYPE_NO_OP:
-                result = replica_binlog_log_block(g_current_time,
+                result = replica_binlog_log_block(record.timestamp,
                         FS_DATA_GROUP_ID(record.bs_key.block),
                         record.data_version, &record.bs_key.block,
                         BINLOG_SOURCE_REPLAY, record.op_type);
@@ -660,7 +661,16 @@ static int do_data_recovery(DataRecoveryContext *ctx)
              */
 
             if (binlog_size == 0) {
-                ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
+                if (ctx->is_full_dump) {
+                    ctx->stage = DATA_RECOVERY_STAGE_SYNC;
+                    ctx->next_stage = DATA_RECOVERY_STAGE_LOG;
+                } else {
+                    ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
+                }
+
+                if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+                    return result;
+                }
                 break;
             }
 
@@ -676,9 +686,19 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             ctx->time_used.dedup = get_current_time_ms() - dedup_start_time;
 
             if (binlog_count == 0) {  //no binlog to replay
-                ctx->stage = DATA_RECOVERY_STAGE_LOG;
+                if (ctx->is_full_dump) {
+                    ctx->stage = DATA_RECOVERY_STAGE_SYNC;
+                    ctx->next_stage = DATA_RECOVERY_STAGE_LOG;
+                } else {
+                    ctx->stage = DATA_RECOVERY_STAGE_LOG;
+                }
             } else {
-                ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
+                if (ctx->is_full_dump) {
+                    ctx->stage = DATA_RECOVERY_STAGE_SYNC;
+                    ctx->next_stage = DATA_RECOVERY_STAGE_REPLAY;
+                } else {
+                    ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
+                }
             }
             if ((result=data_recovery_save_sys_data(ctx)) != 0) {
                 return result;
@@ -686,6 +706,11 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             break;
         default:
             break;
+    }
+
+    if (ctx->stage == DATA_RECOVERY_STAGE_SYNC) {
+        //TODO
+        ctx->stage = ctx->next_stage;
     }
 
     old_data_version = FC_ATOMIC_GET(ctx->ds->data.version);

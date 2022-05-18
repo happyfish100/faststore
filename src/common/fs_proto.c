@@ -140,6 +140,18 @@ const char *fs_get_cmd_caption(const int cmd)
             return "FETCH_BINLOG_NEXT_REQ";
         case FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP:
             return "FETCH_BINLOG_NEXT_RESP";
+        case FS_REPLICA_PROTO_QUERY_BINLOG_INFO_REQ:
+            return "QUERY_BINLOG_INFO_REQ";
+        case FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP:
+            return "QUERY_BINLOG_INFO_RESP";
+        case FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ:
+            return "SYNC_BINLOG_FIRST_REQ";
+        case FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_RESP:
+            return "SYNC_BINLOG_FIRST_RESP";
+        case FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_REQ:
+            return "SYNC_BINLOG_NEXT_REQ";
+        case FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_RESP:
+            return "SYNC_BINLOG_NEXT_RESP";
         case FS_REPLICA_PROTO_RPC_REQ:
             return "REPLICA_RPC_REQ";
         case FS_REPLICA_PROTO_RPC_RESP:

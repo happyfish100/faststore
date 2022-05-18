@@ -447,6 +447,8 @@ int replica_binlog_record_unpack(const string_t *line,
         return EINVAL;
     }
 
+    BINLOG_PARSE_INT_SILENCE(record->timestamp, "timestamp",
+            BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
     record->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
     record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
@@ -946,7 +948,7 @@ static int replica_binlog_dump(const int data_group_id,
 
     start_time_ms = get_current_time_ms();
     current_data_version = fs_get_my_ds_data_version(data_group_id);
-    for (i=0; i<=3; i++) {
+    for (i=0; i<=30; i++) {
         if ((result=replica_binlog_get_last_dv(data_group_id,
                         &last_data_version)) != 0)
         {
@@ -956,6 +958,7 @@ static int replica_binlog_dump(const int data_group_id,
         if (last_data_version >= current_data_version) {
             break;
         }
+        fc_sleep_ms(100);
     }
 
     if (last_data_version < current_data_version) {

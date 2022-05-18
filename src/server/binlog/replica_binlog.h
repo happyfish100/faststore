@@ -26,6 +26,7 @@
 struct server_binlog_reader;
 
 typedef struct replica_binlog_record {
+    time_t timestamp;
     short op_type;
     short source;
     FSBlockSliceKeyInfo bs_key;

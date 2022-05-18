@@ -49,7 +49,9 @@ typedef struct data_recovery_context {
     } time_used;   //in ms
     FSClusterDataServerInfo *ds;
     char stage;
+    char next_stage;  //for sync existing binlogs only
     char catch_up;
+    bool is_full_dump;
     bool is_online;
     int loop_count;  //recovery loop count
     uint32_t master_repl_version;

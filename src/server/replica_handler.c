@@ -262,8 +262,8 @@ static int fetch_binlog_output(struct fast_task_info *task, char *buff,
 }
 
 static int replica_fetch_binlog_first_output(struct fast_task_info *task,
-        const bool is_online, const uint32_t repl_version,
-        const uint64_t until_version)
+        const bool is_full_dump, const bool is_online,
+        const uint32_t repl_version, const uint64_t until_version)
 {
     FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
     char *buff;
@@ -278,7 +278,8 @@ static int replica_fetch_binlog_first_output(struct fast_task_info *task,
         return result;
     }
 
-    body_header->is_online = is_online;
+    body_header->is_full_dump = (is_full_dump ? 1 : 0);
+    body_header->is_online = (is_online ? 1 : 0);
     int2buff(repl_version, body_header->repl_version);
     long2buff(until_version, body_header->until_version);
     return 0;
@@ -309,6 +310,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     int server_id;
     int result;
     bool is_online;
+    bool is_full_dump;
 
     if ((result=server_check_min_body_length(sizeof(*rheader))) != 0) {
         return result;
@@ -379,6 +381,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
+    is_full_dump = false;
     if ((result=replica_binlog_reader_init(REPLICA_READER,
                     data_group_id, last_data_version)) != 0)
     {
@@ -393,14 +396,14 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
             if (last_data_version == 0) {  //accept
                 if ((result=replica_binlog_init_dump_reader(data_group_id,
-                                server_id, REPLICA_READER)) != 0)
+                                server_id, REPLICA_READER)) == 0)
                 {
-                    if (!(result == EAGAIN || result == EINPROGRESS)) {
-                        RESPONSE.error.length = sprintf(
-                                RESPONSE.error.message,
-                                "internal server error for "
-                                "dump replica binlog");
-                    }
+                    is_full_dump = true;
+                } else if (!(result == EAGAIN || result == EINPROGRESS)) {
+                    RESPONSE.error.length = sprintf(
+                            RESPONSE.error.message,
+                            "internal server error for "
+                            "dump replica binlog");
                 }
             } else {
                 RESPONSE.error.length = sprintf(
@@ -461,7 +464,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     } else {
         until_version = 0;
     }
-    return replica_fetch_binlog_first_output(task,
+    return replica_fetch_binlog_first_output(task, is_full_dump,
             is_online, repl_version, until_version);
 }
 
