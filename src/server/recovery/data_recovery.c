@@ -465,7 +465,7 @@ static int log_to_replica_binlog(DataRecoveryContext *ctx)
         position.index = 0;
         position.offset = 0;
     } else {
-        if ((result=replica_binlog_get_position_by_dv(subdir_name,
+        if ((result=replica_binlog_get_position_by_dv_ex(subdir_name,
                         NULL, last_data_version, &position, true)) != 0)
         {
             return result;

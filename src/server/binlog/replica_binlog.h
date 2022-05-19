@@ -78,6 +78,16 @@ extern "C" {
                 FS_REPLICA_BINLOG_SUBDIR_NAME, filepath, size);
     }
 
+    static inline int replica_binlog_get_file_size(const int data_group_id,
+            const int binlog_index, int64_t *file_size)
+    {
+        char filename[PATH_MAX];
+
+        replica_binlog_get_filename(data_group_id, binlog_index,
+                filename, sizeof(filename));
+        return getFileSize(filename, file_size);
+    }
+
     int replica_binlog_get_current_write_index(const int data_group_id);
 
     int replica_binlog_get_binlog_indexes(const int data_group_id,
@@ -161,9 +171,13 @@ extern "C" {
         return replica_binlog_get_last_data_version(filename, data_version);
     }
 
-    int replica_binlog_get_position_by_dv(const char *subdir_name,
+    int replica_binlog_get_position_by_dv_ex(const char *subdir_name,
             SFBinlogWriterInfo *writer, const uint64_t last_data_version,
             SFBinlogFilePosition *pos, const bool ignore_dv_overflow);
+
+    int replica_binlog_get_position_by_dv(const int data_group_id,
+            const uint64_t last_data_version, SFBinlogFilePosition *pos,
+            const bool ignore_dv_overflow);
 
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);

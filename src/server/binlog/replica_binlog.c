@@ -645,7 +645,7 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
     return result;
 }
 
-int replica_binlog_get_position_by_dv(const char *subdir_name,
+int replica_binlog_get_position_by_dv_ex(const char *subdir_name,
             SFBinlogWriterInfo *writer, const uint64_t last_data_version,
             SFBinlogFilePosition *pos, const bool ignore_dv_overflow)
 {
@@ -708,6 +708,19 @@ int replica_binlog_get_position_by_dv(const char *subdir_name,
     }
 }
 
+int replica_binlog_get_position_by_dv(const int data_group_id,
+        const uint64_t last_data_version, SFBinlogFilePosition *pos,
+        const bool ignore_dv_overflow)
+{
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    SFBinlogWriterInfo *writer;
+
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    writer = replica_binlog_get_writer(data_group_id);
+    return replica_binlog_get_position_by_dv_ex(subdir_name, writer,
+            last_data_version, pos, ignore_dv_overflow);
+}
+
 int replica_binlog_reader_init(struct server_binlog_reader *reader,
         const int data_group_id, const uint64_t last_data_version)
 {
@@ -718,7 +731,7 @@ int replica_binlog_reader_init(struct server_binlog_reader *reader,
 
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
     writer = replica_binlog_get_writer(data_group_id);
-    if ((result=replica_binlog_get_position_by_dv(subdir_name, writer,
+    if ((result=replica_binlog_get_position_by_dv_ex(subdir_name, writer,
                     last_data_version, &position, false)) != 0)
     {
         return result;

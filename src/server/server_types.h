@@ -50,7 +50,8 @@
 
 #define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
 #define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
-#define FS_SERVER_TASK_TYPE_REPLICATION         3
+#define FS_SERVER_TASK_TYPE_SYNC_BINLOG         3   //slave  -> master
+#define FS_SERVER_TASK_TYPE_REPLICATION         4
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1

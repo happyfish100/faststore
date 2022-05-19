@@ -978,7 +978,7 @@ static int replay_prepare(DataRecoveryContext *ctx)
         result = 0;
     } else {
         position.ptr = &position.holder;
-        if ((result=replica_binlog_get_position_by_dv(subdir_name, NULL,
+        if ((result=replica_binlog_get_position_by_dv_ex(subdir_name, NULL,
                         last_data_version, &position.holder, true)) != 0)
         {
             return result;

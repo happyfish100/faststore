@@ -61,14 +61,14 @@ int replica_handler_destroy()
     return 0;
 }
 
-static inline int replica_alloc_reader(struct fast_task_info *task)
+static inline int replica_alloc_reader(struct fast_task_info *task,
+        const int server_type)
 {
-    REPLICA_READER = (ServerBinlogReader *)
-        fc_malloc(sizeof(ServerBinlogReader));
+    REPLICA_READER = fc_malloc(sizeof(ServerBinlogReader));
     if (REPLICA_READER == NULL) {
         return ENOMEM;
     }
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_FETCH_BINLOG;
+    SERVER_TASK_TYPE = server_type;
     return 0;
 }
 
@@ -77,7 +77,9 @@ static inline void replica_release_reader(struct fast_task_info *task,
 {
     if (REPLICA_READER != NULL) {
         if (reader_inited) {
-            if (binlog_reader_get_writer(REPLICA_READER) == NULL) {
+            if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_FETCH_BINLOG &&
+                    binlog_reader_get_writer(REPLICA_READER) == NULL)
+            {
                 fc_delete_file(REPLICA_READER->filename);
             }
             binlog_reader_destroy(REPLICA_READER);
@@ -142,6 +144,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
+        case FS_SERVER_TASK_TYPE_SYNC_BINLOG:
             if (REPLICA_READER == NULL) {
                 logError("file: "__FILE__", line: %d, "
                         "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
@@ -377,7 +380,8 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    if ((result=replica_alloc_reader(task)) != 0) {
+    result = replica_alloc_reader(task, FS_SERVER_TASK_TYPE_FETCH_BINLOG);
+    if (result != 0) {
         return result;
     }
 
@@ -487,6 +491,171 @@ static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
     }
 
     return replica_fetch_binlog_next_output(task);
+}
+
+static int replica_deal_query_binlog_info(struct fast_task_info *task)
+{
+    FSProtoReplicaQueryBinlogInfoReq *req;
+    FSProtoReplicaQueryBinlogInfoRespHeader *rheader;
+    FSProtoReplicaQueryBinlogInfoRespBody *rbody;
+    FSClusterDataServerInfo *myself;
+    SFBinlogFilePosition position;
+    int data_group_id;
+    int server_id;
+    int start_index;
+    int last_index;
+    int binlog_index;
+    int64_t until_version;
+    int64_t current_version;
+    int64_t file_size;
+    int result;
+
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP;
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReplicaQueryBinlogInfoReq))) != 0)
+    {
+        return result;
+    }
+
+    req = (FSProtoReplicaQueryBinlogInfoReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    server_id = buff2int(req->server_id);
+    until_version = buff2long(req->until_version);
+    if ((result=check_myself_master(task, data_group_id, &myself)) != 0) {
+        return result;
+    }
+
+    current_version = FC_ATOMIC_GET(myself->data.version);
+    if (until_version > current_version) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data group id: %d, slave id: %d 's until version: %"PRId64
+                " > current data version: %"PRId64, data_group_id, server_id,
+                until_version, current_version);
+        TASK_CTX.common.log_level = LOG_WARNING;
+        return EOVERFLOW;
+    }
+
+    if ((result=replica_binlog_get_binlog_indexes(data_group_id,
+            &start_index, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+                    until_version, &position, false)) != 0)
+    {
+        return result;
+    }
+    last_index = position.index;
+
+    rheader = (FSProtoReplicaQueryBinlogInfoRespHeader *)REQUEST.body;
+    rbody = (FSProtoReplicaQueryBinlogInfoRespBody *)(rheader + 1);
+    int2buff(start_index, rheader->start_index);
+    int2buff(last_index, rheader->last_index);
+    for (binlog_index=start_index; binlog_index<last_index; binlog_index++) {
+        if ((result=replica_binlog_get_file_size(data_group_id,
+                        binlog_index, &file_size)) != 0)
+        {
+            return result;
+        }
+
+        long2buff(file_size, rbody->binlog_size);
+        rbody++;
+    }
+    long2buff(position.offset, rbody->binlog_size);
+    rbody++;
+
+    RESPONSE.header.body_len = (char *)rbody - REQUEST.body;
+    TASK_CTX.common.response_done = true;
+    return 0;
+}
+
+static int sync_binlog_output(struct fast_task_info *task)
+{
+    int result;
+    int size;
+    int read_bytes;
+
+    size = task->size - sizeof(FSProtoHeader);
+    result = binlog_reader_integral_read(REPLICA_READER,
+            task->data + sizeof(FSProtoHeader), size, &read_bytes);
+    if (!(result == 0 || result == ENOENT)) {
+        return result;
+    }
+
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_SYNC_BINLOG_RESP;
+    RESPONSE.header.body_len = read_bytes;
+    TASK_CTX.common.response_done = true;
+    return 0;
+}
+
+static int replica_deal_sync_binlog_first(struct fast_task_info *task)
+{
+    FSProtoReplicaSyncBinlogFirstReq *req;
+    FSClusterDataServerInfo *myself;
+    char subdir_name[64];
+    SFBinlogFilePosition position;
+    int64_t binlog_size;
+    int data_group_id;
+    int result;
+
+    if ((result=server_expect_body_length(sizeof(*req))) != 0) {
+        return result;
+    }
+
+    req = (FSProtoReplicaSyncBinlogFirstReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    position.index = buff2int(req->binlog_index);
+    binlog_size = buff2long(req->binlog_size);
+    if ((result=check_myself_master(task, data_group_id, &myself)) != 0) {
+        return result;
+    }
+
+    if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE ||
+            REPLICA_READER != NULL)
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "already in progress. task type: %d, have reader: %d",
+                SERVER_TASK_TYPE, REPLICA_READER != NULL ? 1 : 0);
+        return EALREADY;
+    }
+
+    result = replica_alloc_reader(task, FS_SERVER_TASK_TYPE_SYNC_BINLOG);
+    if (result != 0) {
+        return result;
+    }
+
+    position.offset = 0;
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    if ((result=binlog_reader_init1(REPLICA_READER, subdir_name,
+                    position.index, &position)) != 0)
+    {
+        replica_release_reader(task, false);
+        return result;
+    }
+
+    return sync_binlog_output(task);
+}
+
+static int replica_deal_sync_binlog_next(struct fast_task_info *task)
+{
+    int result;
+
+    if ((result=server_expect_body_length(0)) != 0) {
+        return result;
+    }
+
+    if (!(SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_SYNC_BINLOG &&
+                REPLICA_READER != NULL))
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "please send cmd %d (%s) first",
+                FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ,
+                fs_get_cmd_caption(FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ));
+        return EINVAL;
+    }
+
+    return sync_binlog_output(task);
 }
 
 static int replica_deal_active_confirm(struct fast_task_info *task)
@@ -1059,6 +1228,15 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 break;
             case FS_REPLICA_PROTO_SLICE_READ_REQ:
                 result = replica_deal_slice_read(task);
+                break;
+            case FS_REPLICA_PROTO_QUERY_BINLOG_INFO_REQ:
+                result = replica_deal_query_binlog_info(task);
+                break;
+            case FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ:
+                result = replica_deal_sync_binlog_first(task);
+                break;
+            case FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_REQ:
+                result = replica_deal_sync_binlog_next(task);
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

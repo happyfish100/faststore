@@ -92,9 +92,8 @@
 #define FS_REPLICA_PROTO_QUERY_BINLOG_INFO_REQ   91
 #define FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP  92
 #define FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ   93
-#define FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_RESP  94
 #define FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_REQ    95
-#define FS_REPLICA_PROTO_SYNC_BINLOG_NEXT_RESP   96
+#define FS_REPLICA_PROTO_SYNC_BINLOG_RESP        96
 
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_REQ                 99
@@ -388,6 +387,27 @@ typedef struct fs_proto_replia_fetch_binlog_next_resp_body_header {
     char padding[3];
     char binlog[0];
 } FSProtoReplicaFetchBinlogNextRespBodyHeader;
+
+typedef struct fs_proto_replia_query_binlog_info_req {
+    char data_group_id[4];
+    char server_id[4];
+    char until_version[8];
+} FSProtoReplicaQueryBinlogInfoReq;
+
+typedef struct fs_proto_replia_query_binlog_info_resp_header {
+    char start_index[4];
+    char last_index[4];
+} FSProtoReplicaQueryBinlogInfoRespHeader;
+
+typedef struct fs_proto_replia_query_binlog_info_resp_body {
+    char binlog_size[8];
+} FSProtoReplicaQueryBinlogInfoRespBody;
+
+typedef struct fs_proto_replia_sync_binlog_first_req {
+    char data_group_id[4];
+    char binlog_index[4];
+    char binlog_size[8];
+} FSProtoReplicaSyncBinlogFirstReq;
 
 typedef struct fs_proto_replia_active_confirm_req {
     char data_group_id[4];
