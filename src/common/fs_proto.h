@@ -394,19 +394,16 @@ typedef struct fs_proto_replia_query_binlog_info_req {
     char until_version[8];
 } FSProtoReplicaQueryBinlogInfoReq;
 
-typedef struct fs_proto_replia_query_binlog_info_resp_header {
+typedef struct fs_proto_replia_query_binlog_info_resp {
     char start_index[4];
     char last_index[4];
-} FSProtoReplicaQueryBinlogInfoRespHeader;
-
-typedef struct fs_proto_replia_query_binlog_info_resp_body {
-    char binlog_size[8];
-} FSProtoReplicaQueryBinlogInfoRespBody;
+    char last_size[8];
+} FSProtoReplicaQueryBinlogInfoResp;
 
 typedef struct fs_proto_replia_sync_binlog_first_req {
     char data_group_id[4];
     char binlog_index[4];
-    char binlog_size[8];
+    char binlog_size[8];   //0 for end fo file
 } FSProtoReplicaSyncBinlogFirstReq;
 
 typedef struct fs_proto_replia_active_confirm_req {

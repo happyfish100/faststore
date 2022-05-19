@@ -36,11 +36,12 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replication/replication_callee.o server_binlog.o \
               server_replication.o cluster_relationship.o cluster_topology.o \
               data_thread.o shared_thread_pool.o master_election.o \
-              server_recovery.o recovery/binlog_fetch.o recovery/binlog_dedup.o \
-              recovery/binlog_replay.o recovery/data_recovery.o \
-              recovery/recovery_thread.o rebuild/store_path_rebuild.o \
-              rebuild/rebuild_binlog.o rebuild/binlog_spliter.o  \
-              rebuild/rebuild_thread.o rebuild/binlog_reader.o
+              server_recovery.o recovery/binlog_fetch.o recovery/binlog_sync.o \
+              recovery/binlog_dedup.o recovery/binlog_replay.o \
+              recovery/data_recovery.o recovery/recovery_thread.o \
+              rebuild/store_path_rebuild.o rebuild/rebuild_binlog.o \
+              rebuild/binlog_spliter.o rebuild/rebuild_thread.o \
+              rebuild/binlog_reader.o
 
 
 ALL_OBJS = $(COMMON_OBJS) $(CLIENT_OBJS) $(SERVER_OBJS)

@@ -67,7 +67,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     bool unlink_flag;
 
     fetch_ctx = (BinlogFetchContext *)ctx->arg;
-    data_recovery_get_fetched_binlog_filename(ctx, full_filename, sizeof(full_filename));
+    data_recovery_get_fetched_binlog_filename(ctx,
+            full_filename, sizeof(full_filename));
     unlink_flag = false;
     ctx->fetch.last_data_version = __sync_fetch_and_add(
             &ctx->ds->data.version, 0);
@@ -701,8 +702,8 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         char full_filename[PATH_MAX];
         ReplicaBinlogRecord record;
 
-        data_recovery_get_fetched_binlog_filename(ctx,full_filename,
-                sizeof(full_filename));
+        data_recovery_get_fetched_binlog_filename(ctx,
+                full_filename, sizeof(full_filename));
         if ((result=replica_binlog_get_last_record(
                         full_filename, &record)) == 0)
         {

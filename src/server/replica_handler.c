@@ -496,18 +496,15 @@ static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
 static int replica_deal_query_binlog_info(struct fast_task_info *task)
 {
     FSProtoReplicaQueryBinlogInfoReq *req;
-    FSProtoReplicaQueryBinlogInfoRespHeader *rheader;
-    FSProtoReplicaQueryBinlogInfoRespBody *rbody;
+    FSProtoReplicaQueryBinlogInfoResp *resp;
     FSClusterDataServerInfo *myself;
     SFBinlogFilePosition position;
     int data_group_id;
     int server_id;
     int start_index;
     int last_index;
-    int binlog_index;
     int64_t until_version;
     int64_t current_version;
-    int64_t file_size;
     int result;
 
     RESPONSE.header.cmd = FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP;
@@ -546,26 +543,13 @@ static int replica_deal_query_binlog_info(struct fast_task_info *task)
     {
         return result;
     }
-    last_index = position.index;
 
-    rheader = (FSProtoReplicaQueryBinlogInfoRespHeader *)REQUEST.body;
-    rbody = (FSProtoReplicaQueryBinlogInfoRespBody *)(rheader + 1);
-    int2buff(start_index, rheader->start_index);
-    int2buff(last_index, rheader->last_index);
-    for (binlog_index=start_index; binlog_index<last_index; binlog_index++) {
-        if ((result=replica_binlog_get_file_size(data_group_id,
-                        binlog_index, &file_size)) != 0)
-        {
-            return result;
-        }
+    resp = (FSProtoReplicaQueryBinlogInfoResp *)REQUEST.body;
+    int2buff(start_index, resp->start_index);
+    int2buff(position.index, resp->last_index);
+    long2buff(position.offset, resp->last_size);
 
-        long2buff(file_size, rbody->binlog_size);
-        rbody++;
-    }
-    long2buff(position.offset, rbody->binlog_size);
-    rbody++;
-
-    RESPONSE.header.body_len = (char *)rbody - REQUEST.body;
+    RESPONSE.header.body_len = sizeof(*resp);
     TASK_CTX.common.response_done = true;
     return 0;
 }
@@ -583,8 +567,15 @@ static int sync_binlog_output(struct fast_task_info *task)
         return result;
     }
 
+    if (REPLICA_UNTIL_OFFSET > 0 && REPLICA_READER->
+            position.offset > REPLICA_UNTIL_OFFSET)
+    {
+        RESPONSE.header.body_len = read_bytes - (REPLICA_READER->
+                position.offset - REPLICA_UNTIL_OFFSET);
+    } else {
+        RESPONSE.header.body_len = read_bytes;
+    }
     RESPONSE.header.cmd = FS_REPLICA_PROTO_SYNC_BINLOG_RESP;
-    RESPONSE.header.body_len = read_bytes;
     TASK_CTX.common.response_done = true;
     return 0;
 }
@@ -611,18 +602,22 @@ static int replica_deal_sync_binlog_first(struct fast_task_info *task)
         return result;
     }
 
-    if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE ||
-            REPLICA_READER != NULL)
-    {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "already in progress. task type: %d, have reader: %d",
-                SERVER_TASK_TYPE, REPLICA_READER != NULL ? 1 : 0);
-        return EALREADY;
-    }
-
-    result = replica_alloc_reader(task, FS_SERVER_TASK_TYPE_SYNC_BINLOG);
-    if (result != 0) {
-        return result;
+    if (SERVER_TASK_TYPE != SF_SERVER_TASK_TYPE_NONE) {
+        if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_SYNC_BINLOG &&
+                REPLICA_READER != NULL)
+        {
+            binlog_reader_destroy(REPLICA_READER);
+        } else {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "already in progress. task type: %d, have reader: %d",
+                    SERVER_TASK_TYPE, REPLICA_READER != NULL ? 1 : 0);
+            return EALREADY;
+        }
+    } else {
+        result = replica_alloc_reader(task, FS_SERVER_TASK_TYPE_SYNC_BINLOG);
+        if (result != 0) {
+            return result;
+        }
     }
 
     position.offset = 0;
@@ -634,6 +629,7 @@ static int replica_deal_sync_binlog_first(struct fast_task_info *task)
         return result;
     }
 
+    REPLICA_UNTIL_OFFSET = binlog_size;
     return sync_binlog_output(task);
 }
 

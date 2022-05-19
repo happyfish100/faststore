@@ -233,6 +233,16 @@ int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
     return sf_binlog_writer_change_order_by(writer, order_by);
 }
 
+int replica_binlog_writer_change_write_index(const int data_group_id,
+        const int write_index)
+{
+    SFBinlogWriterInfo *writer;
+
+    writer = binlog_writer_array.writers[data_group_id -
+        binlog_writer_array.base_id];
+    return sf_binlog_writer_change_write_index(writer, write_index);
+}
+
 static inline const char *replica_binlog_get_mark_filename(
         const int data_group_id, const int slave_id,
         char *filename, const int size)

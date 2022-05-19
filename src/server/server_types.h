@@ -153,6 +153,7 @@
 #define CLUSTER_PEER         TASK_CTX.shared.cluster.peer
 #define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
 #define REPLICA_READER       TASK_CTX.shared.replica.reader
+#define REPLICA_UNTIL_OFFSET TASK_CTX.shared.replica.until_offset
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.shared.service.idempotency_channel
 #define IDEMPOTENCY_REQUEST  TASK_CTX.service.idempotency_request
 #define WAITING_RPC_COUNT    TASK_CTX.service.waiting_rpc_count
@@ -375,7 +376,10 @@ typedef struct {
         struct {
             union {
                 FSReplication *replication;
-                struct server_binlog_reader *reader;  //for fetch binlog
+                struct {
+                    struct server_binlog_reader *reader; //for fetch/sync binlog
+                    int64_t until_offset;  //for sync binlog only
+                };
             };
         } replica;
     } shared;

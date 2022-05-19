@@ -272,6 +272,9 @@ extern "C" {
     int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
             *myself, const short order_by);
 
+    int replica_binlog_writer_change_write_index(const int data_group_id,
+            const int write_index);
+
     int replica_binlog_get_last_lines(const int data_group_id, char *buff,
             const int buff_size, int *count, int *length);
 
