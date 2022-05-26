@@ -49,7 +49,6 @@ static int query_binlog_info(ConnectionInfo *conn, DataRecoveryContext *ctx,
         int *start_index, int *last_index, int64_t *last_size)
 {
     int result;
-    BinlogSyncContext *sync_ctx;
     FSProtoHeader *header;
     FSProtoReplicaQueryBinlogInfoReq *req;
     FSProtoReplicaQueryBinlogInfoResp resp;
@@ -57,7 +56,6 @@ static int query_binlog_info(ConnectionInfo *conn, DataRecoveryContext *ctx,
     char out_buff[sizeof(FSProtoHeader) + sizeof(
             FSProtoReplicaQueryBinlogInfoReq)];
 
-    sync_ctx = (BinlogSyncContext *)ctx->arg;
     header = (FSProtoHeader *)out_buff;
     req = (FSProtoReplicaQueryBinlogInfoReq *)
         (out_buff + sizeof(FSProtoHeader));
@@ -272,6 +270,7 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
 {
     int result;
     BinlogSyncContext sync_ctx;
+    char filename[PATH_MAX];
 
     ctx->arg = &sync_ctx;
     memset(&sync_ctx, 0, sizeof(sync_ctx));
@@ -280,7 +279,11 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
         return ENOMEM;
     }
 
-    result = do_sync_binlogs(ctx);
+    replica_binlog_get_filename(ctx->ds->dg->id, 0,
+            filename, sizeof(filename));
+    if ((result=fc_delete_file_ex(filename, "replica binlog")) == 0) {
+        result = do_sync_binlogs(ctx);
+    }
     shared_buffer_release(sync_ctx.buffer);
     return result;
 }

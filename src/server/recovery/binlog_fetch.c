@@ -377,10 +377,12 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             data_recovery_notify_replication(ctx->ds);
         }
 
+        /*
         logInfo("data group id: %d, is_full_dump: %d, is_online: %d, "
                 "last_data_version: %"PRId64", until_version: %"PRId64,
                 ctx->ds->dg->id, ctx->is_full_dump, ctx->is_online,
                 ctx->fetch.last_data_version, fetch_ctx->until_version);
+                */
     }
 
     binlog.str = fetch_ctx->buffer->buff + bheader_size;

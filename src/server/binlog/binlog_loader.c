@@ -77,11 +77,7 @@ int binlog_loader_load_ex(const char *subdir_name,
         position.holder.index = sf_binlog_get_start_index(writer);
         position.holder.offset = 0;
         position.ptr = &position.holder;
-
-        logInfo("subdir_name: %s, position: {index: %d, offset: %"PRId64"}",
-                subdir_name, position.holder.index, position.holder.offset);
     } else {
-        logInfo("subdir_name: %s, position: NULL", subdir_name);
         position.ptr = NULL;
     }
 

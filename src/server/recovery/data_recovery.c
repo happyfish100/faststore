@@ -40,14 +40,18 @@
 #include "binlog_fetch.h"
 #include "binlog_dedup.h"
 #include "binlog_replay.h"
+#include "binlog_sync.h"
 #include "data_recovery.h"
 
-#define DATA_RECOVERY_SYS_DATA_FILENAME       "data_recovery.dat"
-#define DATA_RECOVERY_SYS_DATA_SECTION_FETCH  "fetch"
-#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE     "stage"
-#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV   "last_data_version"
-#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY "last_bkey"
+#define DATA_RECOVERY_SYS_DATA_FILENAME        "data_recovery.dat"
+#define DATA_RECOVERY_SYS_DATA_SECTION_FETCH   "fetch"
+#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE      "stage"
+#define DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE "next_stage"
+#define DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP  "full_dump"
+#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV    "last_data_version"
+#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY  "last_bkey"
 
+#define DATA_RECOVERY_STAGE_NONE    '0'
 #define DATA_RECOVERY_STAGE_FETCH   'F'
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_SYNC    'S'  //sync existing binlogs after full dump
@@ -168,10 +172,14 @@ static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
 
     data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
     len = sprintf(buff, "%s=%c\n"
+            "%s=%c\n"
+            "%s=%d\n"
             "[%s]\n"
             "%s=%"PRId64"\n"
             "%s=%"PRId64",%"PRId64"\n",
             DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage,
+            DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE, ctx->next_stage,
+            DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP, ctx->is_full_dump ? 1 : 0,
             DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
             DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV, ctx->fetch.last_data_version,
             DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, ctx->fetch.last_bkey.oid,
@@ -192,7 +200,6 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
 {
     IniContext ini_context;
     char filename[PATH_MAX];
-    char *stage;
     char *last_bkey;
     int result;
 
@@ -207,6 +214,7 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_FETCH;
+        ctx->next_stage = DATA_RECOVERY_STAGE_NONE;
         return data_recovery_save_sys_data(ctx);
     }
 
@@ -217,13 +225,14 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
         return result;
     }
 
-    stage = iniGetStrValue(NULL, DATA_RECOVERY_SYS_DATA_ITEM_STAGE,
-            &ini_context);
-    if (stage == NULL || *stage == '\0') {
-        ctx->stage = DATA_RECOVERY_STAGE_FETCH;
-    } else {
-        ctx->stage = stage[0];
-    }
+    ctx->stage = iniGetCharValue(NULL, DATA_RECOVERY_SYS_DATA_ITEM_STAGE,
+            &ini_context, DATA_RECOVERY_STAGE_FETCH);
+    ctx->next_stage = iniGetCharValue(NULL,
+            DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE,
+            &ini_context, DATA_RECOVERY_STAGE_NONE);
+    ctx->is_full_dump = iniGetBoolValue(NULL,
+            DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP,
+            &ini_context, false);
 
     ctx->fetch.last_data_version = iniGetInt64Value(
             DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
@@ -540,8 +549,7 @@ static int data_recovery_log_to_replica(DataRecoveryContext *ctx,
         return result;
     }
 
-    return replica_binlog_set_data_version(ctx->ds,
-            ctx->fetch.last_data_version);
+    return 0;
 }
 
 static int proto_active_confirm(ConnectionInfo *conn,
@@ -663,7 +671,6 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             if (binlog_size == 0) {
                 if (ctx->is_full_dump) {
                     ctx->stage = DATA_RECOVERY_STAGE_SYNC;
-                    ctx->next_stage = DATA_RECOVERY_STAGE_LOG;
                 } else {
                     ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
                 }
@@ -688,16 +695,16 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             if (binlog_count == 0) {  //no binlog to replay
                 if (ctx->is_full_dump) {
                     ctx->stage = DATA_RECOVERY_STAGE_SYNC;
-                    ctx->next_stage = DATA_RECOVERY_STAGE_LOG;
                 } else {
                     ctx->stage = DATA_RECOVERY_STAGE_LOG;
                 }
             } else {
                 if (ctx->is_full_dump) {
-                    ctx->stage = DATA_RECOVERY_STAGE_SYNC;
-                    ctx->next_stage = DATA_RECOVERY_STAGE_REPLAY;
+                    ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
+                    ctx->next_stage = DATA_RECOVERY_STAGE_SYNC;
                 } else {
                     ctx->stage = DATA_RECOVERY_STAGE_REPLAY;
+                    ctx->next_stage = DATA_RECOVERY_STAGE_LOG;
                 }
             }
             if ((result=data_recovery_save_sys_data(ctx)) != 0) {
@@ -708,49 +715,60 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             break;
     }
 
-    if (ctx->stage == DATA_RECOVERY_STAGE_SYNC) {
-        //TODO
+    old_data_version = FC_ATOMIC_GET(ctx->ds->data.version);
+    if (ctx->stage == DATA_RECOVERY_STAGE_REPLAY) {
+        if ((result=data_recovery_replay_binlog(ctx)) != 0) {
+            return result;
+        }
+
         ctx->stage = ctx->next_stage;
+        if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+            return result;
+        }
     }
 
-    old_data_version = FC_ATOMIC_GET(ctx->ds->data.version);
-    switch (ctx->stage) {
-        case DATA_RECOVERY_STAGE_REPLAY:
-            if ((result=data_recovery_replay_binlog(ctx)) != 0) {
+    if (ctx->stage == DATA_RECOVERY_STAGE_SYNC ||
+            ctx->stage == DATA_RECOVERY_STAGE_LOG)
+    {
+        if (ctx->stage == DATA_RECOVERY_STAGE_SYNC) {
+            if ((result=data_recovery_sync_binlog(ctx)) != 0) {
                 return result;
             }
-
-            ctx->stage = DATA_RECOVERY_STAGE_LOG;
-            if ((result=data_recovery_save_sys_data(ctx)) != 0) {
-                return result;
-            }
-        case DATA_RECOVERY_STAGE_LOG:
+        } else {
             if ((result=data_recovery_log_to_replica(ctx,
                             old_data_version)) != 0)
             {
                 return result;
             }
+        }
 
-            ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
-            if ((result=data_recovery_save_sys_data(ctx)) != 0) {
-                return result;
-            }
-        case DATA_RECOVERY_STAGE_CLEANUP:
-            if ((result=data_recovery_unlink_fetched_binlog(ctx)) != 0) {
-                return result;
-            }
-            if ((result=data_recovery_unlink_replay_binlog(ctx)) != 0) {
-                return result;
-            }
-            if ((result=data_recovery_unlink_sys_data(ctx)) != 0) {
-                return result;
-            }
-            break;
-        default:
-            logError("file: "__FILE__", line: %d, "
-                    "invalid stage value: 0x%02x",
-                    __LINE__, ctx->stage);
-            return EINVAL;
+        if ((result=replica_binlog_set_data_version(ctx->ds,
+                        ctx->fetch.last_data_version)) != 0)
+        {
+            return result;
+        }
+
+        ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
+        if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+            return result;
+        }
+    }
+
+    if (ctx->stage == DATA_RECOVERY_STAGE_CLEANUP) {
+        if ((result=data_recovery_unlink_fetched_binlog(ctx)) != 0) {
+            return result;
+        }
+        if ((result=data_recovery_unlink_replay_binlog(ctx)) != 0) {
+            return result;
+        }
+        if ((result=data_recovery_unlink_sys_data(ctx)) != 0) {
+            return result;
+        }
+    } else {
+        logError("file: "__FILE__", line: %d, "
+                "invalid stage value: 0x%02x",
+                __LINE__, ctx->stage);
+        return EINVAL;
     }
 
     if (!SF_G_CONTINUE_FLAG) {
