@@ -93,6 +93,9 @@ extern "C" {
     int replica_binlog_get_binlog_indexes(const int data_group_id,
             int *start_index, int *last_index);
 
+    int replica_binlog_set_binlog_indexes(const int data_group_id,
+            const int start_index, const int last_index);
+
     int replica_binlog_set_binlog_start_index(const int data_group_id,
             const int start_index);
 
@@ -306,6 +309,9 @@ extern "C" {
 
     int replica_binlog_init_dump_reader(const int data_group_id,
             const int slave_id, struct server_binlog_reader *reader);
+
+    int replica_binlog_remove_all_files(const int data_group_id,
+            int *remove_count);
 
 #ifdef __cplusplus
 }

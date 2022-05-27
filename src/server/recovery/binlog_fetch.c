@@ -418,6 +418,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     int my_status;
     int i;
     int retry_count;
+    int remove_count;
     int binlog_count;
     int binlog_length;
     int buffer_size;
@@ -494,14 +495,19 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                         ctx->master->cs->server->id);
                 sf_terminate_myself();
             } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
-                //TODO
-                logCrit("file: "__FILE__", line: %d, "
+                logWarning("file: "__FILE__", line: %d, "
                         "data group id: %d, the replica binlog is "
-                        "missed on the master server %d, "
-                        "some mistake happen, program exit abnormally!",
-                        __LINE__, ctx->ds->dg->id,
+                        "missed on the master server %d, delete all "
+                        "binlog files ...", __LINE__, ctx->ds->dg->id,
                         ctx->master->cs->server->id);
-                sf_terminate_myself();
+                if (replica_binlog_remove_all_files(ctx->ds->dg->id,
+                            &remove_count) == 0)
+                {
+                    logWarning("file: "__FILE__", line: %d, "
+                            "data group id: %d, delete %d binlog files",
+                            __LINE__, ctx->ds->dg->id, remove_count);
+                    FC_ATOMIC_SET(ctx->ds->data.version, 0);
+                }
             }
 
             break;

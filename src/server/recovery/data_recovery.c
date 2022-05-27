@@ -51,7 +51,7 @@
 #define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV    "last_data_version"
 #define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY  "last_bkey"
 
-#define DATA_RECOVERY_STAGE_NONE    '0'
+#define DATA_RECOVERY_STAGE_NONE    '-'
 #define DATA_RECOVERY_STAGE_FETCH   'F'
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_SYNC    'S'  //sync existing binlogs after full dump
@@ -722,6 +722,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
         }
 
         ctx->stage = ctx->next_stage;
+        ctx->next_stage = DATA_RECOVERY_STAGE_NONE;
         if ((result=data_recovery_save_sys_data(ctx)) != 0) {
             return result;
         }

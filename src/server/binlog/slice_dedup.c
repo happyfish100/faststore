@@ -297,6 +297,8 @@ static int slice_dedup_func(void *args)
     int result;
     double dedup_ratio;
     int64_t slice_count;
+    int64_t old_binlog_count;
+    int64_t new_binlog_count;
     int64_t start_time_ms;
     int64_t time_used;
     char time_buff[32];
@@ -312,7 +314,6 @@ static int slice_dedup_func(void *args)
             dedup_ratio = 0.00;
         }
 
-        //dedup_ratio = 0.10; //TODO
         if (dedup_ratio >= SLICE_DEDUP_RATIO) {
             start_time_ms = get_current_time_ms();
             logInfo("file: "__FILE__", line: %d, "
@@ -320,13 +321,21 @@ static int slice_dedup_func(void *args)
                     "dedup_ratio: %.2f%%, dedup slice binlog ...", __LINE__,
                     slice_count, SLICE_BINLOG_COUNT, dedup_ratio * 100.00);
 
+            old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
             result = do_dedup();
-
+            new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
+            if (result == 0) {
+                int64_t inc_count;
+                inc_count =  new_binlog_count - old_binlog_count;
+                new_binlog_count = slice_count + inc_count;
+                FC_ATOMIC_SET(SLICE_BINLOG_COUNT, new_binlog_count);
+            }
             time_used = get_current_time_ms() - start_time_ms;
+            long_to_comma_str(time_used, time_buff);
             logInfo("file: "__FILE__", line: %d, "
-                    "slice dedup %s, time used: %s ms", __LINE__,
-                    (result == 0 ? "success" : "fail"),
-                    long_to_comma_str(time_used, time_buff));
+                    "slice dedup %s, new binlog count: %"PRId64", time "
+                    "used: %s ms", __LINE__, (result == 0 ? "success" :
+                        "fail"), new_binlog_count, time_buff);
         }
 
         dedup_in_progress = false;
@@ -350,7 +359,7 @@ int slice_dedup_add_schedule()
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
-            SLICE_DEDUP_TIME, /* 86400 */ 3600, slice_dedup_func, NULL, true);
+            SLICE_DEDUP_TIME, /*86400*/60, slice_dedup_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);

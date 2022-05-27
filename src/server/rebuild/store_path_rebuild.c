@@ -470,7 +470,7 @@ static int rename_trunk_binlogs(DataRebuildRedoContext *redo_ctx)
         return result;
     }
 
-    return trunk_binlog_set_binlog_index(last_index);
+    return trunk_binlog_set_binlog_write_index(last_index);
 }
 
 static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
@@ -495,7 +495,7 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
         }
     }
 
-    return slice_binlog_set_binlog_last_index(last_index);
+    return slice_binlog_set_binlog_write_index(last_index);
 }
 
 static int split_binlog(DataRebuildRedoContext *redo_ctx)

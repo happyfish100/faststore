@@ -72,11 +72,11 @@ int slice_binlog_set_binlog_start_index(const int start_index)
             &binlog_writer.writer, start_index);
 }
 
-int slice_binlog_set_binlog_last_index(const int last_index)
+int slice_binlog_set_binlog_write_index(const int last_index)
 {
     /* force write to binlog index file */
     binlog_writer.writer.fw.binlog.last_index = -1;
-    return sf_binlog_writer_set_binlog_last_index(
+    return sf_binlog_writer_set_binlog_write_index(
             &binlog_writer.writer, last_index);
 }
 

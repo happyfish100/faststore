@@ -149,11 +149,11 @@ int trunk_binlog_get_current_write_index()
     return sf_binlog_get_current_write_index(&binlog_writer.writer);
 }
 
-int trunk_binlog_set_binlog_index(const int binlog_index)
+int trunk_binlog_set_binlog_write_index(const int binlog_index)
 {
     /* force write to binlog index file */
     binlog_writer.writer.fw.binlog.last_index = -1;
-    return sf_binlog_writer_set_binlog_last_index(&binlog_writer.
+    return sf_binlog_writer_set_binlog_write_index(&binlog_writer.
             writer, binlog_index);
 }
 

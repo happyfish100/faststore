@@ -80,6 +80,15 @@ int replica_binlog_get_last_record_ex(const char *filename,
     int64_t file_size;
     int result;
 
+    if (access(filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            *record_len = 0;
+            position->offset = 0;
+            return result;
+        }
+    }
+
     if ((result=fc_get_last_line(filename, buff,
                     sizeof(buff), &file_size, &line)) != 0)
     {
@@ -391,6 +400,14 @@ int replica_binlog_get_binlog_indexes(const int data_group_id,
     SFBinlogWriterInfo *writer;
     writer = replica_binlog_get_writer(data_group_id);
     return sf_binlog_get_indexes(writer, start_index, last_index);
+}
+
+int replica_binlog_set_binlog_indexes(const int data_group_id,
+        const int start_index, const int last_index)
+{
+    SFBinlogWriterInfo *writer;
+    writer = replica_binlog_get_writer(data_group_id);
+    return sf_binlog_set_indexes(writer, start_index, last_index);
 }
 
 int replica_binlog_set_binlog_start_index(const int data_group_id,
@@ -1110,4 +1127,33 @@ int replica_binlog_init_dump_reader(const int data_group_id,
     } else {
         return EINPROGRESS;
     }
+}
+
+int replica_binlog_remove_all_files(const int data_group_id,
+        int *remove_count)
+{
+    int result;
+    int start_index;
+    int last_index;
+    int binlog_index;
+    char binlog_filename[PATH_MAX];
+
+    if ((result=replica_binlog_get_binlog_indexes(data_group_id,
+                    &start_index, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    for (binlog_index=start_index; binlog_index<=last_index; binlog_index++) {
+        replica_binlog_get_filename(data_group_id, binlog_index,
+                binlog_filename, sizeof(binlog_filename));
+        if ((result=fc_delete_file_ex(binlog_filename,
+                        "replica binlog")) != 0)
+        {
+            return result;
+        }
+    }
+
+    *remove_count = (last_index - start_index) + 1;
+    return replica_binlog_set_binlog_indexes(data_group_id, 0, 0);
 }

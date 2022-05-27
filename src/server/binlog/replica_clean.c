@@ -65,7 +65,6 @@ static int remove_old_binlogs(const int data_group_id,
     int binlog_index;
     time_t last_timestamp;
     char binlog_filename[PATH_MAX];
-    char buff[32];
 
     *remove_count = 0;
     if ((result=replica_binlog_get_binlog_indexes(data_group_id,
@@ -74,8 +73,10 @@ static int remove_old_binlogs(const int data_group_id,
         return result;
     }
 
+    /*
     logInfo("data_group_id: %d, binlog start_index: %d, last_index: %d",
             data_group_id, start_index, last_index);
+            */
 
     for (binlog_index=start_index; binlog_index<last_index; binlog_index++) {
         replica_binlog_get_filename(data_group_id, binlog_index,
@@ -86,10 +87,15 @@ static int remove_old_binlogs(const int data_group_id,
             return result;
         }
 
-        formatDatetime(last_timestamp, "%Y-%m-%d %H:%M:%S",
-                buff, sizeof(buff));
-        logInfo("binlog_index: %d, last time: %s, timestamp: %ld",
-                binlog_index, buff, last_timestamp);
+        /*
+        {
+            char buff[32];
+            formatDatetime(last_timestamp, "%Y-%m-%d %H:%M:%S",
+                    buff, sizeof(buff));
+            logInfo("binlog_index: %d, last time: %s, timestamp: %ld",
+                    binlog_index, buff, last_timestamp);
+        }
+            */
 
         if (last_timestamp >= before_time) {
             continue;
@@ -143,12 +149,14 @@ static int clean_binlogs(int *total_remove_count)
     tm.tm_sec = 0;
     before_time = mktime(&tm);
 
+    /*
     {
         char buff[32];
         formatDatetime(before_time, "%Y-%m-%d %H:%M:%S",
                 buff, sizeof(buff));
         logInfo("before_time: %s, timestamp: %ld", buff, before_time);
     }
+    */
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
@@ -181,7 +189,6 @@ static int replica_clean_func(void *args)
                 "clean replica binlogs ...", __LINE__);
 
         result = clean_binlogs(&total_remove_count);
-
         time_used = get_current_time_ms() - start_time_ms;
         logInfo("file: "__FILE__", line: %d, "
                 "clean replica binlogs %s, remove binlog count: %d, "
@@ -205,7 +212,7 @@ int replica_clean_add_schedule()
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
-            REPLICA_DELETE_TIME, /* 86400 */ 60, replica_clean_func, NULL, true);
+            REPLICA_DELETE_TIME, 86400, replica_clean_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);

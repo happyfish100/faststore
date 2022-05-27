@@ -46,7 +46,7 @@ extern "C" {
 
     int trunk_binlog_get_current_write_index();
 
-    int trunk_binlog_set_binlog_index(const int binlog_index);
+    int trunk_binlog_set_binlog_write_index(const int binlog_index);
 
     static inline int trunk_binlog_log_to_buff(const char op_type,
             const int path_index, const FSTrunkIdInfo *id_info,
