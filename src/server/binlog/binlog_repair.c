@@ -273,7 +273,7 @@ static int binlog_write_to_file(BinlogRepairContext *ctx)
     int len;
 
     len = SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer);
-    if (ctx->out_writer.file_size + len <= SF_BINLOG_FILE_MAX_SIZE) {
+    if (ctx->out_writer.file_size + len <= SF_BINLOG_DEFAULT_ROTATE_SIZE) {
         return do_write_to_file(ctx, len);
     }
 
@@ -290,7 +290,7 @@ static inline int write_one_line(BinlogRepairContext *ctx, string_t *line)
     int result;
 
     if (ctx->out_writer.file_size + SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.
-                buffer) + line->len > SF_BINLOG_FILE_MAX_SIZE)
+                buffer) + line->len > SF_BINLOG_DEFAULT_ROTATE_SIZE)
     {
         if ((result=binlog_write_to_file(ctx)) != 0) {
             return result;

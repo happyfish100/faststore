@@ -329,9 +329,10 @@ static void log_data_operation_error(struct fast_task_info *task,
 
     caption = fs_get_data_operation_caption(op->operation);
     len = sprintf(buff, "file: "__FILE__", line: %d, "
-            "client ip: %s, %s fail, "
-            "oid: %"PRId64", block offset: %"PRId64,
-            __LINE__, task->client_ip, caption,
+            "client ip: %s, %s %s fail, oid: %"PRId64", "
+            "block offset: %"PRId64, __LINE__, task->client_ip,
+            (TASK_CTX.which_side == FS_WHICH_SIDE_MASTER ?
+             "master" : "slave"), caption,
             op->ctx->info.bs_key.block.oid,
             op->ctx->info.bs_key.block.offset
             );
@@ -360,7 +361,11 @@ static void master_data_update_done_notify(FSDataOperation *op)
                 sizeof(RESPONSE.error.message),
                 "%s", sf_strerror(op->ctx->result));
 
-        log_data_operation_error(task, op);
+        if (!(op->operation == DATA_OPERATION_BLOCK_DELETE &&
+                    op->ctx->result == ENOENT)) //ignore error on delete file
+        {
+            log_data_operation_error(task, op);
+        }
         TASK_CTX.common.log_level = LOG_NOTHING;
     } else {
         switch (op->operation) {
