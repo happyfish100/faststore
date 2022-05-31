@@ -359,7 +359,7 @@ int slice_dedup_add_schedule()
     }
 
     INIT_SCHEDULE_ENTRY_EX1(scheduleEntry, sched_generate_next_id(),
-            SLICE_DEDUP_TIME, /*86400*/60, slice_dedup_func, NULL, true);
+            SLICE_DEDUP_TIME, 86400, slice_dedup_func, NULL, true);
     scheduleArray.entries = &scheduleEntry;
     scheduleArray.count = 1;
     return sched_add_entries(&scheduleArray);
