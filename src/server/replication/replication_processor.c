@@ -537,6 +537,11 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
 static inline void send_active_test_package(FSReplication *replication)
 {
+    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
+        return;
+    }
+
+    replication->last_net_comm_time = g_current_time;
     replication->task->length = sizeof(FSProtoHeader);
     SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
             SF_PROTO_ACTIVE_TEST_REQ, 0);
@@ -624,7 +629,6 @@ static int deal_replication_connected(FSServerContext *server_ctx)
         }
 
         if (send_hb) {
-            replication->last_net_comm_time = g_current_time;
             send_active_test_package(replication);
         }
     }

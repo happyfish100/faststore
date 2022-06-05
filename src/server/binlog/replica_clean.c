@@ -87,24 +87,14 @@ static int remove_old_binlogs(const int data_group_id,
             return result;
         }
 
-        /*
-        {
-            char buff[32];
-            formatDatetime(last_timestamp, "%Y-%m-%d %H:%M:%S",
-                    buff, sizeof(buff));
-            logInfo("binlog_index: %d, last time: %s, timestamp: %ld",
-                    binlog_index, buff, last_timestamp);
-        }
-            */
-
         if (last_timestamp >= before_time) {
-            continue;
+            break;
         }
 
         if (binlog_index + 1 == last_index && check_last_binlog(
                     data_group_id, last_index) != 0)
         {
-            continue;
+            break;
         }
 
         if ((result=replica_binlog_set_binlog_start_index(
@@ -148,15 +138,6 @@ static int clean_binlogs(int *total_remove_count)
     tm.tm_min = 0;
     tm.tm_sec = 0;
     before_time = mktime(&tm);
-
-    /*
-    {
-        char buff[32];
-        formatDatetime(before_time, "%Y-%m-%d %H:%M:%S",
-                buff, sizeof(buff));
-        logInfo("before_time: %s, timestamp: %ld", buff, before_time);
-    }
-    */
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
