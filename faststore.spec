@@ -5,7 +5,7 @@
 %define CommitVersion %(echo $COMMIT_VERSION)
 
 Name: faststore
-Version: 3.3.0
+Version: 3.4.0
 Release: 1%{?dist}
 Summary: a high performance distributed file storage service
 License: AGPL v3.0
@@ -16,17 +16,17 @@ Source: http://github.com/happyfish100/faststore/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n) 
 
 BuildRequires: libaio-devel
-BuildRequires: libfastcommon-devel >= 1.0.57
-BuildRequires: libserverframe-devel >= 1.1.14
-BuildRequires: FastCFS-auth-devel >= 3.0.0
-BuildRequires: FastCFS-vote-devel >= 3.0.0
+BuildRequires: libfastcommon-devel >= 1.0.58
+BuildRequires: libserverframe-devel >= 1.1.15
+BuildRequires: FastCFS-auth-devel >= 3.4.0
+BuildRequires: FastCFS-vote-devel >= 3.4.0
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
-Requires: libfastcommon >= 1.0.57
-Requires: libserverframe >= 1.1.14
-Requires: FastCFS-auth-client >= 3.0.0
+Requires: libfastcommon >= 1.0.58
+Requires: libserverframe >= 1.1.15
+Requires: FastCFS-auth-client >= 3.4.0
 Requires: FastCFS-auth-config >= 2.0.0
-Requires: FastCFS-vote-client >= 3.0.0
-Requires: FastCFS-vote-config >= 3.0.0
+Requires: FastCFS-vote-client >= 3.4.0
+Requires: FastCFS-vote-config >= 3.4.0
 Requires: %{FastStoreServer} = %{version}-%{release}
 Requires: %{FastStoreClient} = %{version}-%{release}
 
@@ -36,22 +36,22 @@ commit version: %{CommitVersion}
 
 %package -n %{FastStoreServer}
 Requires: libaio
-Requires: libfastcommon >= 1.0.57
-Requires: libserverframe >= 1.1.14
-Requires: FastCFS-auth-client >= 3.0.0
+Requires: libfastcommon >= 1.0.58
+Requires: libserverframe >= 1.1.15
+Requires: FastCFS-auth-client >= 3.4.0
 Requires: FastCFS-auth-config >= 2.0.0
-Requires: FastCFS-vote-client >= 3.0.0
-Requires: FastCFS-vote-config >= 2.0.0
+Requires: FastCFS-vote-client >= 3.4.0
+Requires: FastCFS-vote-config >= 3.4.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
-Requires: libfastcommon >= 1.0.57
-Requires: libserverframe >= 1.1.14
-Requires: FastCFS-auth-client >= 3.0.0
+Requires: libfastcommon >= 1.0.58
+Requires: libserverframe >= 1.1.15
+Requires: FastCFS-auth-client >= 3.4.0
 Requires: FastCFS-auth-config >= 2.0.0
-Requires: FastCFS-vote-client >= 3.0.0
-Requires: FastCFS-vote-config >= 2.0.0
+Requires: FastCFS-vote-client >= 3.4.0
+Requires: FastCFS-vote-config >= 3.4.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore client library and tools
 

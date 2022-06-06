@@ -177,7 +177,7 @@ int binlog_reader_read(ServerBinlogReader *reader)
     return result;
 }
 
-int binlog_read_to_buffer(ServerBinlogReader *reader,
+int binlog_reader_read_to_buffer(ServerBinlogReader *reader,
         char *buff, const int size, int *read_bytes)
 {
     int result;
@@ -202,15 +202,15 @@ int binlog_read_to_buffer(ServerBinlogReader *reader,
     return result;
 }
 
-int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
-        const int size, int *read_bytes)
+int binlog_reader_integral_read(ServerBinlogReader *reader,
+        char *buff, const int size, int *read_bytes)
 {
     int result;
     int remain_len;
     char *line_end;
 
-    if ((result=binlog_read_to_buffer(reader, buff, size,
-                    read_bytes)) != 0)
+    if ((result=binlog_reader_read_to_buffer(reader,
+                    buff, size, read_bytes)) != 0)
     {
         return result;
     }

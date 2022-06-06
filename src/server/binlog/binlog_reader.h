@@ -96,8 +96,11 @@ static inline void binlog_reader_get_filename_ex(const char *subdir_name,
             binlog_index, fname_suffix);
 }
 
-int binlog_reader_integral_read(ServerBinlogReader *reader, char *buff,
-        const int size, int *read_bytes);
+int binlog_reader_read_to_buffer(ServerBinlogReader *reader,
+        char *buff, const int size, int *read_bytes);
+
+int binlog_reader_integral_read(ServerBinlogReader *reader,
+        char *buff, const int size, int *read_bytes);
 
 bool binlog_reader_is_last_file(ServerBinlogReader *reader);
 
