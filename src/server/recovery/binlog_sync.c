@@ -197,10 +197,14 @@ static int proto_sync_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx,
         return result;
     }
 
-    while (!is_last) {
+    while (!is_last && SF_G_CONTINUE_FLAG) {
         if ((result=sync_binlog_next_to_local(conn, ctx, &is_last)) != 0) {
             break;
         }
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
     }
 
     close(sync_ctx->fd);

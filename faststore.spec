@@ -21,12 +21,6 @@ BuildRequires: libserverframe-devel >= 1.1.15
 BuildRequires: FastCFS-auth-devel >= 3.4.0
 BuildRequires: FastCFS-vote-devel >= 3.4.0
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
-Requires: libfastcommon >= 1.0.58
-Requires: libserverframe >= 1.1.15
-Requires: FastCFS-auth-client >= 3.4.0
-Requires: FastCFS-auth-config >= 2.0.0
-Requires: FastCFS-vote-client >= 3.4.0
-Requires: FastCFS-vote-config >= 3.4.0
 Requires: %{FastStoreServer} = %{version}-%{release}
 Requires: %{FastStoreClient} = %{version}-%{release}
 
@@ -50,8 +44,6 @@ Requires: libfastcommon >= 1.0.58
 Requires: libserverframe >= 1.1.15
 Requires: FastCFS-auth-client >= 3.4.0
 Requires: FastCFS-auth-config >= 2.0.0
-Requires: FastCFS-vote-client >= 3.4.0
-Requires: FastCFS-vote-config >= 3.4.0
 Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore client library and tools
 
