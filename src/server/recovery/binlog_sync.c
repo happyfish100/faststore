@@ -230,10 +230,8 @@ static int do_sync_binlogs(DataRecoveryContext *ctx)
     int last_index;
     int64_t last_size;
     int64_t binlog_size;
-    BinlogSyncContext *sync_ctx;
     ConnectionInfo conn;
 
-    sync_ctx = (BinlogSyncContext *)ctx->arg;
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
                         ctx->master->cs->server), &conn, "fstore",
                     SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
