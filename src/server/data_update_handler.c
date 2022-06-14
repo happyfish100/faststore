@@ -361,7 +361,8 @@ static void master_data_update_done_notify(FSDataOperation *op)
                 sizeof(RESPONSE.error.message),
                 "%s", sf_strerror(op->ctx->result));
 
-        if (!(op->operation == DATA_OPERATION_BLOCK_DELETE &&
+        if (!((op->operation == DATA_OPERATION_BLOCK_DELETE ||
+                        op->operation == DATA_OPERATION_SLICE_DELETE) &&
                     op->ctx->result == ENOENT)) //ignore error on delete file
         {
             log_data_operation_error(task, op);
