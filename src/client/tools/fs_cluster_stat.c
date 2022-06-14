@@ -99,6 +99,9 @@ int main(int argc, char *argv[])
     FSClientClusterStatEntry *stats;
 	int result;
 
+    log_init();
+    //g_log_context.log_level = LOG_DEBUG;
+
     server_id = 0;
     spec_conn = NULL;
     memset(&filter, 0, sizeof(filter));
@@ -162,9 +165,6 @@ int main(int argc, char *argv[])
                 return 1;
         }
     }
-
-    log_init();
-    //g_log_context.log_level = LOG_DEBUG;
 
     if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.
                     client_ctx, &g_fcfs_auth_client_vars.client_ctx,

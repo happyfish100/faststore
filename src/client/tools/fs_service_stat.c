@@ -83,6 +83,9 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    log_init();
+    //g_log_context.log_level = LOG_DEBUG;
+
     server_id = 0;
     data_group_id = 0;
     while ((ch=getopt(argc, argv, "hc:s:g:")) != -1) {
@@ -121,9 +124,6 @@ int main(int argc, char *argv[])
         }
         spec_conn = &conn;
     }
-
-    log_init();
-    //g_log_context.log_level = LOG_DEBUG;
 
     if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.client_ctx,
                     &g_fcfs_auth_client_vars.client_ctx, config_filename,
