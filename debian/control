@@ -6,7 +6,8 @@ Build-Depends: debhelper (>=11~),
                libaio-dev,
                libfastcommon-dev (>= 1.0.56),
                libserverframe-dev (>= 1.1.13),
-               fastcfs-auth-dev (>= 3.0.0)
+               fastcfs-auth-dev (>= 3.0.0),
+               fastcfs-vote-dev (>= 3.4.0)
 Standards-Version: 4.1.4
 Homepage: http://github.com/happyfish100/faststore
 
@@ -17,6 +18,8 @@ Depends: libfastcommon (>= ${libfastcommon:Version}),
          libserverframe (>= ${libserverframe:Version}),
          fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
          fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
+         fastcfs-vote-client (>= ${fastcfs-vote-client:Version}),
+         fastcfs-vote-config (>= ${fastcfs-vote-config:Version}),
          faststore-server (= ${binary:Version}),
          faststore-client (= ${binary:Version}),
          ${misc:Depends}
@@ -30,6 +33,8 @@ Depends: libfastcommon (>= ${libfastcommon:Version}),
          libserverframe (>= ${libserverframe:Version}),
          fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
          fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
+         fastcfs-vote-client (>= ${fastcfs-vote-client:Version}),
+         fastcfs-vote-config (>= ${fastcfs-vote-config:Version}),
          faststore-config (>= ${faststore-config:Version}),
          ${misc:Depends}, ${shlibs:Depends}
 Description: FastStore server
