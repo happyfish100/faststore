@@ -147,7 +147,25 @@ static int load_master_election_config(const char *filename)
     return 0;
 }
 
-static int load_leader_election_config(const char *cluster_filename)
+static int load_leader_election_config(IniFullContext *ini_ctx)
+{
+    int result;
+
+    LEADER_ELECTION_LOST_TIMEOUT = iniGetIntCorrectValue(
+            ini_ctx, "leader_lost_timeout", 3, 1, 300);
+    LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
+            ini_ctx, "max_wait_time", 30, 1, 3600);
+    if ((result=sf_load_election_quorum_config(&LEADER_ELECTION_QUORUM,
+                    ini_ctx)) == 0)
+    {
+        result = fcfs_vote_client_init_for_server(
+                ini_ctx, &VOTE_NODE_ENABLED);
+    }
+
+    return result;
+}
+
+static int load_cluster_sub_config(const char *cluster_filename)
 {
     IniContext ini_context;
     IniFullContext ini_ctx;
@@ -162,16 +180,13 @@ static int load_leader_election_config(const char *cluster_filename)
 
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, cluster_filename,
             "leader-election", &ini_context);
-    LEADER_ELECTION_LOST_TIMEOUT = iniGetIntCorrectValue(
-            &ini_ctx, "leader_lost_timeout", 3, 1, 300);
-    LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
-            &ini_ctx, "max_wait_time", 30, 1, 3600);
-    if ((result=sf_load_quorum_config(&LEADER_ELECTION_QUORUM,
-                    &ini_ctx)) == 0)
-    {
-        result = fcfs_vote_client_init_for_server(
-                &ini_ctx, &VOTE_NODE_ENABLED);
+    if ((result=load_leader_election_config(&ini_ctx)) != 0) {
+        return result;
     }
+
+    ini_ctx.section_name = "data-replication";
+    result = sf_load_replication_quorum_config(
+            &REPLICATION_QUORUM, &ini_ctx);
 
     iniFreeContext(&ini_context);
     return result;
@@ -200,7 +215,7 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
         return result;
     }
 
-    if ((result=load_leader_election_config(full_cluster_filename)) != 0) {
+    if ((result=load_cluster_sub_config(full_cluster_filename)) != 0) {
         return result;
     }
 
@@ -422,18 +437,21 @@ static void server_log_configs()
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
-            sf_get_quorum_caption(LEADER_ELECTION_QUORUM),
+            sf_get_election_quorum_caption(LEADER_ELECTION_QUORUM),
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME);
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s, %s, %s, %s, %s", g_fs_global_vars.version.major,
+            "replica: {%s}, %s, %s, data-replication {quorum: %s}, "
+            "%s, %s, %s", g_fs_global_vars.version.major,
             g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
             sz_global_config, sz_slowlog_config, sz_service_config,
             sz_cluster_config, sz_replica_config, sz_server_config,
-            sz_melection_config, sz_slice_binlog_config,
-            sz_replica_binlog_config, sz_auth_config);
+            sz_melection_config,
+            sf_get_replication_quorum_caption(REPLICATION_QUORUM),
+            sz_slice_binlog_config, sz_replica_binlog_config,
+            sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }

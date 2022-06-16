@@ -87,6 +87,7 @@ typedef struct server_global_vars {
     } storage;
 
     struct {
+        SFReplicationQuorum quorum;
         int channels_between_two_servers;
         int recovery_threads_per_data_group;
         int recovery_max_queue_depth;
@@ -180,6 +181,7 @@ typedef struct server_global_vars {
 #define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.target_dedup_ratio
 #define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup_time
 
+#define REPLICATION_QUORUM  g_server_global_vars.replica.quorum
 #define REPLICA_KEEP_DAYS   g_server_global_vars.replica.binlog.keep_days
 #define REPLICA_DELETE_TIME g_server_global_vars.replica.binlog.delete_time
 
