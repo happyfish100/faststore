@@ -304,7 +304,7 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
     } found;
     FCServerInfo *server;
     FCServerInfo *myself;
-    int ports[2];
+    int ports[6];
     int count;
     int i;
 
@@ -312,6 +312,14 @@ static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
     ports[count++] = g_sf_context.inner_port;
     if (g_sf_context.outer_port != g_sf_context.inner_port) {
         ports[count++] = g_sf_context.outer_port;
+    }
+    ports[count++] = CLUSTER_SF_CTX.inner_port;
+    if (CLUSTER_SF_CTX.outer_port != CLUSTER_SF_CTX.inner_port) {
+        ports[count++] = CLUSTER_SF_CTX.outer_port;
+    }
+    ports[count++] = REPLICA_SF_CTX.inner_port;
+    if (REPLICA_SF_CTX.outer_port != REPLICA_SF_CTX.inner_port) {
+        ports[count++] = REPLICA_SF_CTX.outer_port;
     }
 
     myself = NULL;
