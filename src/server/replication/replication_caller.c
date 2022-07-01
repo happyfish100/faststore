@@ -114,7 +114,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
             group->slave_ds_array.count);
 
     __sync_add_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->context.
-            service.waiting_rpc_count, group->slave_ds_array.count);
+            service.rpc.waiting_count, group->slave_ds_array.count);
 
     inactive_count = 0;
     end = group->slave_ds_array.servers + group->slave_ds_array.count;
@@ -156,7 +156,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     if (inactive_count > 0) {
         int result;
         if (__sync_sub_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->
-                    context.service.waiting_rpc_count, inactive_count) == 0)
+                    context.service.rpc.waiting_count, inactive_count) == 0)
         {
             result = 0;  //rpc finished
         } else {

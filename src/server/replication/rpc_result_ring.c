@@ -107,7 +107,7 @@ static inline void desc_task_waiting_rpc_count(
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
     if (__sync_sub_and_fetch(&task_arg->context.
-                service.waiting_rpc_count, 1) == 0)
+                service.rpc.waiting_count, 1) == 0)
     {
         data_thread_notify((FSDataThreadContext *)
                 task_arg->context.slice_op_ctx.arg);

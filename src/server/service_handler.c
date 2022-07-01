@@ -55,6 +55,9 @@
 #include "data_update_handler.h"
 #include "service_handler.h"
 
+typedef int (*deal_task_func)(struct fast_task_info *task,
+        FSSliceOpContext *op_ctx);
+
 int service_handler_init()
 {
     return idempotency_channel_init(SF_IDEMPOTENCY_MAX_CHANNEL_ID,
@@ -482,75 +485,22 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
     return 0;
 }
 
-static inline int service_deal_slice_write(struct fast_task_info *task)
+static inline int service_process_update(struct fast_task_info *task,
+                deal_task_func real_update_func, const int resp_cmd)
 {
     int result;
 
-    result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_WRITE_RESP);
+    result = service_update_prepare_and_check(task, resp_cmd);
     if (result != 0 || OP_CTX_INFO.deal_done) {
         return result;
     }
 
-    if ((result=du_handler_deal_slice_write(task, &SLICE_OP_CTX)) !=
+    if ((result=real_update_func(task, &SLICE_OP_CTX)) !=
             TASK_STATUS_CONTINUE)
     {
         du_handler_idempotency_request_finish(task, result);
     }
-    return result;
-}
 
-static inline int service_deal_slice_allocate(struct fast_task_info *task)
-{
-    int result;
-
-    result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
-    if (result != 0 || OP_CTX_INFO.deal_done) {
-        return result;
-    }
-
-    if ((result=du_handler_deal_slice_allocate(task, &SLICE_OP_CTX)) !=
-            TASK_STATUS_CONTINUE)
-    {
-        du_handler_idempotency_request_finish(task, result);
-    }
-    return result;
-}
-
-static inline int service_deal_slice_delete(struct fast_task_info *task)
-{
-    int result;
-
-    result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_SLICE_DELETE_RESP);
-    if (result != 0 || OP_CTX_INFO.deal_done) {
-        return result;
-    }
-
-    if ((result=du_handler_deal_slice_delete(task, &SLICE_OP_CTX)) !=
-            TASK_STATUS_CONTINUE)
-    {
-        du_handler_idempotency_request_finish(task, result);
-    }
-    return result;
-}
-
-static inline int service_deal_block_delete(struct fast_task_info *task)
-{
-    int result;
-
-    result = service_update_prepare_and_check(task,
-            FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
-    if (result != 0 || OP_CTX_INFO.deal_done) {
-        return result;
-    }
-
-    if ((result=du_handler_deal_block_delete(task, &SLICE_OP_CTX)) !=
-            TASK_STATUS_CONTINUE)
-    {
-        du_handler_idempotency_request_finish(task, result);
-    }
     return result;
 }
 
@@ -606,48 +556,40 @@ static int service_check_priv(struct fast_task_info *task)
 static int service_process(struct fast_task_info *task)
 {
     int result;
+
     switch (REQUEST.header.cmd) {
         case SF_PROTO_ACTIVE_TEST_REQ:
             RESPONSE.header.cmd = SF_PROTO_ACTIVE_TEST_RESP;
-            result = sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
-            break;
+            return sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
         case FS_COMMON_PROTO_CLIENT_JOIN_REQ:
-            result = du_handler_deal_client_join(task);
-            break;
+            return du_handler_deal_client_join(task);
         case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
-            result = service_deal_service_stat(task);
-            break;
+            return service_deal_service_stat(task);
         case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-            result = service_deal_slice_write(task);
-            break;
+            return service_process_update(task, du_handler_deal_slice_write,
+                    FS_SERVICE_PROTO_SLICE_WRITE_RESP);
         case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-            result = service_deal_slice_allocate(task);
-            break;
+            return service_process_update(task, du_handler_deal_slice_allocate,
+                    FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
         case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-            result = service_deal_slice_delete(task);
-            break;
+            return service_process_update(task, du_handler_deal_slice_delete,
+                    FS_SERVICE_PROTO_SLICE_DELETE_RESP);
         case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-            result = service_deal_block_delete(task);
-            break;
+            return service_process_update(task, du_handler_deal_block_delete,
+                    FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
         case FS_SERVICE_PROTO_SLICE_READ_REQ:
-            result = service_deal_slice_read(task);
-            break;
+            return service_deal_slice_read(task);
         case FS_SERVICE_PROTO_GET_MASTER_REQ:
-            result = service_deal_get_master(task);
-            break;
+            return service_deal_get_master(task);
         case FS_COMMON_PROTO_GET_READABLE_SERVER_REQ:
-            result = du_handler_deal_get_readable_server(task,
+            return du_handler_deal_get_readable_server(task,
                     SERVICE_GROUP_INDEX);
-            break;
         case SF_SERVICE_PROTO_GET_LEADER_REQ:
-            result = service_deal_get_leader(task);
-            break;
+            return service_deal_get_leader(task);
         case FS_SERVICE_PROTO_CLUSTER_STAT_REQ:
-            result = service_deal_cluster_stat(task);
-            break;
+            return service_deal_cluster_stat(task);
         case FS_SERVICE_PROTO_DISK_SPACE_STAT_REQ:
-            result = service_deal_disk_space_stat(task);
-            break;
+            return service_deal_disk_space_stat(task);
         case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
             if ((result=sf_server_deal_setup_channel(task, &SERVER_TASK_TYPE,
                             CLUSTER_MY_SERVER_ID, &IDEMPOTENCY_CHANNEL,
@@ -655,31 +597,24 @@ static int service_process(struct fast_task_info *task)
             {
                 TASK_CTX.common.response_done = true;
             }
-            break;
+            return result;
         case SF_SERVICE_PROTO_CLOSE_CHANNEL_REQ:
-            result = sf_server_deal_close_channel(task,
+            return sf_server_deal_close_channel(task,
                     &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
-            break;
         case SF_SERVICE_PROTO_REPORT_REQ_RECEIPT_REQ:
-            result = sf_server_deal_report_req_receipt(task,
+            return sf_server_deal_report_req_receipt(task,
                     SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL, &RESPONSE);
-            break;
         case SF_SERVICE_PROTO_REBIND_CHANNEL_REQ:
-            result = sf_server_deal_rebind_channel(task,
+            return sf_server_deal_rebind_channel(task,
                     &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL, &RESPONSE);
-            break;
         case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
-            result = du_handler_deal_get_group_servers(task);
-            break;
+            return du_handler_deal_get_group_servers(task);
         default:
             RESPONSE.error.length = sprintf(
                     RESPONSE.error.message,
                     "unkown cmd: %d", REQUEST.header.cmd);
-            result = -EINVAL;
-            break;
+            return -EINVAL;
     }
-
-    return result;
 }
 
 int service_deal_task(struct fast_task_info *task, const int stage)

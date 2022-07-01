@@ -156,7 +156,6 @@
 #define REPLICA_UNTIL_OFFSET TASK_CTX.shared.replica.until_offset
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.shared.service.idempotency_channel
 #define IDEMPOTENCY_REQUEST  TASK_CTX.service.idempotency_request
-#define WAITING_RPC_COUNT    TASK_CTX.service.waiting_rpc_count
 #define SERVER_TASK_TYPE  TASK_CTX.task_type
 #define SLICE_OP_CTX      TASK_CTX.slice_op_ctx
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
@@ -386,7 +385,10 @@ typedef struct {
 
     struct {
         struct idempotency_request *idempotency_request;
-        volatile int waiting_rpc_count;
+        struct {
+            volatile int waiting_count;
+            volatile int success_count;
+        } rpc;
     } service;
 
     int which_side;   //master or slave

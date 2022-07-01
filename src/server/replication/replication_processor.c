@@ -314,7 +314,7 @@ static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
 
     task_arg = (FSServerTaskArg *)rb->task->arg;
     if (__sync_sub_and_fetch(&task_arg->context.service.
-                waiting_rpc_count, 1) == 0)
+                rpc.waiting_count, 1) == 0)
     {
         data_thread_notify((FSDataThreadContext *)
                 task_arg->context.slice_op_ctx.arg);
