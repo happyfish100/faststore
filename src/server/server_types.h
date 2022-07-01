@@ -273,6 +273,7 @@ typedef struct fs_cluster_data_server_array {
 typedef struct fs_cluster_data_group_info {
     int id;
     int index;
+    volatile int active_count;
 
     struct {
         uint32_t hash_code;  //for master assignment

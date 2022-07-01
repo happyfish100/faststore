@@ -113,11 +113,32 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     }
 
     if (master_only) {
+        int active_count;
+
         if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
             return SF_RETRIABLE_ERROR_NOT_MASTER;
+        }
+
+        if (REPLICA_QUORUM_NEED_MAJORITY) {
+            active_count = FC_ATOMIC_GET(op_ctx->
+                    info.myself->dg->active_count);
+            if (!SF_REPLICATION_QUORUM_MAJORITY(op_ctx->info.myself->
+                        dg->ds_ptr_array.count, active_count))
+            {
+                if (IDEMPOTENCY_REQUEST != NULL) {
+                    idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
+                            IDEMPOTENCY_REQUEST->req_id);
+                    idempotency_request_release(IDEMPOTENCY_REQUEST);
+
+                    /* server task type for channel ONLY,
+                       do NOT set task type to NONE!!! */
+                    IDEMPOTENCY_REQUEST = NULL;
+                }
+                return EAGAIN;
+            }
         }
     } else {
         int status;

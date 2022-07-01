@@ -1374,6 +1374,27 @@ static bool cluster_resume_master(FSClusterDataGroupInfo *group,
     return true;
 }
 
+static void calc_data_group_alive_count(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
+    int active_count;
+
+    active_count = 1;
+    end = group->slave_ds_array.servers + group->slave_ds_array.count;
+    for (ds=group->slave_ds_array.servers; ds<end; ds++) {
+        if (FC_ATOMIC_GET((*ds)->status) == FS_DS_STATUS_ACTIVE) {
+            active_count++;
+        }
+    }
+
+    FC_ATOMIC_SET(group->active_count, active_count);
+    /*
+    logInfo("data group id: %d, server count: %d, active count: %d",
+            group->id, group->ds_ptr_array.count, active_count);
+            */
+}
+
 static void cluster_relationship_on_status_change(
         FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
@@ -1395,6 +1416,10 @@ static void cluster_relationship_on_status_change(
                 return;
             }
         }
+    }
+
+    if (master->cs == CLUSTER_MYSELF_PTR) {  //i am master
+        calc_data_group_alive_count(ds->dg);
     }
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
