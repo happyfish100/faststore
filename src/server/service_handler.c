@@ -649,8 +649,8 @@ static int service_process(struct fast_task_info *task)
             result = service_deal_disk_space_stat(task);
             break;
         case SF_SERVICE_PROTO_SETUP_CHANNEL_REQ:
-            if ((result=sf_server_deal_setup_channel(task,
-                            &SERVER_TASK_TYPE, &IDEMPOTENCY_CHANNEL,
+            if ((result=sf_server_deal_setup_channel(task, &SERVER_TASK_TYPE,
+                            CLUSTER_MY_SERVER_ID, &IDEMPOTENCY_CHANNEL,
                             &RESPONSE)) == 0)
             {
                 TASK_CTX.common.response_done = true;

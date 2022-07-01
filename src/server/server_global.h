@@ -88,6 +88,7 @@ typedef struct server_global_vars {
 
     struct {
         SFReplicationQuorum quorum;
+        bool quorum_need_majority; //cached result of SF_REPLICATION_QUORUM_NEED_MAJORITY
         int channels_between_two_servers;
         int recovery_threads_per_data_group;
         int recovery_max_queue_depth;
@@ -182,6 +183,7 @@ typedef struct server_global_vars {
 #define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup_time
 
 #define REPLICATION_QUORUM  g_server_global_vars.replica.quorum
+#define REPLICA_QUORUM_NEED_MAJORITY g_server_global_vars.replica.quorum_need_majority
 #define REPLICA_KEEP_DAYS   g_server_global_vars.replica.binlog.keep_days
 #define REPLICA_DELETE_TIME g_server_global_vars.replica.binlog.delete_time
 

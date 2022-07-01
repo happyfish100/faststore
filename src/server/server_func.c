@@ -224,7 +224,13 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     }
     fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
-    return server_group_info_init(full_cluster_filename);
+    if ((result=server_group_info_init(full_cluster_filename)) != 0) {
+        return result;
+    }
+
+    REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
+            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
+    return 0;
 }
 
 static int load_slice_binlog_config(IniContext *ini_context,
@@ -443,15 +449,15 @@ static void server_log_configs()
             LEADER_ELECTION_MAX_WAIT_TIME);
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s, %s, data-replication {quorum: %s}, "
-            "%s, %s, %s", g_fs_global_vars.version.major,
-            g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
-            sz_global_config, sz_slowlog_config, sz_service_config,
-            sz_cluster_config, sz_replica_config, sz_server_config,
-            sz_melection_config,
+            "replica: {%s}, %s, %s, data-replication {quorum: %s, "
+            "quorum_need_majority: %d}, %s, %s, %s",
+            g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
+            g_fs_global_vars.version.patch, sz_global_config,
+            sz_slowlog_config, sz_service_config, sz_cluster_config,
+            sz_replica_config, sz_server_config, sz_melection_config,
             sf_get_replication_quorum_caption(REPLICATION_QUORUM),
-            sz_slice_binlog_config, sz_replica_binlog_config,
-            sz_auth_config);
+            REPLICA_QUORUM_NEED_MAJORITY, sz_slice_binlog_config,
+            sz_replica_binlog_config, sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -705,6 +711,9 @@ int server_load_config(const char *filename)
 
     g_server_global_vars.replica.active_test_interval = (int)
         ceil(SF_G_NETWORK_TIMEOUT / 2.00);
+    if (g_server_global_vars.replica.active_test_interval == 0) {
+        g_server_global_vars.replica.active_test_interval = 1;
+    }
 
     load_local_host_ip_addrs();
     server_log_configs();
