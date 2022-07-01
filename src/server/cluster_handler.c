@@ -650,7 +650,7 @@ static int cluster_deal_get_ds_status(struct fast_task_info *task)
     resp->status = FC_ATOMIC_GET(ds->status);
     int2buff(FC_ATOMIC_GET(ds->master_dealing_count),
             resp->master_dealing_count);
-    long2buff(FC_ATOMIC_GET(ds->data.version), resp->data_version);
+    long2buff(FC_ATOMIC_GET(ds->data.current_version), resp->data_version);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetDSStatusResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_GET_DS_STATUS_RESP;

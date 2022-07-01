@@ -627,8 +627,8 @@ static int init_htables(DataRecoveryContext *ctx)
 
     dedup_ctx = (BinlogDedupContext *)ctx->arg;
 
-    slice_capacity = ctx->master->data.version -
-        ctx->master->dg->myself->data.version;
+    slice_capacity = ctx->master->data.current_version -
+        ctx->master->dg->myself->data.current_version;
     if (slice_capacity < 256) {
         slice_capacity = 256;
     } else if (slice_capacity > STORAGE_CFG.object_block.hashtable_capacity) {
@@ -671,7 +671,7 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     }
     
     dedup_ctx.out.current_version = __sync_fetch_and_add(
-            &ctx->master->dg->myself->data.version, 0);
+            &ctx->master->dg->myself->data.current_version, 0);
 
     result = dedup_binlog(ctx);
 

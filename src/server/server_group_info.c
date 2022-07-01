@@ -711,7 +711,7 @@ static int load_group_servers_from_ini(const char *group_filename,
         for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
             if (ds->cs->server->id == server_id) {
                 ds->status = status;
-                ds->data.version = data_version;
+                ds->data.current_version = data_version;
                 break;
             }
         }
@@ -862,7 +862,7 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
         if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
                         SERVER_GROUP_INFO_ITEM_SERVER, ds->cs->server->id,
                         __sync_fetch_and_add(&ds->status, 0),
-                        ds->data.version)) != 0)
+                        ds->data.current_version)) != 0)
         {
             return result;
         }

@@ -134,7 +134,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
             return ENOENT;
         }
 
-        current_version = FC_ATOMIC_GET(group->myself->data.version);
+        current_version = FC_ATOMIC_GET(group->myself->data.current_version);
         replica_binlog_writer_stat(data_group_id, &writer_stat);
     }
     ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
@@ -375,7 +375,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
             body_part->is_preseted = ds->is_preseted;
             body_part->is_master = is_master;
             body_part->status = status;
-            long2buff(ds->data.version, body_part->data_version);
+            long2buff(ds->data.current_version, body_part->data_version);
             body_part++;
         }
     }

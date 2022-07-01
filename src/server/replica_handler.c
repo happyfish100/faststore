@@ -349,7 +349,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return EALREADY;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
+    my_data_version = __sync_add_and_fetch(&myself->data.current_version, 0);
     if (last_data_version > my_data_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, binlog consistency check fail, "
@@ -390,7 +390,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                     data_group_id, last_data_version)) != 0)
     {
         if (result == EOVERFLOW) {
-            my_data_version = __sync_add_and_fetch(&myself->data.version, 0);
+            my_data_version = __sync_add_and_fetch(&myself->data.current_version, 0);
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, slave server id: %d 's last data "
                     "version: %"PRId64" larger than the last of my binlog "
@@ -464,7 +464,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     if (is_online) {
-        until_version = FC_ATOMIC_GET(myself->data.version);
+        until_version = FC_ATOMIC_GET(myself->data.current_version);
     } else {
         until_version = 0;
     }
@@ -522,7 +522,7 @@ static int replica_deal_query_binlog_info(struct fast_task_info *task)
         return result;
     }
 
-    current_version = FC_ATOMIC_GET(myself->data.version);
+    current_version = FC_ATOMIC_GET(myself->data.current_version);
     if (until_version > current_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, slave id: %d 's until version: %"PRId64
@@ -1005,6 +1005,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
 static int replica_deal_rpc_resp(struct fast_task_info *task)
 {
     int result;
+    int r;
     int count;
     int expect_body_len;
     short err_no;
@@ -1047,22 +1048,20 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
         err_no = buff2short(body_part->err_no);
         if (err_no != 0) {
             result = err_no;
-            RESPONSE.error.length = sprintf(
-                    RESPONSE.error.message,
-                    "replica fail, data_version: %"PRId64
-                    ", result: %d", data_version, err_no);
-            break;
+            logError("file: "__FILE__", line: %d, "
+                    "replica fail, data_version: %"PRId64", result: %d",
+                    __LINE__, data_version, err_no);
         }
 
-        if ((result=replication_processors_deal_rpc_response(
+        if ((r=replication_processors_deal_rpc_response(
                         REPLICA_REPLICATION, data_group_id,
-                        data_version)) != 0)
+                        data_version, err_no)) != 0)
         {
-            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+            result = r;
+            logError("file: "__FILE__", line: %d, "
                     "deal_rpc_response fail, data_group_id: %d, "
                     "data_version: %"PRId64", result: %d",
-                    data_group_id, data_version, result);
-            break;
+                    __LINE__, data_group_id, data_version, result);
         }
     }
 

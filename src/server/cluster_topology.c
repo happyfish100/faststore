@@ -258,7 +258,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         int2buff(ds->cs->server->id, body_part->server_id);
         body_part->is_master = FC_ATOMIC_GET(ds->is_master);
         body_part->status = FC_ATOMIC_GET(ds->status);
-        long2buff(FC_ATOMIC_GET(ds->data.version), body_part->data_version);
+        long2buff(FC_ATOMIC_GET(ds->data.current_version), body_part->data_version);
 
         /*
            logInfo("push to target server id: %d (ctx: %p), event "
@@ -268,7 +268,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
            "cluster version: %"PRId64, ctx->server_id, ctx,
            event_source, event_type, ds->dg->id, ds->cs->server->id,
            body_part->is_master, body_part->status,
-           ds->data.version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
+           ds->data.current_version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
          */
 
         ++body_part;

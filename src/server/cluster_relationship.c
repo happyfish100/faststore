@@ -275,7 +275,7 @@ static int cluster_get_ds_status(FSClusterDataServerInfo *ds,
         ds_status->status = FC_ATOMIC_GET(ds->status);
         ds_status->master_dealing_count = FC_ATOMIC_GET(
                 ds->master_dealing_count);
-        ds_status->data_version = FC_ATOMIC_GET(ds->data.version);
+        ds_status->data_version = FC_ATOMIC_GET(ds->data.current_version);
         return 0;
     }
 
@@ -326,7 +326,7 @@ static void pack_changed_data_versions(int *count, const bool report_all)
             NETWORK_BUFFER.length);
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data.version, 0);
+        data_version = __sync_add_and_fetch(&group->ds->data.current_version, 0);
         if (report_all || group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             int2buff(group->data_group_id, body_part->data_group_id);
@@ -350,7 +350,7 @@ static void leader_deal_data_version_changes()
     count = 0;
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data.version, 0);
+        data_version = __sync_add_and_fetch(&group->ds->data.current_version, 0);
         if (group->ds->last_report_version != data_version) {
             group->ds->last_report_version = data_version;
             cluster_topology_data_server_chg_notify(group->ds,
@@ -1434,9 +1434,9 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         flags = 0;
     }
 
-    old_dv = FC_ATOMIC_GET(ds->data.version);
+    old_dv = FC_ATOMIC_GET(ds->data.current_version);
     if (data_version != old_dv) {
-        FC_ATOMIC_CAS(ds->data.version, old_dv, data_version);
+        FC_ATOMIC_CAS(ds->data.current_version, old_dv, data_version);
         flags |= FS_EVENT_TYPE_DV_CHANGE;
     }
 
@@ -1552,7 +1552,7 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         }
     } else {
         cluster_relationship_set_ds_status(ds, body_part->status);
-        ds->data.version = buff2long(body_part->data_version);
+        ds->data.current_version = buff2long(body_part->data_version);
     }
 
     if (is_master == body_part->is_master) { //master NOT changed

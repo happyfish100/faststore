@@ -357,7 +357,7 @@ static int deal_task(ReplayThreadContext *thread_ctx, ReplayTaskInfo *task)
         if (log_padding) {
             DataRecoveryContext *ctx;
             ctx = replay_ctx->recovery_ctx;
-            FC_ATOMIC_SET(ctx->ds->data.version,
+            FC_ATOMIC_SET(ctx->ds->data.current_version,
                     task->op_ctx.info.data_version);
         }
     } else {

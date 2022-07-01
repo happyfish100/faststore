@@ -171,8 +171,8 @@ static int compare_ds_by_data_version(const void *p1, const void *p2)
 
     ds1 = (FSClusterDataServerInfo **)p1;
     ds2 = (FSClusterDataServerInfo **)p2;
-    if ((sub=fc_compare_int64(FC_ATOMIC_GET((*ds1)->data.version),
-                    FC_ATOMIC_GET((*ds2)->data.version))) != 0)
+    if ((sub=fc_compare_int64(FC_ATOMIC_GET((*ds1)->data.current_version),
+                    FC_ATOMIC_GET((*ds2)->data.current_version))) != 0)
     {
         return sub;
     }
@@ -354,7 +354,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     max_data_version = -1;
     for (ds=last; ds>=group->data_server_array.servers; ds--) {
         if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE) {
-            max_data_version = FC_ATOMIC_GET(ds->data.version);
+            max_data_version = FC_ATOMIC_GET(ds->data.current_version);
             break;
         }
     }
@@ -367,7 +367,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
         return NULL;
     }
 
-    if (max_data_version < FC_ATOMIC_GET(last->data.version)) {
+    if (max_data_version < FC_ATOMIC_GET(last->data.current_version)) {
         if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
             *result = EAGAIN;
             return NULL;
@@ -384,7 +384,7 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
     active_count = 0;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
         if (FC_ATOMIC_GET(ds->cs->status) == FS_SERVER_STATUS_ACTIVE &&
-                FC_ATOMIC_GET(ds->data.version) >= max_data_version)
+                FC_ATOMIC_GET(ds->data.current_version) >= max_data_version)
         {
             online_data_servers[active_count++] = ds;
         }

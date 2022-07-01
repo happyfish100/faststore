@@ -94,7 +94,7 @@ int rpc_result_ring_check_init(FSReplicaRPCResultContext *ctx,
 
 static inline void desc_task_waiting_rpc_count(
         FSReplicaRPCResultInstance *instance,
-        FSReplicaRPCResultEntry *entry)
+        FSReplicaRPCResultEntry *entry, const int err_no)
 {
     FSServerTaskArg *task_arg;
 
@@ -106,6 +106,10 @@ static inline void desc_task_waiting_rpc_count(
     }
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
+    if (err_no == 0 && REPLICA_QUORUM_NEED_MAJORITY) {
+        FC_ATOMIC_INC(task_arg->context.service.rpc.success_count);
+    }
+
     if (__sync_sub_and_fetch(&task_arg->context.
                 service.rpc.waiting_count, 1) == 0)
     {
@@ -129,7 +133,7 @@ static void rpc_result_instance_clear_queue_all(FSReplicaRPCResultContext *ctx,
         deleted = current;
         current = current->next;
 
-        desc_task_waiting_rpc_count(instance, deleted);
+        desc_task_waiting_rpc_count(instance, deleted, ECANCELED);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
     }
 
@@ -148,7 +152,8 @@ static void rpc_result_instance_clear_all(FSReplicaRPCResultContext *ctx,
 
     index = instance->ring.start - instance->ring.entries;
     while (instance->ring.start != instance->ring.end) {
-        desc_task_waiting_rpc_count(instance, instance->ring.start);
+        desc_task_waiting_rpc_count(instance,
+                instance->ring.start, ECANCELED);
         instance->ring.start->data_version = 0;
         instance->ring.start->waiting_task = NULL;
 
@@ -199,7 +204,7 @@ static int rpc_result_instance_clear_queue_timeouts(
                 ctx->replication->peer->server->id,
                 deleted->data_version, deleted->waiting_task);
 
-        desc_task_waiting_rpc_count(instance, deleted);
+        desc_task_waiting_rpc_count(instance, deleted, ETIMEDOUT);
         fast_mblock_free_object(&ctx->rentry_allocator, deleted);
         ++count;
     }
@@ -232,7 +237,8 @@ static int rpc_result_instance_clear_timeouts(
                     ctx->replication->peer->server->id,
                     instance->ring.start->data_version);
 
-            desc_task_waiting_rpc_count(instance, instance->ring.start);
+            desc_task_waiting_rpc_count(instance,
+                    instance->ring.start, ETIMEDOUT);
             instance->ring.start->data_version = 0;
             instance->ring.start->waiting_task = NULL;
 
@@ -391,7 +397,8 @@ int rpc_result_ring_add(FSReplicaRPCResultContext *ctx,
 }
 
 static int remove_from_queue(FSReplicaRPCResultContext *ctx,
-        FSReplicaRPCResultInstance *instance, const uint64_t data_version)
+        FSReplicaRPCResultInstance *instance, const uint64_t data_version,
+        const int err_no)
 {
     FSReplicaRPCResultEntry *entry;
     FSReplicaRPCResultEntry *previous;
@@ -426,13 +433,14 @@ static int remove_from_queue(FSReplicaRPCResultContext *ctx,
         }
     }
 
-    desc_task_waiting_rpc_count(instance, entry);
+    desc_task_waiting_rpc_count(instance, entry, err_no);
     fast_mblock_free_object(&ctx->rentry_allocator, entry);
     return 0;
 }
 
 int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
-        const int data_group_id, const uint64_t data_version)
+        const int data_group_id, const uint64_t data_version,
+        const int err_no)
 {
     FSReplicaRPCResultInstance *instance;
     FSReplicaRPCResultEntry *entry;
@@ -455,12 +463,12 @@ int rpc_result_ring_remove(FSReplicaRPCResultContext *ctx,
                 }
             }
 
-            desc_task_waiting_rpc_count(instance, entry);
+            desc_task_waiting_rpc_count(instance, entry, err_no);
             entry->data_version = 0;
             entry->waiting_task = NULL;
             return 0;
         }
     }
 
-    return remove_from_queue(ctx, instance, data_version);
+    return remove_from_queue(ctx, instance, data_version, errno);
 }

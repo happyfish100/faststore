@@ -71,7 +71,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             full_filename, sizeof(full_filename));
     unlink_flag = false;
     ctx->fetch.last_data_version = __sync_fetch_and_add(
-            &ctx->ds->data.version, 0);
+            &ctx->ds->data.current_version, 0);
     do {
         if (stat(full_filename, &stbuf) != 0) {
             if (errno == ENOENT) {
@@ -109,13 +109,13 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
             break;
         }
 
-        if (last_data_version <= ctx->ds->data.version) {
+        if (last_data_version <= ctx->ds->data.current_version) {
             logWarning("file: "__FILE__", line: %d, "
                     "data_group_id: %d, binlog file: %s, the last data "
                     "version: %"PRId64" <= my current data version: %"PRId64
                     ", should fetch the data binlog again", __LINE__,
                     ctx->ds->dg->id, full_filename, last_data_version,
-                    ctx->ds->data.version);
+                    ctx->ds->data.current_version);
             unlink_flag = true;
             break;
         }
@@ -130,7 +130,7 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
                     __LINE__, full_filename, errno, STRERROR(errno));
             return errno != 0 ? errno : EPERM;
         }
-        ctx->fetch.last_data_version = ctx->ds->data.version;
+        ctx->fetch.last_data_version = ctx->ds->data.current_version;
     }
 
     if ((fetch_ctx->fd=open(full_filename, O_WRONLY |
@@ -506,7 +506,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                     logWarning("file: "__FILE__", line: %d, "
                             "data group id: %d, delete %d binlog files",
                             __LINE__, ctx->ds->dg->id, remove_count);
-                    FC_ATOMIC_SET(ctx->ds->data.version, 0);
+                    FC_ATOMIC_SET(ctx->ds->data.current_version, 0);
                 }
             }
 

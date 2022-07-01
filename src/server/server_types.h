@@ -258,7 +258,8 @@ typedef struct fs_cluster_data_server_info {
     } replica;
 
     struct {
-        volatile uint64_t version;
+        volatile uint64_t current_version;
+        volatile uint64_t confirmed_version; //for replication quorum majority
     } data;
 
     int64_t last_report_version; //for record last data version to the leader

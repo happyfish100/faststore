@@ -715,7 +715,7 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             break;
     }
 
-    old_data_version = FC_ATOMIC_GET(ctx->ds->data.version);
+    old_data_version = FC_ATOMIC_GET(ctx->ds->data.current_version);
     if (ctx->stage == DATA_RECOVERY_STAGE_REPLAY) {
         if ((result=data_recovery_replay_binlog(ctx)) != 0) {
             return result;
@@ -807,7 +807,7 @@ static int data_recovery_waiting_rpc_done(FSClusterDataServerInfo *ds)
     }
 
     count = 0;
-    while ((current_version=FC_ATOMIC_GET(ds->data.version)) <
+    while ((current_version=FC_ATOMIC_GET(ds->data.current_version)) <
             rpc_last_version && count++ < MAX_WAITING_COUNT)
     {
         fc_sleep_ms(100);
