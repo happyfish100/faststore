@@ -26,21 +26,26 @@
 
 typedef struct fs_repl_quorum_thread_thread {
     struct fc_queue queue;
-    volatile int dealing;
-    volatile int running;
+    int64_t *data_versions;
 } FSReplicationQuorumThread;
 
 static FSReplicationQuorumThread fs_repl_quorum_thread;
 
-static inline const char *get_confirmed_filename(
+#define THREAD_DATA_VERSIONS fs_repl_quorum_thread.data_versions
+
+static inline const char *get_confirmed_filename(const int data_group_id,
         const int index, char *filename, const int size)
 {
-    snprintf(filename, size, "%s/version-confirmed.%d", DATA_PATH_STR, index);
+    char subdir_name[64];
+
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    snprintf(filename, size, "%s/%s/version-confirmed.%d",
+            DATA_PATH_STR, subdir_name, index);
     return filename;
 }
 
-static int get_confirmed_version_from_file(const int index,
-        int64_t *confirmed_version)
+static int get_confirmed_version_from_file(const int data_group_id,
+        const int index, int64_t *confirmed_version)
 {
     char filename[PATH_MAX];
     char buff[32];
@@ -52,7 +57,7 @@ static int get_confirmed_version_from_file(const int index,
     } crc32;
     int result;
 
-    get_confirmed_filename(index, filename, sizeof(filename));
+    get_confirmed_filename(data_group_id, index, filename, sizeof(filename));
     if (access(filename, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
@@ -80,7 +85,8 @@ static int get_confirmed_version_from_file(const int index,
     return (crc32.value == crc32.calc ? 0 : EINVAL);
 }
 
-static int load_confirmed_version(int64_t *confirmed_version)
+static int load_confirmed_version(const int data_group_id,
+        int64_t *confirmed_version)
 {
     int result;
     int invalid_count;
@@ -90,7 +96,8 @@ static int load_confirmed_version(int64_t *confirmed_version)
     invalid_count = 0;
     *confirmed_version = 0;
     for (i=0; i<VERSION_CONFIRMED_FILE_COUNT; i++) {
-        result = get_confirmed_version_from_file(i, &current_version);
+        result = get_confirmed_version_from_file(
+                data_group_id, i, &current_version);
         if (result == 0) {
             if (current_version > *confirmed_version) {
                 *confirmed_version = current_version;
@@ -116,14 +123,15 @@ static int load_confirmed_version(int64_t *confirmed_version)
     }
 }
 
-static int unlink_confirmed_files()
+static int unlink_confirmed_files(const int data_group_id)
 {
     int result;
     int index;
     char filename[PATH_MAX];
 
     for (index=0; index<VERSION_CONFIRMED_FILE_COUNT; index++) {
-        get_confirmed_filename(index, filename, sizeof(filename));
+        get_confirmed_filename(data_group_id, index,
+                filename, sizeof(filename));
         if ((result=fc_delete_file_ex(filename, "confirmed")) != 0) {
             return result;
         }
@@ -132,41 +140,44 @@ static int unlink_confirmed_files()
     return 0;
 }
 
-static int rollback_binlog(const int64_t my_confirmed_version)
+static int rollback_binlog(const int data_group_id,
+        const uint64_t my_confirmed_version)
 {
+    const bool ignore_dv_overflow = false;
     int result;
     int start_index;
     int last_index;
     int binlog_index;
-    int64_t last_data_version;
-    SFBinlogFilePosition hint_pos;
+    uint64_t last_data_version;
     SFBinlogFilePosition position;
     char filename[PATH_MAX];
 
-    if ((result=binlog_get_max_record_version(&last_data_version)) != 0) {
+    if ((result=replica_binlog_get_last_dv(data_group_id,
+                    &last_data_version)) != 0)
+    {
         return result;
     }
 
     if (my_confirmed_version >= last_data_version) {
-        return unlink_confirmed_files();
+        return unlink_confirmed_files(data_group_id);
     }
 
-    if ((result=binlog_get_indexes(&start_index, &last_index)) != 0) {
+    if ((result=replica_binlog_get_binlog_indexes(data_group_id,
+                    &start_index, &last_index)) != 0)
+    {
         return result;
     }
 
-    hint_pos.index = last_index;
-    hint_pos.offset = 0;
-    if ((result=binlog_find_position(&hint_pos,
-                    my_confirmed_version,
-                    &position)) != 0)
+    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+                    my_confirmed_version, &position,
+                    ignore_dv_overflow)) != 0)
     {
         return result;
     }
 
     if (position.index < last_index) {
-        if ((result=binlog_writer_set_indexes(start_index,
-                        position.index)) != 0)
+        if ((result=replica_binlog_set_binlog_indexes(data_group_id,
+                        start_index, position.index)) != 0)
         {
             return result;
         }
@@ -175,14 +186,16 @@ static int rollback_binlog(const int64_t my_confirmed_version)
                 binlog_index<last_index;
                 binlog_index++)
         {
-            binlog_get_filename(binlog_index, filename, sizeof(filename));
+            replica_binlog_get_filename(data_group_id, binlog_index,
+                    filename, sizeof(filename));
             if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
                 return result;
             }
         }
     }
 
-    binlog_get_filename(position.index, filename, sizeof(filename));
+    replica_binlog_get_filename(data_group_id, position.index,
+            filename, sizeof(filename));
     if (truncate(filename, position.offset) != 0) {
         result = (errno != 0 ? errno : EPERM);
         logError("file: "__FILE__", line: %d, "
@@ -192,7 +205,9 @@ static int rollback_binlog(const int64_t my_confirmed_version)
         return result;
     }
 
-    if ((result=binlog_get_max_record_version(&last_data_version)) != 0) {
+    if ((result=replica_binlog_get_last_dv(data_group_id,
+                    &last_data_version)) != 0)
+    {
         return result;
     }
     if (last_data_version != my_confirmed_version) {
@@ -203,11 +218,13 @@ static int rollback_binlog(const int64_t my_confirmed_version)
         return EBUSY;
     }
 
-    if ((result=binlog_writer_change_write_index(position.index)) != 0) {
+    if ((result=replica_binlog_writer_change_write_index(
+                    data_group_id, position.index)) != 0)
+    {
         return result;
     }
 
-    return unlink_confirmed_files();
+    return unlink_confirmed_files(data_group_id);
 }
 
 int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
@@ -226,18 +243,21 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
         return result;
     }
 
-    if ((result=load_confirmed_version((int64_t *)
-                    &MY_CONFIRMED_VERSION)) != 0)
+    if ((result=load_confirmed_version(ctx->myself->dg->id, (int64_t *)
+                    &ctx->myself->data.confirmed_version)) != 0)
     {
         return result;
     }
 
-    if (MY_CONFIRMED_VERSION > 0) {
-        if ((result=rollback_binlog(MY_CONFIRMED_VERSION)) != 0) {
+    if (ctx->myself->data.confirmed_version > 0) {
+        if ((result=rollback_binlog(ctx->myself->dg->id, ctx->
+                        myself->data.confirmed_version)) != 0)
+        {
             return result;
         }
     }
 
+    ctx->myself = myself;
     ctx->dealing = 0;
     ctx->confirmed.counter = 0;
     ctx->list.head = ctx->list.tail = NULL;
@@ -248,52 +268,45 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
         struct fast_task_info *task, const int64_t data_version,
         bool *finished)
 {
-    int result;
     FSReplicationQuorumEntry *previous;
     FSReplicationQuorumEntry *entry;
 
+    if (data_version <= FC_ATOMIC_GET(ctx->myself->data.confirmed_version)) {
+        *finished = true;
+        return 0;
+    }
+
+    *finished = false;
+    entry = fast_mblock_alloc_object(&ctx->entry_allocator);
+    if (entry == NULL) {
+        return ENOMEM;
+    }
+
+    entry->task = task;
+    entry->data_version = data_version;
     PTHREAD_MUTEX_LOCK(&ctx->lock);
-    do {
-        if (data_version <= FC_ATOMIC_GET(MY_CONFIRMED_VERSION)) {
-            *finished = true;
-            result = 0;
-            break;
+    if (ctx->list.head == NULL) {
+        entry->next = NULL;
+        ctx->list.head = entry;
+        ctx->list.tail = entry;
+    } else if (data_version >= ctx->list.tail->data_version) {
+        entry->next = NULL;
+        ctx->list.tail->next = entry;
+        ctx->list.tail = entry;
+    } else if (data_version <= ctx->list.head->data_version) {
+        entry->next = ctx->list.head;
+        ctx->list.head = entry;
+    } else {
+        previous = ctx->list.head;
+        while (data_version > previous->next->data_version) {
+            previous = previous->next;
         }
-
-        *finished = false;
-        entry = fast_mblock_alloc_object(&ctx->entry_allocator);
-        if (entry == NULL) {
-            result = ENOMEM;
-            break;
-        }
-        entry->task = task;
-        entry->data_version = data_version;
-
-        if (ctx->list.head == NULL) {
-            entry->next = NULL;
-            ctx->list.head = entry;
-            ctx->list.tail = entry;
-        } else if (data_version >= ctx->list.tail->data_version) {
-            entry->next = NULL;
-            ctx->list.tail->next = entry;
-            ctx->list.tail = entry;
-        } else if (data_version <= ctx->list.head->data_version) {
-            entry->next = ctx->list.head;
-            ctx->list.head = entry;
-        } else {
-            previous = ctx->list.head;
-            while (data_version > previous->next->data_version) {
-                previous = previous->next;
-            }
-            entry->next = previous->next;
-            previous->next = entry;
-        }
-
-        result = 0;
-    } while (0);
+        entry->next = previous->next;
+        previous->next = entry;
+    }
     PTHREAD_MUTEX_UNLOCK(&ctx->lock);
 
-    return result;
+    return 0;
 }
 
 static int compare_int64(const int64_t *n1, const int64_t *n2)
@@ -301,8 +314,8 @@ static int compare_int64(const int64_t *n1, const int64_t *n2)
     return fc_compare_int64(*n1, *n2);
 }
 
-static int write_to_confirmed_file(const int index,
-        const int64_t confirmed_version)
+static int write_to_confirmed_file(const int data_group_id,
+        const int index, const int64_t confirmed_version)
 {
     const int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
     FilenameFDPair pair;
@@ -315,7 +328,8 @@ static int write_to_confirmed_file(const int index,
     crc32 = CRC32(buff, len);
     len += sprintf(buff + len, " %08x", crc32);
 
-    get_confirmed_filename(index, pair.filename, sizeof(pair.filename));
+    get_confirmed_filename(data_group_id, index,
+            pair.filename, sizeof(pair.filename));
     if ((pair.fd=open(pair.filename, flags, 0644)) < 0) {
         result = errno != 0 ? errno : EIO;
         logError("file: "__FILE__", line: %d, "
@@ -337,7 +351,8 @@ static int write_to_confirmed_file(const int index,
     return 0;
 }
 
-static void notify_waiting_tasks(const int64_t my_confirmed_version)
+static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
+        const int64_t my_confirmed_version)
 {
     struct fast_mblock_chain chain;
     struct fast_mblock_node *node;
@@ -377,51 +392,40 @@ void replication_quorum_deal_version_change(
         FSReplicationQuorumContext *ctx,
         const int64_t slave_confirmed_version)
 {
-    if (slave_confirmed_version <= FC_ATOMIC_GET(MY_CONFIRMED_VERSION)) {
+    if (slave_confirmed_version <= FC_ATOMIC_GET(ctx->
+                myself->data.confirmed_version))
+    {
         return;
     }
 
     if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1))
     {
-        //TODO
+        fc_queue_push(&fs_repl_quorum_thread.queue, ctx);
     }
 }
 
-static void deal_version_change()
+static void deal_version_change(FSReplicationQuorumContext *ctx)
 {
-#define FIXED_SERVER_COUNT  8
-    FSClusterServerInfo *server;
-    FSClusterServerInfo *end;
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
     int64_t my_current_version;
     int64_t my_confirmed_version;
     int64_t confirmed_version;
-    int64_t fixed_data_versions[FIXED_SERVER_COUNT];
-    int64_t *data_versions;
     int more_than_half;
     int count;
     int index;
 
-    if (CLUSTER_SERVER_ARRAY.count <= FIXED_SERVER_COUNT) {
-        data_versions = fixed_data_versions;
-    } else {
-        data_versions = fc_malloc(sizeof(int64_t) *
-                CLUSTER_SERVER_ARRAY.count);
-    }
-
     count = 0;
-    my_current_version = FC_ATOMIC_GET(DATA_CURRENT_VERSION);
-    my_confirmed_version = FC_ATOMIC_GET(MY_CONFIRMED_VERSION);
-    end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
-    for (server=CLUSTER_SERVER_ARRAY.servers; server<end; server++) {
-        if (server == CLUSTER_MYSELF_PTR) {
-            continue;
-        }
-
-        confirmed_version=FC_ATOMIC_GET(server->confirmed_data_version);
+    my_current_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
+    my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
+    end = ctx->myself->dg->slave_ds_array.servers +
+        ctx->myself->dg->slave_ds_array.count;
+    for (ds=ctx->myself->dg->slave_ds_array.servers; ds<end; ds++) {
+        confirmed_version=FC_ATOMIC_GET((*ds)->data.confirmed_version);
         if (confirmed_version > my_confirmed_version &&
                 confirmed_version <= my_current_version)
         {
-            data_versions[count++] = confirmed_version;
+            THREAD_DATA_VERSIONS[count++] = confirmed_version;
         }
     }
     more_than_half = CLUSTER_SERVER_ARRAY.count / 2 + 1;
@@ -429,49 +433,44 @@ static void deal_version_change()
     if (count + 1 >= more_than_half) {  //quorum majority
         if (CLUSTER_SERVER_ARRAY.count == 3) {  //fast path
             if (count == 2) {
-                my_confirmed_version = FC_MAX(data_versions[0],
-                        data_versions[1]);
+                my_confirmed_version = FC_MAX(THREAD_DATA_VERSIONS[0],
+                        THREAD_DATA_VERSIONS[1]);
             } else {  //count == 1
-                my_confirmed_version = data_versions[0];
+                my_confirmed_version = THREAD_DATA_VERSIONS[0];
             }
         } else {
-            qsort(data_versions, count, sizeof(int64_t),
+            qsort(THREAD_DATA_VERSIONS, count, sizeof(int64_t),
                     (int (*)(const void *, const void *))
                     compare_int64);
             index = (count + 1) - more_than_half;
-            my_confirmed_version = data_versions[index];
+            my_confirmed_version = THREAD_DATA_VERSIONS[index];
         }
 
-        FC_ATOMIC_SET(MY_CONFIRMED_VERSION, my_confirmed_version);
-        if (write_to_confirmed_file(FC_ATOMIC_INC(ctx->confirmed.counter) %
-                    VERSION_CONFIRMED_FILE_COUNT, my_confirmed_version) != 0)
+        FC_ATOMIC_SET(ctx->myself->data.confirmed_version,
+                my_confirmed_version);
+        if (write_to_confirmed_file(ctx->myself->dg->id, FC_ATOMIC_INC(ctx->
+                        confirmed.counter) % VERSION_CONFIRMED_FILE_COUNT,
+                    my_confirmed_version) != 0)
         {
             sf_terminate_myself();
             return;
         }
 
-        notify_waiting_tasks(my_confirmed_version);
-    }
-
-    if (data_versions != fixed_data_versions) {
-        free(data_versions);
+        notify_waiting_tasks(ctx, my_confirmed_version);
     }
 }
 
 static void *replication_quorum_thread_run(void *arg)
 {
-    __sync_bool_compare_and_swap(&fs_repl_quorum_thread.running, 0, 1);
+    FSReplicationQuorumContext *ctx;
 
     while (1) {
-        //TODO
-        /*
-        if (__sync_bool_compare_and_swap(&ctx->dealing, 1, 0)) {
-            deal_version_change();
+        if ((ctx=fc_queue_pop(&fs_repl_quorum_thread.queue)) != NULL) {
+            __sync_bool_compare_and_swap(&ctx->dealing, 1, 0);
+            deal_version_change(ctx);
         }
-        */
     }
 
-    __sync_bool_compare_and_swap(&fs_repl_quorum_thread.running, 1, 0);
     return NULL;
 }
 
@@ -484,53 +483,40 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
 {
     int64_t my_confirmed_version;
     int64_t current_data_version;
-    pid_t pid;
 
     if (!REPLICA_QUORUM_NEED_MAJORITY) {
         return 0;
     }
 
-    my_confirmed_version = FC_ATOMIC_GET(MY_CONFIRMED_VERSION);
-    current_data_version = FC_ATOMIC_GET(DATA_CURRENT_VERSION);
+    my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
+    current_data_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
     if (my_confirmed_version >= current_data_version) {
-        return unlink_confirmed_files();
+        return unlink_confirmed_files(ctx->myself->dg->id);
     }
 
-    pid = fork();
-    if (pid < 0) {
-        return (errno != 0 ? errno : EBUSY);
-    } else if (pid > 0) {
-        logInfo("file: "__FILE__", line: %d, "
-                "i am not the master, restart to rollback data",
-                __LINE__);
-        return 0;
-    }
-
-    //child process
-    if (execlp(CMDLINE_PROGRAM_FILENAME, CMDLINE_PROGRAM_FILENAME,
-                CMDLINE_CONFIG_FILENAME, "restart", NULL) < 0)
-    {
-        int result;
-        result = errno != 0 ? errno : EBUSY;
-        logError("file: "__FILE__", line: %d, "
-                "exec \"%s %s restart\" fail, errno: %d, error info: %s",
-                __LINE__, CMDLINE_PROGRAM_FILENAME, CMDLINE_CONFIG_FILENAME,
-                result, STRERROR(result));
-
-        log_sync_func(&g_log_context);
-        kill(getppid(), SIGQUIT);
-        exit(result);
-    }
-
+    //TODO rollback data and binlog
     return 0;
 }
 
 int replication_quorum_init()
 {
+    int result;
     pthread_t tid;
 
     if (!REPLICA_QUORUM_NEED_MAJORITY) {
         return 0;
+    }
+
+    THREAD_DATA_VERSIONS = fc_malloc(sizeof(int64_t) *
+            CLUSTER_SERVER_ARRAY.count);
+    if (THREAD_DATA_VERSIONS == NULL) {
+        return ENOMEM;
+    }
+
+    if ((result=fc_queue_init(&fs_repl_quorum_thread.queue, (long)
+                    &((FSReplicationQuorumContext *)NULL)->next)) != 0)
+    {
+        return result;
     }
 
     return fc_create_thread(&tid, replication_quorum_thread_run,

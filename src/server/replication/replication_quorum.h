@@ -35,6 +35,7 @@ typedef struct fs_replication_quorum_context {
         FSReplicationQuorumEntry *tail;
     } list;
 
+    volatile int dealing;
     struct {
         volatile int64_t counter;
     } confirmed;
