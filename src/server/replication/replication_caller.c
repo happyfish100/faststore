@@ -125,7 +125,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
         status = __sync_fetch_and_add(&(*ds)->status, 0);
         if (status == FS_DS_STATUS_ONLINE) {
-            log_data_update(op);  //log before RPC for slave fetching binlog
+            data_thread_log_data_update(op);  //log before RPC for slave fetching binlog
         } else if (status != FS_DS_STATUS_ACTIVE) {
             inactive_count++;
             continue;

@@ -220,7 +220,7 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
         op->binlog_write_done = false;
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
             if (!MASTER_ELECTION_FAILOVER) {
-                log_data_update(op);  //log first
+                data_thread_log_data_update(op);  //log first
             }
 
             if (replication_caller_push_to_slave_queues(op) ==
@@ -229,7 +229,7 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
         }
-        log_data_update(op);
+        data_thread_log_data_update(op);
 
         /*
            logInfo("file: "__FILE__", line: %d, op ptr: %p, "

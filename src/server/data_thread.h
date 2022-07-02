@@ -130,7 +130,7 @@ extern "C" {
         }
     }
 
-    static inline int log_data_update(FSDataOperation *op)
+    static inline int data_thread_log_data_update(FSDataOperation *op)
     {
         if (op->binlog_write_done) {
             return 0;
