@@ -26,7 +26,7 @@
 #include "fastcommon/server_id_func.h"
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/fc_atomic.h"
-#include "sf/idempotency/server/server_types.h"
+#include "sf/idempotency/server/request_metadata.h"
 #include "common/fs_types.h"
 #include "storage/storage_types.h"
 
@@ -238,6 +238,7 @@ typedef struct fs_cluster_server_ptr_array {
 } FSClusterServerPtrArray;
 
 struct fs_cluster_data_group_info;
+
 typedef struct fs_cluster_data_server_info {
     struct fs_cluster_data_group_info *dg;
     FSClusterServerInfo *cs;
@@ -270,6 +271,30 @@ typedef struct fs_cluster_data_server_array {
     int count;
 } FSClusterDataServerArray;
 
+typedef struct fs_replication_quorum_entry {
+    int64_t data_version;
+    struct fast_task_info *task;
+    struct fs_replication_quorum_entry *next;
+} FSReplicationQuorumEntry;
+
+typedef struct fs_replication_quorum_context {
+    struct fast_mblock_man entry_allocator; //element: FSReplicationQuorumEntry
+    pthread_mutex_t lock;
+
+    struct {
+        FSReplicationQuorumEntry *head;
+        FSReplicationQuorumEntry *tail;
+    } list;
+
+    volatile int dealing;
+    struct {
+        volatile int64_t counter;
+    } confirmed;
+
+    FSClusterDataServerInfo *myself;
+    struct fs_replication_quorum_context *next;  //for queue
+} FSReplicationQuorumContext;
+
 typedef struct fs_cluster_data_group_info {
     int id;
     int index;
@@ -288,6 +313,8 @@ typedef struct fs_cluster_data_group_info {
     FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
+    FSReplicationQuorumContext repl_quorum_ctx;
+    IdempotencyRequestMetadataContext req_meta_ctx;
 } FSClusterDataGroupInfo;
 
 typedef struct fs_cluster_data_group_array {

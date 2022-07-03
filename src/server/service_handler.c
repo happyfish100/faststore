@@ -45,6 +45,7 @@
 #include "common/fs_func.h"
 #include "binlog/replica_binlog.h"
 #include "replication/replication_common.h"
+#include "replication/replication_quorum.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -60,10 +61,17 @@ typedef int (*deal_task_func)(struct fast_task_info *task,
 
 int service_handler_init()
 {
-    return idempotency_channel_init(SF_IDEMPOTENCY_MAX_CHANNEL_ID,
-            SF_IDEMPOTENCY_DEFAULT_REQUEST_HINT_CAPACITY,
-            SF_IDEMPOTENCY_DEFAULT_CHANNEL_RESERVE_INTERVAL,
-            SF_IDEMPOTENCY_DEFAULT_CHANNEL_SHARED_LOCK_COUNT);
+    int result;
+
+    if ((result=idempotency_channel_init(SF_IDEMPOTENCY_MAX_CHANNEL_ID,
+                    SF_IDEMPOTENCY_DEFAULT_REQUEST_HINT_CAPACITY,
+                    SF_IDEMPOTENCY_DEFAULT_CHANNEL_RESERVE_INTERVAL,
+                    SF_IDEMPOTENCY_DEFAULT_CHANNEL_SHARED_LOCK_COUNT)) != 0)
+    {
+        return result;
+    }
+
+    return replication_quorum_init();
 }
 
 int service_handler_destroy()

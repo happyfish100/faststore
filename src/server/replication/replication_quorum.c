@@ -232,6 +232,10 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
 {
     int result;
 
+    if (!REPLICA_QUORUM_NEED_MAJORITY) {
+        return 0;
+    }
+
     if ((result=fast_mblock_init_ex1(&ctx->entry_allocator,
                     "repl_quorum_entry", sizeof(FSReplicationQuorumEntry),
                     4096, 0, NULL, NULL, true)) != 0)

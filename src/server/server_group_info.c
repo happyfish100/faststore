@@ -25,6 +25,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/sched_thread.h"
 #include "fastcommon/local_ip_func.h"
+#include "replication/replication_quorum.h"
 #include "server_global.h"
 #include "cluster_topology.h"
 #include "server_group_info.h"
@@ -209,6 +210,28 @@ static int init_slave_ds_array(FSClusterDataGroupInfo *group)
     return 0;
 }
 
+static bool fs_is_master_callback(FSClusterDataServerInfo *myself,
+        int64_t *data_version)
+{
+    FSClusterDataServerInfo *master;
+    int64_t my_data_version;
+
+    my_data_version = FC_ATOMIC_GET(myself->data.confirmed_version);
+    master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(myself->dg->master);
+    if (myself == master) {
+        *data_version = my_data_version;
+        return true;
+    } else {
+        if (master == NULL) {
+            *data_version = 0;
+        } else {
+            *data_version = FC_MIN(my_data_version,
+                    master->data.confirmed_version);
+        }
+        return false;
+    }
+}
+
 static int init_cluster_data_group_array(const char *filename,
         const int server_id, FSIdArray *assoc_gid_array)
 {
@@ -262,8 +285,8 @@ static int init_cluster_data_group_array(const char *filename,
     CLUSTER_DATA_RGOUP_ARRAY.count = count;
     CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;
 
-    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
-            server_id)) == NULL)
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(
+                    &CLUSTER_CONFIG_CTX, server_id)) == NULL)
     {
         logError("file: "__FILE__", line: %d, "
                 "cluster config file: %s, no data group",
@@ -281,6 +304,19 @@ static int init_cluster_data_group_array(const char *filename,
         }
 
         if ((result=init_slave_ds_array(group)) != 0) {
+            return result;
+        }
+
+        if ((result=replication_quorum_init_context(&group->
+                        repl_quorum_ctx, group->myself)) != 0)
+        {
+            return result;
+        }
+
+        if ((result=idempotency_request_metadata_init(&group->req_meta_ctx,
+                        (sf_is_master_callback)fs_is_master_callback,
+                        group->myself)) != 0)
+        {
             return result;
         }
 
@@ -681,13 +717,15 @@ static int load_group_servers_from_ini(const char *group_filename,
 
     sprintf(section_name, "%s%d", DATA_GROUP_SECTION_PREFIX_STR,
             group->id);
-    if ((items=iniGetValuesEx(section_name, SERVER_GROUP_INFO_ITEM_SERVER,
-            ini_context, &item_count)) == NULL)
+    if ((items=iniGetValuesEx(section_name,
+                    SERVER_GROUP_INFO_ITEM_SERVER,
+                    ini_context, &item_count)) == NULL)
     {
         return 0;
     }
 
-    ds_end = group->data_server_array.servers + group->data_server_array.count;
+    ds_end = group->data_server_array.servers +
+        group->data_server_array.count;
     it_end = items + item_count;
     for (it=items; it<it_end; it++) {
         FC_SET_STRING(value, it->value);

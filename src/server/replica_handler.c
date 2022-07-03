@@ -53,7 +53,21 @@
 
 int replica_handler_init()
 {
-    return 0;
+    const int master_side_timeout = 600;
+    int process_interval_ms;
+    FSIdArray *id_array;
+
+    id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id);
+    process_interval_ms = 1000 / id_array->count;
+    if (process_interval_ms == 0) {
+        process_interval_ms = 2;
+    } else if (process_interval_ms % 2 == 1) {
+        process_interval_ms++;
+    }
+
+    return idempotency_request_metadata_start(
+            process_interval_ms, master_side_timeout);
 }
 
 int replica_handler_destroy()

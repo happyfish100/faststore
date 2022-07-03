@@ -20,30 +20,6 @@
 #include "fastcommon/pthread_func.h"
 #include "../server_types.h"
 
-typedef struct fs_replication_quorum_entry {
-    int64_t data_version;
-    struct fast_task_info *task;
-    struct fs_replication_quorum_entry *next;
-} FSReplicationQuorumEntry;
-
-typedef struct fs_replication_quorum_context {
-    struct fast_mblock_man entry_allocator; //element: FSReplicationQuorumEntry
-    pthread_mutex_t lock;
-
-    struct {
-        FSReplicationQuorumEntry *head;
-        FSReplicationQuorumEntry *tail;
-    } list;
-
-    volatile int dealing;
-    struct {
-        volatile int64_t counter;
-    } confirmed;
-
-    FSClusterDataServerInfo *myself;
-    struct fs_replication_quorum_context *next;  //for queue
-} FSReplicationQuorumContext;
-
 #ifdef __cplusplus
 extern "C" {
 #endif
