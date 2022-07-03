@@ -402,8 +402,7 @@ void replication_quorum_deal_version_change(
         return;
     }
 
-    if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1))
-    {
+    if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1)) {
         fc_queue_push(&fs_repl_quorum_thread.queue, ctx);
     }
 }

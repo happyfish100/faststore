@@ -22,6 +22,7 @@
 #include "sf/sf_global.h"
 #include "fastcfs/vote/fcfs_vote_client.h"
 #include "common/fs_proto.h"
+#include "replication/replication_quorum.h"
 #include "server_global.h"
 #include "server_recovery.h"
 #include "master_election.h"
@@ -319,19 +320,31 @@ static void pack_changed_data_versions(int *count, const bool report_all)
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
     FSProtoPingLeaderReqBodyPart *body_part;
-    int64_t data_version;
+    struct {
+        int64_t current;
+        int64_t confirmed;
+    } data_versions;
 
     *count = 0;
     body_part = (FSProtoPingLeaderReqBodyPart *)(NETWORK_BUFFER.data +
             NETWORK_BUFFER.length);
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data.current_version, 0);
-        if (report_all || group->ds->last_report_version != data_version) {
-            group->ds->last_report_version = data_version;
+        data_versions.current = FC_ATOMIC_GET(
+                group->ds->data.current_version);
+        data_versions.confirmed = FC_ATOMIC_GET(
+                group->ds->data.confirmed_version);
+        if (report_all || group->ds->last_report_versions.current !=
+                data_versions.current || group->ds->last_report_versions.
+                confirmed != data_versions.confirmed)
+        {
+            group->ds->last_report_versions.current = data_versions.current;
+            group->ds->last_report_versions.confirmed = data_versions.confirmed;
             int2buff(group->data_group_id, body_part->data_group_id);
-            long2buff(data_version, body_part->data_version);
-            body_part->status = __sync_add_and_fetch(&group->ds->status, 0);
+            long2buff(data_versions.current, body_part->data_versions.current);
+            long2buff(data_versions.confirmed, body_part->
+                    data_versions.confirmed);
+            body_part->status = FC_ATOMIC_GET(group->ds->status);
             body_part++;
             ++(*count);
         }
@@ -344,15 +357,25 @@ static void leader_deal_data_version_changes()
 {
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
-    int64_t data_version;
+    struct {
+        int64_t current;
+        int64_t confirmed;
+    } data_versions;
     int count;
 
     count = 0;
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
-        data_version = __sync_add_and_fetch(&group->ds->data.current_version, 0);
-        if (group->ds->last_report_version != data_version) {
-            group->ds->last_report_version = data_version;
+        data_versions.current = FC_ATOMIC_GET(
+                group->ds->data.current_version);
+        data_versions.confirmed = FC_ATOMIC_GET(
+                group->ds->data.confirmed_version);
+        if (group->ds->last_report_versions.current != data_versions.
+                current || group->ds->last_report_versions.
+                confirmed != data_versions.confirmed)
+        {
+            group->ds->last_report_versions.current = data_versions.current;
+            group->ds->last_report_versions.confirmed = data_versions.confirmed;
             cluster_topology_data_server_chg_notify(group->ds,
                     FS_EVENT_SOURCE_SELF_REPORT,
                     FS_EVENT_TYPE_DV_CHANGE, false);
@@ -1448,10 +1471,13 @@ bool cluster_relationship_set_ds_status_ex(FSClusterDataServerInfo *ds,
 }
 
 int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
-        const int status, const uint64_t data_version)
+        const int status, const FSClusterDataVersionPair *data_versions)
 {
     int flags;
-    uint64_t old_dv;
+    struct {
+        uint64_t current;
+        uint64_t confirmed;
+    } old_dvs;
 
     if (cluster_relationship_set_ds_status(ds, status)) {
         flags = FS_EVENT_TYPE_STATUS_CHANGE;
@@ -1459,10 +1485,18 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
         flags = 0;
     }
 
-    old_dv = FC_ATOMIC_GET(ds->data.current_version);
-    if (data_version != old_dv) {
-        FC_ATOMIC_CAS(ds->data.current_version, old_dv, data_version);
-        flags |= FS_EVENT_TYPE_DV_CHANGE;
+    old_dvs.current = FC_ATOMIC_GET(ds->data.current_version);
+    if (data_versions->current != old_dvs.current) {
+        FC_ATOMIC_CAS(ds->data.current_version, old_dvs.
+                current, data_versions->current);
+        flags |= FS_EVENT_TYPE_CURRENT_DV_CHANGE;
+    }
+
+    old_dvs.confirmed = FC_ATOMIC_GET(ds->data.confirmed_version);
+    if (data_versions->confirmed != old_dvs.confirmed) {
+        FC_ATOMIC_CAS(ds->data.confirmed_version, old_dvs.
+                confirmed, data_versions->confirmed);
+        flags |= FS_EVENT_TYPE_CONFIRMED_DV_CHANGE;
     }
 
     return flags;
@@ -1470,7 +1504,8 @@ int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
 
 void cluster_relationship_trigger_report_ds_status(FSClusterDataServerInfo *ds)
 {
-    ds->last_report_version = -1;
+    ds->last_report_versions.current = -1;
+    ds->last_report_versions.confirmed = -1;
     __sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 0, 1);
 }
 
@@ -1562,6 +1597,8 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     FSClusterDataServerInfo *new_master;
     int old_status;
     int is_master;
+    int64_t old_confirmed_version;
+    int64_t new_confirmed_version;
 
     is_master = FC_ATOMIC_GET(ds->is_master);
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
@@ -1577,7 +1614,20 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
         }
     } else {
         cluster_relationship_set_ds_status(ds, body_part->status);
-        ds->data.current_version = buff2long(body_part->data_version);
+        ds->data.current_version = buff2long(body_part->data_versions.current);
+        new_confirmed_version = buff2long(body_part->data_versions.confirmed);
+        old_confirmed_version = FC_ATOMIC_GET(ds->data.confirmed_version);
+        if (new_confirmed_version != old_confirmed_version) {
+            FC_ATOMIC_CAS(ds->data.confirmed_version,
+                    old_confirmed_version,
+                    new_confirmed_version);
+            if (REPLICA_QUORUM_NEED_MAJORITY && ds->dg->myself ==
+                    FC_ATOMIC_GET(ds->dg->master))
+            {
+                replication_quorum_deal_version_change(&ds->dg->
+                        repl_quorum_ctx, new_confirmed_version);
+            }
+        }
     }
 
     if (is_master == body_part->is_master) { //master NOT changed

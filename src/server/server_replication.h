@@ -22,6 +22,7 @@
 #include "replication/replication_common.h"
 #include "replication/replication_caller.h"
 #include "replication/replication_callee.h"
+#include "replication/replication_quorum.h"
 
 #ifdef __cplusplus
 extern "C" {

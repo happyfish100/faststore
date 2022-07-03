@@ -52,7 +52,7 @@ static inline bool cluster_relationship_set_ds_status(
 }
 
 int cluster_relationship_set_ds_status_and_dv(FSClusterDataServerInfo *ds,
-        const int status, const uint64_t data_version);
+        const int status, const FSClusterDataVersionPair *data_versions);
 
 int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status, const int source);

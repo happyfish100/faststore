@@ -209,6 +209,8 @@ static void data_thread_rw_done_callback(
 static void deal_operation_finish(FSDataThreadContext *thread_ctx,
         FSDataOperation *op, const bool is_update)
 {
+    struct fast_task_info *task;
+
     if (op->ctx->result != 0) {
         if (is_update && op->source == DATA_SOURCE_SLAVE_REPLICA) {
             logCrit("file: "__FILE__", line: %d, "
@@ -228,6 +230,33 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
+
+            if (REPLICA_QUORUM_NEED_MAJORITY) {
+                int success_count;
+
+                task = op->arg;
+                success_count = FC_ATOMIC_GET(TASK_CTX.
+                        service.rpc.success_count) + 1;
+                if (!SF_REPLICATION_QUORUM_MAJORITY(op->ctx->info.myself->
+                            dg->ds_ptr_array.count, success_count))
+                {
+                    bool finished;
+                    if ((RESPONSE_STATUS=replication_quorum_add(&op->ctx->
+                                    info.myself->dg->repl_quorum_ctx,
+                                    task, op->ctx->info.data_version,
+                                    &finished)) == 0)
+                    {
+                        if (!finished) {
+                            //TODO
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!REPLICA_QUORUM_NEED_MAJORITY) {
+            FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
+                    op->ctx->info.data_version);
         }
         data_thread_log_data_update(op);
 

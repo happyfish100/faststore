@@ -258,7 +258,10 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         int2buff(ds->cs->server->id, body_part->server_id);
         body_part->is_master = FC_ATOMIC_GET(ds->is_master);
         body_part->status = FC_ATOMIC_GET(ds->status);
-        long2buff(FC_ATOMIC_GET(ds->data.current_version), body_part->data_version);
+        long2buff(FC_ATOMIC_GET(ds->data.current_version),
+                body_part->data_versions.current);
+        long2buff(FC_ATOMIC_GET(ds->data.confirmed_version),
+                body_part->data_versions.confirmed);
 
         /*
            logInfo("push to target server id: %d (ctx: %p), event "

@@ -117,9 +117,13 @@
 #define FS_WHICH_SIDE_MASTER    'M'
 #define FS_WHICH_SIDE_SLAVE     'S'
 
-#define FS_EVENT_TYPE_STATUS_CHANGE     1
-#define FS_EVENT_TYPE_DV_CHANGE         2
-#define FS_EVENT_TYPE_MASTER_CHANGE     4
+#define FS_EVENT_TYPE_STATUS_CHANGE       1
+#define FS_EVENT_TYPE_CURRENT_DV_CHANGE   2
+#define FS_EVENT_TYPE_CONFIRMED_DV_CHANGE 4
+#define FS_EVENT_TYPE_MASTER_CHANGE       8
+
+#define FS_EVENT_TYPE_DV_CHANGE (FS_EVENT_TYPE_CURRENT_DV_CHANGE | \
+        FS_EVENT_TYPE_CONFIRMED_DV_CHANGE)
 
 #define FS_EVENT_SOURCE_SELF_PING       'P'
 #define FS_EVENT_SOURCE_SELF_REPORT     'R'
@@ -237,6 +241,11 @@ typedef struct fs_cluster_server_ptr_array {
     int count;
 } FSClusterServerPtrArray;
 
+typedef struct fs_cluster_data_version_pair {
+    int64_t current;
+    int64_t confirmed;
+} FSClusterDataVersionPair;
+
 struct fs_cluster_data_group_info;
 
 typedef struct fs_cluster_data_server_info {
@@ -263,7 +272,7 @@ typedef struct fs_cluster_data_server_info {
         volatile uint64_t confirmed_version; //for replication quorum majority
     } data;
 
-    int64_t last_report_version; //for record last data version to the leader
+    FSClusterDataVersionPair last_report_versions; //record last data versions to the leader
 } FSClusterDataServerInfo;
 
 typedef struct fs_cluster_data_server_array {

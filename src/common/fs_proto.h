@@ -332,7 +332,10 @@ typedef struct fs_proto_push_data_server_status_header  {
 typedef struct fs_proto_push_data_server_status_body_part {
     char data_group_id[4];
     char server_id[4];
-    char data_version[8];
+    struct {
+        char current[8];
+        char confirmed[8];
+    } data_versions;
     char is_master;
     char status;
     char padding[6];
@@ -345,7 +348,10 @@ typedef struct fs_proto_ping_leader_req_header  {
 } FSProtoPingLeaderReqHeader;
 
 typedef struct fs_proto_ping_leader_req_body_part {
-    char data_version[8];
+    struct {
+        char current[8];
+        char confirmed[8];
+    } data_versions;
     char data_group_id[4];
     char status;
     char padding[3];

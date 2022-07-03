@@ -38,6 +38,7 @@
 #include "sf/sf_nio.h"
 #include "sf/sf_global.h"
 #include "common/fs_proto.h"
+#include "replication/replication_quorum.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -257,16 +258,26 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     return 0;
 }
 
-static bool set_ds_status_and_data_version(FSClusterDataServerInfo *ds,
-        const int status, const uint64_t data_version, const bool notify_self,
-        const int source)
+static bool set_ds_status_and_dv(FSClusterDataServerInfo *ds, const int status,
+        const FSClusterDataVersionPair *data_versions)
 {
+    const bool notify_self = false;
+    const int source = FS_EVENT_SOURCE_SELF_PING;
     int event_type;
+
     if ((event_type=cluster_relationship_set_ds_status_and_dv(ds,
-                status, data_version)) != 0)
+                status, data_versions)) != 0)
     {
         cluster_topology_data_server_chg_notify(ds, source,
                 event_type, notify_self);
+
+        if ((event_type & FS_EVENT_TYPE_CONFIRMED_DV_CHANGE) != 0 &&
+                REPLICA_QUORUM_NEED_MAJORITY && ds->dg->myself ==
+                FC_ATOMIC_GET(ds->dg->master))
+        {
+            replication_quorum_deal_version_change(&ds->dg->
+                    repl_quorum_ctx, data_versions->confirmed);
+        }
         return true;
     } else {
         return false;
@@ -282,7 +293,7 @@ static int process_ping_leader_req(struct fast_task_info *task)
     int expect_body_length;
     int data_group_id;
     int64_t leader_version;
-    uint64_t data_version;
+    FSClusterDataVersionPair data_versions;
     int i;
     int change_count;
 
@@ -318,10 +329,11 @@ static int process_ping_leader_req(struct fast_task_info *task)
         if ((ds=fs_get_data_server(data_group_id,
                         CLUSTER_PEER->server->id)) != NULL)
         {
-            data_version = buff2long(body_part->data_version);
-            if (set_ds_status_and_data_version(ds, body_part->status,
-                        data_version, false, FS_EVENT_SOURCE_SELF_PING))
-            {
+            data_versions.current = buff2long(
+                    body_part->data_versions.current);
+            data_versions.confirmed = buff2long(
+                    body_part->data_versions.confirmed);
+            if (set_ds_status_and_dv(ds, body_part->status, &data_versions)) {
                 ++change_count;
             }
         }
