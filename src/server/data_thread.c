@@ -230,6 +230,7 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
+            data_thread_log_data_update(op);
 
             if (REPLICA_QUORUM_NEED_MAJORITY) {
                 int success_count;
@@ -241,24 +242,32 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
                             dg->ds_ptr_array.count, success_count))
                 {
                     bool finished;
-                    if ((RESPONSE_STATUS=replication_quorum_add(&op->ctx->
+                    if ((op->ctx->result=replication_quorum_add(&op->ctx->
                                     info.myself->dg->repl_quorum_ctx,
                                     task, op->ctx->info.data_version,
                                     &finished)) == 0)
                     {
                         if (!finished) {
-                            //TODO
+                            sf_synchronize_finished_wait(&op->ctx->info.
+                                    myself->dg->repl_quorum_ctx.sctx);
+                            if (!SF_G_CONTINUE_FLAG) {
+                                op->ctx->result = EAGAIN;
+                                return;
+                            }
                         }
                     }
                 }
+            } else {
+                FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
+                        op->ctx->info.data_version);
+            }
+        } else {
+            data_thread_log_data_update(op);
+            if (!REPLICA_QUORUM_NEED_MAJORITY) {
+                FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
+                        op->ctx->info.data_version);
             }
         }
-
-        if (!REPLICA_QUORUM_NEED_MAJORITY) {
-            FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
-                    op->ctx->info.data_version);
-        }
-        data_thread_log_data_update(op);
 
         /*
            logInfo("file: "__FILE__", line: %d, op ptr: %p, "

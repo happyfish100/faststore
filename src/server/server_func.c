@@ -227,9 +227,6 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
         return result;
     }
-
-    REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
-            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
     return 0;
 }
 

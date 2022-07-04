@@ -321,10 +321,10 @@ static int init_cluster_data_group_array(const char *filename,
         }
 
         /*
-           logInfo("file: "__FILE__", line: %d, func: %s, "
-           "%d. data_group_id = %d", __LINE__, __FUNCTION__,
-           i + 1, data_group_id);
-           */
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "%d. data_group_id = %d", __LINE__, __FUNCTION__,
+                i + 1, data_group_id);
+                */
     }
 
     return 0;
@@ -500,6 +500,9 @@ static int init_cluster_server_array(const char *filename)
         //logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
     }
     CLUSTER_SERVER_ARRAY.count = count;
+
+    REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
+            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
 
     if ((result=find_myself_in_cluster_config(filename)) != 0) {
         return result;

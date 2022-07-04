@@ -288,7 +288,7 @@ typedef struct fs_replication_quorum_entry {
 
 typedef struct fs_replication_quorum_context {
     struct fast_mblock_man entry_allocator; //element: FSReplicationQuorumEntry
-    pthread_mutex_t lock;
+    SFSynchronizeContext sctx;
 
     struct {
         FSReplicationQuorumEntry *head;

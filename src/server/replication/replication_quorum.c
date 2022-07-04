@@ -243,18 +243,18 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
         return result;
     }
 
-    if ((result=init_pthread_lock(&ctx->lock)) != 0) {
+    if ((result=sf_synchronize_ctx_init(&ctx->sctx)) != 0) {
         return result;
     }
 
-    if ((result=load_confirmed_version(ctx->myself->dg->id, (int64_t *)
-                    &ctx->myself->data.confirmed_version)) != 0)
+    if ((result=load_confirmed_version(myself->dg->id, (int64_t *)
+                    &myself->data.confirmed_version)) != 0)
     {
         return result;
     }
 
-    if (ctx->myself->data.confirmed_version > 0) {
-        if ((result=rollback_binlog(ctx->myself->dg->id, ctx->
+    if (myself->data.confirmed_version > 0) {
+        if ((result=rollback_binlog(myself->dg->id, ctx->
                         myself->data.confirmed_version)) != 0)
         {
             return result;
@@ -265,6 +265,7 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
     ctx->dealing = 0;
     ctx->confirmed.counter = 0;
     ctx->list.head = ctx->list.tail = NULL;
+    ctx->sctx.finished = false;
     return 0;
 }
 
@@ -288,7 +289,7 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
 
     entry->task = task;
     entry->data_version = data_version;
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
     if (ctx->list.head == NULL) {
         entry->next = NULL;
         ctx->list.head = entry;
@@ -308,7 +309,7 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
         entry->next = previous->next;
         previous->next = entry;
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 
     return 0;
 }
@@ -362,7 +363,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
     struct fast_mblock_node *node;
 
     chain.head = chain.tail = NULL;
-    PTHREAD_MUTEX_LOCK(&ctx->lock);
+    PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
     if (ctx->list.head != NULL && my_confirmed_version >=
             ctx->list.head->data_version)
     {
@@ -375,7 +376,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
             }
             chain.tail = node;
 
-            sf_nio_notify(ctx->list.head->task, SF_NIO_STAGE_CONTINUE);
+            sf_synchronize_finished_notify(&ctx->sctx);
             ctx->list.head = ctx->list.head->next;
         } while (ctx->list.head != NULL && my_confirmed_version >=
                 ctx->list.head->data_version);
@@ -389,7 +390,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
     if (chain.head != NULL) {
         fast_mblock_batch_free(&ctx->entry_allocator, &chain);
     }
-    PTHREAD_MUTEX_UNLOCK(&ctx->lock);
+    PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 }
 
 void replication_quorum_deal_version_change(
