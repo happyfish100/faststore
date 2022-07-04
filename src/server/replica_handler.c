@@ -279,8 +279,9 @@ static int fetch_binlog_output(struct fast_task_info *task, char *buff,
 }
 
 static int replica_fetch_binlog_first_output(struct fast_task_info *task,
-        const bool is_full_dump, const bool is_online,
-        const uint32_t repl_version, const uint64_t until_version)
+        FSClusterDataServerInfo *myself, const bool is_full_dump,
+        const bool is_online, const uint32_t repl_version,
+        const uint64_t until_version)
 {
     FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
     char *buff;
@@ -363,7 +364,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
         return EALREADY;
     }
 
-    my_data_version = __sync_add_and_fetch(&myself->data.current_version, 0);
+    my_data_version = FC_ATOMIC_GET(myself->data.current_version);
     if (last_data_version > my_data_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, binlog consistency check fail, "
@@ -482,8 +483,8 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     } else {
         until_version = 0;
     }
-    return replica_fetch_binlog_first_output(task, is_full_dump,
-            is_online, repl_version, until_version);
+    return replica_fetch_binlog_first_output(task, myself,
+            is_full_dump, is_online, repl_version, until_version);
 }
 
 static int replica_deal_fetch_binlog_next(struct fast_task_info *task)
@@ -1116,7 +1117,9 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     }
 
     slave_id = buff2int(req->slave_id);
-    if (slave_id == 0) {
+    if (data_thread_is_blocked(OP_CTX_INFO.myself->dg->id)) {
+        direct_read = true;
+    } else if (slave_id == 0) {
         direct_read = false;
     } else if (FC_ATOMIC_GET(OP_CTX_INFO.myself->is_master)) {
         /*

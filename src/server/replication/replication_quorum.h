@@ -27,9 +27,6 @@ extern "C" {
     int replication_quorum_init();
     void replication_quorum_destroy();
 
-    int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
-            FSClusterDataServerInfo *myself);
-
     int replication_quorum_add(FSReplicationQuorumContext *ctx,
             struct fast_task_info *task, const int64_t data_version,
             bool *finished);

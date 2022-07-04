@@ -307,12 +307,6 @@ static int init_cluster_data_group_array(const char *filename,
             return result;
         }
 
-        if ((result=replication_quorum_init_context(&group->
-                        repl_quorum_ctx, group->myself)) != 0)
-        {
-            return result;
-        }
-
         if ((result=idempotency_request_metadata_init(&group->req_meta_ctx,
                         (sf_is_master_callback)fs_is_master_callback,
                         group->myself)) != 0)
@@ -330,8 +324,8 @@ static int init_cluster_data_group_array(const char *filename,
     return 0;
 }
 
-static FCServerInfo *get_myself_in_cluster_cfg(const char *filename,
-        int *err_no)
+static FCServerInfo *get_myself_in_cluster_cfg(
+        const char *filename, int *err_no)
 {
     const char *local_ip;
     struct {
@@ -500,9 +494,6 @@ static int init_cluster_server_array(const char *filename)
         //logInfo("%d. id = %d", cs->server_index + 1, (*server)->id);
     }
     CLUSTER_SERVER_ARRAY.count = count;
-
-    REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
-            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
 
     if ((result=find_myself_in_cluster_config(filename)) != 0) {
         return result;

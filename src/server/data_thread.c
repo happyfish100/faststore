@@ -48,7 +48,7 @@ static inline int init_thread_ctx(FSDataThreadContext *context)
 {
     int result;
 
-    if ((result=init_pthread_lock_cond_pair(&context->lc_pair)) != 0) {
+    if ((result=init_pthread_lock_cond_pair(&context->lcp)) != 0) {
         return result;
     }
 
@@ -144,7 +144,7 @@ static void destroy_data_thread_array(FSDataThreadArray *thread_array)
 
         end = thread_array->contexts + thread_array->count;
         for (context=thread_array->contexts; context<end; context++) {
-            destroy_pthread_lock_cond_pair(&context->lc_pair);
+            destroy_pthread_lock_cond_pair(&context->lcp);
             fc_queue_destroy(&context->queue);
             fast_mblock_destroy(&context->allocator);
         }
@@ -187,13 +187,13 @@ void data_thread_terminate()
 
 #define DATA_THREAD_COND_WAIT(thread_ctx) \
     do { \
-        PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);   \
+        PTHREAD_MUTEX_LOCK(&thread_ctx->lcp.lock);   \
         while (!thread_ctx->notify_done && SF_G_CONTINUE_FLAG) { \
-            pthread_cond_wait(&thread_ctx->lc_pair.cond,  \
-                    &thread_ctx->lc_pair.lock);  \
+            pthread_cond_wait(&thread_ctx->lcp.cond,  \
+                    &thread_ctx->lcp.lock);  \
         } \
         thread_ctx->notify_done = false; /* reset for next */ \
-        PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock); \
+        PTHREAD_MUTEX_UNLOCK(&thread_ctx->lcp.lock); \
         \
         if (!SF_G_CONTINUE_FLAG) {  \
             return;  \
@@ -248,8 +248,14 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
                                     &finished)) == 0)
                     {
                         if (!finished) {
-                            sf_synchronize_finished_wait(&op->ctx->info.
-                                    myself->dg->repl_quorum_ctx.sctx);
+                            __sync_bool_compare_and_swap(&thread_ctx->
+                                    blocked, 0, 1);
+                            op->ctx->result = sf_synchronize_finished_wait(
+                                    &op->ctx->info.myself->dg->
+                                    repl_quorum_ctx.sctx);
+                            __sync_bool_compare_and_swap(&thread_ctx->
+                                    blocked, 1, 0);
+
                             if (!SF_G_CONTINUE_FLAG) {
                                 op->ctx->result = EAGAIN;
                                 return;

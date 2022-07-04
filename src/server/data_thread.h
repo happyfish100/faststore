@@ -46,7 +46,8 @@ typedef struct fs_data_thread_context {
     short index;
     short role;
     bool notify_done;
-    pthread_lock_cond_pair_t lc_pair;
+    volatile char blocked;  //for data replication quorum
+    pthread_lock_cond_pair_t lcp;
     struct fc_queue queue;
     struct fast_mblock_man allocator;
 } FSDataThreadContext;
@@ -81,7 +82,6 @@ extern "C" {
         FSDataOperation *op;
         uint32_t hash_code;
 
-        /* hash_code = FS_BLOCK_HASH_CODE(op_ctx->info.bs_key.block); */
         hash_code = op_ctx->info.data_group_id;
         if (FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
             context = g_data_thread_vars.thread_arrays.master.contexts +
@@ -104,12 +104,21 @@ extern "C" {
         return 0;
     }
 
+    static inline int data_thread_is_blocked(const uint32_t hash_code)
+    {
+        FSDataThreadContext *context;
+
+        context = g_data_thread_vars.thread_arrays.master.contexts +
+            hash_code % g_data_thread_vars.thread_arrays.master.count;
+        return FC_ATOMIC_GET(context->blocked);
+    }
+
     static inline void data_thread_notify(FSDataThreadContext *thread_ctx)
     {
-        PTHREAD_MUTEX_LOCK(&thread_ctx->lc_pair.lock);
+        PTHREAD_MUTEX_LOCK(&thread_ctx->lcp.lock);
         thread_ctx->notify_done = true;
-        pthread_cond_signal(&thread_ctx->lc_pair.cond);
-        PTHREAD_MUTEX_UNLOCK(&thread_ctx->lc_pair.lock);
+        pthread_cond_signal(&thread_ctx->lcp.cond);
+        PTHREAD_MUTEX_UNLOCK(&thread_ctx->lcp.lock);
     }
 
     static inline const char *fs_get_data_operation_caption(const int operation)

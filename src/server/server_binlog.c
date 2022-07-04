@@ -32,6 +32,7 @@
 #include "binlog/binlog_check.h"
 #include "binlog/binlog_repair.h"
 #include "rebuild/store_path_rebuild.h"
+#include "replication/replication_quorum.h"
 
 static int do_binlog_check()
 {
@@ -128,6 +129,10 @@ int server_binlog_init()
     }
 
     if ((result=migrate_clean_redo()) != 0) {
+        return result;
+    }
+
+    if ((result=replication_quorum_init()) != 0) {
         return result;
     }
 

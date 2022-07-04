@@ -71,7 +71,7 @@ int service_handler_init()
         return result;
     }
 
-    return replication_quorum_init();
+    return 0;
 }
 
 int service_handler_destroy()

@@ -382,8 +382,9 @@ typedef struct fs_proto_replia_fetch_binlog_first_resp_body_header {
     FSProtoReplicaFetchBinlogRespBodyHeader common;
     char is_full_dump;      //full dump because old binlogs be deleted
     char is_online;         //tell slave to ONLINE
-    char padding[1];
+    char padding1[1];
     char repl_version[4];   //master replication version for check
+    char padding2[4];
     char until_version[8];  //for catch up master (including)
     char binlog[0];
 } FSProtoReplicaFetchBinlogFirstRespBodyHeader;

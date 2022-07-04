@@ -140,7 +140,7 @@ static int unlink_confirmed_files(const int data_group_id)
     return 0;
 }
 
-static int rollback_binlog(const int data_group_id,
+static int rollback_binlog(FSClusterDataServerInfo *myself,
         const uint64_t my_confirmed_version)
 {
     const bool ignore_dv_overflow = false;
@@ -152,23 +152,23 @@ static int rollback_binlog(const int data_group_id,
     SFBinlogFilePosition position;
     char filename[PATH_MAX];
 
-    if ((result=replica_binlog_get_last_dv(data_group_id,
+    if ((result=replica_binlog_get_last_dv(myself->dg->id,
                     &last_data_version)) != 0)
     {
         return result;
     }
 
     if (my_confirmed_version >= last_data_version) {
-        return unlink_confirmed_files(data_group_id);
+        return unlink_confirmed_files(myself->dg->id);
     }
 
-    if ((result=replica_binlog_get_binlog_indexes(data_group_id,
+    if ((result=replica_binlog_get_binlog_indexes(myself->dg->id,
                     &start_index, &last_index)) != 0)
     {
         return result;
     }
 
-    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+    if ((result=replica_binlog_get_position_by_dv(myself->dg->id,
                     my_confirmed_version, &position,
                     ignore_dv_overflow)) != 0)
     {
@@ -176,7 +176,7 @@ static int rollback_binlog(const int data_group_id,
     }
 
     if (position.index < last_index) {
-        if ((result=replica_binlog_set_binlog_indexes(data_group_id,
+        if ((result=replica_binlog_set_binlog_indexes(myself->dg->id,
                         start_index, position.index)) != 0)
         {
             return result;
@@ -186,7 +186,7 @@ static int rollback_binlog(const int data_group_id,
                 binlog_index<last_index;
                 binlog_index++)
         {
-            replica_binlog_get_filename(data_group_id, binlog_index,
+            replica_binlog_get_filename(myself->dg->id, binlog_index,
                     filename, sizeof(filename));
             if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
                 return result;
@@ -194,7 +194,7 @@ static int rollback_binlog(const int data_group_id,
         }
     }
 
-    replica_binlog_get_filename(data_group_id, position.index,
+    replica_binlog_get_filename(myself->dg->id, position.index,
             filename, sizeof(filename));
     if (truncate(filename, position.offset) != 0) {
         result = (errno != 0 ? errno : EPERM);
@@ -205,7 +205,7 @@ static int rollback_binlog(const int data_group_id,
         return result;
     }
 
-    if ((result=replica_binlog_get_last_dv(data_group_id,
+    if ((result=replica_binlog_get_last_dv(myself->dg->id,
                     &last_data_version)) != 0)
     {
         return result;
@@ -219,22 +219,24 @@ static int rollback_binlog(const int data_group_id,
     }
 
     if ((result=replica_binlog_writer_change_write_index(
-                    data_group_id, position.index)) != 0)
+                    myself->dg->id, position.index)) != 0)
     {
         return result;
     }
 
-    return unlink_confirmed_files(data_group_id);
+    if ((result=replica_binlog_set_data_version(myself,
+                    my_confirmed_version)) != 0)
+    {
+        return result;
+    }
+
+    return unlink_confirmed_files(myself->dg->id);
 }
 
-int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
+static int init_context(FSReplicationQuorumContext *ctx,
         FSClusterDataServerInfo *myself)
 {
     int result;
-
-    if (!REPLICA_QUORUM_NEED_MAJORITY) {
-        return 0;
-    }
 
     if ((result=fast_mblock_init_ex1(&ctx->entry_allocator,
                     "repl_quorum_entry", sizeof(FSReplicationQuorumEntry),
@@ -254,8 +256,8 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
     }
 
     if (myself->data.confirmed_version > 0) {
-        if ((result=rollback_binlog(myself->dg->id, ctx->
-                        myself->data.confirmed_version)) != 0)
+        if ((result=rollback_binlog(myself, myself->
+                        data.confirmed_version)) != 0)
         {
             return result;
         }
@@ -266,6 +268,43 @@ int replication_quorum_init_context(FSReplicationQuorumContext *ctx,
     ctx->confirmed.counter = 0;
     ctx->list.head = ctx->list.tail = NULL;
     ctx->sctx.finished = false;
+    return 0;
+}
+
+static int init_all_contexts()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *group;
+    int result;
+    int data_group_id;
+    int i;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MY_SERVER_ID)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file no data group",
+                __LINE__);
+        return ENOENT;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        if ((result=init_context(&group->repl_quorum_ctx,
+                        group->myself)) != 0)
+        {
+            return result;
+        }
+
+        /*
+        logInfo("file: "__FILE__", line: %d, func: %s, "
+                "%d. data_group_id = %d", __LINE__, __FUNCTION__,
+                i + 1, data_group_id);
+                */
+    }
+
     return 0;
 }
 
@@ -376,7 +415,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
             }
             chain.tail = node;
 
-            sf_synchronize_finished_notify(&ctx->sctx);
+            sf_synchronize_finished_notify(&ctx->sctx, 0);
             ctx->list.head = ctx->list.head->next;
         } while (ctx->list.head != NULL && my_confirmed_version >=
                 ctx->list.head->data_version);
@@ -492,6 +531,8 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
         return 0;
     }
 
+    sf_synchronize_finished_notify(&ctx->sctx, EAGAIN);
+
     my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
     current_data_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
     if (my_confirmed_version >= current_data_version) {
@@ -509,6 +550,10 @@ int replication_quorum_init()
 
     if (!REPLICA_QUORUM_NEED_MAJORITY) {
         return 0;
+    }
+
+    if ((result=init_all_contexts()) != 0) {
+        return result;
     }
 
     THREAD_DATA_VERSIONS = fc_malloc(sizeof(int64_t) *

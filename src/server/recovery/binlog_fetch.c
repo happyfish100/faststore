@@ -70,8 +70,8 @@ static int check_and_open_binlog_file(DataRecoveryContext *ctx)
     data_recovery_get_fetched_binlog_filename(ctx,
             full_filename, sizeof(full_filename));
     unlink_flag = false;
-    ctx->fetch.last_data_version = __sync_fetch_and_add(
-            &ctx->ds->data.current_version, 0);
+    ctx->fetch.last_data_version = FC_ATOMIC_GET(
+            ctx->ds->data.current_version);
     do {
         if (stat(full_filename, &stbuf) != 0) {
             if (errno == ENOENT) {
@@ -506,7 +506,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                     logWarning("file: "__FILE__", line: %d, "
                             "data group id: %d, delete %d binlog files",
                             __LINE__, ctx->ds->dg->id, remove_count);
-                    FC_ATOMIC_SET(ctx->ds->data.current_version, 0);
+                    replica_binlog_set_data_version(ctx->ds, 0);
                 }
             }
 
