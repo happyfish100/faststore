@@ -415,7 +415,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
             }
             chain.tail = node;
 
-            sf_synchronize_finished_notify(&ctx->sctx, 0);
+            sf_synchronize_finished_notify_no_lock(&ctx->sctx, 0);
             ctx->list.head = ctx->list.head->next;
         } while (ctx->list.head != NULL && my_confirmed_version >=
                 ctx->list.head->data_version);

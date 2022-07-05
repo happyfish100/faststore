@@ -222,7 +222,6 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
     FSProtoSliceUpdateResp *resp;
     resp = (FSProtoSliceUpdateResp *)SF_PROTO_RESP_BODY(task);
     int2buff(inc_alloc, resp->inc_alloc);
-
     RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
     TASK_CTX.common.response_done = true;
 }
@@ -239,8 +238,10 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
         } else {
             IDEMPOTENCY_REQUEST->finished = true;
             IDEMPOTENCY_REQUEST->output.result = result;
-            ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
-                inc_alloc = SLICE_OP_CTX.update.space_changed;
+            if (result == 0) {
+                ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
+                    inc_alloc = SLICE_OP_CTX.update.space_changed;
+            }
         }
         idempotency_request_release(IDEMPOTENCY_REQUEST);
 

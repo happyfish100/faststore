@@ -1566,15 +1566,16 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
         return;
     }
 
+    old_status = FC_ATOMIC_GET(group->myself->status);
     if (group->myself == new_master) {
-        old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_ACTIVE;
         ds = (old_status != FS_DS_STATUS_ACTIVE ? group->myself : NULL);
+        replication_quorum_start_master_term(&group->repl_quorum_ctx);
     } else {
-        old_status = __sync_add_and_fetch(&group->myself->status, 0);
         new_status = FS_DS_STATUS_OFFLINE;
         if (group->myself == old_master) {
             ds = (old_status == FS_DS_STATUS_ACTIVE ? group->myself : NULL);
+            replication_quorum_end_master_term(&group->repl_quorum_ctx);
         } else {
             ds = NULL;
         }
