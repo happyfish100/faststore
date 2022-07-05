@@ -863,7 +863,9 @@ static int handle_rpc_req(struct fast_task_info *task,
     FSProtoReplicaRPCReqBodyPart *body_part;
     FSSliceOpBufferContext *op_buffer_ctx;
     FSSliceOpContext *op_ctx;
+    SFRequestMetadata metadata;
     int result;
+    int inc_alloc;
     int current_len;
     int last_index;
     int blen;
@@ -942,7 +944,18 @@ static int handle_rpc_req(struct fast_task_info *task,
                 break;
         }
 
-        if (result != TASK_STATUS_CONTINUE) {
+        if (result == TASK_STATUS_CONTINUE) {
+            if ((metadata.req_id=buff2long(body_part->req_id)) != 0) {
+                metadata.data_version = op_ctx->info.data_version;
+                inc_alloc = buff2int(body_part->inc_alloc);
+                if ((result=idempotency_request_metadata_add(&op_ctx->
+                                info.myself->dg->req_meta_ctx, &metadata,
+                                inc_alloc)) != 0)
+                {
+                    return result;
+                }
+            }
+        } else {
             int r;
 
             if (result == 0 && op_ctx->info.deal_done) {

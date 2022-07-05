@@ -425,10 +425,12 @@ typedef struct fs_proto_replica_rpc_req_body_header {
 } FSProtoReplicaRPCReqBodyHeader;
 
 typedef struct fs_proto_replica_rpc_req_body_part {
+    char req_id[8];
     char data_version[8];
     char body_len[4];
+    char inc_alloc[4];
     unsigned char cmd;
-    char padding[3];
+    char padding[7];
     char body[0];
 } FSProtoReplicaRPCReqBodyPart;
 

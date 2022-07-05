@@ -498,6 +498,17 @@ static int replication_rpc_from_queue(FSReplication *replication)
         memcpy(body_part->body, rb->task->data +
                 rb->body_offset, rb->body_length);
 
+        if (((FSServerTaskArg *)rb->task->arg)->context.service.
+                idempotency_request != NULL)
+        {
+            long2buff(((FSServerTaskArg *)rb->task->arg)->context.service.
+                    idempotency_request->req_id, body_part->req_id);
+            int2buff(((FSServerTaskArg *)rb->task->arg)->context.
+                    slice_op_ctx.update.space_changed, body_part->inc_alloc);
+        } else {
+            long2buff(0, body_part->req_id);
+        }
+
         ++count;
         task->length = pkg_len;
         long2buff(data_version, body_part->data_version);

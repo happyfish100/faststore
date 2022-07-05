@@ -269,10 +269,8 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             }
         } else {
             data_thread_log_data_update(op);
-            if (!REPLICA_QUORUM_NEED_MAJORITY) {
-                FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
-                        op->ctx->info.data_version);
-            }
+            FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
+                    op->ctx->info.data_version);
         }
 
         /*

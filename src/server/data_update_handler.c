@@ -49,6 +49,62 @@
 #include "server_storage.h"
 #include "data_update_handler.h"
 
+void du_handler_fill_slice_update_response(struct fast_task_info *task,
+        const int inc_alloc)
+{
+    FSProtoSliceUpdateResp *resp;
+    resp = (FSProtoSliceUpdateResp *)SF_PROTO_RESP_BODY(task);
+    int2buff(inc_alloc, resp->inc_alloc);
+    RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
+    TASK_CTX.common.response_done = true;
+}
+
+static void slice_update_response(struct fast_task_info *task,
+        const int inc_alloc)
+{
+    switch (REQUEST.header.cmd) {
+        case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
+            break;
+        case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP;
+            break;
+        case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_DELETE_RESP;
+            break;
+        case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
+            RESPONSE.header.cmd = FS_SERVICE_PROTO_BLOCK_DELETE_RESP;
+            break;
+        default:
+            return;
+    }
+    du_handler_fill_slice_update_response(task, inc_alloc);
+}
+
+void du_handler_idempotency_request_finish(struct fast_task_info *task,
+        const int result)
+{
+    if (IDEMPOTENCY_REQUEST != NULL) {
+        if (SF_IS_SERVER_RETRIABLE_ERROR(result)) {
+            if (IDEMPOTENCY_CHANNEL != NULL) {
+                idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
+                        IDEMPOTENCY_REQUEST->req_id);
+            }
+        } else {
+            IDEMPOTENCY_REQUEST->finished = true;
+            IDEMPOTENCY_REQUEST->output.result = result;
+            if (result == 0) {
+                ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
+                    inc_alloc = SLICE_OP_CTX.update.space_changed;
+            }
+        }
+        idempotency_request_release(IDEMPOTENCY_REQUEST);
+
+        /* server task type for channel ONLY, do NOT set task type to NONE!!! */
+        IDEMPOTENCY_REQUEST = NULL;
+    }
+}
+
 static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
         FSSliceOpContext *op_ctx)
 {
@@ -88,7 +144,7 @@ static inline int wait_recovery_done(FSClusterDataServerInfo *ds,
     return EAGAIN;
 }
 
-static int parse_check_block_key_ex(struct fast_task_info *task,
+static int parse_check_block_key(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const FSProtoBlockKey *bkey,
         const bool master_only)
 {
@@ -113,6 +169,9 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
     }
 
     if (master_only) {
+        SFProtoIdempotencyAdditionalHeader *adheader;
+        int64_t req_id;
+        int64_t data_version;
         int active_count;
 
         if (!FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
@@ -122,21 +181,59 @@ static int parse_check_block_key_ex(struct fast_task_info *task,
             return SF_RETRIABLE_ERROR_NOT_MASTER;
         }
 
+        if (!(op_ctx->info.source == BINLOG_SOURCE_RPC_MASTER &&
+                    op_ctx->info.is_update))
+        {
+            return 0;
+        }
+
+        if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
+                IDEMPOTENCY_CHANNEL != NULL)
+        {
+            adheader = (SFProtoIdempotencyAdditionalHeader *)(
+                    REQUEST.body - sizeof(*adheader));
+            req_id = buff2long(adheader->req_id);
+            if (SF_IDEMPOTENCY_EXTRACT_SERVER_ID(req_id) !=
+                    CLUSTER_MY_SERVER_ID)
+            {
+                logInfo("req_id: %"PRId64", server_id: %d", req_id,
+                        SF_IDEMPOTENCY_EXTRACT_SERVER_ID(req_id));
+                if (idempotency_request_metadata_get(&op_ctx->info.
+                            myself->dg->req_meta_ctx, req_id,
+                            &data_version, &SLICE_OP_CTX.
+                            update.space_changed) == 0)
+                {
+                    op_ctx->info.deal_done = true;
+
+                    /* clear idempotency request */
+                    du_handler_idempotency_request_finish(task, EAGAIN);
+
+                    logInfo("req_id: %"PRId64", data_version: %"PRId64", "
+                            "my current dv: %"PRId64", inc alloc: %d",
+                            req_id, data_version, FC_ATOMIC_GET(op_ctx->info.
+                                myself->data.confirmed_version),
+                            SLICE_OP_CTX.update.space_changed);
+
+                    if (data_version <= FC_ATOMIC_GET(op_ctx->info.
+                                myself->data.confirmed_version))
+                    {
+                        slice_update_response(task, SLICE_OP_CTX.
+                                update.space_changed);
+                        return 0;
+                    } else {
+                        return EAGAIN;
+                    }
+                }
+            }
+        }
+
         if (REPLICA_QUORUM_NEED_MAJORITY) {
             active_count = FC_ATOMIC_GET(op_ctx->
                     info.myself->dg->active_count);
             if (!SF_REPLICATION_QUORUM_MAJORITY(op_ctx->info.myself->
                         dg->ds_ptr_array.count, active_count))
             {
-                if (IDEMPOTENCY_REQUEST != NULL) {
-                    idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
-                            IDEMPOTENCY_REQUEST->req_id);
-                    idempotency_request_release(IDEMPOTENCY_REQUEST);
-
-                    /* server task type for channel ONLY,
-                       do NOT set task type to NONE!!! */
-                    IDEMPOTENCY_REQUEST = NULL;
-                }
+                du_handler_idempotency_request_finish(task, EAGAIN);
                 return EAGAIN;
             }
         }
@@ -185,7 +282,7 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
 {
     int result;
 
-    if ((result=parse_check_block_key_ex(task, op_ctx,
+    if ((result=parse_check_block_key(task, op_ctx,
                     &bs->bkey, master_only)) != 0)
     {
         return result;
@@ -214,40 +311,6 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
     }
 
     return 0;
-}
-
-void du_handler_fill_slice_update_response(struct fast_task_info *task,
-        const int inc_alloc)
-{
-    FSProtoSliceUpdateResp *resp;
-    resp = (FSProtoSliceUpdateResp *)SF_PROTO_RESP_BODY(task);
-    int2buff(inc_alloc, resp->inc_alloc);
-    RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
-    TASK_CTX.common.response_done = true;
-}
-
-void du_handler_idempotency_request_finish(struct fast_task_info *task,
-        const int result)
-{
-    if (IDEMPOTENCY_REQUEST != NULL) {
-        if (SF_IS_SERVER_RETRIABLE_ERROR(result)) {
-            if (IDEMPOTENCY_CHANNEL != NULL) {
-                idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
-                        IDEMPOTENCY_REQUEST->req_id);
-            }
-        } else {
-            IDEMPOTENCY_REQUEST->finished = true;
-            IDEMPOTENCY_REQUEST->output.result = result;
-            if (result == 0) {
-                ((FSUpdateOutput *)IDEMPOTENCY_REQUEST->output.response)->
-                    inc_alloc = SLICE_OP_CTX.update.space_changed;
-            }
-        }
-        idempotency_request_release(IDEMPOTENCY_REQUEST);
-
-        /* server task type for channel ONLY, do NOT set task type to NONE!!! */
-        IDEMPOTENCY_REQUEST = NULL;
-    }
 }
 
 #ifdef OS_LINUX
@@ -652,7 +715,7 @@ int du_handler_deal_block_delete(struct fast_task_info *task,
     }
 
     req = (FSProtoBlockDeleteReq *)op_ctx->info.body;
-    if ((result=parse_check_block_key_ex(task, op_ctx, &req->bkey,
+    if ((result=parse_check_block_key(task, op_ctx, &req->bkey,
                     TASK_CTX.which_side == FS_WHICH_SIDE_MASTER)) != 0)
     {
         return result;
