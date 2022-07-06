@@ -148,6 +148,7 @@ static int replay_task_alloc_init(void *element, void *args)
 
     task = (ReplayTaskInfo *)element;
     task->op_ctx.notify_func = slice_write_done_notify;
+    task->op_ctx.info.is_update = true;
     task->op_ctx.info.source = BINLOG_SOURCE_REPLAY;
     task->op_ctx.info.write_binlog.log_replica = false;
     task->op_ctx.info.buff = (char *)(task + 1);

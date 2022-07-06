@@ -233,6 +233,11 @@ static int parse_check_block_key(struct fast_task_info *task,
             if (!SF_REPLICATION_QUORUM_MAJORITY(op_ctx->info.myself->
                         dg->ds_ptr_array.count, active_count))
             {
+                RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                        "active server count: %d < half of servers: %d, "
+                        "should try again later", active_count, op_ctx->
+                        info.myself->dg->ds_ptr_array.count / 2 + 1);
+                TASK_CTX.common.log_level = LOG_NOTHING;
                 du_handler_idempotency_request_finish(task, EAGAIN);
                 return EAGAIN;
             }

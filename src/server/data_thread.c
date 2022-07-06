@@ -13,18 +13,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <limits.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
@@ -207,18 +195,21 @@ static void data_thread_rw_done_callback(
 }
 
 static void deal_operation_finish(FSDataThreadContext *thread_ctx,
-        FSDataOperation *op, const bool is_update)
+        FSDataOperation *op)
 {
     struct fast_task_info *task;
 
     if (op->ctx->result != 0) {
-        if (is_update && op->source == DATA_SOURCE_SLAVE_REPLICA) {
+        if (op->ctx->info.is_update && op->source ==
+                DATA_SOURCE_SLAVE_REPLICA)
+        {
             logCrit("file: "__FILE__", line: %d, "
-                    "rpc update data fail, errno: %d, program terminate!",
-                    __LINE__, op->ctx->result);
+                    "rpc update data fail, errno: %d, "
+                    "program terminate!", __LINE__,
+                    op->ctx->result);
             sf_terminate_myself();
         }
-    } else if (is_update) {
+    } else if (op->ctx->info.is_update) {
         op->binlog_write_done = false;
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
             if (!MASTER_ELECTION_FAILOVER) {
@@ -294,20 +285,17 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
 static void deal_one_operation(FSDataThreadContext *thread_ctx,
         FSDataOperation *op)
 {
-    bool is_update;
     int result;
 
     op->ctx->arg = thread_ctx;
     switch (op->operation) {
         case DATA_OPERATION_SLICE_READ:
-            is_update = false;
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
             if ((op->ctx->result=fs_slice_read(op->ctx)) == 0) {
                 DATA_THREAD_COND_WAIT(thread_ctx);
             }
             break;
         case DATA_OPERATION_SLICE_WRITE:
-            is_update = true;
 #ifdef OS_LINUX
             op->ctx->info.buffer_type = fs_buffer_type_direct;
 #endif
@@ -322,26 +310,22 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             }
             break;
         case DATA_OPERATION_SLICE_ALLOCATE:
-            is_update = true;
             op->ctx->result = fs_slice_allocate(op->ctx);
             break;
         case DATA_OPERATION_SLICE_DELETE:
-            is_update = true;
             op->ctx->result = fs_delete_slices(op->ctx);
             break;
         case DATA_OPERATION_BLOCK_DELETE:
-            is_update = true;
             op->ctx->result = fs_delete_block(op->ctx);
             break;
         default:
-            is_update = false;
             op->ctx->result = EINVAL;
             logInfo("file: "__FILE__", line: %d, "
                     "unkown operation: %d", __LINE__, op->operation);
             break;
     }
 
-    deal_operation_finish(thread_ctx, op, is_update);
+    deal_operation_finish(thread_ctx, op);
     op->ctx->notify_func(op);
 }
 
