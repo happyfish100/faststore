@@ -519,7 +519,9 @@ static void *replication_quorum_thread_run(void *arg)
     while (1) {
         if ((ctx=fc_queue_pop(&fs_repl_quorum_thread.queue)) != NULL) {
             __sync_bool_compare_and_swap(&ctx->dealing, 1, 0);
-            deal_version_change(ctx);
+            if (FC_ATOMIC_GET(ctx->myself->is_master)) {
+                deal_version_change(ctx);
+            }
         }
     }
 

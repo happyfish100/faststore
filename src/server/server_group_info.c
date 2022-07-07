@@ -940,11 +940,13 @@ static int server_group_info_sync_to_file(void *args)
     uint64_t current_version;
     int result;
 
-    if (CLUSTER_LEADER_ATOM_PTR == NULL) {
+    if (!(CLUSTER_LEADER_ATOM_PTR != NULL &&
+                CLUSTER_LAST_HEARTBEAT_TIME > 0))
+    {
         return 0;
     }
 
-    current_version = __sync_add_and_fetch(&CLUSTER_CURRENT_VERSION, 0);
+    current_version = FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION);
     if (last_synced_version == current_version) {
         if (g_current_time - last_refresh_file_time > 60) {
             last_refresh_file_time = g_current_time;

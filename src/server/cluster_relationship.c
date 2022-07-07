@@ -530,7 +530,7 @@ static int notify_vote_next_leader(FSClusterServerStatus *server_status,
 }
 
 static int cluster_get_leader(FSClusterServerStatus *server_status,
-        const bool log_connect_error, int *active_count)
+        const bool log_connect_error, int *success_count, int *active_count)
 {
 #define STATUS_ARRAY_FIXED_COUNT  8
 	FSClusterServerInfo *server;
@@ -550,6 +550,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         bytes = sizeof(FSClusterServerStatus) * CLUSTER_SERVER_ARRAY.count;
         cs_status = (FSClusterServerStatus *)fc_malloc(bytes);
         if (cs_status == NULL) {
+            *success_count = *active_count = 0;
             return ENOMEM;
         }
     }
@@ -567,7 +568,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
 		}
 	}
 
-	*active_count = current_status - cs_status;
+    *success_count = *active_count = current_status - cs_status;
     if (*active_count == 0) {
         logError("file: "__FILE__", line: %d, "
                 "get server status fail, server count: %d",
@@ -575,18 +576,18 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         return result == 0 ? ENOENT : result;
     }
 
-    if (NEED_REQUEST_VOTE_NODE(*active_count)) {
+    if (NEED_REQUEST_VOTE_NODE(*success_count)) {
         current_status->cs = NULL;
         if (get_vote_server_status(current_status) == 0) {
-            ++(*active_count);
+            ++(*success_count);
         }
     }
 
-    qsort(cs_status, *active_count,
+    qsort(cs_status, *success_count,
             sizeof(FSClusterServerStatus),
             cluster_cmp_server_status);
 
-    for (i=0; i<*active_count; i++) {
+    for (i=0; i<*success_count; i++) {
         int restart_interval;
 
         if (cs_status[i].cs == NULL) {
@@ -609,7 +610,7 @@ static int cluster_get_leader(FSClusterServerStatus *server_status,
         }
     }
 
-	memcpy(server_status, cs_status + (*active_count - 1),
+	memcpy(server_status, cs_status + (*success_count - 1),
 			sizeof(FSClusterServerStatus));
     if (cs_status != status_array) {
         free(cs_status);
@@ -1088,6 +1089,7 @@ static inline int cluster_notify_leader_changed(
 static int cluster_select_leader()
 {
 	int result;
+    int success_count;
     int active_count;
     int i;
     int max_sleep_secs;
@@ -1129,8 +1131,8 @@ static int cluster_select_leader()
             need_log = false;
         }
 
-        if ((result=cluster_get_leader(&server_status,
-                        need_log, &active_count)) != 0)
+        if ((result=cluster_get_leader(&server_status, need_log,
+                        &success_count, &active_count)) != 0)
         {
             return result;
         }
@@ -1138,7 +1140,7 @@ static int cluster_select_leader()
         ++i;
         if (!sf_election_quorum_check(LEADER_ELECTION_QUORUM,
                     VOTE_NODE_ENABLED, CLUSTER_SERVER_ARRAY.count,
-                    active_count) && !FORCE_LEADER_ELECTION)
+                    success_count) && !FORCE_LEADER_ELECTION)
         {
             sleep_secs = 1;
             if (need_log) {
@@ -1146,7 +1148,7 @@ static int cluster_select_leader()
                         "round %dth select leader fail because alive server "
                         "count: %d < half of total server count: %d, "
                         "try again after %d seconds.", __LINE__, i,
-                        active_count, CLUSTER_SERVER_ARRAY.count,
+                        success_count, CLUSTER_SERVER_ARRAY.count,
                         sleep_secs);
             }
             sleep(sleep_secs);
@@ -1154,8 +1156,6 @@ static int cluster_select_leader()
         }
 
         if ((active_count == CLUSTER_SERVER_ARRAY.count) ||
-                (active_count >= 2 && (server_status.is_leader ||
-                                       server_status.leader_hint)) ||
                 (start_time - server_status.last_heartbeat_time <=
                  LEADER_ELECTION_LOST_TIMEOUT + 1))
         {
