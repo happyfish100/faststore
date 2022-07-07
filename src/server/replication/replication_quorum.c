@@ -315,14 +315,16 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
     FSReplicationQuorumEntry *previous;
     FSReplicationQuorumEntry *entry;
 
-    if (data_version <= FC_ATOMIC_GET(ctx->myself->data.confirmed_version)) {
+    if (data_version <= FC_ATOMIC_GET(ctx->myself->data.confirmed_version)
+            && FC_ATOMIC_GET(ctx->myself->is_master))
+    {
         *finished = true;
         return 0;
     }
 
-    *finished = false;
     entry = fast_mblock_alloc_object(&ctx->entry_allocator);
     if (entry == NULL) {
+        *finished = true;
         return ENOMEM;
     }
 
@@ -350,7 +352,14 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 
-    return 0;
+    if (FC_ATOMIC_GET(ctx->myself->is_master)) {
+        *finished = false;
+        return 0;
+    } else {
+        *finished = true;
+        //TODO rollback data and binlog
+        return EAGAIN;
+    }
 }
 
 static int compare_int64(const int64_t *n1, const int64_t *n2)

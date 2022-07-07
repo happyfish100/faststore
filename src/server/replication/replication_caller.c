@@ -123,7 +123,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     inactive_count = 0;
     end = group->slave_ds_array.servers + group->slave_ds_array.count;
     for (ds=group->slave_ds_array.servers; ds<end; ds++) {
-        status = __sync_fetch_and_add(&(*ds)->status, 0);
+        status = FC_ATOMIC_GET((*ds)->status);
         if (status == FS_DS_STATUS_ONLINE) {
             data_thread_log_data_update(op);  //log before RPC for slave fetching binlog
         } else if (status != FS_DS_STATUS_ACTIVE) {

@@ -288,6 +288,22 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
     int result;
 
     op->ctx->arg = thread_ctx;
+    if (op->source == DATA_SOURCE_MASTER_SERVICE &&
+            op->ctx->info.is_update)
+    {
+        if (!FC_ATOMIC_GET(op->ctx->info.myself->is_master)) {
+            struct fast_task_info *task;
+
+            task = op->arg;
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "[data-thread] data group id: %d, i am NOT master",
+                    op->ctx->info.data_group_id);
+            op->ctx->result = SF_RETRIABLE_ERROR_NOT_MASTER;
+            op->ctx->notify_func(op);
+            return;
+        }
+    }
+
     switch (op->operation) {
         case DATA_OPERATION_SLICE_READ:
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
