@@ -163,7 +163,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     resp->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
     int2buff(CLUSTER_MY_SERVER_ID, resp->server_id);
     int2buff(g_sf_global_vars.up_time, resp->up_time);
-    int2buff(fs_get_last_shutdown_time(), resp->last_shutdown_time);
+    int2buff(CLUSTER_LAST_SHUTDOWN_TIME, resp->last_shutdown_time);
     int2buff(CLUSTER_LAST_HEARTBEAT_TIME, resp->last_heartbeat_time);
     long2buff(CLUSTER_CURRENT_VERSION, resp->version);
 

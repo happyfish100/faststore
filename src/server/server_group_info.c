@@ -49,7 +49,6 @@ typedef struct {
 #define SERVER_GROUP_INFO_ITEM_SERVER      "server"
 
 static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
-static time_t last_shutdown_time = 0;
 static uint64_t last_synced_version = 0;
 static int last_refresh_file_time = 0;
 
@@ -775,7 +774,7 @@ static int server_group_info_set_file_mtime_ex(const time_t t)
     return 0;
 }
 
-static int get_server_group_info_file_mtime(time_t *mtime)
+static int get_server_group_info_file_mtime()
 {
     char full_filename[PATH_MAX];
     struct stat buf;
@@ -788,7 +787,7 @@ static int get_server_group_info_file_mtime(time_t *mtime)
         return errno != 0 ? errno : EPERM;
     }
 
-    *mtime = buf.st_mtime;
+    CLUSTER_LAST_SHUTDOWN_TIME = buf.st_mtime;
     return 0;
 }
 
@@ -814,7 +813,7 @@ static int load_server_groups()
         }
     }
 
-    if ((result=get_server_group_info_file_mtime(&last_shutdown_time)) != 0) {
+    if ((result=get_server_group_info_file_mtime()) != 0) {
         return result;
     }
 
@@ -928,11 +927,6 @@ static int server_group_info_write_to_file(const uint64_t current_version)
     get_server_group_filename(full_filename, sizeof(full_filename));
     return safeWriteToFile(full_filename, file_buffer.data,
                     file_buffer.length);
-}
-
-time_t fs_get_last_shutdown_time()
-{
-    return last_shutdown_time;
 }
 
 static int server_group_info_sync_to_file(void *args)

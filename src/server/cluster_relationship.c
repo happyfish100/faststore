@@ -457,10 +457,10 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         server_status->force_election = (FORCE_LEADER_ELECTION ? 1 : 0);
         server_status->up_time = g_sf_global_vars.up_time;
         server_status->last_heartbeat_time = CLUSTER_LAST_HEARTBEAT_TIME;
+        server_status->last_shutdown_time = CLUSTER_LAST_SHUTDOWN_TIME;
         server_status->server_id = CLUSTER_MY_SERVER_ID;
         server_status->version = __sync_add_and_fetch(
                 &CLUSTER_CURRENT_VERSION, 0);
-        server_status->last_shutdown_time = fs_get_last_shutdown_time();
         return 0;
     } else {
         if ((result=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
@@ -1156,6 +1156,7 @@ static int cluster_select_leader()
         }
 
         if ((active_count == CLUSTER_SERVER_ARRAY.count) ||
+                (active_count >= 2 && server_status.is_leader) ||
                 (start_time - server_status.last_heartbeat_time <=
                  LEADER_ELECTION_LOST_TIMEOUT + 1))
         {
@@ -1182,7 +1183,7 @@ static int cluster_select_leader()
             }
 
             if (FORCE_LEADER_ELECTION) {
-                sprintf(prompt, "force_leader_election: %d, ",
+                sprintf(prompt, "force_leader_election: %d",
                         FORCE_LEADER_ELECTION);
             } else {
                 *prompt = '\0';
@@ -1206,7 +1207,7 @@ static int cluster_select_leader()
         if (need_log) {
             logWarning("file: "__FILE__", line: %d, "
                     "round %dth select leader, alive server count: %d "
-                    "< server count: %d, %stry again after %d seconds.",
+                    "< server count: %d, %s. try again after %d seconds.",
                     __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
                     prompt, sleep_secs);
         }
