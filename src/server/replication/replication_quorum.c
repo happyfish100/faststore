@@ -140,8 +140,15 @@ static int unlink_confirmed_files(const int data_group_id)
     return 0;
 }
 
-static int rollback_binlog(FSClusterDataServerInfo *myself,
-        const uint64_t my_confirmed_version)
+static int rollback_slice_binlogs(FSClusterDataServerInfo *myself,
+        const uint64_t my_confirmed_version, SFBinlogFilePosition
+        *position, const bool detect_slice_binlog)
+{
+    return 0;
+}
+
+static int rollback_binlogs(FSClusterDataServerInfo *myself, const uint64_t
+        my_confirmed_version, const bool detect_slice_binlog)
 {
     const bool ignore_dv_overflow = false;
     int result;
@@ -171,6 +178,12 @@ static int rollback_binlog(FSClusterDataServerInfo *myself,
     if ((result=replica_binlog_get_position_by_dv(myself->dg->id,
                     my_confirmed_version, &position,
                     ignore_dv_overflow)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=rollback_slice_binlogs(myself, my_confirmed_version,
+                    &position, detect_slice_binlog)) != 0)
     {
         return result;
     }
@@ -237,6 +250,7 @@ static int init_context(FSReplicationQuorumContext *ctx,
         FSClusterDataServerInfo *myself)
 {
     int result;
+    int64_t confirmed_version;
 
     if ((result=fast_mblock_init_ex1(&ctx->entry_allocator,
                     "repl_quorum_entry", sizeof(FSReplicationQuorumEntry),
@@ -249,18 +263,18 @@ static int init_context(FSReplicationQuorumContext *ctx,
         return result;
     }
 
-    if ((result=load_confirmed_version(myself->dg->id, (int64_t *)
-                    &myself->data.confirmed_version)) != 0)
+    if ((result=load_confirmed_version(myself->dg->id,
+                    &confirmed_version)) != 0)
     {
         return result;
     }
 
-    if (myself->data.confirmed_version > 0) {
-        if ((result=rollback_binlog(myself, myself->
-                        data.confirmed_version)) != 0)
-        {
+    if (confirmed_version > 0) {
+        if ((result=rollback_binlogs(myself, confirmed_version, true)) != 0) {
             return result;
         }
+
+        FC_ATOMIC_SET(myself->data.confirmed_version, confirmed_version);
     }
 
     ctx->myself = myself;
@@ -306,6 +320,35 @@ static int init_all_contexts()
     }
 
     return 0;
+}
+
+static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
+{
+    int result;
+    FSReplicationQuorumEntry *entry;
+
+    result = 0;
+    PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
+    while (ctx->list.head != NULL) {
+        if ((result=rollback_binlogs(ctx->myself, FC_ATOMIC_GET(ctx->myself->
+                            data.confirmed_version), false)) != 0)
+        {
+            break;
+        }
+
+        while (ctx->list.head != NULL) {
+            entry = ctx->list.head;
+            ctx->list.head = ctx->list.head->next;
+
+            sf_synchronize_finished_notify_no_lock(&ctx->sctx, EAGAIN);
+            fast_mblock_free_object(&ctx->entry_allocator, entry);
+        }
+
+        ctx->list.tail = NULL;
+    }
+    PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
+
+    return result;
 }
 
 int replication_quorum_add(FSReplicationQuorumContext *ctx,
@@ -357,7 +400,7 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
         return 0;
     } else {
         *finished = true;
-        //TODO rollback data and binlog
+        rollback_binlog_and_notify(ctx);
         return EAGAIN;
     }
 }
@@ -542,16 +585,13 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
         return 0;
     }
 
-    sf_synchronize_finished_notify(&ctx->sctx, EAGAIN);
-
     my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
     current_data_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
     if (my_confirmed_version >= current_data_version) {
         return unlink_confirmed_files(ctx->myself->dg->id);
     }
 
-    //TODO rollback data and binlog
-    return 0;
+    return rollback_binlog_and_notify(ctx);
 }
 
 int replication_quorum_init()
