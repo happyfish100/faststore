@@ -44,7 +44,10 @@ typedef struct fs_client_cluster_stat_entry {
     char status;
     uint16_t port;
     char ip_addr[IP_ADDRESS_SIZE];
-    int64_t data_version;
+    struct {
+        int64_t current;
+        int64_t confirmed;
+    } data_versions;
 } FSClientClusterStatEntry;
 
 typedef struct fs_client_cluster_stat_entry_array {

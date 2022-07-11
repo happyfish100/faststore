@@ -210,7 +210,9 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
     }
 
     old_version = FC_ATOMIC_GET(myself->data.current_version);
-    if (new_version != old_version) {
+    if (new_version == old_version) {
+        FC_ATOMIC_SET(myself->data.confirmed_version, new_version);
+    } else {
         result = replica_binlog_set_data_version(myself, new_version);
         logDebug("file: "__FILE__", line: %d, data_group_id: %d, "
                 "old version: %"PRId64", new version: %"PRId64,

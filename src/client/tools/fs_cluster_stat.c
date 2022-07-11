@@ -62,18 +62,19 @@ static void output(FSClientClusterStatEntry *stats, const int count)
             printf("\ndata_group_id: %d\n", stat->data_group_id);
             prev_data_group_id = stat->data_group_id;
         }
-        printf( "\tserver_id: %d, host: %s:%u, "
+        printf( "\tsid: %d, host: %s:%u, "
                 "status: %d (%s), "
                 "is_preseted: %d, "
                 "is_master: %d, "
-                "data_version: %"PRId64"\n",
+                "versions: {current: %"PRId64", "
+                "confirmed: %"PRId64"}\n",
                 stat->server_id,
                 stat->ip_addr, stat->port,
                 stat->status,
                 fs_get_server_status_caption(stat->status),
-                stat->is_preseted,
-                stat->is_master,
-                stat->data_version
+                stat->is_preseted, stat->is_master,
+                stat->data_versions.current,
+                stat->data_versions.confirmed
               );
     }
     printf("\ndata server count: %d\n\n", count);

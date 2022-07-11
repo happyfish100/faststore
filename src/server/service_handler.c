@@ -383,7 +383,10 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
             body_part->is_preseted = ds->is_preseted;
             body_part->is_master = is_master;
             body_part->status = status;
-            long2buff(ds->data.current_version, body_part->data_version);
+            long2buff(ds->data.current_version,
+                    body_part->data_versions.current);
+            long2buff(ds->data.confirmed_version,
+                    body_part->data_versions.confirmed);
             body_part++;
         }
     }

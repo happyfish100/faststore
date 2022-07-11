@@ -237,7 +237,10 @@ typedef struct fs_proto_cluster_stat_resp_body_header {
 typedef struct fs_proto_cluster_stat_resp_body_part {
     char data_group_id[4];
     char server_id[4];
-    char data_version[8];
+    struct {
+        char current[8];
+        char confirmed[8];
+    } data_versions;
     char ip_addr[IP_ADDRESS_SIZE];
     char port[2];
     char is_preseted;
