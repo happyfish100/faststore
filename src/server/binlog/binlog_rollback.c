@@ -31,36 +31,6 @@
 #include "replica_binlog.h"
 #include "binlog_rollback.h"
 
-static int check_alloc_record_array(BinlogBinlogCommonFieldsArray *array)
-{
-    BinlogCommonFields *records;
-    int64_t new_alloc;
-    int64_t bytes;
-
-    if (array->alloc > array->count) {
-        return 0;
-    }
-
-    new_alloc = (array->alloc > 0) ? 2 * array->alloc : 256;
-    bytes = sizeof(BinlogCommonFields) * new_alloc;
-    records = (BinlogCommonFields *)fc_malloc(bytes);
-    if (records == NULL) {
-        return ENOMEM;
-    }
-
-    if (array->records != NULL) {
-        if (array->count > 0) {
-            memcpy(records, array->records, array->count *
-                    sizeof(BinlogCommonFields));
-        }
-        free(array->records);
-    }
-
-    array->alloc = new_alloc;
-    array->records = records;
-    return 0;
-}
-
 static int binlog_parse_buffer(ServerBinlogReader *reader,
         const int length, const time_t from_timestamp,
         BinlogBinlogCommonFieldsArray *array)
@@ -71,7 +41,6 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
     char *line_start;
     char *buff_end;
     char *line_end;
-    BinlogCommonFields *record;
     BinlogCommonFields fields;
     char error_info[256];
 
@@ -99,15 +68,6 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
         if ((fields.timestamp >= from_timestamp) &&
                 FS_IS_BINLOG_SOURCE_RPC(fields.source))
         {
-            fs_calc_block_hashcode(&fields.bkey);
-            if ((result=check_alloc_record_array(array)) != 0) {
-                sprintf(error_info, "out of memory");
-                break;
-            }
-
-            record = array->records + array->count++;
-            record->data_version = fields.data_version;
-            //record->data_group_id = FS_DATA_GROUP_ID(fields.bkey);
         }
 
         line_start = line_end;
@@ -130,17 +90,28 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
 }
 
 static int load_replica_binlogs(const int data_group_id,
-        SFBinlogWriterInfo *writer, const SFBinlogFilePosition *pos,
+        const int64_t my_confirmed_version,
         BinlogBinlogCommonFieldsArray *array)
 {
     int result;
     int read_bytes;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    SFBinlogWriterInfo *writer;
+    SFBinlogFilePosition pos;
     ServerBinlogReader reader;
+
+    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+                    my_confirmed_version, &pos, true)) != 0)
+    {
+        return result;
+    }
 
     sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
             data_group_id);
-    if ((result=binlog_reader_init(&reader, subdir_name, writer, pos)) != 0) {
+    writer = replica_binlog_get_writer(data_group_id);
+    if ((result=binlog_reader_init(&reader, subdir_name,
+                    writer, &pos)) != 0)
+    {
         return result;
     }
 
@@ -167,68 +138,51 @@ static int load_replica_binlogs(const int data_group_id,
 static int compare_version_and_source(const BinlogCommonFields *p1,
         const BinlogCommonFields *p2)
 {
-    return fc_compare_int64(p1->data_version, p2->data_version);
+    int sub;
+    if ((sub=fc_compare_int64(p1->data_version, p2->data_version)) != 0) {
+        return sub;
+    }
+
+    return (int)p1->source - (int)p2->source;
 }
 
 static int load_slice_binlogs(const int data_group_id,
-        const int64_t my_confirmed_version, SFBinlogWriterInfo *writer,
+        const int64_t my_confirmed_version,
         BinlogBinlogCommonFieldsArray *array)
 {
     int result;
-    int read_bytes;
-    ServerBinlogReader reader;
-    SFBinlogFilePosition pos;
 
-    //TODO: find the position
-    if ((result=binlog_reader_init(&reader, FS_SLICE_BINLOG_SUBDIR_NAME,
-                    writer, &pos)) != 0)
+    if ((result=slice_binlog_load_records(data_group_id,
+                    my_confirmed_version, array)) != 0)
     {
         return result;
     }
 
-    while ((result=binlog_reader_integral_read(&reader,
-                    reader.binlog_buffer.buff,
-                    reader.binlog_buffer.size,
-                    &read_bytes)) == 0)
-    {
-        if ((result=binlog_parse_buffer(&reader, read_bytes,
-                        data_group_id, array)) != 0)
-        {
-            break;
-        }
-    }
-
-    if (result == ENOENT) {
-        result = 0;
-    }
-
-    if (result == 0 && array->count > 1) {
+    if (array->count > 1) {
         qsort(array->records, array->count,
                 sizeof(BinlogCommonFields),
                 (int (*)(const void *, const void *))
                 compare_version_and_source);
     }
 
-    binlog_reader_destroy(&reader);
-    return result;
+    return 0;
 }
 
 static int binlog_load_data_records(const int data_group_id,
-        const uint64_t my_confirmed_version,
-        const SFBinlogFilePosition *position)
+        const uint64_t my_confirmed_version)
 {
     int result;
     BinlogBinlogCommonFieldsArray slice_record_array;
 
     if ((result=load_replica_binlogs(data_group_id,
-                    replica_binlog_get_writer(data_group_id),
-                    position, &slice_record_array)) != 0)
+                    my_confirmed_version, &slice_record_array)) != 0)
     {
         return result;
     }
 
-    if ((result=load_slice_binlogs(data_group_id, my_confirmed_version,
-                    slice_binlog_get_writer(), &slice_record_array)) != 0)
+    if ((result=load_slice_binlogs(data_group_id,
+                    my_confirmed_version,
+                    &slice_record_array)) != 0)
     {
         return result;
     }

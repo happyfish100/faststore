@@ -467,8 +467,7 @@ static inline int slice_binlog_get_first_data_version(
 }
 
 static int find_position(const char *filename, const int data_group_id,
-        SFBinlogWriterInfo *writer, const uint64_t last_data_version,
-        SFBinlogFilePosition *pos)
+        const uint64_t last_data_version, SFBinlogFilePosition *pos)
 {
     char buff[64 * 1024];
     char error_info[256];
@@ -606,11 +605,129 @@ int slice_binlog_get_position_by_dv(const int data_group_id,
             return 0;
         } else if (last_data_version + 1 > first_data_version) {
             return find_position(filename, data_group_id,
-                    writer, last_data_version, pos);
+                    last_data_version, pos);
         }
 
         --binlog_index;
     }
 
     return ENOENT;
+}
+
+static int check_alloc_record_array(BinlogBinlogCommonFieldsArray *array)
+{
+    BinlogCommonFields *records;
+    int64_t new_alloc;
+    int64_t bytes;
+
+    if (array->alloc > array->count) {
+        return 0;
+    }
+
+    new_alloc = (array->alloc > 0) ? 2 * array->alloc : 256;
+    bytes = sizeof(BinlogCommonFields) * new_alloc;
+    records = (BinlogCommonFields *)fc_malloc(bytes);
+    if (records == NULL) {
+        return ENOMEM;
+    }
+
+    if (array->records != NULL) {
+        if (array->count > 0) {
+            memcpy(records, array->records, array->count *
+                    sizeof(BinlogCommonFields));
+        }
+        free(array->records);
+    }
+
+    array->alloc = new_alloc;
+    array->records = records;
+    return 0;
+}
+
+static int slice_parse_to_array(const int data_group_id,
+        ServerBinlogReader *reader, const int read_bytes,
+        BinlogBinlogCommonFieldsArray *array)
+{
+    int result;
+    string_t line;
+    char *line_end;
+    char *buff_end;
+    char error_info[256];
+    BinlogCommonFields *record;
+
+    buff_end = reader->binlog_buffer.buff + read_bytes;
+    line.str = reader->binlog_buffer.buff;
+    while (line.str < buff_end) {
+        line_end = memchr(line.str, '\n', buff_end - line.str);
+        if (line_end == NULL) {
+            break;
+        }
+
+        ++line_end;
+        line.len = line_end - line.str;
+
+        if ((result=check_alloc_record_array(array)) != 0) {
+            return result;
+        }
+        record = array->records + array->count;
+        if ((result=binlog_unpack_common_fields(&line,
+                        record, error_info)) != 0)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "binlog file %s, %s", __LINE__,
+                    reader->filename, error_info);
+            return result;
+        }
+
+        if (FS_IS_BINLOG_SOURCE_RPC(record->source) ||
+                record->source == BINLOG_SOURCE_ROLLBACK)
+        {
+            fs_calc_block_hashcode(&record->bkey);
+            if (FS_DATA_GROUP_ID(record->bkey) == data_group_id) {
+                array->count++;
+            }
+        }
+
+        line.str = line_end;
+    }
+
+    return 0;
+}
+
+int slice_binlog_load_records(const int data_group_id,
+        const uint64_t last_data_version,
+        BinlogBinlogCommonFieldsArray *array)
+{
+    SFBinlogFilePosition pos;
+    ServerBinlogReader reader;
+    int read_bytes;
+    int result;
+
+    array->count = 0;
+    if ((result=slice_binlog_get_position_by_dv(data_group_id,
+                    last_data_version, &pos)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=binlog_reader_init(&reader, FS_SLICE_BINLOG_SUBDIR_NAME,
+                    slice_binlog_get_writer(), &pos)) != 0)
+    {
+        return result;
+    }
+
+    while ((result=binlog_reader_integral_read(&reader,
+                    reader.binlog_buffer.buff,
+                    reader.binlog_buffer.size,
+                    &read_bytes)) == 0)
+    {
+        if ((result=slice_parse_to_array(data_group_id,
+                        &reader, read_bytes, array)) != 0)
+        {
+            break;
+        }
+    }
+
+    binlog_reader_destroy(&reader);
+    return (result == ENOENT ? 0 : result);
 }
