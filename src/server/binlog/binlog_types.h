@@ -49,6 +49,7 @@
 #define BINLOG_SOURCE_RPC_MASTER    'C'  //by user call (master side)
 #define BINLOG_SOURCE_RPC_SLAVE     'c'  //by user call (slave side)
 #define BINLOG_SOURCE_REPLAY        'r'  //by binlog replay  (slave side)
+#define BINLOG_SOURCE_ROLLBACK      'R'  //revert by binlog rollback
 
 #define FS_IS_BINLOG_SOURCE_RPC(source) \
     (source == BINLOG_SOURCE_RPC_MASTER || source == BINLOG_SOURCE_RPC_SLAVE)
@@ -67,6 +68,12 @@ typedef struct binlog_common_fields {
     FSBlockKey bkey;
     int64_t data_version;
 } BinlogCommonFields;
+
+typedef struct {
+    int alloc;
+    int count;
+    BinlogCommonFields *records;
+} BinlogBinlogCommonFieldsArray;
 
 #ifdef __cplusplus
 extern "C" {

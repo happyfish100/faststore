@@ -19,6 +19,7 @@
 #include "sf/sf_nio.h"
 #include "../binlog/replica_binlog.h"
 #include "../binlog/binlog_reader.h"
+#include "../binlog/binlog_rollback.h"
 #include "../server_global.h"
 #include "replication_quorum.h"
 
@@ -140,105 +141,13 @@ static int unlink_confirmed_files(const int data_group_id)
     return 0;
 }
 
-static int rollback_slice_binlogs(FSClusterDataServerInfo *myself,
-        const uint64_t my_confirmed_version, SFBinlogFilePosition
-        *position, const bool detect_slice_binlog)
-{
-    return 0;
-}
-
 static int rollback_binlogs(FSClusterDataServerInfo *myself, const uint64_t
         my_confirmed_version, const bool detect_slice_binlog)
 {
-    const bool ignore_dv_overflow = false;
     int result;
-    int start_index;
-    int last_index;
-    int binlog_index;
-    uint64_t last_data_version;
-    SFBinlogFilePosition position;
-    char filename[PATH_MAX];
 
-    if ((result=replica_binlog_get_last_dv(myself->dg->id,
-                    &last_data_version)) != 0)
-    {
-        return result;
-    }
-
-    if (my_confirmed_version >= last_data_version) {
-        return unlink_confirmed_files(myself->dg->id);
-    }
-
-    if ((result=replica_binlog_get_binlog_indexes(myself->dg->id,
-                    &start_index, &last_index)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=replica_binlog_get_position_by_dv(myself->dg->id,
-                    my_confirmed_version, &position,
-                    ignore_dv_overflow)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=rollback_slice_binlogs(myself, my_confirmed_version,
-                    &position, detect_slice_binlog)) != 0)
-    {
-        return result;
-    }
-
-    if (position.index < last_index) {
-        if ((result=replica_binlog_set_binlog_indexes(myself->dg->id,
-                        start_index, position.index)) != 0)
-        {
-            return result;
-        }
-
-        for (binlog_index=position.index+1;
-                binlog_index<last_index;
-                binlog_index++)
-        {
-            replica_binlog_get_filename(myself->dg->id, binlog_index,
-                    filename, sizeof(filename));
-            if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
-                return result;
-            }
-        }
-    }
-
-    replica_binlog_get_filename(myself->dg->id, position.index,
-            filename, sizeof(filename));
-    if (truncate(filename, position.offset) != 0) {
-        result = (errno != 0 ? errno : EPERM);
-        logError("file: "__FILE__", line: %d, "
-                "truncate file %s to length: %"PRId64" fail, "
-                "errno: %d, error info: %s", __LINE__, filename,
-                position.offset, result, STRERROR(result));
-        return result;
-    }
-
-    if ((result=replica_binlog_get_last_dv(myself->dg->id,
-                    &last_data_version)) != 0)
-    {
-        return result;
-    }
-    if (last_data_version != my_confirmed_version) {
-        logError("file: "__FILE__", line: %d, "
-                "binlog last_data_version: %"PRId64" != "
-                "confirmed data version: %"PRId64", program exit!",
-                __LINE__, last_data_version, my_confirmed_version);
-        return EBUSY;
-    }
-
-    if ((result=replica_binlog_writer_change_write_index(
-                    myself->dg->id, position.index)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=replica_binlog_set_data_version(myself,
-                    my_confirmed_version)) != 0)
+    if ((result=binlog_rollback(myself, my_confirmed_version,
+                    detect_slice_binlog)) != 0)
     {
         return result;
     }
