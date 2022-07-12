@@ -58,6 +58,9 @@ extern "C" {
 
     int slice_binlog_rotate_file();
 
+    int slice_binlog_get_position_by_dv(const int data_group_id,
+            const uint64_t last_data_version, SFBinlogFilePosition *pos);
+
     static inline const char *slice_binlog_get_filepath(
             char *filepath, const int size)
     {
