@@ -1161,6 +1161,68 @@ int replica_binlog_remove_all_files(const int data_group_id,
     return replica_binlog_set_binlog_indexes(data_group_id, 0, 0);
 }
 
+int replica_binlog_waiting_write_done(const int data_group_id,
+        const uint64_t waiting_data_version, const char *caption)
+{
+#define MAX_WAITING_COUNT  100
+    int result;
+    int r;
+    int count;
+    int log_level;
+    uint64_t data_version;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char filename[PATH_MAX];
+    char prompt[64];
+
+    if (waiting_data_version == 0) {
+        return 0;
+    }
+
+    result = ETIMEDOUT;
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                replica_binlog_get_current_write_index(
+                    data_group_id), filename, sizeof(filename));
+        if ((r=replica_binlog_get_last_data_version(
+                        filename, &data_version)) != 0)
+        {
+            result = r;
+            break;
+        }
+
+        if (data_version >= waiting_data_version) {
+            result = 0;
+            break;
+        }
+        fc_sleep_ms(100);
+    }
+
+    if (result == 0) {
+        if (count < 3) {
+            log_level = LOG_DEBUG;
+        } else if (count < 10) {
+            log_level = LOG_INFO;
+        } else {
+            log_level = LOG_WARNING;
+        }
+        sprintf(prompt, "time count: %d", count);
+    } else {
+        log_level = LOG_ERR;
+        if (result == ETIMEDOUT) {
+            sprintf(prompt, "timeout");
+        } else {
+            sprintf(prompt, "fail, result: %d", result);
+        }
+    }
+
+    log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
+            "data group id: %d, waiting %s last data version: %"PRId64", "
+            "waiting binlog write done %s", __LINE__, data_group_id,
+            caption, waiting_data_version, prompt);
+    return result;
+}
+
 static int check_alloc_record_array(ReplicaBinlogRecordArray *array)
 {
     ReplicaBinlogRecord *records;

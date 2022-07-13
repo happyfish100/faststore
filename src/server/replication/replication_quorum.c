@@ -21,6 +21,7 @@
 #include "../binlog/binlog_reader.h"
 #include "../binlog/binlog_rollback.h"
 #include "../server_global.h"
+#include "../server_group_info.h"
 #include "replication_quorum.h"
 
 #define VERSION_CONFIRMED_FILE_COUNT  2  //double files for safty
@@ -141,14 +142,13 @@ static int unlink_confirmed_files(const int data_group_id)
     return 0;
 }
 
-static int rollback_binlogs(FSClusterDataServerInfo *myself, const uint64_t
-        my_confirmed_version, const bool detect_slice_binlog)
+static int rollback_binlogs(FSClusterDataServerInfo *myself,
+        const uint64_t my_confirmed_version, const bool is_redo)
 {
     int result;
 
-    if ((result=binlog_rollback(myself, my_confirmed_version,
-                    detect_slice_binlog)) != 0)
-    {
+    result = binlog_rollback(myself, my_confirmed_version, is_redo);
+    if (result != 0) {
         return result;
     }
 
@@ -532,9 +532,9 @@ int replication_quorum_init()
     {
         const int data_group_id = 62;
         const uint64_t last_data_version = 155481;
-        const bool detect_slice_binlog = false;
-        if ((result=rollback_slice_binlogs(data_group_id, last_data_version,
-                        detect_slice_binlog)) != 0)
+        const bool is_redo = true;
+        if ((result=rollback_slice_binlog_and_data(fs_get_my_data_server(data_group_id),
+                        last_data_version, is_redo)) != 0)
         {
             return result;
         }
