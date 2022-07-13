@@ -1160,3 +1160,130 @@ int replica_binlog_remove_all_files(const int data_group_id,
     *remove_count = (last_index - start_index) + 1;
     return replica_binlog_set_binlog_indexes(data_group_id, 0, 0);
 }
+
+static int check_alloc_record_array(ReplicaBinlogRecordArray *array)
+{
+    ReplicaBinlogRecord *records;
+    int64_t new_alloc;
+    int64_t bytes;
+
+    if (array->alloc > array->count) {
+        return 0;
+    }
+
+    new_alloc = (array->alloc > 0) ? 2 * array->alloc : 64;
+    bytes = sizeof(ReplicaBinlogRecord) * new_alloc;
+    records = (ReplicaBinlogRecord *)fc_malloc(bytes);
+    if (records == NULL) {
+        return ENOMEM;
+    }
+
+    if (array->records != NULL) {
+        if (array->count > 0) {
+            memcpy(records, array->records, array->count *
+                    sizeof(ReplicaBinlogRecord));
+        }
+        free(array->records);
+    }
+
+    array->alloc = new_alloc;
+    array->records = records;
+    return 0;
+}
+
+static int binlog_parse_buffer(ServerBinlogReader *reader,
+        const int length, ReplicaBinlogRecordArray *array)
+{
+    int result;
+    string_t line;
+    ReplicaBinlogRecord *record;
+    char *buff;
+    char *buff_end;
+    char *line_end;
+    char error_info[256];
+
+    *error_info = '\0';
+    result = 0;
+    buff = reader->binlog_buffer.buff;
+    line.str = buff;
+    buff_end = buff + length;
+    while (line.str < buff_end) {
+        line_end = (char *)memchr(line.str, '\n', buff_end - line.str);
+        if (line_end == NULL) {
+            result = EINVAL;
+            sprintf(error_info, "expect line end char (\\n)");
+            break;
+        }
+
+        ++line_end;
+        line.len = line_end - line.str;
+
+        if ((result=check_alloc_record_array(array)) != 0) {
+            return result;
+        }
+        record = array->records + array->count;
+        if ((result=replica_binlog_record_unpack(&line,
+                        record, error_info)) != 0)
+        {
+            break;
+        }
+
+        array->count++;
+        line.str = line_end;
+    }
+
+    if (result != 0) {
+        int64_t file_offset;
+        int64_t line_count;
+        int remain_bytes;
+
+        remain_bytes = length - (line.str - buff);
+        file_offset = reader->position.offset - remain_bytes;
+        fc_get_file_line_count_ex(reader->filename,
+                file_offset, &line_count);
+        logError("file: "__FILE__", line: %d, "
+                "binlog file %s, line no: %"PRId64", %s",
+                __LINE__, reader->filename, line_count, error_info);
+    }
+    return result;
+}
+
+int replica_binlog_load_records(const int data_group_id,
+        const uint64_t last_data_version,
+        ReplicaBinlogRecordArray *array)
+{
+    int result;
+    int read_bytes;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    SFBinlogWriterInfo *writer;
+    SFBinlogFilePosition pos;
+    ServerBinlogReader reader;
+
+    array->count = 0;
+    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+                    last_data_version, &pos, true)) != 0)
+    {
+        return (result == ENOENT ? 0 : result);
+    }
+
+    replica_binlog_get_subdir_name(subdir_name, data_group_id);
+    writer = replica_binlog_get_writer(data_group_id);
+    if ((result=binlog_reader_init(&reader, subdir_name,
+                    writer, &pos)) != 0)
+    {
+        return result;
+    }
+
+    while ((result=binlog_reader_integral_read(&reader,
+                    reader.binlog_buffer.buff,
+                    reader.binlog_buffer.size,
+                    &read_bytes)) == 0)
+    {
+        if ((result=binlog_parse_buffer(&reader, read_bytes, array)) != 0) {
+            break;
+        }
+    }
+
+    binlog_reader_destroy(&reader);
+    return (result == ENOENT ? 0 : result);
+}

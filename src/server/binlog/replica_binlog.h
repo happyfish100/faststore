@@ -33,6 +33,12 @@ typedef struct replica_binlog_record {
     int64_t data_version;
 } ReplicaBinlogRecord;
 
+typedef struct replica_binlog_record_array {
+    int count;
+    int alloc;
+    ReplicaBinlogRecord *records;
+} ReplicaBinlogRecordArray;
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -181,6 +187,27 @@ extern "C" {
     int replica_binlog_get_position_by_dv(const int data_group_id,
             const uint64_t last_data_version, SFBinlogFilePosition *pos,
             const bool ignore_dv_overflow);
+
+    static inline void replica_binlog_init_record_array(
+            ReplicaBinlogRecordArray *array)
+    {
+        array->alloc = array->count = 0;
+        array->records = NULL;
+    }
+
+    static inline void replica_binlog_free_record_array(
+            ReplicaBinlogRecordArray *array)
+    {
+        if (array->records != NULL) {
+            free(array->records);
+            array->records = NULL;
+            array->alloc = array->count = 0;
+        }
+    }
+
+    int replica_binlog_load_records(const int data_group_id,
+            const uint64_t last_data_version,
+            ReplicaBinlogRecordArray *array);
 
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);

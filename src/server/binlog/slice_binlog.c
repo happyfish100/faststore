@@ -614,7 +614,7 @@ int slice_binlog_get_position_by_dv(const int data_group_id,
     return ENOENT;
 }
 
-static int check_alloc_record_array(BinlogBinlogCommonFieldsArray *array)
+static int check_alloc_record_array(BinlogCommonFieldsArray *array)
 {
     BinlogCommonFields *records;
     int64_t new_alloc;
@@ -646,7 +646,7 @@ static int check_alloc_record_array(BinlogBinlogCommonFieldsArray *array)
 
 static int slice_parse_to_array(const int data_group_id,
         ServerBinlogReader *reader, const int read_bytes,
-        BinlogBinlogCommonFieldsArray *array)
+        BinlogCommonFieldsArray *array)
 {
     int result;
     string_t line;
@@ -696,7 +696,7 @@ static int slice_parse_to_array(const int data_group_id,
 
 int slice_binlog_load_records(const int data_group_id,
         const uint64_t last_data_version,
-        BinlogBinlogCommonFieldsArray *array)
+        BinlogCommonFieldsArray *array)
 {
     SFBinlogFilePosition pos;
     ServerBinlogReader reader;
@@ -707,7 +707,7 @@ int slice_binlog_load_records(const int data_group_id,
     if ((result=slice_binlog_get_position_by_dv(data_group_id,
                     last_data_version, &pos)) != 0)
     {
-        return result;
+        return (result == ENOENT ? 0 : result);
     }
 
     if ((result=binlog_reader_init(&reader, FS_SLICE_BINLOG_SUBDIR_NAME,

@@ -31,110 +31,6 @@
 #include "replica_binlog.h"
 #include "binlog_rollback.h"
 
-static int binlog_parse_buffer(ServerBinlogReader *reader,
-        const int length, const time_t from_timestamp,
-        BinlogBinlogCommonFieldsArray *array)
-{
-    int result;
-    string_t line;
-    char *buff;
-    char *line_start;
-    char *buff_end;
-    char *line_end;
-    BinlogCommonFields fields;
-    char error_info[256];
-
-    *error_info = '\0';
-    result = 0;
-    buff = reader->binlog_buffer.buff;
-    line_start = buff;
-    buff_end = buff + length;
-    while (line_start < buff_end) {
-        line_end = (char *)memchr(line_start, '\n', buff_end - line_start);
-        if (line_end == NULL) {
-            result = EINVAL;
-            sprintf(error_info, "expect line end char (\\n)");
-            break;
-        }
-
-        line.str = line_start;
-        line.len = ++line_end - line_start;
-        if ((result=binlog_unpack_common_fields(&line,
-                        &fields, error_info)) != 0)
-        {
-            break;
-        }
-
-        if ((fields.timestamp >= from_timestamp) &&
-                FS_IS_BINLOG_SOURCE_RPC(fields.source))
-        {
-        }
-
-        line_start = line_end;
-    }
-
-    if (result != 0) {
-        int64_t file_offset;
-        int64_t line_count;
-        int remain_bytes;
-
-        remain_bytes = length - (line_start - buff);
-        file_offset = reader->position.offset - remain_bytes;
-        fc_get_file_line_count_ex(reader->filename,
-                file_offset, &line_count);
-        logError("file: "__FILE__", line: %d, "
-                "binlog file %s, line no: %"PRId64", %s",
-                __LINE__, reader->filename, line_count, error_info);
-    }
-    return result;
-}
-
-static int load_replica_binlogs(const int data_group_id,
-        const int64_t my_confirmed_version,
-        BinlogBinlogCommonFieldsArray *array)
-{
-    int result;
-    int read_bytes;
-    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    SFBinlogWriterInfo *writer;
-    SFBinlogFilePosition pos;
-    ServerBinlogReader reader;
-
-    if ((result=replica_binlog_get_position_by_dv(data_group_id,
-                    my_confirmed_version, &pos, true)) != 0)
-    {
-        return result;
-    }
-
-    sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-            data_group_id);
-    writer = replica_binlog_get_writer(data_group_id);
-    if ((result=binlog_reader_init(&reader, subdir_name,
-                    writer, &pos)) != 0)
-    {
-        return result;
-    }
-
-    while ((result=binlog_reader_integral_read(&reader,
-                    reader.binlog_buffer.buff,
-                    reader.binlog_buffer.size,
-                    &read_bytes)) == 0)
-    {
-        if ((result=binlog_parse_buffer(&reader, read_bytes,
-                        data_group_id, array)) != 0)
-        {
-            break;
-        }
-    }
-
-    if (result == ENOENT) {
-        result = 0;
-    }
-
-    binlog_reader_destroy(&reader);
-    return result;
-}
-
 static int compare_version_and_source(const BinlogCommonFields *p1,
         const BinlogCommonFields *p2)
 {
@@ -148,7 +44,7 @@ static int compare_version_and_source(const BinlogCommonFields *p1,
 
 static int load_slice_binlogs(const int data_group_id,
         const int64_t my_confirmed_version,
-        BinlogBinlogCommonFieldsArray *array)
+        BinlogCommonFieldsArray *array)
 {
     int result;
 
@@ -168,32 +64,75 @@ static int load_slice_binlogs(const int data_group_id,
     return 0;
 }
 
-static int binlog_load_data_records(const int data_group_id,
-        const uint64_t my_confirmed_version)
+int rollback_slice_binlogs(const int data_group_id,
+        const uint64_t last_data_version,
+        const bool detect_slice_binlog)
 {
     int result;
-    BinlogBinlogCommonFieldsArray slice_record_array;
+    ReplicaBinlogRecordArray replica_array;
+    BinlogCommonFieldsArray slice_array;
 
-    if ((result=load_replica_binlogs(data_group_id,
-                    my_confirmed_version, &slice_record_array)) != 0)
+    replica_binlog_init_record_array(&replica_array);
+    slice_binlog_init_record_array(&slice_array);
+
+    if ((result=replica_binlog_load_records(data_group_id,
+                    last_data_version, &replica_array)) != 0)
     {
         return result;
     }
+
+    {
+        ReplicaBinlogRecord *record;
+        ReplicaBinlogRecord *end;
+        char buff[256];
+        int len;
+
+        end = replica_array.records + replica_array.count;
+        for (record=replica_array.records; record<end; record++) {
+            if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
+                    record->op_type == BINLOG_OP_TYPE_NO_OP)
+            {
+                len = replica_binlog_log_block_to_buff(record->timestamp,
+                        record->data_version, &record->bs_key.block,
+                        record->source, record->op_type, buff);
+            } else {
+                len = replica_binlog_log_slice_to_buff(record->timestamp,
+                        record->data_version, &record->bs_key, record->source,
+                        record->op_type, buff);
+            }
+
+            logInfo("%.*s", len, buff);
+        }
+    }
+
+
+    logInfo("data_group_id: %d, last_data_version: %"PRId64", replica record count: %d",
+            data_group_id, last_data_version, replica_array.count);
 
     if ((result=load_slice_binlogs(data_group_id,
-                    my_confirmed_version,
-                    &slice_record_array)) != 0)
+                    last_data_version,
+                    &slice_array)) != 0)
     {
         return result;
     }
 
-    return 0;
-}
+    {
+        BinlogCommonFields *record;
+        BinlogCommonFields *end;
 
-static int rollback_slice_binlogs(FSClusterDataServerInfo *myself,
-        const uint64_t my_confirmed_version, const SFBinlogFilePosition
-        *position, const bool detect_slice_binlog)
-{
+        end = slice_array.records + slice_array.count;
+        for (record=slice_array.records; record<end; record++) {
+            logInfo("%ld %"PRId64" %c %c %"PRId64" "
+                    "%"PRId64"\n", (long)record->timestamp, record->data_version,
+                    record->source, record->op_type, record->bkey.oid,
+                    record->bkey.offset);
+        }
+    }
+    logInfo("data_group_id: %d, last_data_version: %"PRId64", slice record count: %d",
+            data_group_id, last_data_version, slice_array.count);
+
+    replica_binlog_free_record_array(&replica_array);
+    slice_binlog_free_record_array(&slice_array);
     return 0;
 }
 
@@ -232,8 +171,9 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
         return result;
     }
 
-    if ((result=rollback_slice_binlogs(myself, my_confirmed_version,
-                    &position, detect_slice_binlog)) != 0)
+    if ((result=rollback_slice_binlogs(myself->dg->id,
+                    my_confirmed_version,
+                    detect_slice_binlog)) != 0)
     {
         return result;
     }

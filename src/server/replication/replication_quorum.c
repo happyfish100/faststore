@@ -528,6 +528,18 @@ int replication_quorum_init()
         return result;
     }
 
+    //TODO
+    {
+        const int data_group_id = 62;
+        const uint64_t last_data_version = 155481;
+        const bool detect_slice_binlog = false;
+        if ((result=rollback_slice_binlogs(data_group_id, last_data_version,
+                        detect_slice_binlog)) != 0)
+        {
+            return result;
+        }
+    }
+
     return fc_create_thread(&tid, replication_quorum_thread_run,
             NULL, SF_G_THREAD_STACK_SIZE);
 }

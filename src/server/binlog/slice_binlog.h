@@ -61,9 +61,26 @@ extern "C" {
     int slice_binlog_get_position_by_dv(const int data_group_id,
             const uint64_t last_data_version, SFBinlogFilePosition *pos);
 
+    static inline void slice_binlog_init_record_array(
+            BinlogCommonFieldsArray *array)
+    {
+        array->alloc = array->count = 0;
+        array->records = NULL;
+    }
+
+    static inline void slice_binlog_free_record_array(
+            BinlogCommonFieldsArray *array)
+    {
+        if (array->records != NULL) {
+            free(array->records);
+            array->records = NULL;
+            array->alloc = array->count = 0;
+        }
+    }
+
     int slice_binlog_load_records(const int data_group_id,
             const uint64_t last_data_version,
-            BinlogBinlogCommonFieldsArray *array);
+            BinlogCommonFieldsArray *array);
 
     static inline const char *slice_binlog_get_filepath(
             char *filepath, const int size)

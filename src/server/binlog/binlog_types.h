@@ -73,7 +73,7 @@ typedef struct {
     int alloc;
     int count;
     BinlogCommonFields *records;
-} BinlogBinlogCommonFieldsArray;
+} BinlogCommonFieldsArray;
 
 #ifdef __cplusplus
 extern "C" {
