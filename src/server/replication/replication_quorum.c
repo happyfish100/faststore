@@ -242,6 +242,12 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
         if ((result=rollback_binlogs(ctx->myself, FC_ATOMIC_GET(ctx->myself->
                             data.confirmed_version), false)) != 0)
         {
+            if (SF_G_CONTINUE_FLAG) {
+                logInfo("file: "__FILE__", line: %d, "
+                        "rollback binlog fail, error code: %d, "
+                        "program exit!", __LINE__, result);
+                sf_terminate_myself();
+            }
             break;
         }
 

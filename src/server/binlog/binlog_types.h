@@ -50,6 +50,7 @@
 #define BINLOG_SOURCE_RPC_SLAVE     'c'  //by user call (slave side)
 #define BINLOG_SOURCE_REPLAY        'r'  //by binlog replay  (slave side)
 #define BINLOG_SOURCE_ROLLBACK      'R'  //revert by binlog rollback
+#define BINLOG_SOURCE_RESTORE       'S'  //restore by binlog rollback
 
 #define FS_IS_BINLOG_SOURCE_RPC(source) \
     (source == BINLOG_SOURCE_RPC_MASTER || source == BINLOG_SOURCE_RPC_SLAVE)

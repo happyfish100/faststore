@@ -24,12 +24,22 @@
 #include "fastcommon/shared_func.h"
 #include "sf/sf_global.h"
 #include "../../common/fs_func.h"
+#include "../../client/fs_client.h"
 #include "../server_global.h"
+#include "../data_thread.h"
 #include "binlog_func.h"
 #include "binlog_reader.h"
 #include "slice_binlog.h"
 #include "replica_binlog.h"
 #include "binlog_rollback.h"
+
+typedef struct {
+    FSSliceOpContext op_ctx;
+    pthread_lock_cond_pair_t lcp;  //for notify
+    struct {
+        bool done;
+    } notify;
+} DataRollbackContext;
 
 static int compare_version_and_source(const BinlogCommonFields *p1,
         const BinlogCommonFields *p2)
@@ -92,20 +102,216 @@ static int get_master(FSClusterDataServerInfo *myself,
     return EINTR;
 }
 
+static void slice_write_done_notify(FSDataOperation *op)
+{
+    DataRollbackContext *rollback_ctx;
+
+    rollback_ctx = (DataRollbackContext *)op->arg;
+    PTHREAD_MUTEX_LOCK(&rollback_ctx->lcp.lock);
+    rollback_ctx->notify.done = true;
+    pthread_cond_signal(&rollback_ctx->lcp.cond);
+    PTHREAD_MUTEX_UNLOCK(&rollback_ctx->lcp.lock);
+}
+
+static int init_rollback_context(DataRollbackContext *rollback_ctx,
+        FSClusterDataServerInfo *myself)
+{
+    int result;
+
+    memset(rollback_ctx, 0, sizeof(*rollback_ctx));
+    rollback_ctx->op_ctx.info.buff = fc_malloc(FS_FILE_BLOCK_SIZE);
+    if (rollback_ctx->op_ctx.info.buff == NULL) {
+        return ENOMEM;
+    }
+
+    if ((result=fs_slice_array_init(&rollback_ctx->
+                    op_ctx.update.sarray)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=init_pthread_lock_cond_pair(&rollback_ctx->lcp)) != 0) {
+        return result;
+    }
+
+    rollback_ctx->op_ctx.notify_func = slice_write_done_notify;
+    rollback_ctx->op_ctx.info.is_update = true;
+    rollback_ctx->op_ctx.info.source = BINLOG_SOURCE_RESTORE;
+    rollback_ctx->op_ctx.info.write_binlog.log_replica = false;
+    rollback_ctx->op_ctx.info.myself = myself;
+    rollback_ctx->op_ctx.info.data_group_id = myself->dg->id;
+    return 0;
+}
+
+static void destroy_rollback_context(DataRollbackContext *rollback_ctx)
+{
+    if (rollback_ctx->op_ctx.info.buff != NULL) {
+        free(rollback_ctx->op_ctx.info.buff);
+        rollback_ctx->op_ctx.info.buff = NULL;
+    }
+
+    fs_slice_array_destroy(&rollback_ctx->op_ctx.update.sarray);
+    destroy_pthread_lock_cond_pair(&rollback_ctx->lcp);
+}
+
+static int fetch_data(DataRollbackContext *rollback_ctx)
+{
+    FSClusterDataServerInfo *master;
+    int read_bytes;
+    int result;
+
+    while (SF_G_CONTINUE_FLAG) {
+        if ((result=get_master(rollback_ctx->op_ctx.
+                        info.myself, &master)) != 0)
+        {
+            break;
+        }
+
+        if (master == rollback_ctx->op_ctx.info.myself) {
+            result = EEXIST;
+            break;
+        }
+
+        if ((result=fs_client_slice_read_by_slave(&g_fs_client_vars.client_ctx,
+                        CLUSTER_MY_SERVER_ID, &rollback_ctx->op_ctx.info.bs_key,
+                        rollback_ctx->op_ctx.info.buff, &read_bytes)) == 0)
+        {
+            if (read_bytes != rollback_ctx->op_ctx.info.bs_key.slice.length) {
+                logDebug("file: "__FILE__", line: %d, "
+                        "data group id: %d, block {oid: %"PRId64", "
+                        "offset: %"PRId64"}, slice {offset: %d, length: %d}, "
+                        "read bytes: %d != slice length, "
+                        "maybe delete later?", __LINE__,
+                        rollback_ctx->op_ctx.info.myself->dg->id,
+                        rollback_ctx->op_ctx.info.bs_key.block.oid,
+                        rollback_ctx->op_ctx.info.bs_key.block.offset,
+                        rollback_ctx->op_ctx.info.bs_key.slice.offset,
+                        rollback_ctx->op_ctx.info.bs_key.slice.length,
+                        read_bytes);
+                rollback_ctx->op_ctx.info.bs_key.slice.length = read_bytes;
+            }
+            break;
+        } else if (result == ENODATA) {
+            logDebug("file: "__FILE__", line: %d, "
+                    "data group id: %d, block {oid: %"PRId64", "
+                    "offset: %"PRId64"}, slice {offset: %d, "
+                    "length: %d}, slice not exist, "
+                    "maybe delete later?", __LINE__,
+                    rollback_ctx->op_ctx.info.myself->dg->id,
+                    rollback_ctx->op_ctx.info.bs_key.block.oid,
+                    rollback_ctx->op_ctx.info.bs_key.block.offset,
+                    rollback_ctx->op_ctx.info.bs_key.slice.offset,
+                    rollback_ctx->op_ctx.info.bs_key.slice.length);
+            break;
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, block {oid: %"PRId64", "
+                    "offset: %"PRId64"}, slice {offset: %d, length: %d}, "
+                    "fetch data fail, errno: %d, error info: %s", __LINE__,
+                    rollback_ctx->op_ctx.info.myself->dg->id,
+                    rollback_ctx->op_ctx.info.bs_key.block.oid,
+                    rollback_ctx->op_ctx.info.bs_key.block.offset,
+                    rollback_ctx->op_ctx.info.bs_key.slice.offset,
+                    rollback_ctx->op_ctx.info.bs_key.slice.length,
+                    result, STRERROR(result));
+        }
+    }
+
+    return result;
+}
+
+static int write_data(DataRollbackContext *rollback_ctx)
+{
+    int result;
+
+    if ((result=push_to_data_thread_queue(DATA_OPERATION_SLICE_WRITE,
+                    BINLOG_SOURCE_ROLLBACK, rollback_ctx,
+                    &rollback_ctx->op_ctx)) == 0)
+    {
+        PTHREAD_MUTEX_LOCK(&rollback_ctx->lcp.lock);
+        while (!rollback_ctx->notify.done) {
+            pthread_cond_wait(&rollback_ctx->lcp.cond,
+                    &rollback_ctx->lcp.lock);
+        }
+        rollback_ctx->notify.done = false;  /* reset for next */
+        PTHREAD_MUTEX_UNLOCK(&rollback_ctx->lcp.lock);
+        result = rollback_ctx->op_ctx.result;
+    }
+
+    if (result != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, write fail, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}, "
+                "errno: %d, error info: %s",
+                __LINE__, rollback_ctx->op_ctx.info.myself->dg->id,
+                rollback_ctx->op_ctx.info.bs_key.block.oid,
+                rollback_ctx->op_ctx.info.bs_key.block.offset,
+                rollback_ctx->op_ctx.info.bs_key.slice.offset,
+                rollback_ctx->op_ctx.info.bs_key.slice.length,
+                result, STRERROR(result));
+    }
+
+    return result;
+}
+
+static int do_rollback(DataRollbackContext *rollback_ctx,
+        ReplicaBinlogRecord *record)
+{
+    int result;
+    int r;
+
+    rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
+    if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
+        rollback_ctx->op_ctx.info.bs_key.slice.offset = 0;
+        rollback_ctx->op_ctx.info.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
+    } else {
+        rollback_ctx->op_ctx.info.bs_key.slice = record->bs_key.slice;
+    }
+
+    result = fetch_data(rollback_ctx);
+    if (result == EEXIST) {
+        return 0;
+    } else if (!(result == 0 || result == ENODATA)) {
+        return result;
+    }
+
+    if (record->op_type == BINLOG_OP_TYPE_WRITE_SLICE ||
+            record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
+    {
+        r = slice_binlog_log_del_slice(&record->bs_key, record->
+                timestamp, __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
+                record->data_version, BINLOG_SOURCE_ROLLBACK);
+    } else {
+        r = slice_binlog_log_no_op(&record->bs_key.block, record->
+                timestamp, __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
+                record->data_version, BINLOG_SOURCE_ROLLBACK);
+    }
+    if (r != 0) {
+        return r;
+    }
+
+    if (result == ENODATA) {
+        return 0;
+    } else {
+        rollback_ctx->op_ctx.info.data_version = record->data_version;
+        rollback_ctx->op_ctx.update.timestamp = record->timestamp;
+        return write_data(rollback_ctx);
+    }
+}
+
 static int rollback_data(FSClusterDataServerInfo *myself,
         const ReplicaBinlogRecordArray *replica_array,
         const BinlogCommonFieldsArray *slice_array,
         const bool is_redo)
 {
-    FSClusterDataServerInfo *master;
+    int result;
+    DataRollbackContext rollback_ctx;
     ReplicaBinlogRecord *record;
     ReplicaBinlogRecord *end;
     BinlogCommonFields target;
-    char buff[256];
-    int len;
-    int result;
 
-    if ((result=get_master(myself, &master)) != 0) {
+    if ((result=init_rollback_context(&rollback_ctx, myself)) != 0) {
         return result;
     }
 
@@ -126,25 +332,13 @@ static int rollback_data(FSClusterDataServerInfo *myself,
             }
         }
 
-        if (record->op_type == BINLOG_OP_TYPE_WRITE_SLICE ||
-                record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
-        {
+        if ((result=do_rollback(&rollback_ctx, record)) != 0) {
+            break;
         }
-
-        if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
-            len = replica_binlog_log_block_to_buff(record->timestamp,
-                    record->data_version, &record->bs_key.block,
-                    record->source, record->op_type, buff);
-        } else {
-            len = replica_binlog_log_slice_to_buff(record->timestamp,
-                    record->data_version, &record->bs_key, record->source,
-                    record->op_type, buff);
-        }
-
-        logInfo("%.*s", len, buff);
     }
 
-    return 0;
+    destroy_rollback_context(&rollback_ctx);
+    return result;
 }
 
 int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
@@ -174,20 +368,6 @@ int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         }
     }
 
-    /*
-    {
-        BinlogCommonFields *record;
-        BinlogCommonFields *end;
-
-        end = slice_array.records + slice_array.count;
-        for (record=slice_array.records; record<end; record++) {
-            logInfo("%ld %"PRId64" %c %c %"PRId64" "
-                    "%"PRId64"\n", (long)record->timestamp, record->data_version,
-                    record->source, record->op_type, record->bkey.oid,
-                    record->bkey.offset);
-        }
-    }
-    */
     logInfo("data_group_id: %d, last_data_version: %"PRId64", slice record count: %d",
             myself->dg->id, last_data_version, slice_array.count);
 
