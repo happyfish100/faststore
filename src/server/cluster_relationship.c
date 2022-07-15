@@ -1015,9 +1015,9 @@ static int notify_next_leader(cluster_notify_next_leader_func notify_func,
 	send = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
 	for (server=CLUSTER_SERVER_ARRAY.servers; server<send; server++) {
 		if ((result=notify_func(server, server_status, &bConnectFail)) != 0) {
-			if (!bConnectFail) {
-				return result;
-			}
+            if (!bConnectFail && result != EOPNOTSUPP) {
+                return result;
+            }
 		} else {
             ++(*success_count);
 		}
