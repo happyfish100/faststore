@@ -55,7 +55,10 @@
 #define FS_IS_BINLOG_SOURCE_RPC(source) \
     (source == BINLOG_SOURCE_RPC_MASTER || source == BINLOG_SOURCE_RPC_SLAVE)
 
-#define BINLOG_REPAIR_KEEP_RECORD(source) !FS_IS_BINLOG_SOURCE_RPC(source)
+#define FS_BINLOG_CHECKED_BY_SOURCE(source) \
+    (FS_IS_BINLOG_SOURCE_RPC(source) || source == BINLOG_SOURCE_ROLLBACK)
+
+#define BINLOG_REPAIR_KEEP_RECORD(source) !FS_BINLOG_CHECKED_BY_SOURCE(source)
 
 struct fs_binlog_record;
 

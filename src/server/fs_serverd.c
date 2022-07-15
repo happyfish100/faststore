@@ -357,15 +357,7 @@ int main(int argc, char *argv[])
         }
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
-
-
-        if ((result=cluster_relationship_start()) != 0) {
-            break;
-        }
-
-        if ((result=replication_quorum_start()) != 0) {
-            return result;
-        }
+        sf_accept_loop_ex(&REPLICA_SF_CTX, false);
 
         result = sf_service_init_ex2(&g_sf_context, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
@@ -379,8 +371,16 @@ int main(int argc, char *argv[])
         sf_enable_thread_notify_ex(&g_sf_context, true);
         sf_set_remove_from_ready_list_ex(&g_sf_context, false);
 
+        if ((result=cluster_relationship_start()) != 0) {
+            break;
+        }
+
         if ((result=replication_common_start()) != 0) {
             break;
+        }
+
+        if ((result=replication_quorum_start()) != 0) {
+            return result;
         }
 
         if ((result=replica_clean_add_schedule()) != 0) {
@@ -401,7 +401,6 @@ int main(int argc, char *argv[])
     setup_mblock_stat_task();
     //sched_print_all_entries();
 
-    sf_accept_loop_ex(&REPLICA_SF_CTX, false);
     sf_accept_loop();
     if (g_schedule_flag) {
         pthread_kill(schedule_tid, SIGINT);

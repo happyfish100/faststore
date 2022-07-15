@@ -92,8 +92,9 @@ static int get_master(FSClusterDataServerInfo *myself,
             time_used = get_current_time_ms() - start_time_ms;
             long_to_comma_str(time_used, time_buff);
             logInfo("file: "__FILE__", line: %d, "
-                    "data group id: %d, get master done, time used: %s ms",
-                    __LINE__, myself->dg->id, time_buff);
+                    "data group id: %d, get master done, master id: %d, "
+                    "time used: %s ms", __LINE__, myself->dg->id,
+                    (*master)->cs->server->id, time_buff);
             return 0;
         }
         fc_sleep_ms(100);
@@ -264,6 +265,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     int dec_alloc;
     uint64_t sn;
 
+    fs_calc_block_hashcode(&record->bs_key.block);
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
     if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
         rollback_ctx->op_ctx.info.bs_key.slice.offset = 0;
