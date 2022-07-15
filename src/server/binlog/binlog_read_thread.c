@@ -136,6 +136,12 @@ static void binlog_read_thread_func(BinlogReadThreadContext *ctx,
         r->err_no = binlog_reader_integral_read(&ctx->reader,
                 r->buffer.buff, r->buffer.alloc_size,
                 &r->buffer.length);
+
+        if (r->binlog_position.index != ctx->reader.position.index) {
+            r->binlog_position.index = ctx->reader.position.index;
+            r->binlog_position.offset = ctx->reader.
+                position.offset - r->buffer.length;
+        }
         common_blocked_queue_push(&ctx->queues.done, r);
     }
 

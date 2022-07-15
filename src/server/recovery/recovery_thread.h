@@ -30,8 +30,6 @@ void recovery_thread_destroy();
 
 int recovery_thread_push_to_queue(FSClusterDataServerInfo *ds);
 
-int recovery_thread_check_push_to_queue(FSClusterDataServerInfo *ds);
-
 #ifdef __cplusplus
 }
 #endif

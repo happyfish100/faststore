@@ -189,11 +189,20 @@ int replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
         const uint64_t new_version)
 {
     SFBinlogWriterInfo *writer;
+    uint64_t old_version;
 
     writer = binlog_writer_array.writers[myself->dg->id -
         binlog_writer_array.base_id];
     FC_ATOMIC_SET(myself->data.current_version, new_version);
-    FC_ATOMIC_SET(myself->data.confirmed_version, new_version);
+
+    old_version = FC_ATOMIC_GET(myself->data.confirmed_version);
+    if (REPLICA_QUORUM_ROLLBACK_DONE || old_version == 0 ||
+            old_version > new_version)
+    {
+        FC_ATOMIC_CAS(myself->data.confirmed_version,
+                old_version, new_version);
+    }
+
     return sf_binlog_writer_change_next_version(writer, new_version + 1);
 }
 
@@ -201,6 +210,7 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
 {
     uint64_t old_version;
     uint64_t new_version;
+    uint64_t confirmed_version;
     int result;
 
     if ((result=get_last_data_version_from_file(myself->dg->id,
@@ -211,7 +221,11 @@ static int set_my_data_version(FSClusterDataServerInfo *myself)
 
     old_version = FC_ATOMIC_GET(myself->data.current_version);
     if (new_version == old_version) {
-        FC_ATOMIC_SET(myself->data.confirmed_version, new_version);
+        confirmed_version = FC_ATOMIC_GET(myself->data.confirmed_version);
+        if (confirmed_version == 0 || confirmed_version > new_version) {
+            FC_ATOMIC_CAS(myself->data.confirmed_version,
+                    confirmed_version, new_version);
+        }
     } else {
         result = replica_binlog_set_data_version(myself, new_version);
         logDebug("file: "__FILE__", line: %d, data_group_id: %d, "

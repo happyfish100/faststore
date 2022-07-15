@@ -25,6 +25,7 @@ extern "C" {
 #endif
 
     int replication_quorum_init();
+    int replication_quorum_start();
     void replication_quorum_destroy();
 
     int replication_quorum_add(FSReplicationQuorumContext *ctx,

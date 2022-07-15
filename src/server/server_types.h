@@ -262,6 +262,8 @@ typedef struct fs_cluster_data_server_info {
         volatile uint64_t until_version;
     } recovery;
 
+    volatile char in_rollback; //rollbacking stage when i lost master
+
     struct {
         pthread_lock_cond_pair_t notify; //lock and waiting for slave status change
         volatile uint64_t rpc_last_version;  //check rpc finished when recovery

@@ -100,7 +100,7 @@ static void data_recovery_do(FSClusterDataServerInfo *ds,
         sleep(sleep_seconds);
     }
 
-    if (recovery_thread_check_push_to_queue(ds) == 0) {
+    if (recovery_thread_push_to_queue(ds) == 0) {
         sleep(1);
     }
 
@@ -147,6 +147,13 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
     if (master == NULL || ds->dg->myself == master) {
         logDebug("file: "__FILE__", line: %d, "
                 "data group id: %d, master is NULL or i am the master, "
+                "skip data recovery", __LINE__, ds->dg->id);
+        return;
+    }
+
+    if (FC_ATOMIC_GET(ds->dg->myself->in_rollback)) {
+        logDebug("file: "__FILE__", line: %d, "
+                "data group id: %d, rollback in progress, "
                 "skip data recovery", __LINE__, ds->dg->id);
         return;
     }
@@ -272,11 +279,6 @@ void recovery_thread_destroy()
 
 int recovery_thread_push_to_queue(FSClusterDataServerInfo *ds)
 {
-    return common_blocked_queue_push(&recovery_thread_ctx.queue, ds);
-}
-
-int recovery_thread_check_push_to_queue(FSClusterDataServerInfo *ds)
-{
     int status;
     status = FC_ATOMIC_GET(ds->status);
     if (!(status == FS_DS_STATUS_INIT || status == FS_DS_STATUS_OFFLINE)) {
@@ -287,6 +289,12 @@ int recovery_thread_check_push_to_queue(FSClusterDataServerInfo *ds)
             CLUSTER_LEADER_ATOM_PTR == NULL)
     {
         return ENOENT;
+    }
+
+    if (!REPLICA_QUORUM_ROLLBACK_DONE || FC_ATOMIC_GET(
+                ds->dg->myself->in_rollback))
+    {
+        return EBUSY;
     }
 
     return common_blocked_queue_push(&recovery_thread_ctx.queue, ds);

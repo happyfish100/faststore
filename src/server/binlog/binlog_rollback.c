@@ -154,7 +154,7 @@ static void destroy_rollback_context(DataRollbackContext *rollback_ctx)
     destroy_pthread_lock_cond_pair(&rollback_ctx->lcp);
 }
 
-static int fetch_data(DataRollbackContext *rollback_ctx)
+static int fetch_data(DataRollbackContext *rollback_ctx, const bool is_redo)
 {
     FSClusterDataServerInfo *master;
     int read_bytes;
@@ -214,6 +214,7 @@ static int fetch_data(DataRollbackContext *rollback_ctx)
                     rollback_ctx->op_ctx.info.bs_key.slice.offset,
                     rollback_ctx->op_ctx.info.bs_key.slice.length,
                     result, STRERROR(result));
+            sleep(1);
         }
     }
 
@@ -256,10 +257,12 @@ static int write_data(DataRollbackContext *rollback_ctx)
 }
 
 static int do_rollback(DataRollbackContext *rollback_ctx,
-        ReplicaBinlogRecord *record)
+        ReplicaBinlogRecord *record, const bool is_redo)
 {
     int result;
     int r;
+    int dec_alloc;
+    uint64_t sn;
 
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
     if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
@@ -269,7 +272,8 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         rollback_ctx->op_ctx.info.bs_key.slice = record->bs_key.slice;
     }
 
-    result = fetch_data(rollback_ctx);
+    result = fetch_data(rollback_ctx, is_redo);
+    logInfo("fetch_data result: %d", result);
     if (result == EEXIST) {
         return 0;
     } else if (!(result == 0 || result == ENODATA)) {
@@ -279,9 +283,15 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     if (record->op_type == BINLOG_OP_TYPE_WRITE_SLICE ||
             record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
     {
-        r = slice_binlog_log_del_slice(&record->bs_key, record->
-                timestamp, __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
-                record->data_version, BINLOG_SOURCE_ROLLBACK);
+        if ((r=ob_index_delete_slices(&record->bs_key,
+                        &sn, &dec_alloc, false)) == 0)
+        {
+            r = slice_binlog_log_del_slice(&record->bs_key,
+                    record->timestamp, sn, record->data_version,
+                    BINLOG_SOURCE_ROLLBACK);
+        } else if (r == ENOENT) {
+            r = 0;
+        }
     } else {
         r = slice_binlog_log_no_op(&record->bs_key.block, record->
                 timestamp, __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
@@ -311,6 +321,10 @@ static int rollback_data(FSClusterDataServerInfo *myself,
     ReplicaBinlogRecord *end;
     BinlogCommonFields target;
 
+    if (is_redo && slice_array->count == 0) {
+        return 0;
+    }
+
     if ((result=init_rollback_context(&rollback_ctx, myself)) != 0) {
         return result;
     }
@@ -323,6 +337,15 @@ static int rollback_data(FSClusterDataServerInfo *myself,
 
         if (is_redo) {
             target.data_version = record->data_version;
+            target.source = BINLOG_SOURCE_RPC_MASTER;
+            if (bsearch(&target, slice_array->records, slice_array->count,
+                        sizeof(target), (int (*)(const void *, const void *))
+                        compare_version_and_source) == NULL)
+            {
+                continue;
+            }
+
+            target.data_version = record->data_version;
             target.source = BINLOG_SOURCE_ROLLBACK;
             if (bsearch(&target, slice_array->records, slice_array->count,
                         sizeof(target), (int (*)(const void *, const void *))
@@ -332,7 +355,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
             }
         }
 
-        if ((result=do_rollback(&rollback_ctx, record)) != 0) {
+        if ((result=do_rollback(&rollback_ctx, record, is_redo)) != 0) {
             break;
         }
     }
@@ -373,6 +396,9 @@ int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
 
     result = rollback_data(myself, &replica_array,
             &slice_array, is_redo);
+
+    logInfo("data_group_id: %d, last_data_version: %"PRId64", rollback_data result: %d",
+            myself->dg->id, last_data_version, result);
 
     replica_binlog_free_record_array(&replica_array);
     slice_binlog_free_record_array(&slice_array);

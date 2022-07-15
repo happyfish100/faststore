@@ -358,6 +358,15 @@ int main(int argc, char *argv[])
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
 
+
+        if ((result=cluster_relationship_start()) != 0) {
+            break;
+        }
+
+        if ((result=replication_quorum_start()) != 0) {
+            return result;
+        }
+
         result = sf_service_init_ex2(&g_sf_context, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, service_deal_task,
@@ -369,10 +378,6 @@ int main(int argc, char *argv[])
         }
         sf_enable_thread_notify_ex(&g_sf_context, true);
         sf_set_remove_from_ready_list_ex(&g_sf_context, false);
-
-        if ((result=cluster_relationship_start()) != 0) {
-            break;
-        }
 
         if ((result=replication_common_start()) != 0) {
             break;

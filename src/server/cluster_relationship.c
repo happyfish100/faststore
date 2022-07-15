@@ -330,10 +330,14 @@ static void pack_changed_data_versions(int *count, const bool report_all)
             NETWORK_BUFFER.length);
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
-        data_versions.current = FC_ATOMIC_GET(
-                group->ds->data.current_version);
         data_versions.confirmed = FC_ATOMIC_GET(
                 group->ds->data.confirmed_version);
+        if (REPLICA_QUORUM_ROLLBACK_DONE) {
+            data_versions.current = FC_ATOMIC_GET(
+                    group->ds->data.current_version);
+        } else {
+            data_versions.current = data_versions.confirmed;
+        }
         if (report_all || group->ds->last_report_versions.current !=
                 data_versions.current || group->ds->last_report_versions.
                 confirmed != data_versions.confirmed)
@@ -1588,7 +1592,7 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
     }
 
     if (new_master != NULL && group->myself != new_master) {
-        recovery_thread_check_push_to_queue(group->myself);
+        recovery_thread_push_to_queue(group->myself);
     }
 }
 

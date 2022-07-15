@@ -39,6 +39,7 @@ struct slice_loader_context;
 
 typedef struct slice_loader_record {
     SliceBinlogRecord slice;
+    SFBinlogFilePosition position;
     struct fast_mblock_man *allocator;
     struct slice_loader_record *next;  //for queue
 } SliceLoaderRecord;
@@ -144,6 +145,9 @@ static int slice_parse_line(SliceParseThreadContext *thread_ctx,
         return result;
     }
 
+    record->position.index = r->binlog_position.index;
+    record->position.offset = r->binlog_position.offset +
+        (line->str - r->buffer.buff);
     SLICE_ADD_TO_CHAIN(thread_ctx, record);
     return 0;
 }
@@ -238,10 +242,22 @@ static int slice_parse_buffer(BinlogLoaderContext *ctx)
     return 0;
 }
 
+#define SLICE_LOADER_GET_FILENAME_LINE_COUNT(position, \
+        binlog_filename, line_count) \
+    do { \
+        binlog_reader_get_filename(FS_SLICE_BINLOG_SUBDIR_NAME, \
+                position.index, binlog_filename, sizeof(binlog_filename)); \
+        fc_get_file_line_count_ex(binlog_filename, \
+                position.offset, &line_count); \
+        line_count++;   \
+    } while (0)
+
 static inline int slice_loader_deal_record(SliceDataThreadContext
         *thread_ctx, SliceLoaderRecord *record)
 {
     OBSliceEntry *slice;
+    char binlog_filename[PATH_MAX];
+    int64_t line_count;
     int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
@@ -279,11 +295,15 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             if ((result=ob_index_delete_slices_by_binlog(
                             &record->slice.bs_key)) != 0)
             {
+                SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
+                        binlog_filename, line_count);
                 logError("file: "__FILE__", line: %d, "
-                        "delete slice fail, block {oid: %"PRId64", "
+                        "delete slice fail, binlong index: %d, offset: %"PRId64", "
+                        "line no: %"PRId64", block {oid: %"PRId64", "
                         "offset: %"PRId64"}, slice {offset: %d, length: %d}"
-                        ", errno: %d, error info: %s", __LINE__, record->slice.
-                        bs_key.block.oid, record->slice.bs_key.block.offset,
+                        ", errno: %d, error info: %s", __LINE__, record->
+                        position.index, record->position.offset, line_count, record->slice.bs_key.
+                        block.oid, record->slice.bs_key.block.offset,
                         record->slice.bs_key.slice.offset, record->slice.bs_key.
                         slice.length, result, STRERROR(result));
             }
@@ -292,9 +312,13 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             if ((result=ob_index_delete_block_by_binlog(&record->
                             slice.bs_key.block)) != 0)
             {
+                SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
+                        binlog_filename, line_count);
                 logError("file: "__FILE__", line: %d, "
-                        "delete block fail, {oid: %"PRId64", offset: %"
-                        PRId64"}, errno: %d, error info: %s", __LINE__,
+                        "delete block fail, binlong index: %d, line no: "
+                        "%"PRId64", block {oid: %"PRId64", offset: %"PRId64
+                        "}, errno: %d, error info: %s", __LINE__,
+                        record->position.index, line_count,
                         record->slice.bs_key.block.oid,
                         record->slice.bs_key.block.offset,
                         result, STRERROR(result));

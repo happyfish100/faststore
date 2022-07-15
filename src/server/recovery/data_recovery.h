@@ -42,9 +42,6 @@ static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
             ctx->ds->dg->id, subdir);
 }
 
-FSClusterDataServerInfo *data_recovery_get_master(
-        DataRecoveryContext *ctx, int *err_no);
-
 #ifdef __cplusplus
 }
 #endif

@@ -113,7 +113,7 @@ static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
     return 0;
 }
 
-FSClusterDataServerInfo *data_recovery_get_master(
+static FSClusterDataServerInfo *data_recovery_get_master(
         DataRecoveryContext *ctx, int *err_no)
 {
     FSClusterDataServerInfo *master;
@@ -148,6 +148,14 @@ FSClusterDataServerInfo *data_recovery_get_master(
         logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, i am already master, "
                 "do NOT need recovery!", __LINE__, ctx->ds->dg->id);
+        *err_no = EBUSY;
+        return NULL;
+    }
+
+    if (FC_ATOMIC_GET(ctx->ds->dg->myself->in_rollback)) {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, rollback in progress, "
+                "can't recovery!", __LINE__, ctx->ds->dg->id);
         *err_no = EBUSY;
         return NULL;
     }

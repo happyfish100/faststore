@@ -20,6 +20,7 @@
 #include "../binlog/replica_binlog.h"
 #include "../binlog/binlog_reader.h"
 #include "../binlog/binlog_rollback.h"
+#include "../recovery/recovery_thread.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "replication_quorum.h"
@@ -148,11 +149,10 @@ static int rollback_binlogs(FSClusterDataServerInfo *myself,
     int result;
 
     result = binlog_rollback(myself, my_confirmed_version, is_redo);
-    if (result != 0) {
-        return result;
+    if (result == 0) {
+        result = unlink_confirmed_files(myself->dg->id);
     }
-
-    return unlink_confirmed_files(myself->dg->id);
+    return result;
 }
 
 static int init_context(FSReplicationQuorumContext *ctx,
@@ -179,10 +179,6 @@ static int init_context(FSReplicationQuorumContext *ctx,
     }
 
     if (confirmed_version > 0) {
-        if ((result=rollback_binlogs(myself, confirmed_version, true)) != 0) {
-            return result;
-        }
-
         FC_ATOMIC_SET(myself->data.confirmed_version, confirmed_version);
     }
 
@@ -236,6 +232,7 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
     int result;
     FSReplicationQuorumEntry *entry;
 
+    __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 0, 1);
     result = 0;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
     while (ctx->list.head != NULL) {
@@ -263,6 +260,7 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 
+    __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 1, 0);
     return result;
 }
 
@@ -512,9 +510,9 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
 int replication_quorum_init()
 {
     int result;
-    pthread_t tid;
 
     if (!REPLICA_QUORUM_NEED_MAJORITY) {
+        REPLICA_QUORUM_ROLLBACK_DONE = true;
         return 0;
     }
 
@@ -534,17 +532,92 @@ int replication_quorum_init()
         return result;
     }
 
-    //TODO
+    return 0;
+}
+
+static int check_rollback_data_groups()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *group;
+    int64_t confirmed_version;
+    int data_group_id;
+    int i;
+    int result;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MY_SERVER_ID)) == NULL)
     {
-        const int data_group_id = 62;
-        const uint64_t last_data_version = 155481;
-        const bool is_redo = true;
-        if ((result=rollback_slice_binlog_and_data(fs_get_my_data_server(data_group_id),
-                        last_data_version, is_redo)) != 0)
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file no data group",
+                __LINE__);
+        return ENOENT;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        confirmed_version = FC_ATOMIC_GET(group->
+                myself->data.confirmed_version);
+        if (confirmed_version < FC_ATOMIC_GET(group->
+                    myself->data.current_version))
         {
-            return result;
+            if ((result=rollback_binlogs(group->myself,
+                            confirmed_version, true)) != 0)
+            {
+                return result;
+            }
         }
     }
+
+    return 0;
+}
+
+static int push_all_to_recovery_thread_queue()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *group;
+    FSClusterDataServerInfo *master;
+    int data_group_id;
+    int i;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MY_SERVER_ID)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file no data group",
+                __LINE__);
+        return ENOENT;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
+        if (master != NULL && group->myself != master) {
+            recovery_thread_push_to_queue(group->myself);
+        }
+    }
+
+    return 0;
+}
+
+int replication_quorum_start()
+{
+    pthread_t tid;
+    int result;
+
+    if (!REPLICA_QUORUM_NEED_MAJORITY) {
+        return 0;
+    }
+
+    if ((result=check_rollback_data_groups()) != 0) {
+        return result;
+    }
+
+    REPLICA_QUORUM_ROLLBACK_DONE = true;
+    push_all_to_recovery_thread_queue();
 
     return fc_create_thread(&tid, replication_quorum_thread_run,
             NULL, SF_G_THREAD_STACK_SIZE);
