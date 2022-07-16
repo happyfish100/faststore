@@ -275,7 +275,6 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     }
 
     result = fetch_data(rollback_ctx, is_redo);
-    logInfo("fetch_data result: %d", result);
     if (result == EEXIST) {
         return 0;
     } else if (!(result == 0 || result == ENODATA)) {
@@ -366,7 +365,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
     return result;
 }
 
-int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
+static int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         const uint64_t last_data_version, const bool is_redo)
 {
     int result;
@@ -382,9 +381,6 @@ int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         return result;
     }
 
-    logInfo("data_group_id: %d, last_data_version: %"PRId64", replica record count: %d",
-            myself->dg->id, last_data_version, replica_array.count);
-
     if (is_redo) {
         result = load_slice_binlogs(myself->dg->id,
                 last_data_version, &slice_array);
@@ -393,14 +389,8 @@ int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         }
     }
 
-    logInfo("data_group_id: %d, last_data_version: %"PRId64", slice record count: %d",
-            myself->dg->id, last_data_version, slice_array.count);
-
     result = rollback_data(myself, &replica_array,
             &slice_array, is_redo);
-
-    logInfo("data_group_id: %d, last_data_version: %"PRId64", rollback_data result: %d",
-            myself->dg->id, last_data_version, result);
 
     replica_binlog_free_record_array(&replica_array);
     slice_binlog_free_record_array(&slice_array);

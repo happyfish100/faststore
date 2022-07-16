@@ -27,10 +27,6 @@ extern "C" {
 int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
         my_confirmed_version, const bool is_redo);
 
-//TODO
-int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
-        const uint64_t my_confirmed_version, const bool is_redo);
-
 #ifdef __cplusplus
 }
 #endif

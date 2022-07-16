@@ -240,7 +240,7 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
                             data.confirmed_version), false)) != 0)
         {
             if (SF_G_CONTINUE_FLAG) {
-                logInfo("file: "__FILE__", line: %d, "
+                logCrit("file: "__FILE__", line: %d, "
                         "rollback binlog fail, error code: %d, "
                         "program exit!", __LINE__, result);
                 sf_terminate_myself();
