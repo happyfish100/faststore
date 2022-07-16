@@ -81,11 +81,18 @@ static int get_master(FSClusterDataServerInfo *myself,
     int64_t time_used;
     char time_buff[32];
 
+    if ((*master =(FSClusterDataServerInfo *)FC_ATOMIC_GET(
+                    myself->dg->master)) != NULL)
+    {
+        return 0;
+    }
+
     start_time_ms = get_current_time_ms();
     logInfo("file: "__FILE__", line: %d, "
             "data group id: %d, try to get master ...",
             __LINE__, myself->dg->id);
     do {
+        fc_sleep_ms(100);
         *master = (FSClusterDataServerInfo *)
             FC_ATOMIC_GET(myself->dg->master);
         if (*master != NULL) {
@@ -97,7 +104,6 @@ static int get_master(FSClusterDataServerInfo *myself,
                     (*master)->cs->server->id, time_buff);
             return 0;
         }
-        fc_sleep_ms(100);
     } while (SF_G_CONTINUE_FLAG);
 
     return EINTR;
@@ -258,7 +264,8 @@ static int write_data(DataRollbackContext *rollback_ctx)
 }
 
 static int do_rollback(DataRollbackContext *rollback_ctx,
-        ReplicaBinlogRecord *record, const bool is_redo)
+        ReplicaBinlogRecord *record, const bool is_redo,
+        bool *data_restored)
 {
     int result;
     int r;
@@ -274,6 +281,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         rollback_ctx->op_ctx.info.bs_key.slice = record->bs_key.slice;
     }
 
+    *data_restored = false;
     result = fetch_data(rollback_ctx, is_redo);
     if (result == EEXIST) {
         return 0;
@@ -305,6 +313,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     if (result == ENODATA) {
         return 0;
     } else {
+        *data_restored = true;
         rollback_ctx->op_ctx.info.data_version = record->data_version;
         rollback_ctx->op_ctx.update.timestamp = record->timestamp;
         return write_data(rollback_ctx);
@@ -312,17 +321,25 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
 }
 
 static int rollback_data(FSClusterDataServerInfo *myself,
+        const uint64_t last_data_version,
         const ReplicaBinlogRecordArray *replica_array,
         const BinlogCommonFieldsArray *slice_array,
         const bool is_redo)
 {
     int result;
+    bool data_restored;
+    int skip_count;
+    int restore_count;
     DataRollbackContext rollback_ctx;
     ReplicaBinlogRecord *record;
     ReplicaBinlogRecord *end;
     BinlogCommonFields target;
+    int64_t start_time_ms;
+    int64_t time_used;
+    char time_buff[32];
 
-    if (is_redo && slice_array->count == 0) {
+    start_time_ms = get_current_time_ms();
+    if (replica_array->count == 0 || (is_redo && slice_array->count == 0)) {
         return 0;
     }
 
@@ -330,9 +347,12 @@ static int rollback_data(FSClusterDataServerInfo *myself,
         return result;
     }
 
+    skip_count = 0;
+    restore_count = 0;
     end = replica_array->records + replica_array->count;
     for (record=replica_array->records; record<end; record++) {
         if (record->op_type == BINLOG_OP_TYPE_NO_OP) {
+            ++skip_count;
             continue;
         }
 
@@ -343,6 +363,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
                         sizeof(target), (int (*)(const void *, const void *))
                         compare_version_and_source) == NULL)
             {
+                ++skip_count;
                 continue;
             }
 
@@ -352,14 +373,30 @@ static int rollback_data(FSClusterDataServerInfo *myself,
                         sizeof(target), (int (*)(const void *, const void *))
                         compare_version_and_source) != NULL)
             {
+                ++skip_count;
                 continue;
             }
         }
 
-        if ((result=do_rollback(&rollback_ctx, record, is_redo)) != 0) {
+        if ((result=do_rollback(&rollback_ctx, record,
+                        is_redo, &data_restored)) != 0)
+        {
             break;
         }
+
+        if (data_restored) {
+            ++restore_count;
+        }
     }
+
+    time_used = get_current_time_ms() - start_time_ms;
+    long_to_comma_str(time_used, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "data group id: %d, rollbacked data version: %"PRId64", replica "
+            "record count: %d, slice record count: %d, skip count: %d, "
+            "restore count: %d, time used: %s ms", __LINE__, myself->dg->id,
+            last_data_version, replica_array->count, slice_array->count,
+            skip_count, restore_count, time_buff);
 
     destroy_rollback_context(&rollback_ctx);
     return result;
@@ -389,8 +426,8 @@ static int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         }
     }
 
-    result = rollback_data(myself, &replica_array,
-            &slice_array, is_redo);
+    result = rollback_data(myself, last_data_version,
+            &replica_array, &slice_array, is_redo);
 
     replica_binlog_free_record_array(&replica_array);
     slice_binlog_free_record_array(&slice_array);
