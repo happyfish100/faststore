@@ -205,6 +205,8 @@ int main(int argc, char *argv[])
         }
     }
 
+    rand();  //consume the first rand number
+
     if ((result=fs_cluster_stat(&g_fs_client_vars.client_ctx, spec_conn,
                     &filter, stats, alloc_size, &count)) != 0)
     {

@@ -86,6 +86,7 @@ static int stat_data_group(FSClientContext *client_ctx,
 {
     FSServerGroup *server_group;
     FCServerInfo **server;
+    bool used[FS_MAX_GROUP_SERVERS];
     int index;
     int i;
     int result;
@@ -96,10 +97,18 @@ static int stat_data_group(FSClientContext *client_ctx,
         return ENOENT;
     }
 
+    for (i=0; i<server_group->server_array.count; i++) {
+        used[i] = false;
+    }
+
     result = ENOENT;
     for (i=0; i<server_group->server_array.count; i++) {
-        index = (int)(((int64_t)server_group->server_array.count *
-                    (int64_t)rand()) / (int64_t)RAND_MAX);
+        do {
+            index = (int)(((int64_t)server_group->server_array.count *
+                        (int64_t)rand()) / (int64_t)RAND_MAX);
+        } while (used[index]);
+        used[index] = true;
+
         server = server_group->server_array.servers + index;
         if ((result=stat_data_group_by_addresses(client_ctx, filter,
                         &FS_CFG_SERVICE_ADDRESS_ARRAY(client_ctx,
