@@ -36,7 +36,12 @@ extern "C" {
             FSReplicationQuorumContext *ctx,
             const int64_t slave_confirmed_version);
 
+    void replication_quorum_push_confirmed_version(
+            FSReplicationQuorumContext *ctx,
+            const int64_t data_version);
+
     int replication_quorum_start_master_term(FSReplicationQuorumContext *ctx);
+
     int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx);
 
 #ifdef __cplusplus

@@ -229,9 +229,13 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
                 task = op->arg;
                 success_count = FC_ATOMIC_GET(TASK_CTX.
                         service.rpc.success_count) + 1;
-                if (!SF_REPLICATION_QUORUM_MAJORITY(op->ctx->info.myself->
+                if (SF_REPLICATION_QUORUM_MAJORITY(op->ctx->info.myself->
                             dg->ds_ptr_array.count, success_count))
                 {
+                    replication_quorum_push_confirmed_version(&op->ctx->
+                            info.myself->dg->repl_quorum_ctx,
+                            op->ctx->info.data_version);
+                } else {
                     bool finished;
                     if ((op->ctx->result=replication_quorum_add(&op->ctx->
                                     info.myself->dg->repl_quorum_ctx,

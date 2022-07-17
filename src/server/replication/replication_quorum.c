@@ -161,7 +161,7 @@ static int init_context(FSReplicationQuorumContext *ctx,
     int result;
     int64_t confirmed_version;
 
-    if ((result=fast_mblock_init_ex1(&ctx->entry_allocator,
+    if ((result=fast_mblock_init_ex1(&ctx->list.allocator,
                     "repl_quorum_entry", sizeof(FSReplicationQuorumEntry),
                     4096, 0, NULL, NULL, true)) != 0)
     {
@@ -169,6 +169,17 @@ static int init_context(FSReplicationQuorumContext *ctx,
     }
 
     if ((result=sf_synchronize_ctx_init(&ctx->sctx)) != 0) {
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&ctx->confirmed.waiting_list.allocator,
+                    "quorum_dv_entry", sizeof(FSReplicationQuorumDVEntry),
+                    4096, 0, NULL, NULL, false)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=init_pthread_lock(&ctx->confirmed.waiting_list.lock)) != 0) {
         return result;
     }
 
@@ -185,8 +196,16 @@ static int init_context(FSReplicationQuorumContext *ctx,
     ctx->myself = myself;
     ctx->dealing = 0;
     ctx->confirmed.counter = 0;
+    ctx->list.count = 0;
     ctx->list.head = ctx->list.tail = NULL;
+    ctx->confirmed.waiting_list.head = NULL;
+    ctx->confirmed.waiting_list.tail = NULL;
+    ctx->confirmed.waiting_list.next_data_verson = 0;
+    ctx->confirmed.slave_version_changed = 0;
+    ctx->confirmed.set_version.flag = 0;
+    ctx->confirmed.set_version.value = 0;
     ctx->sctx.finished = false;
+
     return 0;
 }
 
@@ -230,10 +249,12 @@ static int init_all_contexts()
 static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
 {
     int result;
+    int count;
     FSReplicationQuorumEntry *entry;
 
     __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 0, 1);
     result = 0;
+    count = 0;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
     while (ctx->list.head != NULL) {
         if ((result=rollback_binlogs(ctx->myself, FC_ATOMIC_GET(ctx->myself->
@@ -253,13 +274,17 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
             ctx->list.head = ctx->list.head->next;
 
             sf_synchronize_finished_notify_no_lock(&ctx->sctx, EAGAIN);
-            fast_mblock_free_object(&ctx->entry_allocator, entry);
+            fast_mblock_free_object(&ctx->list.allocator, entry);
+            ++count;
         }
 
         ctx->list.tail = NULL;
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 
+    if (count > 0) {
+        FC_ATOMIC_DEC_EX(ctx->list.count, count);
+    }
     __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 1, 0);
     return result;
 }
@@ -278,12 +303,13 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
         return 0;
     }
 
-    entry = fast_mblock_alloc_object(&ctx->entry_allocator);
+    entry = fast_mblock_alloc_object(&ctx->list.allocator);
     if (entry == NULL) {
         *finished = true;
         return ENOMEM;
     }
 
+    FC_ATOMIC_INC(ctx->list.count);
     entry->task = task;
     entry->data_version = data_version;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
@@ -365,7 +391,9 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
 {
     struct fast_mblock_chain chain;
     struct fast_mblock_node *node;
+    int count;
 
+    count = 0;
     chain.head = chain.tail = NULL;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
     if (ctx->list.head != NULL && my_confirmed_version >=
@@ -382,6 +410,7 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
 
             sf_synchronize_finished_notify_no_lock(&ctx->sctx, 0);
             ctx->list.head = ctx->list.head->next;
+            ++count;
         } while (ctx->list.head != NULL && my_confirmed_version >=
                 ctx->list.head->data_version);
 
@@ -392,9 +421,11 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
     }
 
     if (chain.head != NULL) {
-        fast_mblock_batch_free(&ctx->entry_allocator, &chain);
+        fast_mblock_batch_free(&ctx->list.allocator, &chain);
     }
     PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
+
+    FC_ATOMIC_DEC_EX(ctx->list.count, count);
 }
 
 void replication_quorum_deal_version_change(
@@ -407,17 +438,119 @@ void replication_quorum_deal_version_change(
         return;
     }
 
+    __sync_bool_compare_and_swap(&ctx->confirmed.
+            slave_version_changed, 0, 1);
     if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1)) {
         fc_queue_push(&fs_repl_quorum_thread.queue, ctx);
     }
 }
 
-static void deal_version_change(FSReplicationQuorumContext *ctx)
+static void deal_waiting_version_list(FSReplicationQuorumContext *ctx)
+{
+    struct fast_mblock_chain chain;
+    struct fast_mblock_node *node;
+    int64_t confirmed_version;
+
+    if (ctx->confirmed.waiting_list.head != NULL &&
+                ctx->confirmed.waiting_list.head->data_version ==
+                ctx->confirmed.waiting_list.next_data_verson)
+    {
+        chain.head = chain.tail = NULL;
+        do {
+            node = fast_mblock_to_node_ptr(ctx->confirmed.waiting_list.head);
+            if (chain.head == NULL) {
+                chain.head = node;
+            } else {
+                chain.tail->next = node;
+            }
+            chain.tail = node;
+
+            ctx->confirmed.waiting_list.next_data_verson++;
+            ctx->confirmed.waiting_list.head = ctx->
+                confirmed.waiting_list.head->next;
+        } while (ctx->confirmed.waiting_list.head != NULL &&
+                ctx->confirmed.waiting_list.head->data_version ==
+                ctx->confirmed.waiting_list.next_data_verson);
+
+        if (ctx->confirmed.waiting_list.head == NULL) {
+            ctx->confirmed.waiting_list.tail = NULL;
+        }
+        chain.tail->next = NULL;
+        fast_mblock_batch_free(&ctx->confirmed.
+                waiting_list.allocator, &chain);
+    }
+
+    confirmed_version = ctx->confirmed.waiting_list.next_data_verson - 1;
+    if (confirmed_version > FC_ATOMIC_GET(ctx->
+                myself->data.confirmed_version))
+    {
+        __sync_bool_compare_and_swap(&ctx->confirmed.
+                set_version.value, ctx->confirmed.
+                set_version.value, confirmed_version);
+        __sync_bool_compare_and_swap(&ctx->confirmed.
+                set_version.flag, 0, 1);
+        if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1)) {
+            fc_queue_push(&fs_repl_quorum_thread.queue, ctx);
+        }
+    }
+}
+
+void replication_quorum_push_confirmed_version(
+        FSReplicationQuorumContext *ctx,
+        const int64_t data_version)
+{
+    FSReplicationQuorumDVEntry *entry;
+    FSReplicationQuorumDVEntry *previous;
+
+    PTHREAD_MUTEX_LOCK(&ctx->confirmed.waiting_list.lock);
+    do {
+        if (data_version == ctx->confirmed.waiting_list.next_data_verson) {
+            ctx->confirmed.waiting_list.next_data_verson++;
+            deal_waiting_version_list(ctx);
+            break;
+        }
+
+        logInfo("data group id: %d, heihei...", ctx->myself->dg->id);
+
+        entry = fast_mblock_alloc_object(&ctx->
+                confirmed.waiting_list.allocator);
+        if (entry == NULL) {
+            break;
+        }
+
+        if (ctx->confirmed.waiting_list.head == NULL) {
+            entry->next = NULL;
+            ctx->confirmed.waiting_list.head = entry;
+            ctx->confirmed.waiting_list.tail = entry;
+        } else if (data_version >= ctx->confirmed.
+                waiting_list.tail->data_version)
+        {
+            entry->next = NULL;
+            ctx->confirmed.waiting_list.tail->next = entry;
+            ctx->confirmed.waiting_list.tail = entry;
+        } else if (data_version <= ctx->confirmed.
+                waiting_list.head->data_version)
+        {
+            entry->next = ctx->confirmed.waiting_list.head;
+            ctx->confirmed.waiting_list.head = entry;
+        } else {
+            previous = ctx->confirmed.waiting_list.head;
+            while (data_version > previous->next->data_version) {
+                previous = previous->next;
+            }
+            entry->next = previous->next;
+            previous->next = entry;
+        }
+    } while (0);
+    PTHREAD_MUTEX_UNLOCK(&ctx->confirmed.waiting_list.lock);
+}
+
+static void deal_version_change(FSReplicationQuorumContext *ctx,
+        int64_t *my_confirmed_version)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
     int64_t my_current_version;
-    int64_t my_confirmed_version;
     int64_t confirmed_version;
     int more_than_half;
     int count;
@@ -425,12 +558,11 @@ static void deal_version_change(FSReplicationQuorumContext *ctx)
 
     count = 0;
     my_current_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
-    my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
     end = ctx->myself->dg->slave_ds_array.servers +
         ctx->myself->dg->slave_ds_array.count;
     for (ds=ctx->myself->dg->slave_ds_array.servers; ds<end; ds++) {
         confirmed_version=FC_ATOMIC_GET((*ds)->data.confirmed_version);
-        if (confirmed_version > my_confirmed_version &&
+        if (confirmed_version > *my_confirmed_version &&
                 confirmed_version <= my_current_version)
         {
             THREAD_DATA_VERSIONS[count++] = confirmed_version;
@@ -441,42 +573,82 @@ static void deal_version_change(FSReplicationQuorumContext *ctx)
     if (count + 1 >= more_than_half) {  //quorum majority
         if (CLUSTER_SERVER_ARRAY.count == 3) {  //fast path
             if (count == 2) {
-                my_confirmed_version = FC_MAX(THREAD_DATA_VERSIONS[0],
+                *my_confirmed_version = FC_MAX(THREAD_DATA_VERSIONS[0],
                         THREAD_DATA_VERSIONS[1]);
             } else {  //count == 1
-                my_confirmed_version = THREAD_DATA_VERSIONS[0];
+                *my_confirmed_version = THREAD_DATA_VERSIONS[0];
             }
         } else {
             qsort(THREAD_DATA_VERSIONS, count, sizeof(int64_t),
                     (int (*)(const void *, const void *))
                     compare_int64);
             index = (count + 1) - more_than_half;
-            my_confirmed_version = THREAD_DATA_VERSIONS[index];
+            *my_confirmed_version = THREAD_DATA_VERSIONS[index];
         }
 
         FC_ATOMIC_SET(ctx->myself->data.confirmed_version,
-                my_confirmed_version);
-        if (write_to_confirmed_file(ctx->myself->dg->id, FC_ATOMIC_INC(ctx->
-                        confirmed.counter) % VERSION_CONFIRMED_FILE_COUNT,
-                    my_confirmed_version) != 0)
-        {
-            sf_terminate_myself();
-            return;
-        }
-
-        notify_waiting_tasks(ctx, my_confirmed_version);
+                *my_confirmed_version);
     }
 }
 
 static void *replication_quorum_thread_run(void *arg)
 {
     FSReplicationQuorumContext *ctx;
+    int64_t old_confirmed_version;
+    int64_t new_confirmed_version;
+    bool set_version;
+    bool by_slave;
 
     while (1) {
         if ((ctx=fc_queue_pop(&fs_repl_quorum_thread.queue)) != NULL) {
             __sync_bool_compare_and_swap(&ctx->dealing, 1, 0);
-            if (FC_ATOMIC_GET(ctx->myself->is_master)) {
-                deal_version_change(ctx);
+            old_confirmed_version = FC_ATOMIC_GET(ctx->
+                    myself->data.confirmed_version);
+            if ((set_version=__sync_bool_compare_and_swap(&ctx->confirmed.
+                        set_version.flag, 1, 0)))
+            {
+                new_confirmed_version = FC_ATOMIC_GET(ctx->
+                        confirmed.set_version.value);
+                if (new_confirmed_version > old_confirmed_version) {
+                    __sync_bool_compare_and_swap(&ctx->myself->data.
+                            confirmed_version, old_confirmed_version,
+                            new_confirmed_version);
+                } else if (new_confirmed_version < old_confirmed_version) {
+                    new_confirmed_version = old_confirmed_version;
+                }
+            } else {
+                new_confirmed_version = old_confirmed_version;
+            }
+
+            if ((by_slave=__sync_bool_compare_and_swap(&ctx->confirmed.
+                        slave_version_changed, 1, 0)))
+            {
+                if (FC_ATOMIC_GET(ctx->myself->is_master)) {
+                    deal_version_change(ctx, &new_confirmed_version);
+                }
+            }
+
+            /*
+            logInfo("data group id: %d, set_version: %d, by_slave: %d, "
+                    "confirmed_versions {old: %"PRId64", new: %"PRId64"}, waiting count: %d",
+                    ctx->myself->dg->id, set_version, by_slave,
+                    old_confirmed_version, new_confirmed_version, FC_ATOMIC_GET(ctx->list.count));
+                    */
+
+            if (new_confirmed_version == old_confirmed_version) {
+                continue;
+            }
+
+            if (write_to_confirmed_file(ctx->myself->dg->id, FC_ATOMIC_INC(ctx->
+                            confirmed.counter) % VERSION_CONFIRMED_FILE_COUNT,
+                        new_confirmed_version) != 0)
+            {
+                sf_terminate_myself();
+                break;
+            }
+
+            if (FC_ATOMIC_GET(ctx->list.count) > 0) {
+                notify_waiting_tasks(ctx, new_confirmed_version);
             }
         }
     }
@@ -486,6 +658,10 @@ static void *replication_quorum_thread_run(void *arg)
 
 int replication_quorum_start_master_term(FSReplicationQuorumContext *ctx)
 {
+    PTHREAD_MUTEX_LOCK(&ctx->confirmed.waiting_list.lock);
+    ctx->confirmed.waiting_list.next_data_verson = FC_ATOMIC_GET(
+            ctx->myself->data.current_version) + 1;
+    PTHREAD_MUTEX_UNLOCK(&ctx->confirmed.waiting_list.lock);
     return 0;
 }
 
