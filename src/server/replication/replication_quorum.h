@@ -32,13 +32,13 @@ extern "C" {
             struct fast_task_info *task, const int64_t data_version,
             bool *finished);
 
-    void replication_quorum_deal_version_change(
-            FSReplicationQuorumContext *ctx,
-            const int64_t slave_confirmed_version);
-
     void replication_quorum_push_confirmed_version(
             FSReplicationQuorumContext *ctx,
             const int64_t data_version);
+
+    void replication_quorum_deal_version_change(
+            FSReplicationQuorumContext *ctx,
+            const int64_t slave_confirmed_version);
 
     int replication_quorum_start_master_term(FSReplicationQuorumContext *ctx);
 

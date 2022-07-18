@@ -288,11 +288,6 @@ typedef struct fs_replication_quorum_entry {
     struct fs_replication_quorum_entry *next;
 } FSReplicationQuorumEntry;
 
-typedef struct fs_replication_quorum_dv_entry {
-    int64_t data_version;
-    struct fs_replication_quorum_dv_entry *next;
-} FSReplicationQuorumDVEntry;
-
 typedef struct fs_replication_quorum_context {
     SFSynchronizeContext sctx;
 
@@ -312,14 +307,6 @@ typedef struct fs_replication_quorum_context {
             volatile char flag;
             volatile int64_t value;
         } set_version;
-
-        struct {
-            struct fast_mblock_man allocator;
-            pthread_mutex_t lock;
-            int64_t next_data_verson;
-            FSReplicationQuorumDVEntry *head;
-            FSReplicationQuorumDVEntry *tail;
-        } waiting_list;
 
     } confirmed;
 

@@ -172,17 +172,6 @@ static int init_context(FSReplicationQuorumContext *ctx,
         return result;
     }
 
-    if ((result=fast_mblock_init_ex1(&ctx->confirmed.waiting_list.allocator,
-                    "quorum_dv_entry", sizeof(FSReplicationQuorumDVEntry),
-                    4096, 0, NULL, NULL, false)) != 0)
-    {
-        return result;
-    }
-
-    if ((result=init_pthread_lock(&ctx->confirmed.waiting_list.lock)) != 0) {
-        return result;
-    }
-
     if ((result=load_confirmed_version(myself->dg->id,
                     &confirmed_version)) != 0)
     {
@@ -198,9 +187,6 @@ static int init_context(FSReplicationQuorumContext *ctx,
     ctx->confirmed.counter = 0;
     ctx->list.count = 0;
     ctx->list.head = ctx->list.tail = NULL;
-    ctx->confirmed.waiting_list.head = NULL;
-    ctx->confirmed.waiting_list.tail = NULL;
-    ctx->confirmed.waiting_list.next_data_verson = 0;
     ctx->confirmed.slave_version_changed = 0;
     ctx->confirmed.set_version.flag = 0;
     ctx->confirmed.set_version.value = 0;
@@ -445,104 +431,20 @@ void replication_quorum_deal_version_change(
     }
 }
 
-static void deal_waiting_version_list(FSReplicationQuorumContext *ctx)
+void replication_quorum_push_confirmed_version(
+        FSReplicationQuorumContext *ctx,
+        const int64_t data_version)
 {
-    struct fast_mblock_chain chain;
-    struct fast_mblock_node *node;
-    int64_t confirmed_version;
-
-    if (ctx->confirmed.waiting_list.head != NULL &&
-                ctx->confirmed.waiting_list.head->data_version ==
-                ctx->confirmed.waiting_list.next_data_verson)
-    {
-        chain.head = chain.tail = NULL;
-        do {
-            node = fast_mblock_to_node_ptr(ctx->confirmed.waiting_list.head);
-            if (chain.head == NULL) {
-                chain.head = node;
-            } else {
-                chain.tail->next = node;
-            }
-            chain.tail = node;
-
-            ctx->confirmed.waiting_list.next_data_verson++;
-            ctx->confirmed.waiting_list.head = ctx->
-                confirmed.waiting_list.head->next;
-        } while (ctx->confirmed.waiting_list.head != NULL &&
-                ctx->confirmed.waiting_list.head->data_version ==
-                ctx->confirmed.waiting_list.next_data_verson);
-
-        if (ctx->confirmed.waiting_list.head == NULL) {
-            ctx->confirmed.waiting_list.tail = NULL;
-        }
-        chain.tail->next = NULL;
-        fast_mblock_batch_free(&ctx->confirmed.
-                waiting_list.allocator, &chain);
-    }
-
-    confirmed_version = ctx->confirmed.waiting_list.next_data_verson - 1;
-    if (confirmed_version > FC_ATOMIC_GET(ctx->
-                myself->data.confirmed_version))
-    {
+    if (data_version > FC_ATOMIC_GET(ctx->myself->data.confirmed_version)) {
         __sync_bool_compare_and_swap(&ctx->confirmed.
                 set_version.value, ctx->confirmed.
-                set_version.value, confirmed_version);
+                set_version.value, data_version);
         __sync_bool_compare_and_swap(&ctx->confirmed.
                 set_version.flag, 0, 1);
         if (__sync_bool_compare_and_swap(&ctx->dealing, 0, 1)) {
             fc_queue_push(&fs_repl_quorum_thread.queue, ctx);
         }
     }
-}
-
-void replication_quorum_push_confirmed_version(
-        FSReplicationQuorumContext *ctx,
-        const int64_t data_version)
-{
-    FSReplicationQuorumDVEntry *entry;
-    FSReplicationQuorumDVEntry *previous;
-
-    PTHREAD_MUTEX_LOCK(&ctx->confirmed.waiting_list.lock);
-    do {
-        if (data_version == ctx->confirmed.waiting_list.next_data_verson) {
-            ctx->confirmed.waiting_list.next_data_verson++;
-            deal_waiting_version_list(ctx);
-            break;
-        }
-
-        logInfo("data group id: %d, heihei...", ctx->myself->dg->id);
-
-        entry = fast_mblock_alloc_object(&ctx->
-                confirmed.waiting_list.allocator);
-        if (entry == NULL) {
-            break;
-        }
-
-        if (ctx->confirmed.waiting_list.head == NULL) {
-            entry->next = NULL;
-            ctx->confirmed.waiting_list.head = entry;
-            ctx->confirmed.waiting_list.tail = entry;
-        } else if (data_version >= ctx->confirmed.
-                waiting_list.tail->data_version)
-        {
-            entry->next = NULL;
-            ctx->confirmed.waiting_list.tail->next = entry;
-            ctx->confirmed.waiting_list.tail = entry;
-        } else if (data_version <= ctx->confirmed.
-                waiting_list.head->data_version)
-        {
-            entry->next = ctx->confirmed.waiting_list.head;
-            ctx->confirmed.waiting_list.head = entry;
-        } else {
-            previous = ctx->confirmed.waiting_list.head;
-            while (data_version > previous->next->data_version) {
-                previous = previous->next;
-            }
-            entry->next = previous->next;
-            previous->next = entry;
-        }
-    } while (0);
-    PTHREAD_MUTEX_UNLOCK(&ctx->confirmed.waiting_list.lock);
 }
 
 static void deal_version_change(FSReplicationQuorumContext *ctx,
@@ -628,12 +530,10 @@ static void *replication_quorum_thread_run(void *arg)
                 }
             }
 
-            /*
             logInfo("data group id: %d, set_version: %d, by_slave: %d, "
                     "confirmed_versions {old: %"PRId64", new: %"PRId64"}, waiting count: %d",
                     ctx->myself->dg->id, set_version, by_slave,
                     old_confirmed_version, new_confirmed_version, FC_ATOMIC_GET(ctx->list.count));
-                    */
 
             if (new_confirmed_version == old_confirmed_version) {
                 continue;
@@ -658,10 +558,6 @@ static void *replication_quorum_thread_run(void *arg)
 
 int replication_quorum_start_master_term(FSReplicationQuorumContext *ctx)
 {
-    PTHREAD_MUTEX_LOCK(&ctx->confirmed.waiting_list.lock);
-    ctx->confirmed.waiting_list.next_data_verson = FC_ATOMIC_GET(
-            ctx->myself->data.current_version) + 1;
-    PTHREAD_MUTEX_UNLOCK(&ctx->confirmed.waiting_list.lock);
     return 0;
 }
 
