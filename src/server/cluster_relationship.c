@@ -300,6 +300,7 @@ static int cluster_unset_master(FSClusterDataServerInfo *master)
     int result;
 
     if (master->cs == CLUSTER_MYSELF_PTR) {
+        __sync_bool_compare_and_swap(&master->dg->master_swapping, 0, 1);
         return 0;
     }
 
@@ -1586,11 +1587,17 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
             ds = NULL;
         }
 
-        if (new_master != NULL && group->myself ==
+        if (group->myself == old_master || group->myself ==
                 FC_ATOMIC_GET(group->old_master))
         {
-            __sync_bool_compare_and_swap(&group->is_my_term, 1, 0);
-            replication_quorum_end_master_term(&group->repl_quorum_ctx);
+            if (FC_ATOMIC_GET(group->master_swapping)) {
+                __sync_bool_compare_and_swap(&group->master_swapping, 1, 0);
+            }
+
+            if (new_master != NULL) {
+                __sync_bool_compare_and_swap(&group->is_my_term, 1, 0);
+                replication_quorum_end_master_term(&group->repl_quorum_ctx);
+            }
         }
     }
 

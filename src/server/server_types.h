@@ -317,6 +317,7 @@ typedef struct fs_cluster_data_group_info {
     int index;
     volatile char active_count;
     volatile char is_my_term;
+    volatile char master_swapping;
 
     struct {
         uint32_t hash_code;  //for master assignment

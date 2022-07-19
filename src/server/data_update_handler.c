@@ -584,8 +584,18 @@ static inline int du_push_to_data_queue(struct fast_task_info *task,
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "[service] data group id: %d, i am NOT master",
                     op_ctx->info.data_group_id);
+            TASK_CTX.common.log_level = LOG_NOTHING;
             return SF_RETRIABLE_ERROR_NOT_MASTER;
         }
+
+        if (FC_ATOMIC_GET(op_ctx->info.myself->dg->master_swapping)) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "[service] data group id: %d, master swapping "
+                    "in progress", op_ctx->info.data_group_id);
+            TASK_CTX.common.log_level = LOG_NOTHING;
+            return SF_RETRIABLE_ERROR_NOT_ACTIVE;
+        }
+
         FC_ATOMIC_INC(op_ctx->info.myself->master_dealing_count);
         op_ctx->notify_func = master_data_update_done_notify;
     } else {
