@@ -238,7 +238,6 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
     int count;
     FSReplicationQuorumEntry *entry;
 
-    __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 0, 1);
     result = 0;
     count = 0;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
@@ -271,7 +270,6 @@ static int rollback_binlog_and_notify(FSReplicationQuorumContext *ctx)
     if (count > 0) {
         FC_ATOMIC_DEC_EX(ctx->list.count, count);
     }
-    __sync_bool_compare_and_swap(&ctx->myself->in_rollback, 1, 0);
     return result;
 }
 
@@ -281,17 +279,16 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
 {
     FSReplicationQuorumEntry *previous;
     FSReplicationQuorumEntry *entry;
+    int result;
 
-    if (data_version <= FC_ATOMIC_GET(ctx->myself->data.confirmed_version)
-            && FC_ATOMIC_GET(ctx->myself->is_master))
-    {
+    if (data_version <= FC_ATOMIC_GET(ctx->myself->data.confirmed_version)) {
         *finished = true;
         return 0;
     }
 
+    *finished = false;
     entry = fast_mblock_alloc_object(&ctx->list.allocator);
     if (entry == NULL) {
-        *finished = true;
         return ENOMEM;
     }
 
@@ -299,35 +296,39 @@ int replication_quorum_add(FSReplicationQuorumContext *ctx,
     entry->task = task;
     entry->data_version = data_version;
     PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
-    if (ctx->list.head == NULL) {
-        entry->next = NULL;
-        ctx->list.head = entry;
-        ctx->list.tail = entry;
-    } else if (data_version >= ctx->list.tail->data_version) {
-        entry->next = NULL;
-        ctx->list.tail->next = entry;
-        ctx->list.tail = entry;
-    } else if (data_version <= ctx->list.head->data_version) {
-        entry->next = ctx->list.head;
-        ctx->list.head = entry;
-    } else {
-        previous = ctx->list.head;
-        while (data_version > previous->next->data_version) {
-            previous = previous->next;
+    do {
+        if (!FC_ATOMIC_GET(ctx->myself->dg->is_my_term)) {
+            FC_ATOMIC_DEC(ctx->list.count);
+            fast_mblock_free_object(&ctx->list.allocator, entry);
+            result = EAGAIN;
+            break;
         }
-        entry->next = previous->next;
-        previous->next = entry;
-    }
+
+        if (ctx->list.head == NULL) {
+            entry->next = NULL;
+            ctx->list.head = entry;
+            ctx->list.tail = entry;
+        } else if (data_version >= ctx->list.tail->data_version) {
+            entry->next = NULL;
+            ctx->list.tail->next = entry;
+            ctx->list.tail = entry;
+        } else if (data_version <= ctx->list.head->data_version) {
+            entry->next = ctx->list.head;
+            ctx->list.head = entry;
+        } else {
+            previous = ctx->list.head;
+            while (data_version > previous->next->data_version) {
+                previous = previous->next;
+            }
+            entry->next = previous->next;
+            previous->next = entry;
+        }
+
+        result = 0;
+    } while (0);
     PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
 
-    if (FC_ATOMIC_GET(ctx->myself->is_master)) {
-        *finished = false;
-        return 0;
-    } else {
-        *finished = true;
-        rollback_binlog_and_notify(ctx);
-        return EAGAIN;
-    }
+    return result;
 }
 
 static int compare_int64(const int64_t *n1, const int64_t *n2)
@@ -480,6 +481,8 @@ static void deal_version_change(FSReplicationQuorumContext *ctx,
             } else {  //count == 1
                 *my_confirmed_version = THREAD_DATA_VERSIONS[0];
             }
+        } else if (CLUSTER_SERVER_ARRAY.count == 2) {  //fast path
+            *my_confirmed_version = THREAD_DATA_VERSIONS[0];
         } else {
             qsort(THREAD_DATA_VERSIONS, count, sizeof(int64_t),
                     (int (*)(const void *, const void *))

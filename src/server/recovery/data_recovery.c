@@ -152,7 +152,7 @@ static FSClusterDataServerInfo *data_recovery_get_master(
         return NULL;
     }
 
-    if (FC_ATOMIC_GET(ctx->ds->dg->myself->in_rollback)) {
+    if (ctx->ds->dg->myself == FC_ATOMIC_GET(ctx->ds->dg->old_master)) {
         logWarning("file: "__FILE__", line: %d, "
                 "data group id: %d, rollback in progress, "
                 "can't recovery!", __LINE__, ctx->ds->dg->id);

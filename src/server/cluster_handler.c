@@ -631,7 +631,6 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
     __sync_bool_compare_and_swap(&ds->is_master, 1, 0);
     __sync_bool_compare_and_swap(&ds->dg->master, ds, NULL);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_UNSET_MASTER_RESP;
-
     return 0;
 }
 

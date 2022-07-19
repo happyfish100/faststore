@@ -1575,15 +1575,27 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
     if (group->myself == new_master) {
         new_status = FS_DS_STATUS_ACTIVE;
         ds = (old_status != FS_DS_STATUS_ACTIVE ? group->myself : NULL);
-        replication_quorum_start_master_term(&group->repl_quorum_ctx);
+        if (__sync_bool_compare_and_swap(&group->is_my_term, 0, 1)) {
+            replication_quorum_start_master_term(&group->repl_quorum_ctx);
+        }
     } else {
         new_status = FS_DS_STATUS_OFFLINE;
         if (group->myself == old_master) {
             ds = (old_status == FS_DS_STATUS_ACTIVE ? group->myself : NULL);
-            replication_quorum_end_master_term(&group->repl_quorum_ctx);
         } else {
             ds = NULL;
         }
+
+        if (new_master != NULL && group->myself ==
+                FC_ATOMIC_GET(group->old_master))
+        {
+            __sync_bool_compare_and_swap(&group->is_my_term, 1, 0);
+            replication_quorum_end_master_term(&group->repl_quorum_ctx);
+        }
+    }
+
+    if (new_master != NULL) {
+        FC_ATOMIC_SET(group->old_master, new_master);
     }
 
     if (ds != NULL) {

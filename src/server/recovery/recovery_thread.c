@@ -151,7 +151,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
         return;
     }
 
-    if (FC_ATOMIC_GET(ds->dg->myself->in_rollback)) {
+    if (ds->dg->myself == FC_ATOMIC_GET(ds->dg->old_master)) {
         logDebug("file: "__FILE__", line: %d, "
                 "data group id: %d, rollback in progress, "
                 "skip data recovery", __LINE__, ds->dg->id);
@@ -291,8 +291,8 @@ int recovery_thread_push_to_queue(FSClusterDataServerInfo *ds)
         return ENOENT;
     }
 
-    if (!REPLICA_QUORUM_ROLLBACK_DONE || FC_ATOMIC_GET(
-                ds->dg->myself->in_rollback))
+    if (!REPLICA_QUORUM_ROLLBACK_DONE || ds->dg->myself ==
+            FC_ATOMIC_GET(ds->dg->old_master))
     {
         return EBUSY;
     }

@@ -262,8 +262,6 @@ typedef struct fs_cluster_data_server_info {
         volatile uint64_t until_version;
     } recovery;
 
-    volatile char in_rollback; //rollbacking stage when i lost master
-
     struct {
         pthread_lock_cond_pair_t notify; //lock and waiting for slave status change
         volatile uint64_t rpc_last_version;  //check rpc finished when recovery
@@ -317,7 +315,8 @@ typedef struct fs_replication_quorum_context {
 typedef struct fs_cluster_data_group_info {
     int id;
     int index;
-    volatile int active_count;
+    volatile char active_count;
+    volatile char is_my_term;
 
     struct {
         uint32_t hash_code;  //for master assignment
@@ -332,6 +331,7 @@ typedef struct fs_cluster_data_group_info {
     FSClusterDataServerPtrArray slave_ds_array;
     FSClusterDataServerInfo *myself;
     volatile FSClusterDataServerInfo *master;
+    volatile FSClusterDataServerInfo *old_master;
     FSReplicationQuorumContext repl_quorum_ctx;
     IdempotencyRequestMetadataContext req_meta_ctx;
 } FSClusterDataGroupInfo;
