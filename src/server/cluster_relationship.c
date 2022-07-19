@@ -1169,17 +1169,19 @@ static int cluster_select_leader()
         }
 
         if ((server_status.up_time - server_status.last_shutdown_time >
-                    3600) && (server_status.last_heartbeat_time == 0) &&
+                    LEADER_ELECTION_MAX_SHUTDOWN_DURATION) &&
+                (server_status.last_heartbeat_time == 0) &&
                 !FORCE_LEADER_ELECTION)
         {
             sprintf(prompt, "the candidate leader server id: %d, "
                     "does not match the selection rule because it's "
-                    "restart interval: %d exceeds 3600, "
+                    "shutdown duration: %d exceeds %d seconds, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the "
                     "config file, or execute fs_serverd with option --%s",
                     server_status.cs->server->id, (int)(server_status.
                         up_time - server_status.last_shutdown_time),
+                    LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
                     FS_FORCE_ELECTION_LONG_OPTION_STR);
             force_sleep = true;
         } else {

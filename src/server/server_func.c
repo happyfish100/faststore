@@ -155,6 +155,8 @@ static int load_leader_election_config(IniFullContext *ini_ctx)
             ini_ctx, "leader_lost_timeout", 3, 1, 300);
     LEADER_ELECTION_MAX_WAIT_TIME = iniGetIntCorrectValue(
             ini_ctx, "max_wait_time", 30, 1, 3600);
+    LEADER_ELECTION_MAX_SHUTDOWN_DURATION = iniGetIntCorrectValue(
+            ini_ctx, "max_shutdown_duration", 300, 60, 86400);
     if ((result=sf_load_election_quorum_config(&LEADER_ELECTION_QUORUM,
                     ini_ctx)) == 0)
     {
@@ -431,7 +433,8 @@ static void server_log_configs()
             "leader-election {quorum: %s, "
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
-            "max_wait_time: %ds}",
+            "max_wait_time: %ds, "
+            "max_shutdown_duration: %ds}",
             CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
@@ -446,7 +449,8 @@ static void server_log_configs()
             sf_get_election_quorum_caption(LEADER_ELECTION_QUORUM),
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
-            LEADER_ELECTION_MAX_WAIT_TIME);
+            LEADER_ELECTION_MAX_WAIT_TIME,
+            LEADER_ELECTION_MAX_SHUTDOWN_DURATION);
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "

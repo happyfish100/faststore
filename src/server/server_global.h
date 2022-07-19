@@ -46,6 +46,7 @@ typedef struct server_global_vars {
                 bool vote_node_enabled;
                 int leader_lost_timeout;
                 int max_wait_time;
+                int max_shutdown_duration;
             } leader_election;
 
             struct {
@@ -149,6 +150,8 @@ typedef struct server_global_vars {
     config.leader_election.leader_lost_timeout
 #define LEADER_ELECTION_MAX_WAIT_TIME g_server_global_vars.cluster. \
     config.leader_election.max_wait_time
+#define LEADER_ELECTION_MAX_SHUTDOWN_DURATION g_server_global_vars.cluster. \
+    config.leader_election.max_shutdown_duration
 
 #define RESUME_MASTER_ROLE        g_server_global_vars.cluster. \
     config.master_election.resume_master_role
