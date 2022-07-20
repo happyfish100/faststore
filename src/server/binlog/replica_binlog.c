@@ -1363,3 +1363,159 @@ int replica_binlog_load_records(const int data_group_id,
     binlog_reader_destroy(&reader);
     return (result == ENOENT ? 0 : result);
 }
+
+typedef struct {
+    SFBinlogFilePosition position;
+    char filename[PATH_MAX];
+    int fd;
+    int length;
+} ReplicaBinlogReader;
+
+static int replica_file_reader_init(ReplicaBinlogReader *reader,
+        const int data_group_id, const SFBinlogFilePosition *pos,
+        const bool find_newline)
+{
+    int result;
+    int read_bytes;
+    char line[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
+
+    replica_binlog_get_filename(data_group_id, pos->index,
+            reader->filename, sizeof(reader->filename));
+    if ((reader->fd=open(reader->filename, O_RDONLY | O_CLOEXEC)) < 0) {
+        result = errno != 0 ? errno : ENOENT;
+        logError("file: "__FILE__", line: %d, "
+                "open file %s fail, errno: %d, error info: %s",
+                __LINE__, reader->filename, result, STRERROR(result));
+        return result;
+    }
+
+    if ((reader->position.offset=lseek(reader->fd, pos->offset,
+                    pos->offset >= 0 ? SEEK_SET : SEEK_END)) < 0)
+    {
+        result = (errno != 0 ? errno : EIO);
+        logError("file: "__FILE__", line: %d, "
+                "lseek file %s fail, offset: %"PRId64", errno: %d, "
+                "error info: %s", __LINE__, reader->filename,
+                pos->offset, result, STRERROR(result));
+        close(reader->fd);
+        return result;
+    }
+
+    if (find_newline) {
+        if ((read_bytes=fd_gets(reader->fd, line, sizeof(line),
+                        FS_REPLICA_BINLOG_MAX_RECORD_SIZE)) < 0)
+        {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "file %s, fd gets fail, errno: %d, error info: %s",
+                    __LINE__, reader->filename, result, STRERROR(result));
+            close(reader->fd);
+            return result;
+        }
+        reader->position.offset += read_bytes;
+    }
+
+    reader->position.index = pos->index;
+    return 0;
+}
+
+static inline void replica_binlog_reader_destroy(ReplicaBinlogReader *reader)
+{
+    if (reader->fd >= 0) {
+        close(reader->fd);
+    }
+}
+
+int replica_binlog_load_until_dv(const int data_group_id,
+        const uint64_t last_data_version, char *buff,
+        const int size, int *length)
+{
+    int result;
+    int read_bytes;
+    int start_index;
+    int last_index;
+    int i;
+    int64_t until_offset;
+    ReplicaBinlogReader readers[2];
+    SFBinlogFilePosition pos;
+    char line[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
+
+    if ((result=replica_binlog_get_binlog_indexes(data_group_id,
+            &start_index, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=replica_binlog_get_position_by_dv(data_group_id,
+                    last_data_version, &pos, true)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=replica_file_reader_init(readers + 1,
+                    data_group_id, &pos, false)) != 0)
+    {
+        return result;
+    }
+
+    if (readers[1].position.offset >= size) {
+        readers[0].fd = -1;
+        until_offset = readers[1].position.offset;
+        readers[1].position.offset -= size;
+        lseek(readers[1].fd, readers[1].position.offset, SEEK_SET);
+        if ((read_bytes=fd_gets(readers[1].fd, line, sizeof(line),
+                        FS_REPLICA_BINLOG_MAX_RECORD_SIZE)) < 0)
+        {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "file %s, fd gets fail, errno: %d, error info: %s",
+                    __LINE__, readers[1].filename, result, STRERROR(result));
+            replica_binlog_reader_destroy(readers + 1);
+            return result;
+        }
+
+        readers[1].position.offset += read_bytes;
+        readers[1].length = until_offset - readers[1].position.offset;
+    } else {
+        readers[1].position.offset = 0;
+        readers[1].length = pos.offset;
+        if (pos.index > start_index) {
+            readers[0].length = size - readers[1].length;
+            pos.index--;
+            pos.offset = -1 * readers[0].length;
+            if ((result=replica_file_reader_init(readers + 0,
+                            data_group_id, &pos, true)) != 0)
+            {
+                replica_binlog_reader_destroy(readers + 1);
+                return result;
+            }
+        } else {
+            readers[0].fd = -1;
+        }
+    }
+
+    *length = 0;
+    for (i=0; i<2; i++) {
+        if (readers[i].fd < 0) {
+            continue;
+        }
+
+        if ((read_bytes=pread(readers[i].fd, buff + (*length), readers[i].
+                        length, readers[i].position.offset)) < 0)
+        {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "read from file %s fail, offset: %"PRId64", "
+                    "length: %d, errno: %d, error info: %s", __LINE__,
+                    readers[i].filename, readers[i].position.offset,
+                    readers[i].length, result, STRERROR(result));
+            break;
+        }
+
+        *length += read_bytes;
+    }
+
+    replica_binlog_reader_destroy(readers + 0);
+    replica_binlog_reader_destroy(readers + 1);
+    return result;
+}

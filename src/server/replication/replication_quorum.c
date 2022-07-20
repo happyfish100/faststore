@@ -533,10 +533,12 @@ static void *replication_quorum_thread_run(void *arg)
                 }
             }
 
+            /*
             logInfo("data group id: %d, set_version: %d, by_slave: %d, "
                     "confirmed_versions {old: %"PRId64", new: %"PRId64"}, waiting count: %d",
                     ctx->myself->dg->id, set_version, by_slave,
                     old_confirmed_version, new_confirmed_version, FC_ATOMIC_GET(ctx->list.count));
+                    */
 
             if (new_confirmed_version == old_confirmed_version) {
                 continue;

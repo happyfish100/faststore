@@ -52,8 +52,14 @@ static int check_last_binlog(const int data_group_id, const int last_index)
         return (errno != 0 ? errno : EPERM);
     }
 
-    return (stbuf.st_size > 4 * (FS_REPLICA_BINLOG_MAX_RECORD_SIZE *
-                (SLAVE_BINLOG_CHECK_LAST_ROWS + 1)) ? 0 : ECANCELED);
+    if (stbuf.st_size < 4 * (FS_REPLICA_BINLOG_MAX_RECORD_SIZE *
+                (SLAVE_BINLOG_CHECK_LAST_ROWS + 1)))
+    {
+        return ECANCELED;
+    }
+
+    return (stbuf.st_size >= g_sf_global_vars.
+            max_buff_size ? 0 : ECANCELED);
 }
 
 static int remove_old_binlogs(const int data_group_id,

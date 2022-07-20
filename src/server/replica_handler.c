@@ -296,6 +296,7 @@ static int replica_fetch_binlog_first_output(struct fast_task_info *task,
         return result;
     }
 
+    body_header->is_rollback = 0;
     body_header->is_full_dump = (is_full_dump ? 1 : 0);
     body_header->is_online = (is_online ? 1 : 0);
     int2buff(repl_version, body_header->repl_version);

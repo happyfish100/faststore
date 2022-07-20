@@ -209,6 +209,10 @@ extern "C" {
             const uint64_t last_data_version,
             ReplicaBinlogRecordArray *array);
 
+    int replica_binlog_load_until_dv(const int data_group_id,
+            const uint64_t last_data_version, char *buff,
+            const int size, int *length);
+
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
 
