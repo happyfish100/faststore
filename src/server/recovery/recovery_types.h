@@ -51,6 +51,7 @@ typedef struct data_recovery_context {
     char stage;
     char next_stage;  //for sync existing binlogs only
     char catch_up;
+    bool is_restore;
     bool is_full_dump;
     bool is_online;
     int loop_count;  //recovery loop count
@@ -59,6 +60,9 @@ typedef struct data_recovery_context {
         uint64_t last_data_version;
         FSBlockKey last_bkey;
     } fetch;
+    struct {
+        int64_t start_dv;
+    } restore;
     FSServerContext *server_ctx;
     FSClusterDataServerInfo *master;
     DataReplayTaskAllocatorInfo *tallocator_info;

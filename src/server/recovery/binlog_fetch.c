@@ -358,6 +358,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             fetch_ctx->buffer->buff;
         ctx->master_repl_version = buff2int(first_bheader->repl_version);
         ctx->is_full_dump = (first_bheader->is_full_dump == 1);
+        ctx->is_restore = (first_bheader->is_restore == 1);
         fetch_ctx->until_version = buff2long(first_bheader->until_version);
         if (ctx->is_online) {
             if (!first_bheader->is_online) {

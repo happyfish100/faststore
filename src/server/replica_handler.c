@@ -296,7 +296,7 @@ static int replica_fetch_binlog_first_output(struct fast_task_info *task,
         return result;
     }
 
-    body_header->is_rollback = 0;
+    body_header->is_restore = 0;
     body_header->is_full_dump = (is_full_dump ? 1 : 0);
     body_header->is_online = (is_online ? 1 : 0);
     int2buff(repl_version, body_header->repl_version);
@@ -312,6 +312,32 @@ static int replica_fetch_binlog_next_output(struct fast_task_info *task)
     return fetch_binlog_output(task, buff,
             sizeof(FSProtoReplicaFetchBinlogNextRespBodyHeader),
             FS_REPLICA_PROTO_FETCH_BINLOG_NEXT_RESP);
+}
+
+static int replica_fetch_binlog_inconsistent_output(struct fast_task_info
+        *task, const int data_group_id, const uint64_t last_data_version)
+{
+    int result;
+    int binlog_length;
+    FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
+    char *buff;
+
+    body_header = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)REQUEST.body;
+    buff = (char *)(body_header + 1);
+    result = replica_binlog_load_until_dv(data_group_id, last_data_version,
+            buff, (task->data + task->size) - buff, &binlog_length);
+    if (result != 0) {
+        return result;
+    }
+
+    memset(body_header, 0, sizeof(*body_header));
+    body_header->is_restore = 1;
+    body_header->common.is_last = 1;
+    int2buff(binlog_length, body_header->common.binlog_length);
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP;
+    RESPONSE.header.body_len = sizeof(*body_header) + binlog_length;
+    TASK_CTX.common.response_done = true;
+    return 0;
 }
 
 static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
@@ -381,8 +407,12 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     {
         char prompt[128];
         if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
-            sprintf(prompt, "first unmatched data "
-                    "version: %"PRId64, first_unmatched_dv);
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, slave id: %d, first unmatched "
+                    "data version: %"PRId64, __LINE__, data_group_id,
+                    server_id, first_unmatched_dv);
+            return replica_fetch_binlog_inconsistent_output(task,
+                    data_group_id, last_data_version);
         } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
             sprintf(prompt, "replica binlog missed");
         } else {

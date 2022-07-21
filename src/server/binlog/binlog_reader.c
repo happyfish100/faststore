@@ -246,6 +246,35 @@ int binlog_reader_integral_read(ServerBinlogReader *reader,
     return 0;
 }
 
+int binlog_reader_integral_full_read(ServerBinlogReader *reader,
+        char *buff, const int size, int *read_bytes)
+{
+    int result;
+    int remain_bytes;
+    int bytes;
+
+    if ((result=binlog_reader_integral_read(reader, buff,
+                    size, read_bytes)) != 0)
+    {
+        return result;
+    }
+
+    remain_bytes = size - (*read_bytes);
+    if (remain_bytes >= FS_REPLICA_BINLOG_MAX_RECORD_SIZE && reader->
+            position.index < get_current_write_index(&reader->binlog_info))
+    {
+        result = binlog_reader_integral_read(reader, buff +
+                (*read_bytes), remain_bytes, &bytes);
+        if (result == 0) {
+            *read_bytes += bytes;
+        } else if (result == ENOENT) {
+            result = 0;
+        }
+    }
+
+    return result;
+}
+
 static int do_reader_init(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
         ServerBinlogInfo *binlog_info, const SFBinlogFilePosition *pos)

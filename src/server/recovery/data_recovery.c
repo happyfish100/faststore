@@ -45,17 +45,21 @@
 
 #define DATA_RECOVERY_SYS_DATA_FILENAME        "data_recovery.dat"
 #define DATA_RECOVERY_SYS_DATA_SECTION_FETCH   "fetch"
+#define DATA_RECOVERY_SYS_DATA_SECTION_RESTORE "restore"
 #define DATA_RECOVERY_SYS_DATA_ITEM_STAGE      "stage"
 #define DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE "next_stage"
 #define DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP  "full_dump"
 #define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV    "last_data_version"
 #define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY  "last_bkey"
+#define DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG     "flag"
+#define DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV "start_dv"
 
 #define DATA_RECOVERY_STAGE_NONE    '-'
 #define DATA_RECOVERY_STAGE_FETCH   'F'
 #define DATA_RECOVERY_STAGE_DEDUP   'D'
 #define DATA_RECOVERY_STAGE_SYNC    'S'  //sync existing binlogs after full dump
 #define DATA_RECOVERY_STAGE_REPLAY  'R'
+#define DATA_RECOVERY_STAGE_RESTORE 'T'
 #define DATA_RECOVERY_STAGE_LOG     'L'  //log to replica binlog
 #define DATA_RECOVERY_STAGE_CLEANUP 'C'
 
@@ -184,14 +188,20 @@ static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
             "%s=%d\n"
             "[%s]\n"
             "%s=%"PRId64"\n"
-            "%s=%"PRId64",%"PRId64"\n",
+            "%s=%"PRId64",%"PRId64"\n"
+            "[%s]\n"
+            "%s=%d\n"
+            "%s=%"PRId64"\n",
             DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage,
             DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE, ctx->next_stage,
             DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP, ctx->is_full_dump ? 1 : 0,
             DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
             DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV, ctx->fetch.last_data_version,
             DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, ctx->fetch.last_bkey.oid,
-            ctx->fetch.last_bkey.offset);
+            ctx->fetch.last_bkey.offset, DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
+            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG, ctx->is_restore ? 1 : 0,
+            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV, ctx->restore.start_dv
+            );
 
     return safeWriteToFile(filename, buff, len);
 }
@@ -241,6 +251,13 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
     ctx->is_full_dump = iniGetBoolValue(NULL,
             DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP,
             &ini_context, false);
+
+    ctx->is_restore = iniGetBoolValue(DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
+            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG, &ini_context, false);
+    ctx->restore.start_dv = iniGetInt64Value(
+            DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
+            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV,
+            &ini_context, 0);
 
     ctx->fetch.last_data_version = iniGetInt64Value(
             DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
@@ -614,8 +631,10 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                binlog_size, ctx->time_used.fetch);
              */
 
-            if (binlog_size == 0) {
-                if (ctx->is_full_dump) {
+            if (ctx->is_restore || binlog_size == 0) {
+                if (ctx->is_restore) {
+                    ctx->stage = DATA_RECOVERY_STAGE_RESTORE;
+                } else if (ctx->is_full_dump) {
                     ctx->stage = DATA_RECOVERY_STAGE_SYNC;
                 } else {
                     ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
@@ -693,6 +712,15 @@ static int do_data_recovery(DataRecoveryContext *ctx)
                         ctx->fetch.last_data_version)) != 0)
         {
             return result;
+        }
+
+        ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
+        if ((result=data_recovery_save_sys_data(ctx)) != 0) {
+            return result;
+        }
+    } else if (ctx->stage == DATA_RECOVERY_STAGE_RESTORE) {
+        if (ctx->restore.start_dv == 0) {
+        //TODO
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;
