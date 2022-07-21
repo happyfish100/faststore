@@ -905,22 +905,22 @@ static int check_records_consistency(ReplicaBinlogRecord *slave_records,
     send = slave_records + slave_rows;
     mend = master_records + master_rows;
     while ((sr < send) && (mr < mend)) {
-        if (sr->data_version < mr->data_version) {
-            sr++;
-        } else if (sr->data_version == mr->data_version) {
-            if (FS_IS_BINLOG_SOURCE_RPC(sr->source) &&
-                    FS_IS_BINLOG_SOURCE_RPC(mr->source))
-            {
-                if (compare_record(sr, mr) != 0) {
-                    *first_unmatched_dv = sr->data_version;
-                    return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
-                }
-            }
-            sr++;
-            mr++;
-        } else {
-            mr++;
+        if (sr->data_version != mr->data_version) {
+            *first_unmatched_dv = sr->data_version;
+            return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
         }
+
+        if (compare_record(sr, mr) != 0) {
+            *first_unmatched_dv = sr->data_version;
+            return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
+        }
+        sr++;
+        mr++;
+    }
+
+    if (sr < send) {
+        *first_unmatched_dv = sr->data_version;
+        return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
     }
 
     return 0;
@@ -957,12 +957,12 @@ int replica_binlog_check_consistency(const int data_group_id,
     }
 
     mbuffer.str = buff;
-    result = binlog_reader_integral_read(&reader,
+    result = binlog_reader_integral_full_read(&reader,
             buff, sizeof(buff), &mbuffer.len);
     binlog_reader_destroy(&reader);
 
-    if (result == ENOENT || result == EAGAIN) {
-        return 0;
+    if (result != 0) {
+        return result;
     }
 
     if ((result=replica_binlog_unpack_records(&mbuffer, master_records,
