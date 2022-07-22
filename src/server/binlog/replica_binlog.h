@@ -312,8 +312,12 @@ extern "C" {
     int replica_binlog_get_last_lines(const int data_group_id, char *buff,
             const int buff_size, int *count, int *length);
 
-    int replica_binlog_check_consistency(const int data_group_id,
+    int replica_binlog_master_check_consistency(const int data_group_id,
             string_t *buffer, uint64_t *first_unmatched_dv);
+
+    int replica_binlog_slave_check_consistency(const int data_group_id,
+            string_t *mbuffer, int *first_unmatched_index,
+            uint64_t *first_unmatched_dv);
 
     void replica_binlog_writer_stat(const int data_group_id,
             FSBinlogWriterStat *stat);

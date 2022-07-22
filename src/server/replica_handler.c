@@ -402,7 +402,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     }
 
     binlog.str = rheader->binlog;
-    if ((result=replica_binlog_check_consistency(data_group_id,
+    if ((result=replica_binlog_master_check_consistency(data_group_id,
                     &binlog, &first_unmatched_dv)) != 0)
     {
         char prompt[128];

@@ -28,6 +28,9 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size);
 
 int data_recovery_unlink_fetched_binlog(DataRecoveryContext *ctx);
 
+const char *data_recovery_get_fetched_binlog_filename(
+        DataRecoveryContext *ctx, char *full_filename, const int size);
+
 static inline void data_recovery_notify_replication(FSClusterDataServerInfo *ds)
 {
     PTHREAD_MUTEX_LOCK(&ds->replica.notify.lock);

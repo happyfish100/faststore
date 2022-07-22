@@ -61,7 +61,7 @@ typedef struct data_recovery_context {
         FSBlockKey last_bkey;
     } fetch;
     struct {
-        int64_t start_dv;
+        uint64_t start_dv;
     } restore;
     FSServerContext *server_ctx;
     FSClusterDataServerInfo *master;

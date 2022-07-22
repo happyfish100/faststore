@@ -363,8 +363,14 @@ static int rollback_data(FSClusterDataServerInfo *myself,
                         sizeof(target), (int (*)(const void *, const void *))
                         compare_version_and_source) == NULL)
             {
-                ++skip_count;
-                continue;
+                target.source = BINLOG_SOURCE_RPC_SLAVE;
+                if (bsearch(&target, slice_array->records, slice_array->count,
+                            sizeof(target), (int (*)(const void *, const void *))
+                            compare_version_and_source) == NULL)
+                {
+                    ++skip_count;
+                    continue;
+                }
             }
 
             target.data_version = record->data_version;
@@ -492,7 +498,7 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
         }
 
         for (binlog_index=position.index+1;
-                binlog_index<last_index;
+                binlog_index<=last_index;
                 binlog_index++)
         {
             replica_binlog_get_filename(myself->dg->id, binlog_index,

@@ -45,7 +45,7 @@ typedef struct {
     SharedBuffer *buffer;  //for network
 } BinlogFetchContext;
 
-static inline const char *data_recovery_get_fetched_binlog_filename(
+const char *data_recovery_get_fetched_binlog_filename(
         DataRecoveryContext *ctx, char *full_filename, const int size)
 {
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
@@ -505,8 +505,8 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                             &remove_count) == 0)
                 {
                     logWarning("file: "__FILE__", line: %d, "
-                            "data group id: %d, delete %d binlog files",
-                            __LINE__, ctx->ds->dg->id, remove_count);
+                            "data group id: %d, delete %d replica binlog "
+                            "files", __LINE__, ctx->ds->dg->id, remove_count);
                     replica_binlog_set_data_version(ctx->ds, 0);
                 }
             }

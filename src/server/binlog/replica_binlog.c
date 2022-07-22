@@ -893,7 +893,8 @@ static int compare_record(ReplicaBinlogRecord *r1, ReplicaBinlogRecord *r2)
 
 static int check_records_consistency(ReplicaBinlogRecord *slave_records,
         const int slave_rows, ReplicaBinlogRecord *master_records,
-        const int master_rows, uint64_t *first_unmatched_dv)
+        const int master_rows, int *first_unmatched_index,
+        uint64_t *first_unmatched_dv)
 {
     ReplicaBinlogRecord *sr;
     ReplicaBinlogRecord *mr;
@@ -906,19 +907,18 @@ static int check_records_consistency(ReplicaBinlogRecord *slave_records,
     mend = master_records + master_rows;
     while ((sr < send) && (mr < mend)) {
         if (sr->data_version != mr->data_version) {
-            *first_unmatched_dv = sr->data_version;
-            return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
+            break;
         }
 
         if (compare_record(sr, mr) != 0) {
-            *first_unmatched_dv = sr->data_version;
-            return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
+            break;
         }
         sr++;
         mr++;
     }
 
     if (sr < send) {
+        *first_unmatched_index = sr - slave_records;
         *first_unmatched_dv = sr->data_version;
         return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
     }
@@ -926,7 +926,7 @@ static int check_records_consistency(ReplicaBinlogRecord *slave_records,
     return 0;
 }
 
-int replica_binlog_check_consistency(const int data_group_id,
+int replica_binlog_master_check_consistency(const int data_group_id,
         string_t *sbuffer, uint64_t *first_unmatched_dv)
 {
     int result;
@@ -938,6 +938,7 @@ int replica_binlog_check_consistency(const int data_group_id,
     string_t mbuffer;
     int slave_rows;
     int master_rows;
+    int first_unmatched_index;
 
     if (sbuffer->len == 0) {
         return 0;
@@ -972,7 +973,88 @@ int replica_binlog_check_consistency(const int data_group_id,
     }
 
     return check_records_consistency(slave_records, slave_rows,
-            master_records, master_rows, first_unmatched_dv);
+            master_records, master_rows, &first_unmatched_index,
+            first_unmatched_dv);
+}
+
+int replica_binlog_slave_check_consistency(const int data_group_id,
+        string_t *mbuffer, int *first_unmatched_index,
+        uint64_t *first_unmatched_dv)
+{
+    int result;
+    struct server_binlog_reader reader;
+    ReplicaBinlogRecord *slave_records;
+    ReplicaBinlogRecord *master_records;
+    char *buff;
+    string_t sbuffer;
+    int max_rows;
+    int buff_size;
+    int slave_rows;
+    int master_rows;
+
+    *first_unmatched_index = -1;
+    *first_unmatched_dv = 0;
+    if (mbuffer->len == 0) {
+        return 0;
+    }
+
+    max_rows = mbuffer->len / FS_REPLICA_BINLOG_MIN_RECORD_SIZE + 1;
+    master_records = fc_malloc(sizeof(ReplicaBinlogRecord) * max_rows);
+    if (master_records == NULL) {
+        return ENOMEM;
+    }
+
+    slave_records = fc_malloc(sizeof(ReplicaBinlogRecord) * max_rows);
+    if (slave_records == NULL) {
+        free(master_records);
+        return ENOMEM;
+    }
+
+    buff_size = FS_REPLICA_BINLOG_MAX_RECORD_SIZE * max_rows;
+    buff = fc_malloc(buff_size);
+    if (buff == NULL) {
+        free(master_records);
+        free(slave_records);
+        return ENOMEM;
+    }
+
+    do {
+        if ((result=replica_binlog_unpack_records(mbuffer, master_records,
+                        max_rows, &master_rows)) != 0)
+        {
+            break;
+        }
+
+        if ((result=replica_binlog_reader_init(&reader, data_group_id,
+                        master_records[0].data_version - 1)) != 0)
+        {
+            break;
+        }
+
+        sbuffer.str = buff;
+        result = binlog_reader_integral_full_read(&reader,
+                buff, buff_size, &sbuffer.len);
+        binlog_reader_destroy(&reader);
+
+        if (result != 0) {
+            break;
+        }
+
+        if ((result=replica_binlog_unpack_records(&sbuffer, slave_records,
+                        max_rows, &slave_rows)) != 0)
+        {
+            break;
+        }
+
+        result = check_records_consistency(slave_records, slave_rows,
+                master_records, master_rows, first_unmatched_index,
+                first_unmatched_dv);
+    } while (0);
+
+    free(master_records);
+    free(slave_records);
+    free(buff);
+    return result;
 }
 
 void replica_binlog_writer_stat(const int data_group_id,

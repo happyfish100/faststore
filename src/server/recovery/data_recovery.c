@@ -603,6 +603,56 @@ static int active_me(DataRecoveryContext *ctx)
     }
 }
 
+static void find_restore_start_dv(DataRecoveryContext *ctx)
+{
+    int result;
+    int first_unmatched_index;
+    int remove_count;
+    char full_filename[PATH_MAX];
+    string_t mbuffer;
+    int64_t file_size;
+
+    data_recovery_get_fetched_binlog_filename(ctx,
+            full_filename, sizeof(full_filename));
+    if ((result=getFileContent(full_filename, &mbuffer.str,
+                    &file_size)) != 0)
+    {
+        return;
+    }
+    mbuffer.len = file_size;
+
+    result = replica_binlog_slave_check_consistency(ctx->ds->dg->id,
+            &mbuffer, &first_unmatched_index, &ctx->restore.start_dv);
+    free(mbuffer.str);
+    if (result != SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
+        if (result == 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, unexpect check consistency "
+                    "result: 0, some mistake happen?", __LINE__,
+                    ctx->ds->dg->id);
+        }
+        return;
+    }
+
+    if (first_unmatched_index < SLAVE_BINLOG_CHECK_LAST_ROWS) {
+        logError("file: "__FILE__", line: %d, "
+                "data group id: %d, first_unmatched_index: %d < "
+                "slave_binlog_check_last_rows: %d, delete all "
+                "binlog files ...", __LINE__, ctx->ds->dg->id,
+                first_unmatched_index, SLAVE_BINLOG_CHECK_LAST_ROWS);
+        if (replica_binlog_remove_all_files(ctx->ds->dg->id,
+                    &remove_count) == 0)
+        {
+            logWarning("file: "__FILE__", line: %d, "
+                    "data group id: %d, delete %d replica binlog files",
+                    __LINE__, ctx->ds->dg->id, remove_count);
+            replica_binlog_set_data_version(ctx->ds, 0);
+        }
+
+        ctx->restore.start_dv = 0;
+    }
+}
+
 static int do_data_recovery(DataRecoveryContext *ctx)
 {
     int result;
@@ -720,7 +770,12 @@ static int do_data_recovery(DataRecoveryContext *ctx)
         }
     } else if (ctx->stage == DATA_RECOVERY_STAGE_RESTORE) {
         if (ctx->restore.start_dv == 0) {
-        //TODO
+            find_restore_start_dv(ctx);
+        }
+
+        if (ctx->restore.start_dv > 0) {
+            const bool is_redo = true;
+            binlog_rollback(ctx->ds, ctx->restore.start_dv, is_redo);
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;

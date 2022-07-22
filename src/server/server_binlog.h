@@ -27,6 +27,7 @@
 #include "binlog/replica_binlog.h"
 #include "binlog/replica_clean.h"
 #include "binlog/migrate_clean.h"
+#include "binlog/binlog_rollback.h"
 
 #ifdef __cplusplus
 extern "C" {
