@@ -25,7 +25,8 @@
 #include "../server_group_info.h"
 #include "replication_quorum.h"
 
-#define VERSION_CONFIRMED_FILE_COUNT  2  //double files for safty
+#define VERSION_CONFIRMED_FILE_COUNT     2  //double files for safty
+#define REPLICATION_QUORUM_DAT_FILENAME  ".repl_quorum.dat"
 
 typedef struct fs_repl_quorum_thread_thread {
     struct fc_queue queue;
@@ -35,6 +36,14 @@ typedef struct fs_repl_quorum_thread_thread {
 static FSReplicationQuorumThread fs_repl_quorum_thread;
 
 #define THREAD_DATA_VERSIONS fs_repl_quorum_thread.data_versions
+
+static inline const char *get_quorum_dat_filename(
+        char *filename, const int size)
+{
+    snprintf(filename, size, "%s/%s", DATA_PATH_STR,
+            REPLICATION_QUORUM_DAT_FILENAME);
+    return filename;
+}
 
 static inline const char *get_confirmed_filename(const int data_group_id,
         const int index, char *filename, const int size)
@@ -221,12 +230,6 @@ static int init_all_contexts()
         {
             return result;
         }
-
-        /*
-        logInfo("file: "__FILE__", line: %d, func: %s, "
-                "%d. data_group_id = %d", __LINE__, __FUNCTION__,
-                i + 1, data_group_id);
-                */
     }
 
     return 0;
@@ -584,11 +587,62 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
     return rollback_binlog_and_notify(ctx);
 }
 
+static int delete_all_confirmed_files()
+{
+    FSIdArray *id_array;
+    char filename[PATH_MAX];
+    int result;
+    int data_group_id;
+    int i;
+    int index;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MY_SERVER_ID)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file no data group",
+                __LINE__);
+        return ENOENT;
+    }
+
+    for (i=0; i<id_array->count; i++) {
+        data_group_id = id_array->ids[i];
+        for (index=0; index<VERSION_CONFIRMED_FILE_COUNT; index++) {
+            get_confirmed_filename(data_group_id, index,
+                    filename, sizeof(filename));
+            if ((result=fc_delete_file_ex(filename, "confirmed")) != 0) {
+                return result;
+            }
+        }
+    }
+
+    return 0;
+}
+
 int replication_quorum_init()
 {
+    char quorum_filename[PATH_MAX];
+    char buff[64];
+    int len;
     int result;
 
+    get_quorum_dat_filename(quorum_filename, sizeof(quorum_filename));
     if (!REPLICA_QUORUM_NEED_MAJORITY) {
+        if (access(quorum_filename, F_OK) == 0) {
+            if ((result=delete_all_confirmed_files()) != 0) {
+                return result;
+            }
+            unlink(quorum_filename);
+        } else {
+            result = errno != 0 ? errno : EPERM;
+            if (result != ENOENT) {
+                logError("file: "__FILE__", line: %d, "
+                        "access file %s fail, errno: %d, error info: %s",
+                        __LINE__, quorum_filename, result, STRERROR(result));
+                return result;
+            }
+        }
+
         REPLICA_QUORUM_ROLLBACK_DONE = true;
         return 0;
     }
@@ -609,7 +663,12 @@ int replication_quorum_init()
         return result;
     }
 
-    return 0;
+    if (access(quorum_filename, F_OK) == 0) {
+        return 0;
+    } else {
+        len = sprintf(buff, "enabled=%d\n", 1);
+        return writeToFile(quorum_filename, buff, len);
+    }
 }
 
 static int check_rollback_data_groups()
