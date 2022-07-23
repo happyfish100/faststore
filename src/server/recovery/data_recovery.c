@@ -769,13 +769,19 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             return result;
         }
     } else if (ctx->stage == DATA_RECOVERY_STAGE_RESTORE) {
+        bool is_redo;
         if (ctx->restore.start_dv == 0) {
             find_restore_start_dv(ctx);
+            is_redo = false;
+        } else {
+            is_redo = true;
         }
 
         if (ctx->restore.start_dv > 0) {
-            const bool is_redo = true;
-            binlog_rollback(ctx->ds, ctx->restore.start_dv, is_redo);
+            int64_t confirmed_version;
+
+            confirmed_version = ctx->restore.start_dv - 1;
+            binlog_rollback(ctx->ds, confirmed_version, is_redo);
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;

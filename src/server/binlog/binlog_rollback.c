@@ -161,7 +161,7 @@ static void destroy_rollback_context(DataRollbackContext *rollback_ctx)
     destroy_pthread_lock_cond_pair(&rollback_ctx->lcp);
 }
 
-static int fetch_data(DataRollbackContext *rollback_ctx, const bool is_redo)
+static int fetch_data(DataRollbackContext *rollback_ctx)
 {
     FSClusterDataServerInfo *master;
     int read_bytes;
@@ -264,8 +264,7 @@ static int write_data(DataRollbackContext *rollback_ctx)
 }
 
 static int do_rollback(DataRollbackContext *rollback_ctx,
-        ReplicaBinlogRecord *record, const bool is_redo,
-        bool *data_restored)
+        ReplicaBinlogRecord *record, bool *data_restored)
 {
     int result;
     int r;
@@ -282,7 +281,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     }
 
     *data_restored = false;
-    result = fetch_data(rollback_ctx, is_redo);
+    result = fetch_data(rollback_ctx);
     if (result == EEXIST) {
         return 0;
     } else if (!(result == 0 || result == ENODATA)) {
@@ -296,15 +295,15 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
                         &sn, &dec_alloc, false)) == 0)
         {
             r = slice_binlog_log_del_slice(&record->bs_key,
-                    record->timestamp, sn, record->data_version,
+                    g_current_time, sn, record->data_version,
                     BINLOG_SOURCE_ROLLBACK);
         } else if (r == ENOENT) {
             r = 0;
         }
     } else {
-        r = slice_binlog_log_no_op(&record->bs_key.block, record->
-                timestamp, __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
-                record->data_version, BINLOG_SOURCE_ROLLBACK);
+        r = slice_binlog_log_no_op(&record->bs_key.block, g_current_time,
+                __sync_add_and_fetch(&SLICE_BINLOG_SN, 1), record->
+                data_version, BINLOG_SOURCE_ROLLBACK);
     }
     if (r != 0) {
         return r;
@@ -315,7 +314,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     } else {
         *data_restored = true;
         rollback_ctx->op_ctx.info.data_version = record->data_version;
-        rollback_ctx->op_ctx.update.timestamp = record->timestamp;
+        rollback_ctx->op_ctx.update.timestamp = g_current_time;
         return write_data(rollback_ctx);
     }
 }
@@ -339,7 +338,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
     char time_buff[32];
 
     start_time_ms = get_current_time_ms();
-    if (replica_array->count == 0 || (is_redo && slice_array->count == 0)) {
+    if (replica_array->count == 0) {
         return 0;
     }
 
@@ -358,23 +357,16 @@ static int rollback_data(FSClusterDataServerInfo *myself,
 
         if (is_redo) {
             target.data_version = record->data_version;
-            target.source = BINLOG_SOURCE_RPC_MASTER;
+            target.source = BINLOG_SOURCE_ROLLBACK;
             if (bsearch(&target, slice_array->records, slice_array->count,
                         sizeof(target), (int (*)(const void *, const void *))
-                        compare_version_and_source) == NULL)
+                        compare_version_and_source) != NULL)
             {
-                target.source = BINLOG_SOURCE_RPC_SLAVE;
-                if (bsearch(&target, slice_array->records, slice_array->count,
-                            sizeof(target), (int (*)(const void *, const void *))
-                            compare_version_and_source) == NULL)
-                {
-                    ++skip_count;
-                    continue;
-                }
+                ++skip_count;
+                continue;
             }
 
-            target.data_version = record->data_version;
-            target.source = BINLOG_SOURCE_ROLLBACK;
+            target.source = BINLOG_SOURCE_RESTORE;
             if (bsearch(&target, slice_array->records, slice_array->count,
                         sizeof(target), (int (*)(const void *, const void *))
                         compare_version_and_source) != NULL)
@@ -385,7 +377,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
         }
 
         if ((result=do_rollback(&rollback_ctx, record,
-                        is_redo, &data_restored)) != 0)
+                        &data_restored)) != 0)
         {
             break;
         }
