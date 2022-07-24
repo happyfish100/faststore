@@ -167,6 +167,7 @@ static int fetch_data(DataRollbackContext *rollback_ctx)
     int read_bytes;
     int result;
 
+    result = EINTR;
     while (SF_G_CONTINUE_FLAG) {
         if ((result=get_master(rollback_ctx->op_ctx.
                         info.myself, &master)) != 0)
