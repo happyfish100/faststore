@@ -1197,6 +1197,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     }
 
     if (result != 0) {
+        TASK_CTX.common.log_level = (result == ENOENT ? LOG_DEBUG : LOG_ERR);
         du_handler_set_slice_op_error_msg(task, &SLICE_OP_CTX,
                 "replica slice read", result);
         sf_release_task(task);
