@@ -345,8 +345,7 @@ extern "C" {
     int replica_binlog_init_dump_reader(const int data_group_id,
             const int slave_id, struct server_binlog_reader *reader);
 
-    int replica_binlog_remove_all_files(const int data_group_id,
-            int *remove_count);
+    int replica_binlog_remove_all_files(const int data_group_id);
 
     int replica_binlog_waiting_write_done(const int data_group_id,
             const uint64_t waiting_data_version, const char *caption);

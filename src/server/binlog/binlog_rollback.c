@@ -323,7 +323,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
         const uint64_t last_data_version,
         const ReplicaBinlogRecordArray *replica_array,
         const BinlogCommonFieldsArray *slice_array,
-        const bool is_redo)
+        const bool is_redo, const char which_side)
 {
     int result;
     bool data_restored;
@@ -390,9 +390,11 @@ static int rollback_data(FSClusterDataServerInfo *myself,
     time_used = get_current_time_ms() - start_time_ms;
     long_to_comma_str(time_used, time_buff);
     logInfo("file: "__FILE__", line: %d, "
-            "data group id: %d, rollbacked data version: %"PRId64", replica "
-            "record count: %d, slice record count: %d, skip count: %d, "
-            "restore count: %d, time used: %s ms", __LINE__, myself->dg->id,
+            "data group id: %d, %s rollback data version from %"PRId64" "
+            "to %"PRId64", replica record count: %d, slice record count: "
+            "%d, skip count: %d, restore count: %d, time used: %s ms",
+            __LINE__, myself->dg->id, which_side == FS_WHICH_SIDE_MASTER ?
+            "master" : "slave", FC_ATOMIC_GET(myself->data.current_version),
             last_data_version, replica_array->count, slice_array->count,
             skip_count, restore_count, time_buff);
 
@@ -401,7 +403,8 @@ static int rollback_data(FSClusterDataServerInfo *myself,
 }
 
 static int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
-        const uint64_t last_data_version, const bool is_redo)
+        const uint64_t last_data_version, const bool is_redo,
+        const char which_side)
 {
     int result;
     ReplicaBinlogRecordArray replica_array;
@@ -424,8 +427,8 @@ static int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
         }
     }
 
-    result = rollback_data(myself, last_data_version,
-            &replica_array, &slice_array, is_redo);
+    result = rollback_data(myself, last_data_version, &replica_array,
+            &slice_array, is_redo, which_side);
 
     replica_binlog_free_record_array(&replica_array);
     slice_binlog_free_record_array(&slice_array);
@@ -433,7 +436,7 @@ static int rollback_slice_binlog_and_data(FSClusterDataServerInfo *myself,
 }
 
 int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
-        my_confirmed_version, const bool is_redo)
+        my_confirmed_version, const bool is_redo, const char which_side)
 {
     const bool ignore_dv_overflow = false;
     int result;
@@ -476,9 +479,9 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
         return result;
     }
 
-    if ((result=rollback_slice_binlog_and_data(myself,
-                    my_confirmed_version, is_redo)) != 0)
-    {
+    result = rollback_slice_binlog_and_data(myself,
+            my_confirmed_version, is_redo, which_side);
+    if (result != 0) {
         return result;
     }
 

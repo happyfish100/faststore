@@ -607,7 +607,6 @@ static void find_restore_start_dv(DataRecoveryContext *ctx)
 {
     int result;
     int first_unmatched_index;
-    int remove_count;
     char full_filename[PATH_MAX];
     string_t mbuffer;
     int64_t file_size;
@@ -640,12 +639,7 @@ static void find_restore_start_dv(DataRecoveryContext *ctx)
                 "slave_binlog_check_last_rows: %d, delete all "
                 "binlog files ...", __LINE__, ctx->ds->dg->id,
                 first_unmatched_index, SLAVE_BINLOG_CHECK_LAST_ROWS);
-        if (replica_binlog_remove_all_files(ctx->ds->dg->id,
-                    &remove_count) == 0)
-        {
-            logWarning("file: "__FILE__", line: %d, "
-                    "data group id: %d, delete %d replica binlog files",
-                    __LINE__, ctx->ds->dg->id, remove_count);
+        if (replica_binlog_remove_all_files(ctx->ds->dg->id) == 0) {
             replica_binlog_set_data_version(ctx->ds, 0);
         }
 
@@ -781,7 +775,8 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             int64_t confirmed_version;
 
             confirmed_version = ctx->restore.start_dv - 1;
-            binlog_rollback(ctx->ds, confirmed_version, is_redo);
+            binlog_rollback(ctx->ds, confirmed_version,
+                    is_redo, FS_WHICH_SIDE_SLAVE);
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;

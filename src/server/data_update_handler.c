@@ -534,10 +534,9 @@ static inline void set_block_op_error_msg(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const char *caption, const int result)
 {
     RESPONSE.error.length = sprintf(RESPONSE.error.message,
-            "%s fail, result: %d, block {oid: %"PRId64", "
-            "offset: %"PRId64"}", caption, result,
-            op_ctx->info.bs_key.block.oid,
-            op_ctx->info.bs_key.block.offset);
+            "%s fail, result: %d, data_group_id: %d, block {oid: %"PRId64", "
+            "offset: %"PRId64"}", caption, result, op_ctx->info.data_group_id,
+            op_ctx->info.bs_key.block.oid, op_ctx->info.bs_key.block.offset);
 }
 
 static inline int du_slave_check_data_version(struct fast_task_info *task,

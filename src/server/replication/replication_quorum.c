@@ -157,7 +157,8 @@ static int rollback_binlogs(FSClusterDataServerInfo *myself,
 {
     int result;
 
-    result = binlog_rollback(myself, my_confirmed_version, is_redo);
+    result = binlog_rollback(myself, my_confirmed_version,
+            is_redo, FS_WHICH_SIDE_MASTER);
     if (result == 0) {
         result = unlink_confirmed_files(myself->dg->id);
     }

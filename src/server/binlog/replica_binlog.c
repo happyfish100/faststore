@@ -1228,13 +1228,13 @@ int replica_binlog_init_dump_reader(const int data_group_id,
     }
 }
 
-int replica_binlog_remove_all_files(const int data_group_id,
-        int *remove_count)
+int replica_binlog_remove_all_files(const int data_group_id)
 {
     int result;
     int start_index;
     int last_index;
     int binlog_index;
+    int remove_count;
     char binlog_filename[PATH_MAX];
 
     if ((result=replica_binlog_get_binlog_indexes(data_group_id,
@@ -1253,8 +1253,21 @@ int replica_binlog_remove_all_files(const int data_group_id,
         }
     }
 
-    *remove_count = (last_index - start_index) + 1;
-    return replica_binlog_set_binlog_indexes(data_group_id, 0, 0);
+    remove_count = (last_index - start_index) + 1;
+    if ((result=replica_binlog_set_binlog_indexes(
+                    data_group_id, 0, 0)) != 0)
+    {
+        logCrit("file: "__FILE__", line: %d, "
+                "replica_binlog_set_binlog_indexes fail, errno: %d, "
+                "program terminate!", __LINE__, result);
+        sf_terminate_myself();
+        return result;
+    }
+
+    logWarning("file: "__FILE__", line: %d, "
+            "data group id: %d, delete %d replica binlog files",
+            __LINE__, data_group_id, remove_count);
+    return 0;
 }
 
 int replica_binlog_waiting_write_done(const int data_group_id,

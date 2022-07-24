@@ -419,7 +419,6 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
     int my_status;
     int i;
     int retry_count;
-    int remove_count;
     int binlog_count;
     int binlog_length;
     int buffer_size;
@@ -501,12 +500,7 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                         "missed on the master server %d, delete all "
                         "binlog files ...", __LINE__, ctx->ds->dg->id,
                         ctx->master->cs->server->id);
-                if (replica_binlog_remove_all_files(ctx->ds->dg->id,
-                            &remove_count) == 0)
-                {
-                    logWarning("file: "__FILE__", line: %d, "
-                            "data group id: %d, delete %d replica binlog "
-                            "files", __LINE__, ctx->ds->dg->id, remove_count);
+                if (replica_binlog_remove_all_files(ctx->ds->dg->id) == 0) {
                     replica_binlog_set_data_version(ctx->ds, 0);
                 }
             }
