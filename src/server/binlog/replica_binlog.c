@@ -1267,7 +1267,7 @@ int replica_binlog_remove_all_files(const int data_group_id)
     logWarning("file: "__FILE__", line: %d, "
             "data group id: %d, delete %d replica binlog files",
             __LINE__, data_group_id, remove_count);
-    return 0;
+    return replica_binlog_writer_change_write_index(data_group_id, 0);
 }
 
 int replica_binlog_waiting_write_done(const int data_group_id,

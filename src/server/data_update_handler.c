@@ -196,8 +196,10 @@ static int parse_check_block_key(struct fast_task_info *task,
             if (SF_IDEMPOTENCY_EXTRACT_SERVER_ID(req_id) !=
                     CLUSTER_MY_SERVER_ID)
             {
+                /*
                 logInfo("req_id: %"PRId64", server_id: %d", req_id,
                         SF_IDEMPOTENCY_EXTRACT_SERVER_ID(req_id));
+                        */
                 if (idempotency_request_metadata_get(&op_ctx->info.
                             myself->dg->req_meta_ctx, req_id,
                             &data_version, &SLICE_OP_CTX.
@@ -208,11 +210,13 @@ static int parse_check_block_key(struct fast_task_info *task,
                     /* clear idempotency request */
                     du_handler_idempotency_request_finish(task, EAGAIN);
 
+                    /*
                     logInfo("req_id: %"PRId64", data_version: %"PRId64", "
                             "my current dv: %"PRId64", inc alloc: %d",
                             req_id, data_version, FC_ATOMIC_GET(op_ctx->info.
                                 myself->data.confirmed_version),
                             SLICE_OP_CTX.update.space_changed);
+                            */
 
                     if (data_version <= FC_ATOMIC_GET(op_ctx->info.
                                 myself->data.confirmed_version))

@@ -337,6 +337,7 @@ static int rollback_data(FSClusterDataServerInfo *myself,
     int64_t start_time_ms;
     int64_t time_used;
     char time_buff[32];
+    char slice_prompt[64];
 
     start_time_ms = get_current_time_ms();
     if (replica_array->count == 0) {
@@ -390,14 +391,19 @@ static int rollback_data(FSClusterDataServerInfo *myself,
 
     time_used = get_current_time_ms() - start_time_ms;
     long_to_comma_str(time_used, time_buff);
+    if (is_redo) {
+        sprintf(slice_prompt, ", slice record count: %d", slice_array->count);
+    } else {
+        *slice_prompt = '\0';
+    }
     logInfo("file: "__FILE__", line: %d, "
             "data group id: %d, %s rollback data version from %"PRId64" "
-            "to %"PRId64", replica record count: %d, slice record count: "
-            "%d, skip count: %d, restore count: %d, time used: %s ms",
-            __LINE__, myself->dg->id, which_side == FS_WHICH_SIDE_MASTER ?
-            "master" : "slave", FC_ATOMIC_GET(myself->data.current_version),
-            last_data_version, replica_array->count, slice_array->count,
-            skip_count, restore_count, time_buff);
+            "to %"PRId64", replica record count: %d%s, skip count: %d, "
+            "restore count: %d, time used: %s ms", __LINE__, myself->dg->id,
+            which_side == FS_WHICH_SIDE_MASTER ?  "master" : "slave",
+            FC_ATOMIC_GET(myself->data.current_version), last_data_version,
+            replica_array->count, slice_prompt, skip_count, restore_count,
+            time_buff);
 
     destroy_rollback_context(&rollback_ctx);
     return result;
