@@ -40,6 +40,12 @@ int cluster_relationship_commit_leader(FSClusterServerInfo *leader);
 
 void cluster_relationship_trigger_reselect_leader();
 
+void cluster_relationship_trigger_reselect_master(
+        FSClusterDataGroupInfo *group);
+
+int cluster_relationship_report_reselect_master_to_leader(
+        FSClusterDataServerInfo *ds);
+
 bool cluster_relationship_set_ds_status_ex(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status);
 

@@ -395,9 +395,10 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     if (last_data_version > my_data_version) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "data group id: %d, binlog consistency check fail, "
-                "slave's data version: %"PRId64" > master's data "
-                "version: %"PRId64, data_group_id, last_data_version,
-                my_data_version);
+                "slave %d 's data version: %"PRId64" > master's data "
+                "version: %"PRId64, data_group_id, server_id,
+                last_data_version, my_data_version);
+        cluster_relationship_report_reselect_master_to_leader(myself);
         return SF_CLUSTER_ERROR_BINLOG_INCONSISTENT;
     }
 

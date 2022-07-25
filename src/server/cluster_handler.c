@@ -499,6 +499,49 @@ static int cluster_deal_report_ds_status(struct fast_task_info *task)
     return 0;
 }
 
+static int cluster_deal_reselect_master(struct fast_task_info *task)
+{
+    int result;
+    FSProtoReselectMasterReq *req;
+    FSClusterDataServerInfo *ds;
+    int server_id;
+    int data_group_id;
+
+    RESPONSE.header.cmd = FS_CLUSTER_PROTO_RESELECT_MASTER_RESP;
+    if ((result=server_expect_body_length(sizeof(
+                        FSProtoReselectMasterReq))) != 0)
+    {
+        return result;
+    }
+
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    req = (FSProtoReselectMasterReq *)REQUEST.body;
+    data_group_id = buff2int(req->data_group_id);
+    server_id = buff2int(req->server_id);
+    if ((ds=fs_get_data_server(data_group_id, server_id)) == NULL) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d, server_id: %d not exist",
+                data_group_id, server_id);
+        return ENOENT;
+    }
+
+    if (!__sync_add_and_fetch(&ds->is_master, 0)) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "data_group_id: %d, server_id: %d is not master",
+                data_group_id, server_id);
+        return EPERM;
+    }
+
+    cluster_relationship_trigger_reselect_master(ds->dg);
+    return 0;
+}
+
 static int cluster_deal_report_disk_space(struct fast_task_info *task)
 {
     int result;
@@ -716,6 +759,9 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 break;
             case FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ:
                 result = cluster_deal_report_ds_status(task);
+                break;
+            case FS_CLUSTER_PROTO_RESELECT_MASTER_REQ:
+                result = cluster_deal_reselect_master(task);
                 break;
             case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
             case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:

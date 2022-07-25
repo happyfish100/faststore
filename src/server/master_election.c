@@ -421,11 +421,38 @@ static FSClusterDataServerInfo *select_master(FSClusterDataGroupInfo *group,
 
 static int master_election_select_master(FSClusterDataGroupInfo *group)
 {
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *end;
     FSClusterDataServerInfo *master;
+    int64_t master_dv;
     int result;
 
-    if (FC_ATOMIC_GET(group->master) != NULL) {
-        return 0;
+    if ((master=(FSClusterDataServerInfo *)FC_ATOMIC_GET(
+                    group->master)) != NULL)
+    {
+        if (__sync_bool_compare_and_swap(&group->election.reselect, 1, 0)) {
+            master_dv = FC_ATOMIC_GET(master->data.current_version);
+            end = group->data_server_array.servers +
+                group->data_server_array.count;
+            for (ds=group->data_server_array.servers; ds<end; ds++) {
+                if (ds != master && FC_ATOMIC_GET(ds->data.
+                            current_version) > master_dv)
+                {
+                    break;
+                }
+            }
+
+            if (ds == end) {
+                return 0;
+            }
+
+            logInfo("file: "__FILE__", line: %d, "
+                    "re-select master, unset old master: %d",
+                    __LINE__, master->cs->server->id);
+            master_election_set_master(group, master, NULL);
+        } else {
+            return 0;
+        }
     }
 
     master = select_master(group, &result);

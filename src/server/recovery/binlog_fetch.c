@@ -487,13 +487,11 @@ static int fetch_binlog_first_to_local(ConnectionInfo *conn,
                 pkg_len, retry_count == FETCH_BINLOG_RETRY_TIMES, is_last);
         if (!(result == EAGAIN || result == EINPROGRESS)) {
             if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
-                logCrit("file: "__FILE__", line: %d, "
+                logError("file: "__FILE__", line: %d, "
                         "data group id: %d, the replica binlog is "
                         "NOT consistent with the master server %d, "
-                        "some mistake happen, program exit abnormally!",
-                        __LINE__, ctx->ds->dg->id,
-                        ctx->master->cs->server->id);
-                sf_terminate_myself();
+                        "some mistake happen!", __LINE__, ctx->ds->
+                        dg->id, ctx->master->cs->server->id);
             } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
                 logWarning("file: "__FILE__", line: %d, "
                         "data group id: %d, the replica binlog is "

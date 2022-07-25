@@ -322,8 +322,9 @@ typedef struct fs_cluster_data_group_info {
 
     struct {
         uint32_t hash_code;  //for master assignment
-        volatile short in_queue;
-        volatile short in_delay_queue;
+        volatile char in_queue;
+        volatile char in_delay_queue;
+        volatile char reselect;
         int retry_count;
         int64_t start_time_ms;
     } election;  //for master select

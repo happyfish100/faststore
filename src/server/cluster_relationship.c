@@ -704,6 +704,52 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     return result;
 }
 
+int cluster_relationship_report_reselect_master_to_leader(
+        FSClusterDataServerInfo *ds)
+{
+    FSClusterServerInfo *leader;
+    FSProtoHeader *header;
+    FSProtoReselectMasterReq *req;
+    char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReselectMasterReq)];
+    ConnectionInfo conn;
+    SFResponseInfo response;
+    int result;
+
+    leader = CLUSTER_LEADER_ATOM_PTR;
+    if (CLUSTER_MYSELF_PTR == leader) {
+        cluster_relationship_trigger_reselect_master(ds->dg);
+        return 0;
+    } else if (leader == NULL) {
+        return ENOENT;
+    }
+
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        leader->server), &conn, "fstore",
+                    SF_G_CONNECT_TIMEOUT)) != 0)
+    {
+        return result;
+    }
+
+    header = (FSProtoHeader *)out_buff;
+    req = (FSProtoReselectMasterReq *)(header + 1);
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_RESELECT_MASTER_REQ,
+            sizeof(out_buff) - sizeof(FSProtoHeader));
+    int2buff(ds->dg->id, req->data_group_id);
+    int2buff(ds->cs->server->id, req->server_id);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
+                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    FS_CLUSTER_PROTO_RESELECT_MASTER_RESP)) != 0)
+    {
+        if (result != EOPNOTSUPP) {
+            fs_log_network_error(&response, &conn, result);
+        }
+    }
+
+    conn_pool_disconnect_server(&conn);
+    return result;
+}
+
 int cluster_relationship_pre_set_leader(FSClusterServerInfo *leader)
 {
     FSClusterServerInfo *next_leader;
@@ -974,6 +1020,17 @@ void cluster_relationship_trigger_reselect_leader()
             vote_client_proto_close_connection(&VOTE_CONNECTION);
         }
     }
+}
+
+void cluster_relationship_trigger_reselect_master(
+        FSClusterDataGroupInfo *group)
+{
+    if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+        return;
+    }
+
+    __sync_bool_compare_and_swap(&group->election.reselect, 0, 1);
+    master_election_queue_push(group);
 }
 
 static int cluster_pre_set_next_leader(FSClusterServerInfo *cs,

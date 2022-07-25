@@ -96,6 +96,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_SERVER_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP:
             return "GET_SERVER_STATUS_RESP";
+        case FS_CLUSTER_PROTO_RESELECT_MASTER_REQ:
+            return "RESELECT_MASTER_REQ";
+        case FS_CLUSTER_PROTO_RESELECT_MASTER_RESP:
+            return "RESELECT_MASTER_RESP";
         case FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ:
             return "REPORT_DS_STATUS_REQ";
         case FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP:

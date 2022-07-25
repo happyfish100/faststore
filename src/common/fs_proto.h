@@ -58,6 +58,8 @@
     SF_CLUSTER_PROTO_GET_SERVER_STATUS_REQ
 #define FS_CLUSTER_PROTO_GET_SERVER_STATUS_RESP \
     SF_CLUSTER_PROTO_GET_SERVER_STATUS_RESP
+#define FS_CLUSTER_PROTO_RESELECT_MASTER_REQ     61
+#define FS_CLUSTER_PROTO_RESELECT_MASTER_RESP    62
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ    63  //report data server status
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP   64
 #define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         65
@@ -190,6 +192,11 @@ typedef struct fs_proto_report_ds_status_req {
     char status;
     char padding[3];
 } FSProtoReportDSStatusReq;
+
+typedef struct fs_proto_reselect_master_req {
+    char data_group_id[4];
+    char server_id[4];
+} FSProtoReselectMasterReq;
 
 typedef struct fs_proto_service_stat_req {
     char data_group_id[4];   //0 for slice binlog
