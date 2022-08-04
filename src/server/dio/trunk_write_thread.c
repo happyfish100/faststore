@@ -37,6 +37,7 @@ typedef struct write_file_handle {
 } WriteFileHandle;
 
 typedef struct trunk_write_thread_context {
+    FSStoragePathInfo *path_info;
     struct {
         short path;
         short thread;
@@ -60,6 +61,8 @@ typedef struct trunk_write_thread_context {
         int success; //write success count
         TrunkWriteIOBuffer **iobs;
     } iob_array;
+
+    int64_t written_count;
 
 } TrunkWriteThreadContext;
 
@@ -194,6 +197,7 @@ static int init_thread_contexts(TrunkWriteThreadContextArray *ctx_array,
         } else {
             ctx->indexes.thread = ctx - ctx_array->contexts;
         }
+        ctx->path_info = STORAGE_CFG.paths_by_index.paths[path_index];
         if ((result=init_thread_context(ctx)) != 0) {
             return result;
         }
@@ -531,13 +535,18 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
         }
     }
 
+    ctx->written_count++;
     if (result == 0) {
-        if (fsync(fd) != 0) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "sync to trunk file: %s fail, "
-                    "errno: %d, error info: %s", __LINE__,
-                    trunk_filename, result, STRERROR(result));
+        if (ctx->path_info->fsync_every_n_writes > 0 && ctx->written_count %
+                ctx->path_info->fsync_every_n_writes == 0)
+        {
+            if (fsync(fd) != 0) {
+                result = errno != 0 ? errno : EIO;
+                logError("file: "__FILE__", line: %d, "
+                        "sync to trunk file: %s fail, "
+                        "errno: %d, error info: %s", __LINE__,
+                        trunk_filename, result, STRERROR(result));
+            }
         }
     }
 

@@ -36,6 +36,7 @@ typedef struct {
     int read_thread_count;
     int prealloc_trunks;
     int read_io_depth;
+    int fsync_every_n_writes;
     struct {
         int64_t value;
         double ratio;
@@ -82,6 +83,7 @@ typedef struct {
     int write_threads_per_path;
     int read_threads_per_path;
     int io_depth_per_read_thread;
+    int fsync_every_n_writes;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;
     int64_t trunk_file_size;
