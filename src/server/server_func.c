@@ -167,6 +167,14 @@ static int load_leader_election_config(IniFullContext *ini_ctx)
     return result;
 }
 
+static inline int load_replication_quorum_config(IniFullContext *ini_ctx)
+{
+    ini_ctx->section_name = "data-replication";
+    REPLICA_QUORUM_DEACTIVE_ON_FAILURES  = iniGetIntCorrectValue(
+            ini_ctx, "deactive_on_failures", 3, 1, 100);
+    return sf_load_replication_quorum_config(&REPLICATION_QUORUM, ini_ctx);
+}
+
 static int load_cluster_sub_config(const char *cluster_filename)
 {
     IniContext ini_context;
@@ -186,10 +194,7 @@ static int load_cluster_sub_config(const char *cluster_filename)
         return result;
     }
 
-    ini_ctx.section_name = "data-replication";
-    result = sf_load_replication_quorum_config(
-            &REPLICATION_QUORUM, &ini_ctx);
-
+    result = load_replication_quorum_config(&ini_ctx);
     iniFreeContext(&ini_context);
     return result;
 }
@@ -231,6 +236,8 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     }
 
     REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
+            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
+    REPLICA_QUORUM_NEED_DETECT = SF_REPLICATION_QUORUM_NEED_DETECT(
             REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
     return 0;
 }
@@ -454,14 +461,16 @@ static void server_log_configs()
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "
-            "quorum_need_majority: %d}, %s, %s, %s",
+            "deactive_on_failures: %d, quorum_need_majority: %d, "
+            "quorum_need_detect: %d}, %s, %s, %s",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
             g_fs_global_vars.version.patch, sz_global_config,
             sz_slowlog_config, sz_service_config, sz_cluster_config,
             sz_replica_config, sz_server_config, sz_melection_config,
             sf_get_replication_quorum_caption(REPLICATION_QUORUM),
-            REPLICA_QUORUM_NEED_MAJORITY, sz_slice_binlog_config,
-            sz_replica_binlog_config, sz_auth_config);
+            REPLICA_QUORUM_DEACTIVE_ON_FAILURES,
+            REPLICA_QUORUM_NEED_MAJORITY, REPLICA_QUORUM_NEED_DETECT,
+            sz_slice_binlog_config, sz_replica_binlog_config, sz_auth_config);
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }

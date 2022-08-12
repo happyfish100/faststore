@@ -325,7 +325,7 @@ int rebuild_thread_do(const int thread_count)
     start_time = get_current_time_ms();
 
     slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
-    __sync_add_and_fetch(&ctx.running_threads, thread_count);
+    ctx.running_threads = thread_count;
     end = ctx.thread_array.threads + thread_count;
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
         thread->ctx = &ctx;

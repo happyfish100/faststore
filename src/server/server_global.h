@@ -90,7 +90,14 @@ typedef struct server_global_vars {
 
     struct {
         SFReplicationQuorum quorum;
-        bool quorum_need_majority; //cached result of SF_REPLICATION_QUORUM_NEED_MAJORITY
+        int deactive_on_failures;
+
+        /* cached result of SF_REPLICATION_QUORUM_NEED_MAJORITY */
+        bool quorum_need_majority;
+
+        /* cached result of SF_REPLICATION_QUORUM_NEED_DETECT */
+        bool quorum_need_detect;
+
         bool quorum_rollback_done;  //for startup
         int channels_between_two_servers;
         int recovery_threads_per_data_group;
@@ -194,6 +201,10 @@ typedef struct server_global_vars {
 #define REPLICATION_QUORUM  g_server_global_vars.replica.quorum
 #define REPLICA_QUORUM_NEED_MAJORITY g_server_global_vars. \
     replica.quorum_need_majority
+#define REPLICA_QUORUM_NEED_DETECT   g_server_global_vars. \
+    replica.quorum_need_detect
+#define REPLICA_QUORUM_DEACTIVE_ON_FAILURES g_server_global_vars. \
+    replica.deactive_on_failures
 #define REPLICA_QUORUM_ROLLBACK_DONE g_server_global_vars. \
     replica.quorum_rollback_done
 #define REPLICA_KEEP_DAYS   g_server_global_vars.replica.binlog.keep_days
