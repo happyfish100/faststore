@@ -298,14 +298,15 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                 SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
                         binlog_filename, line_count);
                 logError("file: "__FILE__", line: %d, "
-                        "delete slice fail, binlong index: %d, offset: %"PRId64", "
-                        "line no: %"PRId64", block {oid: %"PRId64", "
+                        "delete slice fail, binlong index: %d, offset: %"
+                        PRId64", line no: %"PRId64", block {oid: %"PRId64", "
                         "offset: %"PRId64"}, slice {offset: %d, length: %d}"
                         ", errno: %d, error info: %s", __LINE__, record->
-                        position.index, record->position.offset, line_count, record->slice.bs_key.
-                        block.oid, record->slice.bs_key.block.offset,
-                        record->slice.bs_key.slice.offset, record->slice.bs_key.
-                        slice.length, result, STRERROR(result));
+                        position.index, record->position.offset, line_count,
+                        record->slice.bs_key.  block.oid, record->slice.bs_key.
+                        block.offset, record->slice.bs_key.slice.offset,
+                        record->slice.bs_key.slice.length, result,
+                        STRERROR(result));
             }
             return result;
         case BINLOG_OP_TYPE_DEL_BLOCK:
@@ -435,8 +436,6 @@ static int parse_buffer(SliceParseThreadContext *thread_ctx)
 static void slice_parse_thread_run(SliceParseThreadContext *thread_ctx,
         void *thread_data)
 {
-    __sync_add_and_fetch(&thread_ctx->loader_ctx->thread_counts.parse, 1);
-
     while (SF_G_CONTINUE_FLAG && thread_ctx->
             loader_ctx->parse_continue_flag)
     {
@@ -469,7 +468,6 @@ static void slice_data_thread_run(SliceDataThreadContext *thread_ctx,
 {
     SliceLoaderRecord *head;
 
-    __sync_add_and_fetch(&thread_ctx->loader_ctx->thread_counts.data, 1);
     while (SF_G_CONTINUE_FLAG && thread_ctx->
             loader_ctx->data_continue_flag)
     {
@@ -552,6 +550,7 @@ static int init_parse_thread_ctx_array(SliceLoaderContext *loader_ctx,
         return ENOMEM;
     }
 
+    __sync_add_and_fetch(&loader_ctx->thread_counts.parse, thread_count);
     ctx_array->count = thread_count;
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
@@ -584,6 +583,7 @@ static int init_data_thread_ctx_array(SliceLoaderContext *loader_ctx,
         return ENOMEM;
     }
 
+    __sync_add_and_fetch(&loader_ctx->thread_counts.data, thread_count);
     ctx_array->count = thread_count;
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
@@ -672,7 +672,7 @@ static void terminate_parse_threads(SliceLoaderContext *slice_ctx)
             pthread_cond_signal(&parse_thread->notify.lcp.cond);
         }
 
-        if (__sync_add_and_fetch(&slice_ctx->thread_counts.parse, 0) == 0) {
+        if (FC_ATOMIC_GET(slice_ctx->thread_counts.parse) == 0) {
             break;
         }
         fc_sleep_ms(1);
@@ -707,7 +707,7 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
             fc_queue_terminate(&ctx->queue);
         }
 
-        if (__sync_add_and_fetch(&slice_ctx->thread_counts.data, 0) == 0) {
+        if (FC_ATOMIC_GET(slice_ctx->thread_counts.data) == 0) {
             break;
         }
 
@@ -744,7 +744,6 @@ static void slice_binlog_read_done(BinlogLoaderContext *ctx)
 static void slice_dump_thread_run(SliceDumpThreadContext *thread_ctx,
         void *thread_data)
 {
-    __sync_add_and_fetch(&thread_ctx->loader_ctx->thread_counts.dump, 1);
     if (ob_index_dump_slices_to_trunk(thread_ctx->start_index,
                 thread_ctx->end_index, &thread_ctx->slice_count) != 0)
     {
@@ -793,6 +792,7 @@ static int init_dump_thread_ctx_array(SliceLoaderContext *loader_ctx,
         return ENOMEM;
     }
 
+    __sync_add_and_fetch(&loader_ctx->thread_counts.dump, thread_count);
     buckets_per_thread = (g_ob_hashtable.capacity +
             thread_count - 1) / thread_count; 
     end = ctx_array->contexts + thread_count;
@@ -838,9 +838,7 @@ static int slice_dump_slices_to_trunk(SliceLoaderContext *loader_ctx)
     if (dump_thread_array.count > 0) {
         fc_sleep_ms(100);
         while (SF_G_CONTINUE_FLAG) {
-            if (__sync_add_and_fetch(&loader_ctx->
-                        thread_counts.dump, 0) == 0)
-            {
+            if (FC_ATOMIC_GET(loader_ctx->thread_counts.dump) == 0) {
                 break;
             }
 
