@@ -320,6 +320,12 @@ typedef struct fs_cluster_data_group_info {
     volatile char is_my_term;
     volatile char master_swapping;
 
+    /* cached result of SF_REPLICATION_QUORUM_NEED_MAJORITY */
+    volatile char quorum_need_majority;
+
+    /* cached result of SF_REPLICATION_QUORUM_NEED_DETECT */
+    bool quorum_need_detect;
+
     struct {
         uint32_t hash_code;  //for master assignment
         volatile char in_queue;

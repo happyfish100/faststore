@@ -106,7 +106,9 @@ static inline void desc_task_waiting_rpc_count(
     }
 
     task_arg = (FSServerTaskArg *)entry->waiting_task->arg;
-    if (err_no == 0 && REPLICA_QUORUM_NEED_MAJORITY) {
+    if (err_no == 0 && FC_ATOMIC_GET(task_arg->context.slice_op_ctx.
+                info.myself->dg->quorum_need_majority))
+    {
         FC_ATOMIC_INC(task_arg->context.service.rpc.success_count);
     }
 

@@ -199,6 +199,35 @@ static int load_cluster_sub_config(const char *cluster_filename)
     return result;
 }
 
+static void calc_my_data_groups_quorum_vars()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *data_group;
+    int group_id;
+    int group_index;
+    int i;
+
+    id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id);
+    for (i=0; i<id_array->count; i++) {
+        group_id = id_array->ids[i];
+        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
+
+        data_group->quorum_need_majority = SF_REPLICATION_QUORUM_NEED_MAJORITY(
+                REPLICATION_QUORUM, data_group->data_server_array.count);
+        if (data_group->quorum_need_majority && !REPLICA_QUORUM_NEED_MAJORITY) {
+            REPLICA_QUORUM_NEED_MAJORITY = true;
+        }
+
+        data_group->quorum_need_detect = SF_REPLICATION_QUORUM_NEED_DETECT(
+                REPLICATION_QUORUM, data_group->data_server_array.count);
+        if (data_group->quorum_need_detect && !REPLICA_QUORUM_NEED_DETECT) {
+            REPLICA_QUORUM_NEED_DETECT = true;
+        }
+    }
+}
+
 static int load_cluster_config(IniContext *ini_context, const char *filename,
         char *full_cluster_filename, const int size)
 {
@@ -235,10 +264,7 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
         return result;
     }
 
-    REPLICA_QUORUM_NEED_MAJORITY = SF_REPLICATION_QUORUM_NEED_MAJORITY(
-            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
-    REPLICA_QUORUM_NEED_DETECT = SF_REPLICATION_QUORUM_NEED_DETECT(
-            REPLICATION_QUORUM, CLUSTER_SERVER_ARRAY.count);
+    calc_my_data_groups_quorum_vars();
     return 0;
 }
 

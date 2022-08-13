@@ -1705,8 +1705,8 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
             FC_ATOMIC_CAS(ds->data.confirmed_version,
                     old_confirmed_version,
                     new_confirmed_version);
-            if (REPLICA_QUORUM_NEED_MAJORITY && ds->dg->myself ==
-                    FC_ATOMIC_GET(ds->dg->master))
+            if (ds->dg->myself == FC_ATOMIC_GET(ds->dg->master) &&
+                    FC_ATOMIC_GET(ds->dg->quorum_need_majority))
             {
                 replication_quorum_deal_version_change(&ds->dg->
                         repl_quorum_ctx, new_confirmed_version);
