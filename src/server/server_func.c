@@ -487,8 +487,8 @@ static void server_log_configs()
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "
-            "deactive_on_failures: %d, replica_quorum.need_majority: %d, "
-            "replica_quorum.need_detect: %d}, %s, %s, %s",
+            "deactive_on_failures: %d, quorum_need_majority: %d, "
+            "quorum_need_detect: %d}, %s, %s, %s",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
             g_fs_global_vars.version.patch, sz_global_config,
             sz_slowlog_config, sz_service_config, sz_cluster_config,

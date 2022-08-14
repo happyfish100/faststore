@@ -1242,7 +1242,7 @@ static int cluster_select_leader()
                     "shutdown duration: %d exceeds %d seconds, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the "
-                    "config file, or execute fs_serverd with option --%s",
+                    "config file, or execute fs_serverd with option --%s. ",
                     server_status.cs->server->id, (int)(server_status.
                         up_time - server_status.last_shutdown_time),
                     LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
@@ -1254,7 +1254,7 @@ static int cluster_select_leader()
             }
 
             if (FORCE_LEADER_ELECTION) {
-                sprintf(prompt, "force_leader_election: %d",
+                sprintf(prompt, "force_leader_election: %d. ",
                         FORCE_LEADER_ELECTION);
             } else {
                 *prompt = '\0';
@@ -1278,7 +1278,7 @@ static int cluster_select_leader()
         if (need_log) {
             logWarning("file: "__FILE__", line: %d, "
                     "round %dth select leader, alive server count: %d "
-                    "< server count: %d, %s. try again after %d seconds.",
+                    "< server count: %d, %stry again after %d seconds.",
                     __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
                     prompt, sleep_secs);
         }
@@ -1502,6 +1502,17 @@ static inline void add_to_quorum_detect_chain(FSClusterDataServerInfo *ds)
     PTHREAD_MUTEX_UNLOCK(&QUORUM_DETECT_CHAIN.lock);
 }
 
+static void add_all_to_quorum_detect_chain(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
+
+    end = group->slave_ds_array.servers + group->slave_ds_array.count;
+    for (ds=group->slave_ds_array.servers; ds<end; ds++) {
+         add_to_quorum_detect_chain(*ds);
+    }
+}
+
 static void calc_data_group_quorum_majority(FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
 {
@@ -1647,10 +1658,7 @@ int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
         bool notify_self;
 
-        if (new_status != old_status) {
-            __sync_bool_compare_and_swap(&ds->status,
-                    old_status, new_status);
-        }
+	cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
         notify_self = (ds->cs != CLUSTER_MYSELF_PTR);
         cluster_topology_data_server_chg_notify(ds, source,
                 FS_EVENT_TYPE_STATUS_CHANGE, notify_self);
@@ -1735,7 +1743,14 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
                 new_status, FS_EVENT_SOURCE_SELF_REPORT);
     }
 
-    if (new_master != NULL && group->myself != new_master) {
+    if (group->myself == new_master) {
+        calc_data_group_alive_count(group);
+        if (group->replica_quorum.need_detect) {
+            __sync_bool_compare_and_swap(&group->replica_quorum.
+                    need_majority, 0, 1);
+            add_all_to_quorum_detect_chain(group);
+        }
+    } else if (new_master != NULL) {
         recovery_thread_push_to_queue(group->myself);
     }
 }
