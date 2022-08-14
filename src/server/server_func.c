@@ -214,15 +214,15 @@ static void calc_my_data_groups_quorum_vars()
         group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
         data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
 
-        data_group->quorum_need_majority = SF_REPLICATION_QUORUM_NEED_MAJORITY(
+        data_group->replica_quorum.need_majority = SF_REPLICATION_QUORUM_NEED_MAJORITY(
                 REPLICATION_QUORUM, data_group->data_server_array.count);
-        if (data_group->quorum_need_majority && !REPLICA_QUORUM_NEED_MAJORITY) {
+        if (data_group->replica_quorum.need_majority && !REPLICA_QUORUM_NEED_MAJORITY) {
             REPLICA_QUORUM_NEED_MAJORITY = true;
         }
 
-        data_group->quorum_need_detect = SF_REPLICATION_QUORUM_NEED_DETECT(
+        data_group->replica_quorum.need_detect = SF_REPLICATION_QUORUM_NEED_DETECT(
                 REPLICATION_QUORUM, data_group->data_server_array.count);
-        if (data_group->quorum_need_detect && !REPLICA_QUORUM_NEED_DETECT) {
+        if (data_group->replica_quorum.need_detect && !REPLICA_QUORUM_NEED_DETECT) {
             REPLICA_QUORUM_NEED_DETECT = true;
         }
     }
@@ -487,8 +487,8 @@ static void server_log_configs()
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "
-            "deactive_on_failures: %d, quorum_need_majority: %d, "
-            "quorum_need_detect: %d}, %s, %s, %s",
+            "deactive_on_failures: %d, replica_quorum.need_majority: %d, "
+            "replica_quorum.need_detect: %d}, %s, %s, %s",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
             g_fs_global_vars.version.patch, sz_global_config,
             sz_slowlog_config, sz_service_config, sz_cluster_config,

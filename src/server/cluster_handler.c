@@ -273,7 +273,7 @@ static bool set_ds_status_and_dv(FSClusterDataServerInfo *ds, const int status,
 
         if ((event_type & FS_EVENT_TYPE_CONFIRMED_DV_CHANGE) != 0 &&
                 ds->dg->myself == FC_ATOMIC_GET(ds->dg->master) &&
-                FC_ATOMIC_GET(ds->dg->quorum_need_majority))
+                FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority))
         {
             replication_quorum_deal_version_change(&ds->dg->
                     repl_quorum_ctx, data_versions->confirmed);

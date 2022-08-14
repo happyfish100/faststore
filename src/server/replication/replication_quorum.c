@@ -575,7 +575,7 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
     int64_t my_confirmed_version;
     int64_t current_data_version;
 
-    if (!FC_ATOMIC_GET(ctx->myself->dg->quorum_need_majority)) {
+    if (!FC_ATOMIC_GET(ctx->myself->dg->replica_quorum.need_majority)) {
         return 0;
     }
 
