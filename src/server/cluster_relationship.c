@@ -80,6 +80,12 @@ typedef struct fs_cluster_server_detect_array {
     pthread_mutex_t lock;
 } FSClusterServerDetectArray;
 
+typedef struct fs_cluster_quorum_chains {
+    struct fc_list_head detect_head;
+    struct fc_list_head cleanup_head;
+    pthread_mutex_t lock;
+} FSClusterQuorumChains;
+
 typedef struct fs_cluster_relationship_context {
     struct {
         int retry_count;
@@ -89,6 +95,7 @@ typedef struct fs_cluster_relationship_context {
 
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
+    FSClusterQuorumChains quorum_chains;
     time_t last_stat_time;
     volatile int immediate_report;
     FastBuffer buffer;
@@ -97,13 +104,14 @@ typedef struct fs_cluster_relationship_context {
 
 #define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
 #define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
+#define QUORUM_CHAINS    relationship_ctx.quorum_chains
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
 #define NETWORK_BUFFER relationship_ctx.buffer
 #define LEADER_ELECTION relationship_ctx.leader_election
 #define VOTE_CONNECTION relationship_ctx.vote_connection
 
 static FSClusterRelationshipContext relationship_ctx = {
-    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, 0, 0
+    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, {{NULL, NULL}}, 0, 0
 };
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
@@ -1235,7 +1243,7 @@ static int cluster_select_leader()
                     "shutdown duration: %d exceeds %d seconds, "
                     "you must start ALL servers in the first time, "
                     "or remove the deprecated server(s) from the "
-                    "config file, or execute fs_serverd with option --%s",
+                    "config file, or execute fs_serverd with option --%s. ",
                     server_status.cs->server->id, (int)(server_status.
                         up_time - server_status.last_shutdown_time),
                     LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
@@ -1247,7 +1255,7 @@ static int cluster_select_leader()
             }
 
             if (FORCE_LEADER_ELECTION) {
-                sprintf(prompt, "force_leader_election: %d",
+                sprintf(prompt, "force_leader_election: %d. ",
                         FORCE_LEADER_ELECTION);
             } else {
                 *prompt = '\0';
@@ -1271,7 +1279,7 @@ static int cluster_select_leader()
         if (need_log) {
             logWarning("file: "__FILE__", line: %d, "
                     "round %dth select leader, alive server count: %d "
-                    "< server count: %d, %s. try again after %d seconds.",
+                    "< server count: %d, %stry again after %d seconds.",
                     __LINE__, i, active_count, CLUSTER_SERVER_ARRAY.count,
                     prompt, sleep_secs);
         }
@@ -1483,6 +1491,73 @@ static void calc_data_group_alive_count(FSClusterDataGroupInfo *group)
             */
 }
 
+static inline void add_to_quorum_detect_chain(FSClusterDataServerInfo *ds)
+{
+    PTHREAD_MUTEX_LOCK(&QUORUM_CHAINS.lock);
+    if (!ds->replica_quorum.detect.in_queue) {
+        ds->replica_quorum.detect.in_queue = true;
+        ds->replica_quorum.detect.check_count = 0;
+        fc_list_add_tail(&ds->replica_quorum.detect.dlink,
+                &QUORUM_CHAINS.detect_head);
+    }
+    PTHREAD_MUTEX_UNLOCK(&QUORUM_CHAINS.lock);
+}
+
+static void add_all_to_quorum_detect_chain(FSClusterDataGroupInfo *group)
+{
+    FSClusterDataServerInfo **ds;
+    FSClusterDataServerInfo **end;
+
+    end = group->slave_ds_array.servers + group->slave_ds_array.count;
+    for (ds=group->slave_ds_array.servers; ds<end; ds++) {
+         add_to_quorum_detect_chain(*ds);
+    }
+}
+
+static void calc_data_group_quorum_majority(FSClusterDataServerInfo *ds,
+        const int old_status, const int new_status)
+{
+    int active_count;
+
+    if (old_status == FS_DS_STATUS_ACTIVE && ds->cs != CLUSTER_MYSELF_PTR) {
+        if (!FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
+            return;
+        }
+
+        active_count = FC_ATOMIC_GET(ds->dg->active_count);
+        if (SF_REPLICATION_QUORUM_MAJORITY(ds->dg->
+                    ds_ptr_array.count, active_count))
+        {
+            return;
+        }
+
+        add_to_quorum_detect_chain(ds);
+        return;
+    }
+
+    if (new_status == FS_DS_STATUS_ACTIVE) {
+        if (FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
+            return;
+        }
+
+        active_count = FC_ATOMIC_GET(ds->dg->active_count);
+        if (!SF_REPLICATION_QUORUM_MAJORITY(ds->dg->
+                    ds_ptr_array.count, active_count))
+        {
+            return;
+        }
+
+        if (__sync_bool_compare_and_swap(&ds->dg->replica_quorum.
+                    need_majority, 0, 1))
+        {
+            logInfo("file: "__FILE__", line: %d, "
+                    "data group id: %d, server count: %d, active count: %d, "
+                    "set replication quorum to majority", __LINE__, ds->dg->id,
+                    ds->dg->ds_ptr_array.count, active_count);
+        }
+    }
+}
+
 static void cluster_relationship_on_status_change(
         FSClusterDataServerInfo *ds,
         const int old_status, const int new_status)
@@ -1508,6 +1583,9 @@ static void cluster_relationship_on_status_change(
 
     if (master->cs == CLUSTER_MYSELF_PTR) {  //i am master
         calc_data_group_alive_count(ds->dg);
+        if (ds->dg->replica_quorum.need_detect) {
+            calc_data_group_quorum_majority(ds, old_status, new_status);
+        }
     }
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {  //myself
@@ -1581,10 +1659,7 @@ int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {  //i am leader
         bool notify_self;
 
-        if (new_status != old_status) {
-            __sync_bool_compare_and_swap(&ds->status,
-                    old_status, new_status);
-        }
+	cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
         notify_self = (ds->cs != CLUSTER_MYSELF_PTR);
         cluster_topology_data_server_chg_notify(ds, source,
                 FS_EVENT_TYPE_STATUS_CHANGE, notify_self);
@@ -1669,7 +1744,14 @@ void cluster_relationship_on_master_change(FSClusterDataGroupInfo *group,
                 new_status, FS_EVENT_SOURCE_SELF_REPORT);
     }
 
-    if (new_master != NULL && group->myself != new_master) {
+    if (group->myself == new_master) {
+        calc_data_group_alive_count(group);
+        if (group->replica_quorum.need_detect) {
+            __sync_bool_compare_and_swap(&group->replica_quorum.
+                    need_majority, 0, 1);
+            add_all_to_quorum_detect_chain(group);
+        }
+    } else if (new_master != NULL) {
         recovery_thread_push_to_queue(group->myself);
     }
 }
@@ -1705,8 +1787,8 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
             FC_ATOMIC_CAS(ds->data.confirmed_version,
                     old_confirmed_version,
                     new_confirmed_version);
-            if (REPLICA_QUORUM_NEED_MAJORITY && ds->dg->myself ==
-                    FC_ATOMIC_GET(ds->dg->master))
+            if (ds->dg->myself == FC_ATOMIC_GET(ds->dg->master) &&
+                    FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority))
             {
                 replication_quorum_deal_version_change(&ds->dg->
                         repl_quorum_ctx, new_confirmed_version);
@@ -2127,9 +2209,102 @@ static int follower_ping(FSClusterServerInfo *leader,
     return result;
 }
 
+static void deal_quorum_detect_chain()
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *tmp;
+    int active_count;
+    bool remove_ds;
+
+    fc_list_for_each_entry_safe(ds, tmp, &QUORUM_CHAINS.
+            detect_head, replica_quorum.detect.dlink)
+    {
+        if (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ACTIVE) {
+            remove_ds = true;
+        } else {
+            if (++(ds->replica_quorum.detect.check_count) >
+                    REPLICA_QUORUM_DEACTIVE_ON_FAILURES)
+            {
+                if (FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
+                    active_count = FC_ATOMIC_GET(ds->dg->active_count);
+                    if (!SF_REPLICATION_QUORUM_MAJORITY(ds->dg->
+                                ds_ptr_array.count, active_count))
+                    {
+                        if (__sync_bool_compare_and_swap(&ds->dg->
+                                    replica_quorum.need_majority, 1, 0))
+                        {
+                            logInfo("file: "__FILE__", line: %d, "
+                                    "data group id: %d, server count: %d, "
+                                    "active count: %d, set replication "
+                                    "quorum to any", __LINE__, ds->dg->id,
+                                    ds->dg->ds_ptr_array.count, active_count);
+
+                            if (!ds->replica_quorum.cleanup.in_queue) {
+                                ds->replica_quorum.cleanup.in_queue = true;
+                                ds->replica_quorum.cleanup.check_count = 0;
+                                fc_list_add_tail(&ds->replica_quorum.cleanup.
+                                        dlink, &QUORUM_CHAINS.cleanup_head);
+                            }
+                        }
+                    }
+                }
+                remove_ds = true;
+            } else {
+                remove_ds = false;
+            }
+        }
+
+        if (remove_ds) {
+            ds->replica_quorum.detect.in_queue = false;
+            fc_list_del_init(&ds->replica_quorum.detect.dlink);
+        }
+    }
+}
+
+static void deal_quorum_cleanup_chain()
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *tmp;
+    bool remove_ds;
+
+    fc_list_for_each_entry_safe(ds, tmp, &QUORUM_CHAINS.
+            cleanup_head, replica_quorum.cleanup.dlink)
+    {
+        if (FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
+            remove_ds = true;
+        } else {
+            replication_quorum_clear_waiting_tasks(
+                    &ds->dg->repl_quorum_ctx);
+            replication_quorum_unlink_confirmed_files(ds->dg->id);
+            if (++(ds->replica_quorum.cleanup.check_count) > 3) {
+                remove_ds = true;
+            } else {
+                remove_ds = false;
+            }
+        }
+
+        if (remove_ds) {
+            ds->replica_quorum.cleanup.in_queue = false;
+            fc_list_del_init(&ds->replica_quorum.cleanup.dlink);
+        }
+    }
+}
+
 static inline int cluster_ping_leader(FSClusterServerInfo *leader,
         ConnectionInfo *conn, const int timeout, bool *is_ping)
 {
+    if (REPLICA_QUORUM_NEED_DETECT) {
+        PTHREAD_MUTEX_LOCK(&QUORUM_CHAINS.lock);
+        if (!fc_list_empty(&QUORUM_CHAINS.detect_head)) {
+            deal_quorum_detect_chain();
+        }
+
+        if (!fc_list_empty(&QUORUM_CHAINS.cleanup_head)) {
+            deal_quorum_cleanup_chain();
+        }
+        PTHREAD_MUTEX_UNLOCK(&QUORUM_CHAINS.lock);
+    }
+
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         *is_ping = false;
         return leader_check();
@@ -2279,12 +2454,15 @@ int cluster_relationship_init()
         return ENOMEM;
     }
     if ((result=init_pthread_lock(&INACTIVE_SERVER_ARRAY.lock)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "init_pthread_lock fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
         return result;
     }
     INACTIVE_SERVER_ARRAY.alloc = CLUSTER_SERVER_ARRAY.count;
+
+    if ((result=init_pthread_lock(&QUORUM_CHAINS.lock)) != 0) {
+        return result;
+    }
+    FC_INIT_LIST_HEAD(&QUORUM_CHAINS.detect_head);
+    FC_INIT_LIST_HEAD(&QUORUM_CHAINS.cleanup_head);
 
     if ((result=init_my_data_group_array()) != 0) {
         return result;

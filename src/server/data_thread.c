@@ -223,7 +223,9 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             }
             data_thread_log_data_update(op);
 
-            if (REPLICA_QUORUM_NEED_MAJORITY) {
+            if (FC_ATOMIC_GET(op->ctx->info.myself->
+                        dg->replica_quorum.need_majority))
+            {
                 int success_count;
 
                 task = op->arg;

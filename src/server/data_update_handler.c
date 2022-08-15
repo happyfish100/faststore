@@ -231,7 +231,7 @@ static int parse_check_block_key(struct fast_task_info *task,
             }
         }
 
-        if (REPLICA_QUORUM_NEED_MAJORITY) {
+        if (FC_ATOMIC_GET(op_ctx->info.myself->dg->replica_quorum.need_majority)) {
             active_count = FC_ATOMIC_GET(op_ctx->
                     info.myself->dg->active_count);
             if (!SF_REPLICATION_QUORUM_MAJORITY(op_ctx->info.myself->

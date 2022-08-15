@@ -258,6 +258,20 @@ typedef struct fs_cluster_data_server_info {
     volatile char status;   //the data server status
 
     struct {
+        struct {
+            bool in_queue;
+            int check_count;
+            struct fc_list_head dlink;
+        } detect;
+
+        struct {
+            bool in_queue;
+            int check_count;
+            struct fc_list_head dlink;
+        } cleanup;
+    } replica_quorum;
+
+    struct {
         volatile char in_progress;  //if recovery in progress
         int continuous_fail_count;
         volatile uint64_t until_version;
@@ -319,6 +333,14 @@ typedef struct fs_cluster_data_group_info {
     volatile char active_count;
     volatile char is_my_term;
     volatile char master_swapping;
+
+    struct {
+        /* cached result of SF_REPLICATION_QUORUM_NEED_MAJORITY */
+        volatile char need_majority;
+
+        /* cached result of SF_REPLICATION_QUORUM_NEED_DETECT */
+        bool need_detect;
+    } replica_quorum;
 
     struct {
         uint32_t hash_code;  //for master assignment

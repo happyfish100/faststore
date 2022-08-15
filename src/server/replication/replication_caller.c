@@ -115,7 +115,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
 
     __sync_add_and_fetch(&((FSServerTaskArg *)rpc->task->arg)->context.
             service.rpc.waiting_count, group->slave_ds_array.count);
-    if (REPLICA_QUORUM_NEED_MAJORITY) {
+    if (FC_ATOMIC_GET(group->replica_quorum.need_majority)) {
         FC_ATOMIC_SET(((FSServerTaskArg *)rpc->task->arg)->context.
                 service.rpc.success_count, 0);
     }

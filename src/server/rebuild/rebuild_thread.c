@@ -343,7 +343,7 @@ int rebuild_thread_do(const int thread_count)
 
     do {
         fc_sleep_ms(10);
-        if (__sync_add_and_fetch(&ctx.running_threads, 0) == 0) {
+        if (FC_ATOMIC_GET(ctx.running_threads) == 0) {
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
