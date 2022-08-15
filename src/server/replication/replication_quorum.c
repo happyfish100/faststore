@@ -135,7 +135,7 @@ static int load_confirmed_version(const int data_group_id,
     }
 }
 
-static int unlink_confirmed_files(const int data_group_id)
+int replication_quorum_unlink_confirmed_files(const int data_group_id)
 {
     int result;
     int index;
@@ -160,7 +160,7 @@ static int rollback_binlogs(FSClusterDataServerInfo *myself,
     result = binlog_rollback(myself, my_confirmed_version,
             is_redo, FS_WHICH_SIDE_MASTER);
     if (result == 0) {
-        result = unlink_confirmed_files(myself->dg->id);
+        result = replication_quorum_unlink_confirmed_files(myself->dg->id);
     }
     return result;
 }
@@ -419,6 +419,52 @@ static void notify_waiting_tasks(FSReplicationQuorumContext *ctx,
     FC_ATOMIC_DEC_EX(ctx->list.count, count);
 }
 
+void replication_quorum_clear_waiting_tasks(FSReplicationQuorumContext *ctx)
+{
+    struct fast_mblock_chain chain;
+    struct fast_mblock_node *node;
+    int count;
+
+    count = 0;
+    PTHREAD_MUTEX_LOCK(&ctx->sctx.lcp.lock);
+    if (ctx->list.head != NULL) {
+        chain.head = chain.tail = NULL;
+        do {
+            node = fast_mblock_to_node_ptr(ctx->list.head);
+            if (chain.head == NULL) {
+                chain.head = node;
+            } else {
+                chain.tail->next = node;
+            }
+            chain.tail = node;
+
+            sf_synchronize_finished_notify_no_lock(&ctx->sctx, 0);
+            ctx->list.head = ctx->list.head->next;
+            ++count;
+        } while (ctx->list.head != NULL);
+        ctx->list.tail = NULL;
+
+        chain.tail->next = NULL;
+        fast_mblock_batch_free(&ctx->list.allocator, &chain);
+    }
+    PTHREAD_MUTEX_UNLOCK(&ctx->sctx.lcp.lock);
+
+    if (count > 0) {
+        int64_t my_current_version;
+        int64_t my_confirmed_version;
+
+        FC_ATOMIC_DEC_EX(ctx->list.count, count);
+        my_current_version = FC_ATOMIC_GET(ctx->
+                myself->data.current_version);
+        my_confirmed_version = FC_ATOMIC_GET(ctx->
+                myself->data.confirmed_version);
+        if (my_current_version > my_confirmed_version) {
+            __sync_bool_compare_and_swap(&ctx->myself->data.confirmed_version,
+                    my_confirmed_version, my_current_version);
+        }
+    }
+}
+
 void replication_quorum_deal_version_change(
         FSReplicationQuorumContext *ctx,
         const int64_t slave_confirmed_version)
@@ -582,7 +628,7 @@ int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx)
     my_confirmed_version = FC_ATOMIC_GET(ctx->myself->data.confirmed_version);
     current_data_version = FC_ATOMIC_GET(ctx->myself->data.current_version);
     if (my_confirmed_version >= current_data_version) {
-        return unlink_confirmed_files(ctx->myself->dg->id);
+        return replication_quorum_unlink_confirmed_files(ctx->myself->dg->id);
     }
 
     return rollback_binlog_and_notify(ctx);

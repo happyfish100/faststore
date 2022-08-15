@@ -40,6 +40,11 @@ extern "C" {
             FSReplicationQuorumContext *ctx,
             const int64_t slave_confirmed_version);
 
+    void replication_quorum_clear_waiting_tasks(
+            FSReplicationQuorumContext *ctx);
+
+    int replication_quorum_unlink_confirmed_files(const int data_group_id);
+
     int replication_quorum_start_master_term(FSReplicationQuorumContext *ctx);
 
     int replication_quorum_end_master_term(FSReplicationQuorumContext *ctx);

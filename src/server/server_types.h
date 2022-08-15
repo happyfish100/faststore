@@ -258,9 +258,17 @@ typedef struct fs_cluster_data_server_info {
     volatile char status;   //the data server status
 
     struct {
-        bool in_queue;
-        int check_fail_count;
-        struct fc_list_head dlink;
+        struct {
+            bool in_queue;
+            int check_count;
+            struct fc_list_head dlink;
+        } detect;
+
+        struct {
+            bool in_queue;
+            int check_count;
+            struct fc_list_head dlink;
+        } cleanup;
     } replica_quorum;
 
     struct {

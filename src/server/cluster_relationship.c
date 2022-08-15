@@ -80,10 +80,11 @@ typedef struct fs_cluster_server_detect_array {
     pthread_mutex_t lock;
 } FSClusterServerDetectArray;
 
-typedef struct fs_cluster_quorum_detect_chain {
-    struct fc_list_head head;
+typedef struct fs_cluster_quorum_chains {
+    struct fc_list_head detect_head;
+    struct fc_list_head cleanup_head;
     pthread_mutex_t lock;
-} FSClusterQuorumDetectChain;
+} FSClusterQuorumChains;
 
 typedef struct fs_cluster_relationship_context {
     struct {
@@ -94,7 +95,7 @@ typedef struct fs_cluster_relationship_context {
 
     FSMyDataGroupArray my_data_group_array;
     FSClusterServerDetectArray inactive_server_array;
-    FSClusterQuorumDetectChain quorum_detect_chain;
+    FSClusterQuorumChains quorum_chains;
     time_t last_stat_time;
     volatile int immediate_report;
     FastBuffer buffer;
@@ -103,7 +104,7 @@ typedef struct fs_cluster_relationship_context {
 
 #define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
 #define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
-#define QUORUM_DETECT_CHAIN   relationship_ctx.quorum_detect_chain
+#define QUORUM_CHAINS    relationship_ctx.quorum_chains
 #define IMMEDIATE_REPORT relationship_ctx.immediate_report
 #define NETWORK_BUFFER relationship_ctx.buffer
 #define LEADER_ELECTION relationship_ctx.leader_election
@@ -1492,14 +1493,14 @@ static void calc_data_group_alive_count(FSClusterDataGroupInfo *group)
 
 static inline void add_to_quorum_detect_chain(FSClusterDataServerInfo *ds)
 {
-    PTHREAD_MUTEX_LOCK(&QUORUM_DETECT_CHAIN.lock);
-    if (!ds->replica_quorum.in_queue) {
-        ds->replica_quorum.in_queue = true;
-        ds->replica_quorum.check_fail_count = 0;
-        fc_list_add_tail(&ds->replica_quorum.dlink,
-                &QUORUM_DETECT_CHAIN.head);
+    PTHREAD_MUTEX_LOCK(&QUORUM_CHAINS.lock);
+    if (!ds->replica_quorum.detect.in_queue) {
+        ds->replica_quorum.detect.in_queue = true;
+        ds->replica_quorum.detect.check_count = 0;
+        fc_list_add_tail(&ds->replica_quorum.detect.dlink,
+                &QUORUM_CHAINS.detect_head);
     }
-    PTHREAD_MUTEX_UNLOCK(&QUORUM_DETECT_CHAIN.lock);
+    PTHREAD_MUTEX_UNLOCK(&QUORUM_CHAINS.lock);
 }
 
 static void add_all_to_quorum_detect_chain(FSClusterDataGroupInfo *group)
@@ -2215,13 +2216,13 @@ static void deal_quorum_detect_chain()
     int active_count;
     bool remove_ds;
 
-    fc_list_for_each_entry_safe(ds, tmp, &QUORUM_DETECT_CHAIN.
-            head, replica_quorum.dlink)
+    fc_list_for_each_entry_safe(ds, tmp, &QUORUM_CHAINS.
+            detect_head, replica_quorum.detect.dlink)
     {
         if (FC_ATOMIC_GET(ds->status) == FS_DS_STATUS_ACTIVE) {
             remove_ds = true;
         } else {
-            if (++(ds->replica_quorum.check_fail_count) >
+            if (++(ds->replica_quorum.detect.check_count) >
                     REPLICA_QUORUM_DEACTIVE_ON_FAILURES)
             {
                 if (FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
@@ -2237,6 +2238,13 @@ static void deal_quorum_detect_chain()
                                     "active count: %d, set replication "
                                     "quorum to any", __LINE__, ds->dg->id,
                                     ds->dg->ds_ptr_array.count, active_count);
+
+                            if (!ds->replica_quorum.cleanup.in_queue) {
+                                ds->replica_quorum.cleanup.in_queue = true;
+                                ds->replica_quorum.cleanup.check_count = 0;
+                                fc_list_add_tail(&ds->replica_quorum.cleanup.
+                                        dlink, &QUORUM_CHAINS.cleanup_head);
+                            }
                         }
                     }
                 }
@@ -2247,8 +2255,37 @@ static void deal_quorum_detect_chain()
         }
 
         if (remove_ds) {
-            ds->replica_quorum.in_queue = false;
-            fc_list_del_init(&ds->replica_quorum.dlink);
+            ds->replica_quorum.detect.in_queue = false;
+            fc_list_del_init(&ds->replica_quorum.detect.dlink);
+        }
+    }
+}
+
+static void deal_quorum_cleanup_chain()
+{
+    FSClusterDataServerInfo *ds;
+    FSClusterDataServerInfo *tmp;
+    bool remove_ds;
+
+    fc_list_for_each_entry_safe(ds, tmp, &QUORUM_CHAINS.
+            cleanup_head, replica_quorum.cleanup.dlink)
+    {
+        if (FC_ATOMIC_GET(ds->dg->replica_quorum.need_majority)) {
+            remove_ds = true;
+        } else {
+            replication_quorum_clear_waiting_tasks(
+                    &ds->dg->repl_quorum_ctx);
+            replication_quorum_unlink_confirmed_files(ds->dg->id);
+            if (++(ds->replica_quorum.cleanup.check_count) > 3) {
+                remove_ds = true;
+            } else {
+                remove_ds = false;
+            }
+        }
+
+        if (remove_ds) {
+            ds->replica_quorum.cleanup.in_queue = false;
+            fc_list_del_init(&ds->replica_quorum.cleanup.dlink);
         }
     }
 }
@@ -2257,11 +2294,15 @@ static inline int cluster_ping_leader(FSClusterServerInfo *leader,
         ConnectionInfo *conn, const int timeout, bool *is_ping)
 {
     if (REPLICA_QUORUM_NEED_DETECT) {
-        PTHREAD_MUTEX_LOCK(&QUORUM_DETECT_CHAIN.lock);
-        if (!fc_list_empty(&QUORUM_DETECT_CHAIN.head)) {
+        PTHREAD_MUTEX_LOCK(&QUORUM_CHAINS.lock);
+        if (!fc_list_empty(&QUORUM_CHAINS.detect_head)) {
             deal_quorum_detect_chain();
         }
-        PTHREAD_MUTEX_UNLOCK(&QUORUM_DETECT_CHAIN.lock);
+
+        if (!fc_list_empty(&QUORUM_CHAINS.cleanup_head)) {
+            deal_quorum_cleanup_chain();
+        }
+        PTHREAD_MUTEX_UNLOCK(&QUORUM_CHAINS.lock);
     }
 
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
@@ -2417,10 +2458,11 @@ int cluster_relationship_init()
     }
     INACTIVE_SERVER_ARRAY.alloc = CLUSTER_SERVER_ARRAY.count;
 
-    if ((result=init_pthread_lock(&QUORUM_DETECT_CHAIN.lock)) != 0) {
+    if ((result=init_pthread_lock(&QUORUM_CHAINS.lock)) != 0) {
         return result;
     }
-    FC_INIT_LIST_HEAD(&QUORUM_DETECT_CHAIN.head);
+    FC_INIT_LIST_HEAD(&QUORUM_CHAINS.detect_head);
+    FC_INIT_LIST_HEAD(&QUORUM_CHAINS.cleanup_head);
 
     if ((result=init_my_data_group_array()) != 0) {
         return result;
