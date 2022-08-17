@@ -358,10 +358,7 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
         return result;
     }
 
-    if (ctx->file_handle.fd >= 0) {
-        close_write_fd(ctx->file_handle.fd);
-    }
-
+    clear_write_fd(ctx);
     if (ctx->path_info->write_mode == fs_write_mode_mmap) {
         ctx->file_handle.mmap.size = lseek(*fd, 0, SEEK_END);
         ctx->file_handle.mmap.base = mmap(NULL, ctx->file_handle.
