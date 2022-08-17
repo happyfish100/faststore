@@ -20,6 +20,11 @@
 #include "../../common/fs_types.h"
 #include "../server_types.h"
 
+typedef enum {
+    fs_write_mode_direct = 'd',
+    fs_write_mode_mmap   = 'm'
+} FSWriteMode;
+
 typedef struct {
     volatile int64_t total;
     volatile int64_t avail;  //current available space
@@ -36,6 +41,7 @@ typedef struct {
     int read_thread_count;
     int prealloc_trunks;
     int read_io_depth;
+    FSWriteMode write_mode;
     int fsync_every_n_writes;
     struct {
         int64_t value;
@@ -83,6 +89,7 @@ typedef struct {
     int write_threads_per_path;
     int read_threads_per_path;
     int io_depth_per_read_thread;
+    FSWriteMode write_mode;
     int fsync_every_n_writes;
     double reserved_space_per_disk;
     int max_trunk_files_per_subdir;

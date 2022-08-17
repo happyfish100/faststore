@@ -196,6 +196,43 @@ void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss)
     *ss = stat;
 }
 
+static inline FSWriteMode get_write_mode_from_ini(IniFullContext *ini_ctx,
+        const FSWriteMode def_write_mode)
+{
+    const char *write_mode;
+
+    write_mode = iniGetStrValue(ini_ctx->section_name,
+            "write_mode", ini_ctx->context);
+    if (write_mode == NULL) {
+        return def_write_mode;
+    }
+
+    if (strcasecmp(write_mode, "direct") == 0) {
+        return fs_write_mode_direct;
+    } else if (strcasecmp(write_mode, "mmap") == 0) {
+        return fs_write_mode_mmap;
+    } else {
+        logWarning("file: "__FILE__", line: %d, "
+                "%s%s%sunkown write mode: %s", __LINE__,
+                (ini_ctx->section_name != NULL ? "section: " : ""),
+                (ini_ctx->section_name != NULL ? ini_ctx->section_name : ""),
+                (ini_ctx->section_name != NULL ? ", " : ""), write_mode);
+        return def_write_mode;
+    }
+}
+
+static inline const char *get_write_mode_caption(const FSWriteMode write_mode)
+{
+    switch (write_mode) {
+        case fs_write_mode_direct:
+            return "direct";
+        case fs_write_mode_mmap:
+            return "mmap";
+        default:
+            return "unkown";
+    }
+}
+
 static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
         const char *section_name_prefix, const char *item_name,
         FSStoragePathArray *parray, const bool required)
@@ -257,6 +294,8 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
             parray->paths[i].read_io_depth = 64;
         }
 
+        parray->paths[i].write_mode = get_write_mode_from_ini(
+                ini_ctx, storage_cfg->write_mode);
         parray->paths[i].fsync_every_n_writes = iniGetIntValue(section_name,
                 "fsync_every_n_writes", ini_ctx->context,
                 storage_cfg->fsync_every_n_writes);
@@ -403,6 +442,8 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->io_depth_per_read_thread = 64;
     }
 
+    storage_cfg->write_mode = get_write_mode_from_ini(
+            ini_ctx, fs_write_mode_mmap);
     storage_cfg->fsync_every_n_writes = iniGetIntValue(NULL,
             "fsync_every_n_writes", ini_ctx->context, 0);
 
@@ -784,7 +825,7 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
                 (1024 * 1024), prealloc_space_buff);
         logInfo("  path %d: %s, index: %d, write_threads: %d, "
                 "read_threads: %d, read_io_depth: %d, "
-                "fsync_every_n_writes: %d, "
+                "write_mode: %s, fsync_every_n_writes: %d, "
                 "prealloc_space ratio: %.2f%%, "
                 "reserved_space ratio: %.2f%%, "
                 "avail_space: %s MB, prealloc_space: %s MB, "
@@ -797,6 +838,7 @@ static void log_paths(FSStoragePathArray *parray, const char *caption)
                 (int)(p - parray->paths + 1), p->store.path.str,
                 p->store.index, p->write_thread_count,
                 p->read_thread_count, p->read_io_depth,
+                get_write_mode_caption(p->write_mode),
                 p->fsync_every_n_writes,
                 p->prealloc_space.ratio * 100.00,
                 p->reserved_space.ratio * 100.00,
@@ -816,7 +858,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
     logInfo("storage config, write_threads_per_path: %d, "
             "read_threads_per_path: %d, "
             "io_depth_per_read_thread: %d, "
-            "fsync_every_n_writes: %d, "
+            "write_mode: %s, fsync_every_n_writes: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_allocator_count: %d, "
@@ -845,6 +887,7 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->write_threads_per_path,
             storage_cfg->read_threads_per_path,
             storage_cfg->io_depth_per_read_thread,
+            get_write_mode_caption(storage_cfg->write_mode),
             storage_cfg->fsync_every_n_writes,
             storage_cfg->fd_cache_capacity_per_read_thread,
             storage_cfg->object_block.hashtable_capacity,
