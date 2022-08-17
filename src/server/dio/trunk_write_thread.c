@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
+#include <sys/mman.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
@@ -34,6 +35,11 @@ typedef struct write_file_handle {
     int64_t trunk_id;
     int64_t offset;
     int fd;
+    struct {
+        void *base;
+        void *current;
+        int64_t size;
+    } mmap;
 } WriteFileHandle;
 
 typedef struct trunk_write_thread_context {
@@ -62,7 +68,7 @@ typedef struct trunk_write_thread_context {
         TrunkWriteIOBuffer **iobs;
     } iob_array;
 
-    int64_t written_count;
+    int64_t written_count;  //for fsync
 
 } TrunkWriteThreadContext;
 
@@ -175,6 +181,9 @@ static int init_thread_context(TrunkWriteThreadContext *ctx)
 
     ctx->file_handle.trunk_id = 0;
     ctx->file_handle.fd = -1;
+    ctx->file_handle.mmap.base = NULL;
+    ctx->file_handle.mmap.current = NULL;
+    ctx->file_handle.mmap.size = 0;
     if ((result=init_write_context(ctx)) != 0) {
         return result;
     }
@@ -316,6 +325,11 @@ static inline void close_write_fd(int fd)
 static inline void clear_write_fd(TrunkWriteThreadContext *ctx)
 {
     if (ctx->file_handle.fd >= 0) {
+        if (ctx->path_info->write_mode == fs_write_mode_mmap) {
+            munmap(ctx->file_handle.mmap.base, ctx->file_handle.mmap.size);
+            ctx->file_handle.mmap.base = NULL;
+            ctx->file_handle.mmap.current = NULL;
+        }
         close_write_fd(ctx->file_handle.fd);
         ctx->file_handle.fd = -1;
         ctx->file_handle.trunk_id = 0;
@@ -334,7 +348,8 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
     }
 
     get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
-    *fd = open(trunk_filename, O_WRONLY, 0644);
+    *fd = open(trunk_filename, ctx->path_info->write_mode ==
+            fs_write_mode_mmap ? O_RDWR : O_WRONLY, 0644);
     if (*fd < 0) {
         result = errno != 0 ? errno : EACCES;
         logError("file: "__FILE__", line: %d, "
@@ -345,6 +360,25 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
 
     if (ctx->file_handle.fd >= 0) {
         close_write_fd(ctx->file_handle.fd);
+    }
+
+    if (ctx->path_info->write_mode == fs_write_mode_mmap) {
+        ctx->file_handle.mmap.size = lseek(*fd, 0, SEEK_END);
+        ctx->file_handle.mmap.base = mmap(NULL, ctx->file_handle.
+                mmap.size, PROT_WRITE, MAP_SHARED, *fd, 0);
+        if (ctx->file_handle.mmap.base == MAP_FAILED ||
+                ctx->file_handle.mmap.base == NULL)
+        {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, "
+                    "mmap file: %s with size: %"PRId64" fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    trunk_filename, ctx->file_handle.mmap.size,
+                    result, STRERROR(result));
+            return result;
+        }
+        ctx->file_handle.mmap.current = ctx->file_handle.mmap.base;
+        lseek(*fd, 0, SEEK_SET);
     }
 
     ctx->file_handle.trunk_id = space->id_info.id;
@@ -476,22 +510,15 @@ static int write_iovec(TrunkWriteThreadContext *ctx, int fd,
     return 0;
 }
 
-static int do_write_slices(TrunkWriteThreadContext *ctx)
+static int direct_write_slices(TrunkWriteThreadContext *ctx,
+        const TrunkWriteIOBuffer *first, int fd)
 {
     char trunk_filename[PATH_MAX];
-    TrunkWriteIOBuffer *first;
     struct iovec *iovec;
     int iovcnt;
-    int fd;
     int remain_count;
     int remain_bytes;
     int result;
-
-    first = ctx->iob_array.iobs[0];
-    if ((result=get_write_fd(ctx, &first->slice->space, &fd)) != 0) {
-        ctx->iob_array.success = 0;
-        return result;
-    }
 
     if (ctx->file_handle.offset != first->slice->space.offset) {
         if (lseek(fd, first->slice->space.offset, SEEK_SET) < 0) {
@@ -503,7 +530,6 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
                     "errno: %d, error info: %s", __LINE__, trunk_filename,
                     first->slice->space.offset, result, STRERROR(result));
             clear_write_fd(ctx);
-            ctx->iob_array.success = 0;
             return result;
         }
 
@@ -561,14 +587,72 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
                 first->slice->space.offset + (ctx->iovec_bytes -
                     remain_bytes), result, STRERROR(result));
         ctx->file_handle.offset = -1;
+    }
+
+    return result;
+}
+
+static int mmap_write_slices(TrunkWriteThreadContext *ctx,
+        const TrunkWriteIOBuffer *first)
+{
+    char trunk_filename[PATH_MAX];
+    struct iovec *iovec;
+    struct iovec *ioend;
+
+    if (first->slice->space.offset + ctx->iovec_bytes >
+            ctx->file_handle.mmap.size)
+    {
+        get_trunk_filename(&first->slice->space, trunk_filename,
+                sizeof(trunk_filename));
+        logError("file: "__FILE__", line: %d, "
+                "trunk file: %s, write offset: %"PRId64", length: %d "
+                "exceeds file size: %"PRId64, __LINE__, trunk_filename,
+                first->slice->space.offset, ctx->iovec_bytes,
+                ctx->file_handle.mmap.size);
+        return EOVERFLOW;
+    }
+
+    if (ctx->file_handle.offset != first->slice->space.offset) {
+        ctx->file_handle.mmap.current = ctx->file_handle.mmap.base +
+            first->slice->space.offset;
+    }
+
+    ioend = ctx->iovec_array.iovs + ctx->iovec_array.count;
+    for (iovec=ctx->iovec_array.iovs; iovec<ioend; iovec++) {
+        memcpy(ctx->file_handle.mmap.current, iovec->
+                iov_base, iovec->iov_len);
+        ctx->file_handle.mmap.current += iovec->iov_len;
+    }
+
+    return 0;
+}
+
+static int do_write_slices(TrunkWriteThreadContext *ctx)
+{
+    TrunkWriteIOBuffer *first;
+    int fd;
+    int result;
+
+    first = ctx->iob_array.iobs[0];
+    if ((result=get_write_fd(ctx, &first->slice->space, &fd)) != 0) {
         ctx->iob_array.success = 0;
         return result;
     }
 
-    ctx->iob_array.success = ctx->iob_array.count;
-    ctx->file_handle.offset = first->slice->space.offset +
-        ctx->iovec_bytes;
-    return 0;
+    if (ctx->path_info->write_mode == fs_write_mode_mmap) {
+        result = mmap_write_slices(ctx, first);
+    } else {
+        result = direct_write_slices(ctx, first, fd);
+    }
+
+    if (result == 0) {
+        ctx->iob_array.success = ctx->iob_array.count;
+        ctx->file_handle.offset = first->slice->space.offset +
+            ctx->iovec_bytes;
+    } else {
+        ctx->iob_array.success = 0;
+    }
+    return result;
 }
 
 static int batch_write(TrunkWriteThreadContext *ctx)
