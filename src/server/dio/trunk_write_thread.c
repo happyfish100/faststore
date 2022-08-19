@@ -17,7 +17,6 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/uio.h>
-#include <sys/mman.h>
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/fast_mblock.h"
@@ -35,11 +34,6 @@ typedef struct write_file_handle {
     int64_t trunk_id;
     int64_t offset;
     int fd;
-    struct {
-        void *base;
-        void *current;
-        int64_t size;
-    } mmap;
 } WriteFileHandle;
 
 typedef struct trunk_write_thread_context {
@@ -88,14 +82,11 @@ typedef struct trunk_write_path_contexts_array {
 
 typedef struct trunk_write_context {
     TrunkWritePathContextArray path_ctx_array;
-    struct fast_mblock_man buffer_allocator;
 } TrunkWriteContext;
 
 static TrunkWriteContext trunk_io_ctx = {{0, NULL}};
 
 static void *trunk_write_thread_func(void *arg);
-
-#define BUFFER_ALLOCATOR  trunk_io_ctx.buffer_allocator
 
 static int alloc_path_contexts()
 {
@@ -183,9 +174,6 @@ static int init_thread_context(TrunkWriteThreadContext *ctx)
 
     ctx->file_handle.trunk_id = 0;
     ctx->file_handle.fd = -1;
-    ctx->file_handle.mmap.base = NULL;
-    ctx->file_handle.mmap.current = NULL;
-    ctx->file_handle.mmap.size = 0;
     if ((result=init_write_context(ctx)) != 0) {
         return result;
     }
@@ -250,16 +238,6 @@ int trunk_write_thread_init()
 {
     int result;
 
-    if ((result=fast_mblock_init_ex1(&BUFFER_ALLOCATOR,
-                    "write-buffer", g_sf_global_vars.min_buff_size,
-                    64, 10240, NULL, NULL, true)) != 0)
-    {
-        return result;
-    }
-    fast_mblock_set_need_wait(&BUFFER_ALLOCATOR,
-            true, (bool *)&SF_G_CONTINUE_FLAG);
-    BUFFER_ALLOCATOR.alloc_elements.exceed_log_level = LOG_WARNING;
-
     if ((result=alloc_path_contexts()) != 0) {
         return result;
     }
@@ -284,8 +262,7 @@ void trunk_write_thread_terminate()
 
 int trunk_write_thread_push(const int type, const int64_t version,
         const int path_index, const uint64_t hash_code, void *entry,
-        void *data, trunk_write_io_notify_func notify_func,
-        void *notify_arg, const bool notify_immediately)
+        void *data, trunk_write_io_notify_func notify_func, void *notify_arg)
 {
     TrunkWritePathContext *path_ctx;
     TrunkWriteThreadContext *thread_ctx;
@@ -312,14 +289,8 @@ int trunk_write_thread_push(const int type, const int64_t version,
     } else {
         iob->buff = (char *)data;
     }
-
+    iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
-    if (notify_immediately) {
-        iob->notify.func = NULL;
-        notify_func(iob, 0);
-    } else {
-        iob->notify.func = notify_func;
-    }
     fc_queue_push(&thread_ctx->queue, iob);
     return 0;
 }
@@ -344,11 +315,6 @@ static inline void close_write_fd(int fd)
 static inline void clear_write_fd(TrunkWriteThreadContext *ctx)
 {
     if (ctx->file_handle.fd >= 0) {
-        if (ctx->path_info->write_mode == fs_write_mode_mmap) {
-            munmap(ctx->file_handle.mmap.base, ctx->file_handle.mmap.size);
-            ctx->file_handle.mmap.base = NULL;
-            ctx->file_handle.mmap.current = NULL;
-        }
         close_write_fd(ctx->file_handle.fd);
         ctx->file_handle.fd = -1;
         ctx->file_handle.trunk_id = 0;
@@ -367,8 +333,7 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
     }
 
     get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
-    *fd = open(trunk_filename, ctx->path_info->write_mode ==
-            fs_write_mode_mmap ? O_RDWR : O_WRONLY, 0644);
+    *fd = open(trunk_filename, O_WRONLY, 0644);
     if (*fd < 0) {
         result = errno != 0 ? errno : EACCES;
         logError("file: "__FILE__", line: %d, "
@@ -377,24 +342,8 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
         return result;
     }
 
-    clear_write_fd(ctx);
-    if (ctx->path_info->write_mode == fs_write_mode_mmap) {
-        ctx->file_handle.mmap.size = lseek(*fd, 0, SEEK_END);
-        ctx->file_handle.mmap.base = mmap(NULL, ctx->file_handle.
-                mmap.size, PROT_WRITE, MAP_SHARED, *fd, 0);
-        if (ctx->file_handle.mmap.base == MAP_FAILED ||
-                ctx->file_handle.mmap.base == NULL)
-        {
-            result = errno != 0 ? errno : EPERM;
-            logError("file: "__FILE__", line: %d, "
-                    "mmap file: %s with size: %"PRId64" fail, "
-                    "errno: %d, error info: %s", __LINE__,
-                    trunk_filename, ctx->file_handle.mmap.size,
-                    result, STRERROR(result));
-            return result;
-        }
-        ctx->file_handle.mmap.current = ctx->file_handle.mmap.base;
-        lseek(*fd, 0, SEEK_SET);
+    if (ctx->file_handle.fd >= 0) {
+        close_write_fd(ctx->file_handle.fd);
     }
 
     ctx->file_handle.trunk_id = space->id_info.id;
@@ -526,15 +475,22 @@ static int write_iovec(TrunkWriteThreadContext *ctx, int fd,
     return 0;
 }
 
-static int direct_write_slices(TrunkWriteThreadContext *ctx,
-        const TrunkWriteIOBuffer *first, int fd)
+static int do_write_slices(TrunkWriteThreadContext *ctx)
 {
     char trunk_filename[PATH_MAX];
+    TrunkWriteIOBuffer *first;
     struct iovec *iovec;
     int iovcnt;
+    int fd;
     int remain_count;
     int remain_bytes;
     int result;
+
+    first = ctx->iob_array.iobs[0];
+    if ((result=get_write_fd(ctx, &first->slice->space, &fd)) != 0) {
+        ctx->iob_array.success = 0;
+        return result;
+    }
 
     if (ctx->file_handle.offset != first->slice->space.offset) {
         if (lseek(fd, first->slice->space.offset, SEEK_SET) < 0) {
@@ -546,6 +502,7 @@ static int direct_write_slices(TrunkWriteThreadContext *ctx,
                     "errno: %d, error info: %s", __LINE__, trunk_filename,
                     first->slice->space.offset, result, STRERROR(result));
             clear_write_fd(ctx);
+            ctx->iob_array.success = 0;
             return result;
         }
 
@@ -603,72 +560,14 @@ static int direct_write_slices(TrunkWriteThreadContext *ctx,
                 first->slice->space.offset + (ctx->iovec_bytes -
                     remain_bytes), result, STRERROR(result));
         ctx->file_handle.offset = -1;
-    }
-
-    return result;
-}
-
-static int mmap_write_slices(TrunkWriteThreadContext *ctx,
-        const TrunkWriteIOBuffer *first)
-{
-    char trunk_filename[PATH_MAX];
-    struct iovec *iovec;
-    struct iovec *ioend;
-
-    if (first->slice->space.offset + ctx->iovec_bytes >
-            ctx->file_handle.mmap.size)
-    {
-        get_trunk_filename(&first->slice->space, trunk_filename,
-                sizeof(trunk_filename));
-        logError("file: "__FILE__", line: %d, "
-                "trunk file: %s, write offset: %"PRId64", length: %d "
-                "exceeds file size: %"PRId64, __LINE__, trunk_filename,
-                first->slice->space.offset, ctx->iovec_bytes,
-                ctx->file_handle.mmap.size);
-        return EOVERFLOW;
-    }
-
-    if (ctx->file_handle.offset != first->slice->space.offset) {
-        ctx->file_handle.mmap.current = ctx->file_handle.mmap.base +
-            first->slice->space.offset;
-    }
-
-    ioend = ctx->iovec_array.iovs + ctx->iovec_array.count;
-    for (iovec=ctx->iovec_array.iovs; iovec<ioend; iovec++) {
-        memcpy(ctx->file_handle.mmap.current, iovec->
-                iov_base, iovec->iov_len);
-        ctx->file_handle.mmap.current += iovec->iov_len;
-    }
-
-    return 0;
-}
-
-static int do_write_slices(TrunkWriteThreadContext *ctx)
-{
-    TrunkWriteIOBuffer *first;
-    int fd;
-    int result;
-
-    first = ctx->iob_array.iobs[0];
-    if ((result=get_write_fd(ctx, &first->slice->space, &fd)) != 0) {
         ctx->iob_array.success = 0;
         return result;
     }
 
-    if (ctx->path_info->write_mode == fs_write_mode_mmap) {
-        result = mmap_write_slices(ctx, first);
-    } else {
-        result = direct_write_slices(ctx, first, fd);
-    }
-
-    if (result == 0) {
-        ctx->iob_array.success = ctx->iob_array.count;
-        ctx->file_handle.offset = first->slice->space.offset +
-            ctx->iovec_bytes;
-    } else {
-        ctx->iob_array.success = 0;
-    }
-    return result;
+    ctx->iob_array.success = ctx->iob_array.count;
+    ctx->file_handle.offset = first->slice->space.offset +
+        ctx->iovec_bytes;
+    return 0;
 }
 
 static int batch_write(TrunkWriteThreadContext *ctx)
@@ -684,8 +583,6 @@ static int batch_write(TrunkWriteThreadContext *ctx)
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, 0);
-            } else if ((*iob)->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF) {
-                fast_mblock_free_object(&BUFFER_ALLOCATOR, (*iob)->buff);
             }
 
             fast_mblock_free_object(&ctx->mblock, *iob);
@@ -697,8 +594,6 @@ static int batch_write(TrunkWriteThreadContext *ctx)
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, result);
-            } else if ((*iob)->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF) {
-                fast_mblock_free_object(&BUFFER_ALLOCATOR, (*iob)->buff);
             }
 
             fast_mblock_free_object(&ctx->mblock, *iob);
@@ -925,29 +820,4 @@ static void *trunk_write_thread_func(void *arg)
     }
 
     return NULL;
-}
-
-int trunk_write_thread_push_slice_by_buff(
-        const int64_t version, OBSliceEntry *slice, char *buff,
-        trunk_write_io_notify_func notify_func, void *notify_arg)
-{
-    char *new_buff;
-    bool notify_immediately;
-
-    if (slice->space.size <= g_sf_global_vars.min_buff_size) {
-        new_buff = fast_mblock_alloc_object(&BUFFER_ALLOCATOR);
-        if (new_buff == NULL) {
-            return ENOMEM;
-        }
-
-        memcpy(new_buff, buff, slice->space.size);
-        notify_immediately = true;
-    } else {
-        new_buff = buff;
-        notify_immediately = false;
-    }
-
-    return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_BUFF,
-            version, slice->space.store->index, slice->space.id_info.id,
-            slice, new_buff, notify_func, notify_arg, notify_immediately);
 }

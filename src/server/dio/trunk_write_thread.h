@@ -25,7 +25,6 @@
 
 #define FS_IO_TYPE_CREATE_TRUNK           'C'
 #define FS_IO_TYPE_DELETE_TRUNK           'D'
-
 #define FS_IO_TYPE_WRITE_SLICE_BY_BUFF    'W'
 #define FS_IO_TYPE_WRITE_SLICE_BY_IOVEC   'V'
 
@@ -67,7 +66,7 @@ extern "C" {
     int trunk_write_thread_push(const int type, const int64_t version,
             const int path_index, const uint64_t hash_code, void *entry,
             void *data, trunk_write_io_notify_func notify_func,
-            void *notify_arg, const bool notify_immediately);
+            void *notify_arg);
 
     static inline int trunk_write_thread_push_trunk_op(const int type,
             const FSTrunkSpaceInfo *space, trunk_write_io_notify_func
@@ -79,12 +78,17 @@ extern "C" {
         return trunk_write_thread_push(type, __sync_add_and_fetch(&allocator->
                     allocate.current_version, 1), space->store->index,
                 space->id_info.id, (void *)space, NULL,
-                notify_func, notify_arg, false);
+                notify_func, notify_arg);
     }
 
-    int trunk_write_thread_push_slice_by_buff(
+    static inline int trunk_write_thread_push_slice_by_buff(
             const int64_t version, OBSliceEntry *slice, char *buff,
-            trunk_write_io_notify_func notify_func, void *notify_arg);
+            trunk_write_io_notify_func notify_func, void *notify_arg)
+    {
+        return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_BUFF,
+                version, slice->space.store->index, slice->space.id_info.id,
+                slice, buff, notify_func, notify_arg);
+    }
 
     static inline int trunk_write_thread_push_slice_by_iovec(
             const int64_t version, OBSliceEntry *slice, iovec_array_t
@@ -93,7 +97,7 @@ extern "C" {
     {
         return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_IOVEC,
                 version, slice->space.store->index, slice->space.id_info.id,
-                slice, iovec_array, notify_func, notify_arg, false);
+                slice, iovec_array, notify_func, notify_arg);
     }
 
 #ifdef __cplusplus
