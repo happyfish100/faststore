@@ -88,12 +88,14 @@ typedef struct trunk_write_path_contexts_array {
 
 typedef struct trunk_write_context {
     TrunkWritePathContextArray path_ctx_array;
-    UniqSkiplistFactory factory;
+    struct fast_mblock_man buffer_allocator;
 } TrunkWriteContext;
 
 static TrunkWriteContext trunk_io_ctx = {{0, NULL}};
 
 static void *trunk_write_thread_func(void *arg);
+
+#define BUFFER_ALLOCATOR  trunk_io_ctx.buffer_allocator
 
 static int alloc_path_contexts()
 {
@@ -146,7 +148,7 @@ static int init_write_context(TrunkWriteThreadContext *ctx)
     }
 
     ctx->iob_array.alloc = FC_MIN(IOV_MAX, IO_THREAD_IOB_MAX);
-    buff = (char *)fc_malloc( sizeof(UniqSkiplistPair) +
+    buff = (char *)fc_malloc(sizeof(UniqSkiplistPair) +
             sizeof(TrunkWriteIOBuffer *) * ctx->iob_array.alloc);
     ctx->sl_pair = (UniqSkiplistPair *)buff;
     ctx->iob_array.iobs = (TrunkWriteIOBuffer **)(ctx->sl_pair + 1);
@@ -248,6 +250,16 @@ int trunk_write_thread_init()
 {
     int result;
 
+    if ((result=fast_mblock_init_ex1(&BUFFER_ALLOCATOR,
+                    "write-buffer", g_sf_global_vars.min_buff_size,
+                    64, 10240, NULL, NULL, true)) != 0)
+    {
+        return result;
+    }
+    fast_mblock_set_need_wait(&BUFFER_ALLOCATOR,
+            true, (bool *)&SF_G_CONTINUE_FLAG);
+    BUFFER_ALLOCATOR.alloc_elements.exceed_log_level = LOG_WARNING;
+
     if ((result=alloc_path_contexts()) != 0) {
         return result;
     }
@@ -272,7 +284,8 @@ void trunk_write_thread_terminate()
 
 int trunk_write_thread_push(const int type, const int64_t version,
         const int path_index, const uint64_t hash_code, void *entry,
-        void *data, trunk_write_io_notify_func notify_func, void *notify_arg)
+        void *data, trunk_write_io_notify_func notify_func,
+        void *notify_arg, const bool notify_immediately)
 {
     TrunkWritePathContext *path_ctx;
     TrunkWriteThreadContext *thread_ctx;
@@ -299,8 +312,14 @@ int trunk_write_thread_push(const int type, const int64_t version,
     } else {
         iob->buff = (char *)data;
     }
-    iob->notify.func = notify_func;
+
     iob->notify.arg = notify_arg;
+    if (notify_immediately) {
+        iob->notify.func = NULL;
+        notify_func(iob, 0);
+    } else {
+        iob->notify.func = notify_func;
+    }
     fc_queue_push(&thread_ctx->queue, iob);
     return 0;
 }
@@ -665,6 +684,8 @@ static int batch_write(TrunkWriteThreadContext *ctx)
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, 0);
+            } else if ((*iob)->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF) {
+                fast_mblock_free_object(&BUFFER_ALLOCATOR, (*iob)->buff);
             }
 
             fast_mblock_free_object(&ctx->mblock, *iob);
@@ -676,6 +697,8 @@ static int batch_write(TrunkWriteThreadContext *ctx)
         for (; iob < end; iob++) {
             if ((*iob)->notify.func != NULL) {
                 (*iob)->notify.func(*iob, result);
+            } else if ((*iob)->type == FS_IO_TYPE_WRITE_SLICE_BY_BUFF) {
+                fast_mblock_free_object(&BUFFER_ALLOCATOR, (*iob)->buff);
             }
 
             fast_mblock_free_object(&ctx->mblock, *iob);
@@ -902,4 +925,29 @@ static void *trunk_write_thread_func(void *arg)
     }
 
     return NULL;
+}
+
+int trunk_write_thread_push_slice_by_buff(
+        const int64_t version, OBSliceEntry *slice, char *buff,
+        trunk_write_io_notify_func notify_func, void *notify_arg)
+{
+    char *new_buff;
+    bool notify_immediately;
+
+    if (slice->space.size <= g_sf_global_vars.min_buff_size) {
+        new_buff = fast_mblock_alloc_object(&BUFFER_ALLOCATOR);
+        if (new_buff == NULL) {
+            return ENOMEM;
+        }
+
+        memcpy(new_buff, buff, slice->space.size);
+        notify_immediately = true;
+    } else {
+        new_buff = buff;
+        notify_immediately = false;
+    }
+
+    return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_BUFF,
+            version, slice->space.store->index, slice->space.id_info.id,
+            slice, new_buff, notify_func, notify_arg, notify_immediately);
 }

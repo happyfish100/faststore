@@ -443,7 +443,7 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     }
 
     storage_cfg->write_mode = get_write_mode_from_ini(
-            ini_ctx, fs_write_mode_mmap);
+            ini_ctx, fs_write_mode_direct);
     storage_cfg->fsync_every_n_writes = iniGetIntValue(NULL,
             "fsync_every_n_writes", ini_ctx->context, 0);
 
