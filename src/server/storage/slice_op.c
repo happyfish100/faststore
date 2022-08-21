@@ -968,20 +968,26 @@ static void fs_slice_rw_done_callback(FSSliceOpContext *op_ctx,
 int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx)
 {
     int result;
+    bool malloc_buff;
 
     ob_index_init_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
 
 #ifdef OS_LINUX
-    bctx->op_ctx.info.buffer_type = fs_buffer_type_array;
-    bctx->buffer_size = 0;
-    bctx->op_ctx.info.buff = NULL;
+    malloc_buff = (READ_DIRECT_IO_PATHS == 0);
 #else
-    bctx->buffer_size = 256 * 1024;
-    bctx->op_ctx.info.buff = (char *)fc_malloc(bctx->buffer_size);
-    if (bctx->op_ctx.info.buff == NULL) {
-        return ENOMEM;
-    }
+    malloc_buff = true;
 #endif
+
+    if (malloc_buff) {
+        bctx->buffer_size = 256 * 1024;
+        bctx->op_ctx.info.buff = (char *)fc_malloc(bctx->buffer_size);
+        if (bctx->op_ctx.info.buff == NULL) {
+            return ENOMEM;
+        }
+    } else {
+        bctx->buffer_size = 0;
+        bctx->op_ctx.info.buff = NULL;
+    }
 
     if ((result=init_pthread_lock_cond_pair(&bctx->notify.lcp)) != 0) {
         return result;
@@ -999,26 +1005,28 @@ void fs_slice_blocked_op_ctx_destroy(FSSliceBlockedOpContext *bctx)
     ob_index_free_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
     destroy_pthread_lock_cond_pair(&bctx->notify.lcp);
 
-#ifdef OS_LINUX
-#else
     if (bctx->op_ctx.info.buff != NULL) {
         free(bctx->op_ctx.info.buff);
         bctx->op_ctx.info.buff = NULL;
     }
-#endif
 }
 
 int fs_slice_blocked_read(FSSliceBlockedOpContext *bctx,
         FSBlockSliceKeyInfo *bs_key, const int ignore_errno)
 {
     int result;
+    bool check_malloc;
 
     bctx->op_ctx.info.bs_key = *bs_key;
     bctx->op_ctx.info.data_group_id = FS_DATA_GROUP_ID(bs_key->block);
 
 #ifdef OS_LINUX
+    check_malloc = (READ_DIRECT_IO_PATHS == 0);
 #else
-    if (bctx->buffer_size < bs_key->slice.length) {
+    check_malloc = true;
+#endif
+
+    if (check_malloc && bctx->buffer_size < bs_key->slice.length) {
         char *buff;
         int buffer_size;
 
@@ -1035,7 +1043,6 @@ int fs_slice_blocked_read(FSSliceBlockedOpContext *bctx,
         bctx->op_ctx.info.buff = buff;
         bctx->buffer_size = buffer_size;
     }
-#endif
 
     if ((result=fs_slice_read(&bctx->op_ctx)) == 0) {
         PTHREAD_MUTEX_LOCK(&bctx->notify.lcp.lock);

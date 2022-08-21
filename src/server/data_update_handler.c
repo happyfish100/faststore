@@ -392,7 +392,9 @@ void du_handler_slice_read_done_callback(FSSliceOpContext *op_ctx,
     } else {
 
 #ifdef OS_LINUX
-        if ((op_ctx->result=buffer_to_iovec_array(task)) == 0) {
+        if (op_ctx->info.buffer_type == fs_buffer_type_direct || (op_ctx->
+                    result=buffer_to_iovec_array(task)) == 0)
+        {
 #endif
 
             RESPONSE.header.body_len = FC_ATOMIC_GET(op_ctx->done_bytes);
