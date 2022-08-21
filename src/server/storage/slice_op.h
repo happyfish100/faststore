@@ -101,6 +101,9 @@ extern "C" {
     }
 
     void fs_release_task_aio_buffers(struct fast_task_info *task);
+    int fs_slice_read(FSSliceOpContext *op_ctx);
+#else
+#define fs_slice_read(op_ctx) fs_slice_normal_read(op_ctx)
 #endif
 
     int fs_slice_write(FSSliceOpContext *op_ctx);
@@ -108,7 +111,7 @@ extern "C" {
 
     int fs_slice_allocate(FSSliceOpContext *op_ctx);
 
-    int fs_slice_read(FSSliceOpContext *op_ctx);
+    int fs_slice_normal_read(FSSliceOpContext *op_ctx);
 
     int fs_delete_slices(FSSliceOpContext *op_ctx);
     int fs_delete_block(FSSliceOpContext *op_ctx);

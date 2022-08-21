@@ -37,7 +37,7 @@ typedef struct write_file_handle {
 } WriteFileHandle;
 
 typedef struct trunk_write_thread_context {
-    FSStoragePathInfo *path_info;
+    const FSStoragePathInfo *path_info;
     struct {
         short path;
         short thread;

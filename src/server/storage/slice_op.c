@@ -731,6 +731,12 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     FSSliceSize ssize;
     OBSliceEntry **pp;
     OBSliceEntry **end;
+    void *data;
+
+    if (READ_DIRECT_IO_PATHS == 0) {
+        op_ctx->info.buffer_type = fs_buffer_type_direct;
+        return fs_slice_normal_read(op_ctx);
+    }
 
     if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
                     &op_ctx->slice_ptr_array, op_ctx->info.
@@ -752,6 +758,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             op_ctx->info.bs_key.slice.length);
             */
 
+    op_ctx->info.buffer_type = fs_buffer_type_array;
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
     op_ctx->counter = op_ctx->slice_ptr_array.count;
@@ -790,7 +797,21 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             AlignedReadBuffer **aligned_buffer;
             aligned_buffer = op_ctx->aio_buffer_parray.buffers +
                 op_ctx->aio_buffer_parray.count++;
-            if ((result=trunk_read_thread_push(*pp, aligned_buffer,
+
+            if (STORAGE_CFG.paths_by_index.paths[(*pp)->space.
+                    store->index]->read_direct_io)
+            {
+                data = aligned_buffer;
+            } else {
+                *aligned_buffer = aligned_buffer_new((*pp)->space.store->
+                        index, 0, (*pp)->ssize.length, (*pp)->space.size);
+                if (*aligned_buffer == NULL) {
+                    return ENOMEM;
+                }
+                data = (*aligned_buffer)->buff;
+            }
+
+            if ((result=trunk_read_thread_push(*pp, data,
                             slice_read_done, op_ctx)) != 0)
             {
                 break;
@@ -803,9 +824,9 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     return result;
 }
 
-#else
+#endif
 
-int fs_slice_read(FSSliceOpContext *op_ctx)
+int fs_slice_normal_read(FSSliceOpContext *op_ctx)
 {
     int result;
     int offset;
@@ -867,8 +888,6 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
 
     return result;
 }
-
-#endif
 
 int fs_delete_slices(FSSliceOpContext *op_ctx)
 {

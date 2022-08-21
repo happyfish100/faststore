@@ -86,6 +86,7 @@ typedef struct server_global_vars {
             int index;
             const char *str;
         } rebuild_path;
+        int read_direct_io_paths;
     } storage;
 
     struct {
@@ -146,6 +147,7 @@ typedef struct server_global_vars {
 #define DATA_REBUILD_SLICE_COUNT g_server_global_vars. \
     storage.rebuild_path.slice_count
 #define DATA_REBUILD_THREADS g_server_global_vars.storage.rebuild_threads
+#define READ_DIRECT_IO_PATHS g_server_global_vars.storage.read_direct_io_paths
 
 #define LEADER_ELECTION_QUORUM g_server_global_vars.cluster. \
     config.leader_election.quorum

@@ -257,9 +257,17 @@ static int load_paths(FSStorageConfig *storage_cfg, IniFullContext *ini_ctx,
             parray->paths[i].read_io_depth = 64;
         }
 
+#ifdef OS_LINUX
         parray->paths[i].read_direct_io = iniGetBoolValue(
                 section_name, "read_direct_io", ini_ctx->context,
                 storage_cfg->read_direct_io);
+        if (parray->paths[i].read_direct_io) {
+            ++READ_DIRECT_IO_PATHS;
+        }
+#else
+        parray->paths[i].read_direct_io = false;
+#endif
+
         parray->paths[i].fsync_every_n_writes = iniGetIntValue(section_name,
                 "fsync_every_n_writes", ini_ctx->context,
                 storage_cfg->fsync_every_n_writes);
@@ -406,8 +414,13 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->io_depth_per_read_thread = 64;
     }
 
+#ifdef OS_LINUX
     storage_cfg->read_direct_io = iniGetBoolValue(NULL,
             "read_direct_io", ini_ctx->context, false);
+#else
+    storage_cfg->read_direct_io = false;
+#endif
+
     storage_cfg->fsync_every_n_writes = iniGetIntValue(NULL,
             "fsync_every_n_writes", ini_ctx->context, 0);
 

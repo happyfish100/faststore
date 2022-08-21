@@ -43,11 +43,13 @@
 #include "trunk_read_thread.h"
 
 typedef struct trunk_read_thread_context {
+    const FSStoragePathInfo *path_info;
     struct {
         short path;
         short thread;
     } indexes;
     int block_size;
+    int open_flags;
     struct fc_queue queue;
     struct fast_mblock_man mblock;
     TrunkFDCacheContext fd_cache;
@@ -147,31 +149,33 @@ static int init_thread_context(TrunkReadThreadContext *ctx,
     }
 
 #ifdef OS_LINUX
-    ctx->block_size = path_info->block_size;
+    if (ctx->path_info->read_direct_io) {
+        ctx->block_size = path_info->block_size;
 
-    ctx->iocbs.alloc = path_info->read_io_depth;
-    ctx->iocbs.pp = (struct iocb **)fc_malloc(sizeof(
-                struct iocb *) * ctx->iocbs.alloc);
-    if (ctx->iocbs.pp == NULL) {
-        return ENOMEM;
-    }
+        ctx->iocbs.alloc = path_info->read_io_depth;
+        ctx->iocbs.pp = (struct iocb **)fc_malloc(sizeof(
+                    struct iocb *) * ctx->iocbs.alloc);
+        if (ctx->iocbs.pp == NULL) {
+            return ENOMEM;
+        }
 
-    ctx->aio.max_event = path_info->read_io_depth;
-    ctx->aio.events = (struct io_event *)fc_malloc(sizeof(
-                struct io_event) * ctx->aio.max_event);
-    if (ctx->aio.events == NULL) {
-        return ENOMEM;
-    }
+        ctx->aio.max_event = path_info->read_io_depth;
+        ctx->aio.events = (struct io_event *)fc_malloc(sizeof(
+                    struct io_event) * ctx->aio.max_event);
+        if (ctx->aio.events == NULL) {
+            return ENOMEM;
+        }
 
-    ctx->aio.ctx = 0;
-    if (io_setup(ctx->aio.max_event, &ctx->aio.ctx) != 0) {
-        result = errno != 0 ? errno : ENOMEM;
-        logError("file: "__FILE__", line: %d, "
-                "io_setup fail, errno: %d, error info: %s",
-                __LINE__, result, STRERROR(result));
-        return result;
+        ctx->aio.ctx = 0;
+        if (io_setup(ctx->aio.max_event, &ctx->aio.ctx) != 0) {
+            result = errno != 0 ? errno : ENOMEM;
+            logError("file: "__FILE__", line: %d, "
+                    "io_setup fail, errno: %d, error info: %s",
+                    __LINE__, result, STRERROR(result));
+            return result;
+        }
+        ctx->aio.doing_count = 0;
     }
-    ctx->aio.doing_count = 0;
 
 #endif
 
@@ -188,6 +192,7 @@ static int init_thread_contexts(TrunkReadThreadContextArray *ctx_array,
     
     end = ctx_array->contexts + ctx_array->count;
     for (ctx=ctx_array->contexts; ctx<end; ctx++) {
+        ctx->path_info = path_info;
         ctx->indexes.path = path_info->store.index;
         if (ctx_array->count == 1) {
             ctx->indexes.thread = -1;
@@ -197,6 +202,16 @@ static int init_thread_contexts(TrunkReadThreadContextArray *ctx_array,
         if ((result=init_thread_context(ctx, path_info)) != 0) {
             return result;
         }
+
+#ifdef OS_LINUX
+        if (path_info->read_direct_io) {
+            ctx->open_flags = (O_RDONLY | O_DIRECT | O_CLOEXEC);
+        } else {
+            ctx->open_flags = (O_RDONLY | O_CLOEXEC);
+        }
+#else
+        ctx->open_flags = (O_RDONLY | O_CLOEXEC);
+#endif
     }
 
     return 0;
@@ -271,8 +286,10 @@ int trunk_read_thread_init()
     int result;
 
 #ifdef OS_LINUX
-    if ((result=rbpool_init_start()) != 0) {
-        return result;
+    if (READ_DIRECT_IO_PATHS > 0) {
+        if ((result=rbpool_init_start()) != 0) {
+            return result;
+        }
     }
 #endif
 
@@ -298,14 +315,8 @@ void trunk_read_thread_terminate()
 {
 }
 
-#ifdef OS_LINUX
-    int trunk_read_thread_push(OBSliceEntry *slice, AlignedReadBuffer
-            **aligned_buffer, trunk_read_io_notify_func notify_func,
-            void *notify_arg)
-#else
-int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
+int trunk_read_thread_push(OBSliceEntry *slice, void *data,
             trunk_read_io_notify_func notify_func, void *notify_arg)
-#endif
 {
     TrunkReadPathContext *path_ctx;
     TrunkReadThreadContext *thread_ctx;
@@ -321,11 +332,7 @@ int trunk_read_thread_push(OBSliceEntry *slice, char *buff,
     }
 
     iob->slice = slice;
-#ifdef OS_LINUX
-    iob->aligned_buffer = aligned_buffer;
-#else
-    iob->data = buff;
-#endif
+    iob->data = data;
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
 
@@ -354,11 +361,7 @@ static int get_read_fd(TrunkReadThreadContext *ctx,
     }
 
     get_trunk_filename(space, trunk_filename, sizeof(trunk_filename));
-#ifdef OS_LINUX
-    *fd = open(trunk_filename, O_RDONLY | O_DIRECT);
-#else
-    *fd = open(trunk_filename, O_RDONLY);
-#endif
+    *fd = open(trunk_filename, ctx->open_flags);
     if (*fd < 0) {
         result = errno != 0 ? errno : EACCES;
         logError("file: "__FILE__", line: %d, "
@@ -572,7 +575,7 @@ static inline int process(TrunkReadThreadContext *ctx)
     return process_aio(ctx);
 }
 
-#else
+#endif
 
 static int do_read_slice(TrunkReadThreadContext *ctx, TrunkReadIOBuffer *iob)
 {
@@ -619,38 +622,10 @@ static int do_read_slice(TrunkReadThreadContext *ctx, TrunkReadIOBuffer *iob)
     return 0;
 }
 
-#endif
-
-static void *trunk_read_thread_func(void *arg)
+static void normal_read_loop(TrunkReadThreadContext *ctx)
 {
-    TrunkReadThreadContext *ctx;
-#ifdef OS_LINUX
-    int len;
-    char thread_name[16];
-#else
     int result;
     TrunkReadIOBuffer *iob;
-#endif
-
-    ctx = (TrunkReadThreadContext *)arg;
-
-#ifdef OS_LINUX
-    len = snprintf(thread_name, sizeof(thread_name),
-            "dio-p%02d-r", ctx->indexes.path);
-    if (ctx->indexes.thread >= 0) {
-        snprintf(thread_name + len, sizeof(thread_name) - len,
-                "[%d]", ctx->indexes.thread);
-    }
-    prctl(PR_SET_NAME, thread_name);
-
-    while (SF_G_CONTINUE_FLAG) {
-        if (process(ctx) != 0) {
-            sf_terminate_myself();
-            break;
-        }
-    }
-
-#else
 
     while (SF_G_CONTINUE_FLAG) {
         if ((iob=(TrunkReadIOBuffer *)fc_queue_pop(&ctx->queue)) == NULL) {
@@ -668,6 +643,39 @@ static void *trunk_read_thread_func(void *arg)
         }
         fast_mblock_free_object(&ctx->mblock, iob);
     }
+}
+
+static void *trunk_read_thread_func(void *arg)
+{
+    TrunkReadThreadContext *ctx;
+#ifdef OS_LINUX
+    int len;
+    char thread_name[16];
+#endif
+
+    ctx = (TrunkReadThreadContext *)arg;
+
+#ifdef OS_LINUX
+    len = snprintf(thread_name, sizeof(thread_name),
+            "dio-p%02d-r", ctx->indexes.path);
+    if (ctx->indexes.thread >= 0) {
+        snprintf(thread_name + len, sizeof(thread_name) - len,
+                "[%d]", ctx->indexes.thread);
+    }
+    prctl(PR_SET_NAME, thread_name);
+
+    if (ctx->path_info->read_direct_io) {
+        while (SF_G_CONTINUE_FLAG) {
+            if (process(ctx) != 0) {
+                sf_terminate_myself();
+                break;
+            }
+        }
+    } else {
+        normal_read_loop(ctx);
+    }
+#else
+    normal_read_loop(ctx);
 #endif
 
     return NULL;
