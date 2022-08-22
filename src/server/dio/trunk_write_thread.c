@@ -303,19 +303,21 @@ static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
             space->id_info.id);
 }
 
-static inline void close_write_fd(int fd)
+static inline void close_write_fd(TrunkWriteThreadContext *ctx)
 {
 #ifdef OS_LINUX
-    posix_fadvise(fd, 0, 0, POSIX_FADV_DONTNEED);
+    if (ctx->path_info->read_direct_io) {
+        posix_fadvise(ctx->file_handle.fd, 0, 0, POSIX_FADV_DONTNEED);
+    }
 #endif
 
-    close(fd);
+    close(ctx->file_handle.fd);
 }
 
 static inline void clear_write_fd(TrunkWriteThreadContext *ctx)
 {
     if (ctx->file_handle.fd >= 0) {
-        close_write_fd(ctx->file_handle.fd);
+        close_write_fd(ctx);
         ctx->file_handle.fd = -1;
         ctx->file_handle.trunk_id = 0;
     }
@@ -343,7 +345,7 @@ static int get_write_fd(TrunkWriteThreadContext *ctx,
     }
 
     if (ctx->file_handle.fd >= 0) {
-        close_write_fd(ctx->file_handle.fd);
+        close_write_fd(ctx);
     }
 
     ctx->file_handle.trunk_id = space->id_info.id;
@@ -401,7 +403,7 @@ static int do_create_trunk(TrunkWriteThreadContext *ctx,
                 __LINE__, trunk_filename, result, STRERROR(result));
     }
 
-    close_write_fd(fd);
+    close(fd);
     return result;
 }
 
