@@ -224,6 +224,9 @@ typedef struct server_global_vars {
 #define STORAGE_CFG           g_server_global_vars.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
+#define WRITE_TO_CACHE        STORAGE_CFG.write_to_cache
+#define WRITE_CACHE_MEMORY_LIMIT STORAGE_CFG.write_cache_memory_limit.value
+
 #define DATA_THREAD_COUNT     g_server_global_vars.data.thread_count
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
 #define DATA_PATH             g_server_global_vars.data.path
