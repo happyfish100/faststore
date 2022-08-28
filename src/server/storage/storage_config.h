@@ -90,10 +90,6 @@ typedef struct {
     int max_trunk_files_per_subdir;
     double reserved_space_per_disk;
     int64_t trunk_file_size;
-    struct {
-        int64_t value;
-        double ratio;
-    } write_cache_memory_limit;
     int discard_remain_space_size;
     int trunk_prealloc_threads;
     int fd_cache_capacity_per_read_thread;

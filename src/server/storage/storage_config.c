@@ -356,7 +356,6 @@ static int load_global_items(FSStorageConfig *storage_cfg,
     char *discard_size;
     int64_t trunk_file_size;
     int64_t discard_remain_space_size;
-    int64_t total_memory;
 
     storage_cfg->fd_cache_capacity_per_read_thread = iniGetIntValue(NULL,
             "fd_cache_capacity_per_read_thread", ini_ctx->context, 256);
@@ -417,17 +416,6 @@ static int load_global_items(FSStorageConfig *storage_cfg,
 
     storage_cfg->write_to_cache = iniGetBoolValue(NULL,
             "write_to_cache", ini_ctx->context, true);
-    if ((result=iniGetPercentCorrectValue(ini_ctx, "write_cache_memory_limit",
-                    &storage_cfg->write_cache_memory_limit.ratio,
-                    0.20, 0.01, 0.80)) != 0)
-    {
-        return result;
-    }
-    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
-        return result;
-    }
-    storage_cfg->write_cache_memory_limit.value = total_memory *
-        storage_cfg->write_cache_memory_limit.ratio;
 
 #ifdef OS_LINUX
     storage_cfg->read_direct_io = iniGetBoolValue(NULL,
@@ -850,7 +838,6 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             "read_threads_per_path: %d, "
             "io_depth_per_read_thread: %d, "
             "write_to_cache: %d, "
-            "write_cache_memory_limit: %.2f%%, "
             "read_direct_io: %d, fsync_every_n_writes: %d, "
             "fd_cache_capacity_per_read_thread: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
@@ -881,7 +868,6 @@ void storage_config_to_log(FSStorageConfig *storage_cfg)
             storage_cfg->read_threads_per_path,
             storage_cfg->io_depth_per_read_thread,
             storage_cfg->write_to_cache,
-            storage_cfg->write_cache_memory_limit.ratio * 100,
             storage_cfg->read_direct_io,
             storage_cfg->fsync_every_n_writes,
             storage_cfg->fd_cache_capacity_per_read_thread,

@@ -455,7 +455,9 @@ static int setup_mblock_stat_task()
 
 static int setup_server_env(const char *config_filename)
 {
+    const int min_alloc_once = 2;
     int result;
+    int max_pkg_size;
 
     sf_set_current_time();
     if ((result=server_load_config(config_filename)) != 0) {
@@ -466,6 +468,16 @@ static int setup_server_env(const char *config_filename)
         daemon_init(false);
     }
     umask(0);
+
+    max_pkg_size = g_sf_global_vars.max_pkg_size -
+        g_sf_global_vars.task_buffer_extra_size;
+    if ((result=sf_shared_mbuffer_init(&SHARED_MBUFFER_CTX, "net-mbuffer",
+                    g_sf_global_vars.task_buffer_extra_size,
+                    1024, max_pkg_size, min_alloc_once,
+                    NET_BUFFER_MEMORY_LIMIT.value)) != 0)
+    {
+        return result;
+    }
 
     result = sf_setup_signal_handler();
 

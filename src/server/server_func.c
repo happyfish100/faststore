@@ -366,6 +366,35 @@ static int load_data_path_config(IniContext *ini_context, const char *filename)
     return 0;
 }
 
+static int load_net_buffer_memory_limit(IniContext *ini_context,
+        const char *filename)
+{
+    int result;
+    IniFullContext ini_ctx;
+    int64_t total_memory;
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, NULL, ini_context);
+    if ((result=iniGetPercentCorrectValue(&ini_ctx,
+                    "net_buffer_memory_limit",
+                    &NET_BUFFER_MEMORY_LIMIT.ratio,
+                    0.20, 0.01, 0.80)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
+        return result;
+    }
+    NET_BUFFER_MEMORY_LIMIT.value = total_memory *
+        NET_BUFFER_MEMORY_LIMIT.ratio;
+    if (NET_BUFFER_MEMORY_LIMIT.value < 64 * 1024 * 1024) {
+        NET_BUFFER_MEMORY_LIMIT.value = 64 * 1024 * 1024;
+        NET_BUFFER_MEMORY_LIMIT.ratio = (double)NET_BUFFER_MEMORY_LIMIT.
+            value / (double)total_memory;
+    }
+    return 0;
+}
+
 static void master_election_config_to_string(char *buff, const int size)
 {
     int len;
@@ -459,6 +488,7 @@ static void server_log_configs()
             "recovery_max_queue_depth = %d, "
             "rebuild_threads = %d, "
             "binlog_buffer_size = %d KB, "
+            "net_buffer_memory_limit = %.2f%%, "
             "local_binlog_check_last_seconds = %d s, "
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
@@ -475,6 +505,7 @@ static void server_log_configs()
             RECOVERY_MAX_QUEUE_DEPTH,
             DATA_REBUILD_THREADS,
             BINLOG_BUFFER_SIZE / 1024,
+            NET_BUFFER_MEMORY_LIMIT.ratio * 100,
             LOCAL_BINLOG_CHECK_LAST_SECONDS,
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
@@ -692,6 +723,10 @@ int server_load_config(const char *filename)
             FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
+
+    if ((result=load_net_buffer_memory_limit(&ini_context, filename)) != 0) {
+        return result;
+    }
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {
         return result;

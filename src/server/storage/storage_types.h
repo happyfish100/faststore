@@ -70,6 +70,7 @@ typedef struct {
 
 typedef enum ob_slice_type {
     OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
+    OB_SLICE_TYPE_CACHE = 'C', /* in memory cache */
     OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
 } OBSliceType;
 
@@ -91,11 +92,12 @@ typedef struct {
 
 typedef struct ob_slice_entry {
     OBEntry *ob;
-    OBSliceType type;    //in file or memory as fallocate
+    OBSliceType type;    //in file, write cache or memory as fallocate
     volatile int ref_count;
     FSSliceSize ssize;
     FSTrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
+    char *buff;  //for write cache only
     struct fast_mblock_man *allocator; //for free
 } OBSliceEntry;
 

@@ -22,6 +22,7 @@
 #include "fastcommon/thread_pool.h"
 #include "common/fs_cluster_cfg.h"
 #include "sf/sf_global.h"
+#include "sf/sf_shared_mbuffer.h"
 #include "fastcfs/auth/client_types.h"
 #include "common/fs_global.h"
 #include "server_types.h"
@@ -31,6 +32,13 @@ typedef struct server_global_vars {
     struct {
         int cpu_count;
     } system;
+
+    struct {
+        struct {
+            int64_t value;
+            double ratio;
+        } net_buffer_memory_limit;
+    } network;
 
     struct {
         FCFSAuthClientFullContext auth;
@@ -87,6 +95,7 @@ typedef struct server_global_vars {
             const char *str;
         } rebuild_path;
         int read_direct_io_paths;
+        struct fast_allocator_context wbuffer_allocator;
     } storage;
 
     struct {
@@ -126,6 +135,8 @@ typedef struct server_global_vars {
     SFSlowLogContext slow_log;
 
     FCThreadPool thread_pool;
+
+    SFSharedMBufferContext shared_mbuffer_ctx;
 
 } FSServerGlobalVars;
 
@@ -225,7 +236,9 @@ typedef struct server_global_vars {
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
 #define WRITE_TO_CACHE        STORAGE_CFG.write_to_cache
-#define WRITE_CACHE_MEMORY_LIMIT STORAGE_CFG.write_cache_memory_limit.value
+
+#define NET_BUFFER_MEMORY_LIMIT g_server_global_vars.  \
+    network.net_buffer_memory_limit
 
 #define DATA_THREAD_COUNT     g_server_global_vars.data.thread_count
 #define BINLOG_BUFFER_SIZE    g_server_global_vars.data.binlog_buffer_size
@@ -238,6 +251,7 @@ typedef struct server_global_vars {
 #define SLOW_LOG_CTX          SLOW_LOG.ctx
 
 #define THREAD_POOL           g_server_global_vars.thread_pool
+#define SHARED_MBUFFER_CTX    g_server_global_vars.shared_mbuffer_ctx
 
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars.replica.channels_between_two_servers
