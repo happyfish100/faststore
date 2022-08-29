@@ -111,6 +111,10 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
     do { \
         replication->task = task;  \
         SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
+        if (SF_CTX->realloc_task_buffer) { \
+            free_queue_set_max_buffer_size(task); \
+            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic); \
+        } \
         REPLICA_REPLICATION = replication;  \
     } while (0)
 
@@ -457,13 +461,14 @@ static int replication_rpc_from_queue(FSReplication *replication)
     ReplicationRPCEntry *rb;
     ReplicationRPCEntry *deleted;
     struct fast_task_info *task;
+    struct iovec *iov;
     FSProtoReplicaRPCReqBodyHeader *body_header;
     FSProtoReplicaRPCReqBodyPart *body_part;
     uint64_t data_version;
     int data_group_id;
-    int count;
     int body_len;
     int pkg_len;
+    bool notify;
     int result;
 
     fc_queue_try_pop_to_queue(&replication->
@@ -472,31 +477,39 @@ static int replication_rpc_from_queue(FSReplication *replication)
         return 0;
     }
 
-    rb = (ReplicationRPCEntry *)qinfo.head;
-    count = 0;
+    body_part = replication->rpc.body_parts;
     task = replication->task;
     task->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCReqBodyHeader);
-    do {
-        body_part = (FSProtoReplicaRPCReqBodyPart *)(task->data +
-                task->length);
-        pkg_len = task->length + sizeof(*body_part) + rb->body_length;
-        if (pkg_len > task->size) {
-            bool notify;
+    iov = replication->rpc.io_vecs;
+    FC_SET_IOVEC(*iov, task->data, task->length);
+    ++iov;
 
+    rb = (ReplicationRPCEntry *)qinfo.head;
+    do {
+        pkg_len = task->length + sizeof(*body_part) +
+            rb->op_ctx->info.body_len;
+        if (pkg_len > task->size || iov - replication->
+                rpc.io_vecs > IOV_MAX - 2)
+        {
             qinfo.head = rb;
             fc_queue_push_queue_to_head_ex(&replication->context.
                     caller.rpc_queue, &qinfo, &notify);
             break;
         }
 
+        FC_SET_IOVEC(*iov, (char *)body_part, sizeof(*body_part));
+        ++iov;
+
+        FC_SET_IOVEC(*iov, rb->op_ctx->info.body,
+                rb->op_ctx->info.body_len);
+        ++iov;
+
         body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
         data_group_id = ((FSServerTaskArg *)rb->task->arg)->
             context.slice_op_ctx.info.data_group_id;
         data_version = ((FSServerTaskArg *)rb->task->arg)->
             context.slice_op_ctx.info.data_version;
-        memcpy(body_part->body, rb->task->data +
-                rb->body_offset, rb->body_length);
 
         if (((FSServerTaskArg *)rb->task->arg)->context.service.
                 idempotency_request != NULL)
@@ -507,12 +520,14 @@ static int replication_rpc_from_queue(FSReplication *replication)
                     slice_op_ctx.update.space_changed, body_part->inc_alloc);
         } else {
             long2buff(0, body_part->req_id);
+            int2buff(0, body_part->inc_alloc);
         }
 
-        ++count;
         task->length = pkg_len;
         long2buff(data_version, body_part->data_version);
-        int2buff(rb->body_length, body_part->body_len);
+        int2buff(rb->op_ctx->info.body_len, body_part->body_len);
+        ++body_part;
+
         if ((result=rpc_result_ring_add(&replication->context.caller.
                         rpc_result_ctx, data_group_id, data_version,
                         rb->task)) != 0)
@@ -527,14 +542,11 @@ static int replication_rpc_from_queue(FSReplication *replication)
         replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
 
-    if (count == 0) {
-        return 0;
-    }
-
+    task->iovec_array.count = iov - replication->rpc.io_vecs;
     body_header = (FSProtoReplicaRPCReqBodyHeader *)
         (task->data + sizeof(FSProtoHeader));
     body_len = task->length - sizeof(FSProtoHeader);
-    int2buff(count, body_header->count);
+    int2buff(body_part - replication->rpc.body_parts, body_header->count);
 
     SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
             FS_REPLICA_PROTO_RPC_REQ, body_len);

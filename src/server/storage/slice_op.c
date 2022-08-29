@@ -261,12 +261,15 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
     return result;
 }
 
-#ifdef OS_LINUX
-
-void fs_release_task_aio_buffers(struct fast_task_info *task)
+void fs_release_task_send_buffer(struct fast_task_info *task)
 {
+#ifdef OS_LINUX
     fs_release_aio_buffers(&SLICE_OP_CTX);
+#else
+#endif
 }
+
+#ifdef OS_LINUX
 
 static int write_iovec_array(FSSliceOpContext *op_ctx)
 {

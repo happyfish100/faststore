@@ -793,10 +793,10 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     buffer_size = buff2int(req->buffer_size);
     replica_channels_between_two_servers = buff2int(
             req->replica_channels_between_two_servers);
-    if (buffer_size != task->size) {
+    if (buffer_size != g_sf_global_vars.max_buff_size) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer task buffer size: %d != mine: %d",
-                buffer_size, task->size);
+                buffer_size, g_sf_global_vars.max_buff_size);
         return EINVAL;
     }
     if (replica_channels_between_two_servers !=

@@ -28,6 +28,7 @@
 #include "fastcommon/fc_atomic.h"
 #include "sf/idempotency/server/request_metadata.h"
 #include "common/fs_types.h"
+#include "common/fs_proto.h"
 #include "storage/storage_types.h"
 
 #define FS_SPACE_ALIGN_SIZE  8
@@ -429,6 +430,11 @@ typedef struct fs_replication {
         int fail_count;
         ConnectionInfo conn;
     } connection_info;  //for client to make connection
+
+    struct {
+        FSProtoReplicaRPCReqBodyPart *body_parts;
+        struct iovec *io_vecs;
+    } rpc;  //forward rpc request
 
     FSReplicationContext context;
 } FSReplication;

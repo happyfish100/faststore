@@ -13,24 +13,13 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <errno.h>
-#include <limits.h>
-#include <fcntl.h>
-#include <pthread.h>
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/pthread_func.h"
 #include "fastcommon/ioevent_loop.h"
 #include "sf/sf_global.h"
+#include "../../common/fs_proto.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "replication_processor.h"
@@ -72,6 +61,7 @@ static int rpc_result_alloc_init_func(void *element, void *args)
 static int init_replication_context(FSReplication *replication)
 {
     int result;
+    int bytes;
     int alloc_size;
 
     replication->connection_info.conn.sock = -1;
@@ -97,12 +87,22 @@ static int init_replication_context(FSReplication *replication)
     }
 
     replication->context.caller.rpc_result_ctx.replication = replication;
-    alloc_size = 4 * g_sf_global_vars.min_buff_size /
+    alloc_size = 4 * g_sf_global_vars.max_pkg_size /
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
     if ((result=rpc_result_ring_check_init(&replication->
                     context.caller.rpc_result_ctx, alloc_size)) != 0)
     {
         return result;
+    }
+
+    bytes = sizeof(FSProtoReplicaRPCReqBodyPart) * (IOV_MAX / 2);
+    if ((replication->rpc.body_parts=fc_malloc(bytes)) == NULL) {
+        return ENOMEM;
+    }
+
+    bytes = sizeof(struct iovec) * IOV_MAX;
+    if ((replication->rpc.io_vecs=fc_malloc(bytes)) == NULL) {
+        return ENOMEM;
     }
 
     logDebug("file: "__FILE__", line: %d, "

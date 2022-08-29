@@ -89,22 +89,25 @@ extern "C" {
         AlignedReadBuffer **aligned_buffer;
         AlignedReadBuffer **aligned_bend;
 
-        aligned_bend = op_ctx->aio_buffer_parray.buffers +
-            op_ctx->aio_buffer_parray.count;
-        for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
-                aligned_buffer<aligned_bend; aligned_buffer++)
-        {
-            read_buffer_pool_free(*aligned_buffer);
-        }
+        if (op_ctx->aio_buffer_parray.count > 0) {
+            aligned_bend = op_ctx->aio_buffer_parray.buffers +
+                op_ctx->aio_buffer_parray.count;
+            for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
+                    aligned_buffer<aligned_bend; aligned_buffer++)
+            {
+                read_buffer_pool_free(*aligned_buffer);
+            }
 
-        op_ctx->aio_buffer_parray.count = 0;
+            op_ctx->aio_buffer_parray.count = 0;
+        }
     }
 
-    void fs_release_task_aio_buffers(struct fast_task_info *task);
     int fs_slice_read(FSSliceOpContext *op_ctx);
 #else
 #define fs_slice_read(op_ctx) fs_slice_normal_read(op_ctx)
 #endif
+
+    void fs_release_task_send_buffer(struct fast_task_info *task);
 
     int fs_slice_write(FSSliceOpContext *op_ctx);
     void fs_write_finish(FSSliceOpContext *op_ctx);

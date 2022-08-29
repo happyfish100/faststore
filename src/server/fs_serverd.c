@@ -88,7 +88,7 @@ static char *alloc_recv_buffer(struct fast_task_info *task,
 
     cmd = ((FSProtoHeader *)task->data)->cmd;
     if (cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
-            cmd == FS_REPLICA_PROTO_SLICE_WRITE_REQ)
+            cmd == FS_REPLICA_PROTO_RPC_REQ)
     {
         *new_alloc = true;
         mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX, buff_size);
@@ -218,7 +218,6 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 
 int main(int argc, char *argv[])
 {
-    sf_release_buffer_callback release_buffer_callback;
     pthread_t schedule_tid;
     int wait_count;
     int result;
@@ -231,12 +230,6 @@ int main(int argc, char *argv[])
     sf_enable_exit_on_oom();
     srand(time(NULL));
     //fast_mblock_manager_init();
-
-#ifdef OS_LINUX
-    release_buffer_callback = fs_release_task_aio_buffers;
-#else
-    release_buffer_callback = NULL;
-#endif
 
     //sched_set_delay_params(300, 1024);
     do {
@@ -315,7 +308,7 @@ int main(int argc, char *argv[])
                 sf_proto_set_body_length, NULL, cluster_deal_task_partly,
                 cluster_task_finish_cleanup, cluster_recv_timeout_callback,
                 1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task, release_buffer_callback);
+                init_nio_task, NULL);
         if (result != 0) {
             break;
         }
@@ -373,7 +366,7 @@ int main(int argc, char *argv[])
                 replica_deal_task, replica_task_finish_cleanup,
                 replica_recv_timeout_callback, 1000,
                 sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task, release_buffer_callback);
+                init_nio_task, fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }
@@ -387,7 +380,7 @@ int main(int argc, char *argv[])
                 service_deal_task, service_task_finish_cleanup,
                 NULL, 1000, sizeof(FSProtoHeader),
                 sizeof(FSServerTaskArg), init_nio_task,
-                release_buffer_callback);
+                fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }

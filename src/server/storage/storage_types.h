@@ -159,9 +159,9 @@ typedef struct fs_slice_op_context {
 
     SFSharedMBuffer *mbuffer;  //for slice write
     struct ob_slice_ptr_array slice_ptr_array;  //for slice read
+    iovec_array_t iovec_array;
 
 #ifdef OS_LINUX
-    iovec_array_t iovec_array;
     AIOBufferPtrArray aio_buffer_parray;
 #endif
 

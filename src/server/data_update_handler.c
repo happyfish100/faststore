@@ -323,7 +323,7 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
 }
 
 #ifdef OS_LINUX
-int buffer_to_iovec_array(struct fast_task_info *task)
+static int buffer_to_iovec_array(struct fast_task_info *task)
 {
     AlignedReadBuffer **aligned_buffer;
     AlignedReadBuffer **end;

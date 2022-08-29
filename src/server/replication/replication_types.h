@@ -23,11 +23,11 @@
 #include <pthread.h>
 #include "../server_types.h"
 
+struct fs_slice_op_context;
 typedef struct replication_rpc_entry {
     struct fast_task_info *task;
-    volatile short reffer_count;
-    short body_offset;
-    int body_length;
+    volatile int reffer_count;
+    struct fs_slice_op_context *op_ctx;
     struct replication_rpc_entry *nexts[0];  //for slave replications
 } ReplicationRPCEntry;
 
