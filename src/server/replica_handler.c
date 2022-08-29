@@ -178,6 +178,10 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                 SERVER_TASK_TYPE, REPLICA_REPLICATION);
     }
 
+    if (task->recv_body != NULL) {
+        sf_release_task_shared_mbuffer(task);
+    }
+
     sf_task_finish_clean_up(task);
 }
 
@@ -1301,6 +1305,10 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                         "unkown cmd: %d", REQUEST.header.cmd);
                 result = -EINVAL;
                 break;
+        }
+
+        if (task->recv_body != NULL) {
+            sf_release_task_shared_mbuffer(task);
         }
     }
 

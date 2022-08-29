@@ -154,6 +154,8 @@ const char *fs_get_cmd_caption(const int cmd)
             return "SYNC_BINLOG_NEXT_REQ";
         case FS_REPLICA_PROTO_SYNC_BINLOG_RESP:
             return "SYNC_BINLOG_RESP";
+        case FS_REPLICA_PROTO_SLICE_WRITE_REQ:
+            return "REPLICA_SLICE_WRITE";
         case FS_REPLICA_PROTO_RPC_REQ:
             return "REPLICA_RPC_REQ";
         case FS_REPLICA_PROTO_RPC_RESP:

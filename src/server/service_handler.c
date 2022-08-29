@@ -107,6 +107,10 @@ void service_task_finish_cleanup(struct fast_task_info *task)
                 SERVER_TASK_TYPE, IDEMPOTENCY_CHANNEL);
     }
 
+    if (task->recv_body != NULL) {
+        sf_release_task_shared_mbuffer(task);
+    }
+
     sf_task_finish_clean_up(task);
 }
 
@@ -657,6 +661,10 @@ int service_deal_task(struct fast_task_info *task, const int stage)
             }
         } else {
             result = service_process(task);
+        }
+
+        if (task->recv_body != NULL) {
+            sf_release_task_shared_mbuffer(task);
         }
     }
 

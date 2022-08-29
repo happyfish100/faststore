@@ -20,6 +20,7 @@
 #include "fastcommon/fc_list.h"
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/uniq_skiplist.h"
+#include "sf/sf_shared_mbuffer.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
@@ -156,6 +157,7 @@ typedef struct fs_slice_op_context {
         FSSliceSNPairArray sarray;
     } update;  //for slice update
 
+    SFSharedMBuffer *mbuffer;  //for slice write
     struct ob_slice_ptr_array slice_ptr_array;  //for slice read
 
 #ifdef OS_LINUX

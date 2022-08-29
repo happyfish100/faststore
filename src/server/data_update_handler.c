@@ -674,8 +674,13 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return EINVAL;
     }
 
+    op_ctx->mbuffer = fc_list_entry(task->recv_body, SFSharedMBuffer, buff);
     op_ctx->info.buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
-    return du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_WRITE);
+    result = du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_WRITE);
+    if (result == TASK_STATUS_CONTINUE) {
+        task->recv_body = NULL;
+    }
+    return result;
 }
 
 int du_handler_deal_slice_allocate(struct fast_task_info *task,

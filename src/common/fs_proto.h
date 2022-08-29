@@ -98,6 +98,7 @@
 #define FS_REPLICA_PROTO_SYNC_BINLOG_RESP        96
 
 // master -> slave RPC
+#define FS_REPLICA_PROTO_SLICE_WRITE_REQ         97
 #define FS_REPLICA_PROTO_RPC_REQ                 99
 #define FS_REPLICA_PROTO_RPC_RESP               100
 

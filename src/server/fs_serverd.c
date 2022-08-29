@@ -80,6 +80,28 @@ static int init_nio_task(struct fast_task_info *task)
     return fs_slice_array_init(slice_sn_parray);
 }
 
+static char *alloc_recv_buffer(struct fast_task_info *task,
+        const int buff_size, bool *new_alloc)
+{
+    unsigned char cmd;
+    SFSharedMBuffer *mbuffer;
+
+    cmd = ((FSProtoHeader *)task->data)->cmd;
+    if (cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
+            cmd == FS_REPLICA_PROTO_SLICE_WRITE_REQ)
+    {
+        *new_alloc = true;
+        mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX, buff_size);
+        if (mbuffer == NULL) {
+            return NULL;
+        }
+        return mbuffer->buff;
+    } else {
+        *new_alloc = false;
+        return NULL;
+    }
+}
+
 static int parse_cmd_options(int argc, char *argv[])
 {
     int ch;
@@ -347,9 +369,10 @@ int main(int argc, char *argv[])
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
-                sf_proto_set_body_length, NULL, replica_deal_task,
-                replica_task_finish_cleanup, replica_recv_timeout_callback,
-                1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
+                sf_proto_set_body_length, alloc_recv_buffer,
+                replica_deal_task, replica_task_finish_cleanup,
+                replica_recv_timeout_callback, 1000,
+                sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
                 init_nio_task, release_buffer_callback);
         if (result != 0) {
             break;
@@ -360,10 +383,11 @@ int main(int argc, char *argv[])
 
         result = sf_service_init_ex2(&g_sf_context, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
-                sf_proto_set_body_length, NULL, service_deal_task,
-                service_task_finish_cleanup, NULL, 1000,
-                sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task, release_buffer_callback);
+                sf_proto_set_body_length, alloc_recv_buffer,
+                service_deal_task, service_task_finish_cleanup,
+                NULL, 1000, sizeof(FSProtoHeader),
+                sizeof(FSServerTaskArg), init_nio_task,
+                release_buffer_callback);
         if (result != 0) {
             break;
         }
