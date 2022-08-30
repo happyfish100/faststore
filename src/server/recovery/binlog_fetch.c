@@ -42,7 +42,7 @@ typedef struct {
     int fd;
     int wait_count;
     uint64_t until_version;
-    SharedBuffer *buffer;  //for network
+    SFSharedMBuffer *mbuffer;  //for network
 } BinlogFetchContext;
 
 const char *data_recovery_get_fetched_binlog_filename(
@@ -319,16 +319,16 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 conn->port, response.header.body_len, bheader_size);
         return EINVAL;
     }
-    if (response.header.body_len > fetch_ctx->buffer->capacity) {
+    if (response.header.body_len > g_sf_global_vars.max_buff_size) {
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too large, "
                 "the max body length is %d", __LINE__, conn->ip_addr,
                 conn->port, response.header.body_len,
-                fetch_ctx->buffer->capacity);
+                g_sf_global_vars.max_buff_size);
         return EOVERFLOW;
     }
 
-    if ((result=tcprecvdata_nb(conn->sock, fetch_ctx->buffer->buff,
+    if ((result=tcprecvdata_nb(conn->sock, fetch_ctx->mbuffer->buff,
                     response.header.body_len, SF_G_NETWORK_TIMEOUT)) != 0)
     {
         response.error.length = snprintf(response.error.message,
@@ -340,7 +340,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     }
 
     common_bheader = (FSProtoReplicaFetchBinlogRespBodyHeader *)
-        fetch_ctx->buffer->buff;
+        fetch_ctx->mbuffer->buff;
     binlog.len = buff2int(common_bheader->binlog_length);
     *is_last = common_bheader->is_last;
     if (response.header.body_len != bheader_size + binlog.len) {
@@ -355,7 +355,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
         FSProtoReplicaFetchBinlogFirstRespBodyHeader *first_bheader;
 
         first_bheader = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
-            fetch_ctx->buffer->buff;
+            fetch_ctx->mbuffer->buff;
         ctx->master_repl_version = buff2int(first_bheader->repl_version);
         ctx->is_full_dump = (first_bheader->is_full_dump == 1);
         ctx->is_restore = (first_bheader->is_restore == 1);
@@ -386,7 +386,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 */
     }
 
-    binlog.str = fetch_ctx->buffer->buff + bheader_size;
+    binlog.str = fetch_ctx->mbuffer->buff + bheader_size;
     if (ctx->is_online) {
         if ((result=find_binlog_length(ctx, &binlog, is_last)) != 0) {
             return result;
@@ -671,8 +671,9 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
         return result;
     }
 
-    fetch_ctx.buffer = replication_callee_alloc_shared_buffer(ctx->server_ctx);
-    if (fetch_ctx.buffer == NULL) {
+    fetch_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
+            g_sf_global_vars.max_buff_size);
+    if (fetch_ctx.mbuffer == NULL) {
         close(fetch_ctx.fd);
         return ENOMEM;
     }
@@ -697,7 +698,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
     } while (0);
 
     close(fetch_ctx.fd);
-    shared_buffer_release(fetch_ctx.buffer);
+    sf_shared_mbuffer_release(fetch_ctx.mbuffer);
 
     if (result == 0 && *binlog_size > 0) {
         char full_filename[PATH_MAX];

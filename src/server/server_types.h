@@ -494,7 +494,6 @@ typedef struct fs_server_context {
             FSReplicationPtrArray connectings;
             FSReplicationPtrArray connected;
             struct fast_mblock_man op_ctx_allocator; //for slice op buffer context
-            SharedBufferContext shared_buffer_ctx;
         } replica;
     };
 

@@ -893,9 +893,9 @@ static inline int replica_deal_active_test_req(struct fast_task_info *task)
     return sf_proto_deal_active_test(task, &REQUEST, &RESPONSE);
 }
 
-static int handle_rpc_req(struct fast_task_info *task,
-        SharedBuffer *buffer, const int count)
+static int handle_rpc_req(struct fast_task_info *task, const int count)
 {
+    SFSharedMBuffer *mbuffer;
     FSProtoReplicaRPCReqBodyPart *body_part;
     FSSliceOpBufferContext *op_buffer_ctx;
     FSSliceOpContext *op_ctx;
@@ -907,12 +907,13 @@ static int handle_rpc_req(struct fast_task_info *task,
     int blen;
     int i;
 
+    mbuffer = fc_list_entry(task->recv_body, SFSharedMBuffer, buff);
     TASK_CTX.which_side = FS_WHICH_SIDE_SLAVE;
     last_index = count - 1;
     current_len = sizeof(FSProtoReplicaRPCReqBodyHeader);
     for (i=0; i<count; i++) {
         body_part = (FSProtoReplicaRPCReqBodyPart *)
-            (buffer->buff + current_len);
+            (REQUEST.body + current_len);
         blen = buff2int(body_part->body_len);
         if (blen <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -944,8 +945,8 @@ static int handle_rpc_req(struct fast_task_info *task,
         op_ctx = &op_buffer_ctx->op_ctx;
 
         if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
-            shared_buffer_hold(buffer);
-            op_buffer_ctx->buffer = buffer;
+            op_buffer_ctx->op_ctx.mbuffer = mbuffer;
+            sf_shared_mbuffer_hold(mbuffer);
         }
 
         op_ctx->info.deal_done = false;
@@ -1003,7 +1004,7 @@ static int handle_rpc_req(struct fast_task_info *task,
             }
 
             if (body_part->cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ) {
-                shared_buffer_release(op_buffer_ctx->buffer);
+                sf_shared_mbuffer_release(op_buffer_ctx->op_ctx.mbuffer);
             }
             replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
 
@@ -1022,7 +1023,6 @@ static int handle_rpc_req(struct fast_task_info *task,
 static int replica_deal_rpc_req(struct fast_task_info *task)
 {
     FSProtoReplicaRPCReqBodyHeader *body_header;
-    SharedBuffer *buffer;
     int result;
     int min_body_len;
     int count;
@@ -1055,15 +1055,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
         return EINVAL;
     }
 
-    if ((buffer=replication_callee_alloc_shared_buffer(SERVER_CTX)) == NULL) {
-        return ENOMEM;
-    }
-
-    memcpy(buffer->buff, REQUEST.body, task->length - sizeof(FSProtoHeader));
-    result = handle_rpc_req(task, buffer, count);
-    shared_buffer_release(buffer);
-
-    return result;
+    return handle_rpc_req(task, count);
 }
 
 static int replica_deal_rpc_resp(struct fast_task_info *task)

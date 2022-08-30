@@ -42,7 +42,7 @@ typedef struct {
     int fd;
     int wait_count;
     uint64_t until_version;
-    SharedBuffer *buffer;  //for network
+    SFSharedMBuffer *mbuffer;  //for network
 } BinlogSyncContext;
 
 static int query_binlog_info(ConnectionInfo *conn, DataRecoveryContext *ctx,
@@ -106,16 +106,16 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
         return 0;
     }
 
-    if (response.header.body_len > sync_ctx->buffer->capacity) {
+    if (response.header.body_len > g_sf_global_vars.max_buff_size) {
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too large, "
                 "the max body length is %d", __LINE__, conn->ip_addr,
                 conn->port, response.header.body_len,
-                sync_ctx->buffer->capacity);
+                g_sf_global_vars.max_buff_size);
         return EOVERFLOW;
     }
 
-    if ((result=tcprecvdata_nb(conn->sock, sync_ctx->buffer->buff,
+    if ((result=tcprecvdata_nb(conn->sock, sync_ctx->mbuffer->buff,
                     response.header.body_len, SF_G_NETWORK_TIMEOUT)) != 0)
     {
         response.error.length = snprintf(response.error.message,
@@ -127,7 +127,7 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
     }
 
     if (fc_safe_write(((BinlogSyncContext *)ctx->arg)->fd,
-                sync_ctx->buffer->buff, response.header.body_len) !=
+                sync_ctx->mbuffer->buff, response.header.body_len) !=
             response.header.body_len)
     {
         result = errno != 0 ? errno : EPERM;
@@ -276,8 +276,9 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
 
     ctx->arg = &sync_ctx;
     memset(&sync_ctx, 0, sizeof(sync_ctx));
-    sync_ctx.buffer = replication_callee_alloc_shared_buffer(ctx->server_ctx);
-    if (sync_ctx.buffer == NULL) {
+    sync_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
+            g_sf_global_vars.max_buff_size);
+    if (sync_ctx.mbuffer == NULL) {
         return ENOMEM;
     }
 
@@ -286,6 +287,6 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
     if ((result=fc_delete_file_ex(filename, "replica binlog")) == 0) {
         result = do_sync_binlogs(ctx);
     }
-    shared_buffer_release(sync_ctx.buffer);
+    sf_shared_mbuffer_release(sync_ctx.mbuffer);
     return result;
 }

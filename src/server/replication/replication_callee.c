@@ -74,12 +74,6 @@ int replication_callee_init_allocator(FSServerContext *server_context)
         return result;
     }
 
-    if ((result=shared_buffer_init(&server_context->replica.shared_buffer_ctx,
-                    64, g_sf_global_vars.min_buff_size)) != 0)
-    {
-        return result;
-    }
-
     return 0;
 }
 

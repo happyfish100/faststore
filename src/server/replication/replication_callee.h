@@ -45,13 +45,6 @@ static inline void replication_callee_free_op_buffer_ctx(
             op_ctx_allocator, op_buffer);
 }
 
-static inline SharedBuffer *replication_callee_alloc_shared_buffer(
-        FSServerContext *server_context)
-{
-    return shared_buffer_alloc_ex(&server_context->
-            replica.shared_buffer_ctx, 1);
-}
-
 int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
         const int data_group_id, const uint64_t data_version, const int err_no);
 

@@ -542,6 +542,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
         replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
 
+    task->iovec_array.iovs = replication->rpc.io_vecs;
     task->iovec_array.count = iov - replication->rpc.io_vecs;
     body_header = (FSProtoReplicaRPCReqBodyHeader *)
         (task->data + sizeof(FSProtoHeader));

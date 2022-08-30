@@ -530,7 +530,7 @@ static void slave_data_update_done_notify(FSDataOperation *op)
 
     op_buffer_ctx = fc_list_entry(op->ctx, FSSliceOpBufferContext, op_ctx);
     if (op->operation == DATA_OPERATION_SLICE_WRITE) {
-        shared_buffer_release(op_buffer_ctx->buffer);
+        sf_shared_mbuffer_release(op_buffer_ctx->op_ctx.mbuffer);
     }
     replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
     sf_release_task(task);

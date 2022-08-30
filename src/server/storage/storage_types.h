@@ -169,7 +169,6 @@ typedef struct fs_slice_op_context {
 
 typedef struct fs_slice_op_buffer_context {
     FSSliceOpContext op_ctx;
-    SharedBuffer *buffer;
 } FSSliceOpBufferContext;
 
 typedef struct fs_slice_blocked_op_context {
