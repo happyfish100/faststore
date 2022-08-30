@@ -38,6 +38,8 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
         FSSliceOpContext *op_ctx, const FSProtoBlockSlice *bs,
         const bool master_only);
 
+int du_handler_check_size_for_read(struct fast_task_info *task);
+
 void du_handler_fill_slice_update_response(struct fast_task_info *task,
         const int inc_alloc);
 

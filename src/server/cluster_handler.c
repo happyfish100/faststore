@@ -177,6 +177,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 {
     int result;
     int server_id;
+    int buffer_size;
     int64_t key;
     FSProtoJoinLeaderReq *req;
     FSProtoJoinLeaderResp *resp;
@@ -222,6 +223,14 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return EEXIST;
     }
 
+    buffer_size = cluster_relationship_get_max_buffer_size();
+    if (task->size < buffer_size) {
+        if ((result=free_queue_set_buffer_size(task, buffer_size)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+    }
+
     if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer server id: %d already joined", server_id);
@@ -248,6 +257,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         cluster_relationship_set_server_status(
                 peer, FS_SERVER_STATUS_OFFLINE);
     }
+
     cluster_topology_sync_all_data_servers(peer);
 
     resp = (FSProtoJoinLeaderResp *)REQUEST.body;

@@ -266,6 +266,7 @@ static int init_cluster_data_group_array(const char *filename,
     }
     memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
 
+    CLUSTER_DG_SERVER_COUNT = 0;
     for (i=0; i<assoc_gid_array->count; i++) {
         data_group_id = assoc_gid_array->ids[i];
         data_group_index = data_group_id - min_id;
@@ -280,6 +281,8 @@ static int init_cluster_data_group_array(const char *filename,
         if ((result=init_ds_ptr_array(group)) != 0) {
             return result;
         }
+
+        CLUSTER_DG_SERVER_COUNT += group->data_server_array.count;
     }
     CLUSTER_DATA_RGOUP_ARRAY.count = count;
     CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;

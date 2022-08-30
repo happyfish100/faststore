@@ -65,7 +65,7 @@ int cluster_topology_init()
 
     header_size = sizeof(FSProtoHeader) + sizeof(
             FSProtoPushDataServerStatusHeader);
-    max_events_per_pkg = (g_sf_global_vars.min_buff_size - header_size) /
+    max_events_per_pkg = (g_sf_global_vars.max_buff_size - header_size) /
         sizeof(FSProtoPushDataServerStatusBodyPart);
 
     return 0;

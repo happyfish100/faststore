@@ -2468,9 +2468,7 @@ int cluster_relationship_init()
         return result;
     }
 
-    bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader) +
-        sizeof(FSProtoPingLeaderReqBodyPart) * MY_DATA_GROUP_ARRAY.count;
-    init_size = FC_MAX(bytes, 4 * 1024);
+    init_size = cluster_relationship_get_max_buffer_size();
     if ((result=fast_buffer_init_ex(&NETWORK_BUFFER, init_size)) != 0) {
         return result;
     }

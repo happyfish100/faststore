@@ -322,6 +322,36 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
     return 0;
 }
 
+int du_handler_check_size_for_read(struct fast_task_info *task)
+{
+    int result;
+
+    if (OP_CTX_INFO.bs_key.slice.length <= task->size - sizeof(FSProtoHeader)) {
+        return 0;
+    }
+
+    if (OP_CTX_INFO.bs_key.slice.length > g_sf_global_vars.
+            max_buff_size - sizeof(FSProtoHeader))
+    {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "read slice length: %d > task max buffer size: %d",
+                OP_CTX_INFO.bs_key.slice.length, (int)(
+                    g_sf_global_vars.max_buff_size -
+                    sizeof(FSProtoHeader)));
+        return EOVERFLOW;
+    }
+
+    if (READ_DIRECT_IO_PATHS == 0) {
+        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+        REQUEST.body = task->data + sizeof(FSProtoHeader);
+    }
+
+    return 0;
+}
+
 #ifdef OS_LINUX
 static int buffer_to_iovec_array(struct fast_task_info *task)
 {
@@ -847,7 +877,7 @@ int du_handler_deal_client_join(struct fast_task_info *task)
     }
 
     join_resp = (FSProtoClientJoinResp *)SF_PROTO_RESP_BODY(task);
-    int2buff(g_sf_global_vars.min_buff_size -
+    int2buff(g_sf_global_vars.max_buff_size -
             FS_TASK_BUFFER_FRONT_PADDING_SIZE,
             join_resp->buffer_size);
     RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);

@@ -193,12 +193,8 @@ static int service_deal_slice_read(struct fast_task_info *task)
         return result;
     }
 
-    if (OP_CTX_INFO.bs_key.slice.length > task->size - sizeof(FSProtoHeader)) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "read slice length: %d > task buffer size: %d",
-                OP_CTX_INFO.bs_key.slice.length, (int)(
-                    task->size - sizeof(FSProtoHeader)));
-        return EOVERFLOW;
+    if ((result=du_handler_check_size_for_read(task)) != 0) {
+        return result;
     }
 
     sf_hold_task(task);
@@ -298,6 +294,8 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 {
     int result;
     int status;
+    int dg_count;
+    int max_buffer_size;
     bool is_master;
     FSClusterStatFilter filter;
     FSProtoClusterStatReq *req;
@@ -327,6 +325,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         gstart = CLUSTER_DATA_RGOUP_ARRAY.groups;
         gend = CLUSTER_DATA_RGOUP_ARRAY.groups +
             CLUSTER_DATA_RGOUP_ARRAY.count;
+        dg_count = CLUSTER_DATA_RGOUP_ARRAY.count;
     } else {
         filter.filter_by &= ~FS_CLUSTER_STAT_FILTER_BY_GROUP;
         filter.data_group_id = buff2int(req->data_group_id);
@@ -334,6 +333,23 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
             return ENOENT;
         }
         gend = gstart + 1;
+        dg_count = 1;
+    }
+
+    max_buffer_size = sizeof(FSProtoHeader) + sizeof(*body_header) +
+        dg_count * 4 + CLUSTER_DG_SERVER_COUNT * sizeof(*body_part);
+    if (max_buffer_size > g_sf_global_vars.max_buff_size) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "too many data groups: %d, expect buffer size exceeds "
+                "task max buffer size: %d", dg_count,
+                g_sf_global_vars.max_buff_size);
+        return EOVERFLOW;
+    }
+    if (max_buffer_size > task->size) {
+        if ((result=free_queue_set_buffer_size(task, max_buffer_size)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
     }
 
     body_header = (FSProtoClusterStatRespBodyHeader *)SF_PROTO_RESP_BODY(task);
@@ -395,7 +411,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         }
     }
 
-    int2buff(gend - gstart, body_header->dg_count);
+    int2buff(dg_count, body_header->dg_count);
     int2buff(body_part - part_start, body_header->ds_count);
     RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;

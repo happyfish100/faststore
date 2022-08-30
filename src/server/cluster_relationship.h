@@ -111,6 +111,21 @@ static inline bool cluster_relationship_set_server_status(
     }
 }
 
+static inline int cluster_relationship_get_max_buffer_size()
+{
+    int bytes;
+    int buffer_size;
+
+    bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader) +
+        sizeof(FSProtoPingLeaderReqBodyPart) * CLUSTER_DATA_RGOUP_ARRAY.count;
+    buffer_size = 4 * 1024;
+    while (buffer_size < bytes) {
+        buffer_size *= 2;
+    }
+
+    return buffer_size;
+}
+
 #ifdef __cplusplus
 }
 #endif

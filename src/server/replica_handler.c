@@ -310,7 +310,16 @@ static int replica_fetch_binlog_first_output(struct fast_task_info *task,
 
 static int replica_fetch_binlog_next_output(struct fast_task_info *task)
 {
+    int result;
     char *buff;
+
+    if (task->size < g_sf_global_vars.max_buff_size) {
+        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+        REQUEST.body = task->data + sizeof(FSProtoHeader);
+    }
 
     buff = REQUEST.body + sizeof(FSProtoReplicaFetchBinlogNextRespBodyHeader);
     return fetch_binlog_output(task, buff,
@@ -700,6 +709,13 @@ static int replica_deal_sync_binlog_next(struct fast_task_info *task)
                 FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ,
                 fs_get_cmd_caption(FS_REPLICA_PROTO_SYNC_BINLOG_FIRST_REQ));
         return EINVAL;
+    }
+
+    if (task->size < g_sf_global_vars.max_buff_size) {
+        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
     }
 
     return sync_binlog_output(task);
@@ -1147,14 +1163,8 @@ static int replica_deal_slice_read(struct fast_task_info *task)
         return result;
     }
 
-    if (OP_CTX_INFO.bs_key.slice.length > (task->size -
-                sizeof(FSProtoHeader)))
-    {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "read slice length: %d > task buffer size: %d",
-                OP_CTX_INFO.bs_key.slice.length, (int)(
-                    task->size - sizeof(FSProtoHeader)));
-        return EOVERFLOW;
+    if ((result=du_handler_check_size_for_read(task)) != 0) {
+        return result;
     }
 
     slave_id = buff2int(req->slave_id);
