@@ -223,10 +223,6 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             }
             data_thread_log_data_update(op);
 
-            if (op->operation == DATA_OPERATION_SLICE_WRITE) {
-                sf_shared_mbuffer_release(op->ctx->mbuffer);
-            }
-
             if (FC_ATOMIC_GET(op->ctx->info.myself->
                         dg->replica_quorum.need_majority))
             {

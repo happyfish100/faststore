@@ -1033,6 +1033,8 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
         }
     }
 
+    sf_shared_mbuffer_release(mbuffer);
+    task->recv_body = NULL;
     return 0;
 }
 
@@ -1157,6 +1159,7 @@ static int replica_deal_slice_read(struct fast_task_info *task)
     }
 
     req = (FSProtoReplicaSliceReadReq *)REQUEST.body;
+    slave_id = buff2int(req->slave_id);
     if ((result=du_handler_parse_check_readable_block_slice(
                     task, &req->bs)) != 0)
     {
@@ -1167,7 +1170,6 @@ static int replica_deal_slice_read(struct fast_task_info *task)
         return result;
     }
 
-    slave_id = buff2int(req->slave_id);
     if (data_thread_is_blocked(OP_CTX_INFO.myself->dg->id)) {
         direct_read = true;
     } else if (slave_id == 0) {

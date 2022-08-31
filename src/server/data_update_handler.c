@@ -493,10 +493,14 @@ static void master_data_update_done_notify(FSDataOperation *op)
         {
             log_data_operation_error(task, op);
         }
+        if (op->operation == DATA_OPERATION_SLICE_WRITE) {
+            sf_shared_mbuffer_release(op->ctx->mbuffer);
+        }
         TASK_CTX.common.log_level = LOG_NOTHING;
     } else {
         switch (op->operation) {
             case DATA_OPERATION_SLICE_WRITE:
+                sf_shared_mbuffer_release(op->ctx->mbuffer);
                 RESPONSE.header.cmd = FS_SERVICE_PROTO_SLICE_WRITE_RESP;
                 break;
             case DATA_OPERATION_SLICE_ALLOCATE:
@@ -704,7 +708,6 @@ int du_handler_deal_slice_write(struct fast_task_info *task,
         return EINVAL;
     }
 
-    op_ctx->mbuffer = fc_list_entry(task->recv_body, SFSharedMBuffer, buff);
     op_ctx->info.buff = op_ctx->info.body + sizeof(FSProtoSliceWriteReqHeader);
     result = du_push_to_data_queue(task, op_ctx, DATA_OPERATION_SLICE_WRITE);
     if (result == TASK_STATUS_CONTINUE) {

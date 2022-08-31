@@ -597,16 +597,22 @@ static int service_process(struct fast_task_info *task)
         case FS_SERVICE_PROTO_SERVICE_STAT_REQ:
             return service_deal_service_stat(task);
         case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
-            return service_process_update(task, du_handler_deal_slice_write,
+            SLICE_OP_CTX.mbuffer = fc_list_entry(task->recv_body,
+                    SFSharedMBuffer, buff);
+            return service_process_update(task,
+                    du_handler_deal_slice_write,
                     FS_SERVICE_PROTO_SLICE_WRITE_RESP);
         case FS_SERVICE_PROTO_SLICE_ALLOCATE_REQ:
-            return service_process_update(task, du_handler_deal_slice_allocate,
+            return service_process_update(task,
+                    du_handler_deal_slice_allocate,
                     FS_SERVICE_PROTO_SLICE_ALLOCATE_RESP);
         case FS_SERVICE_PROTO_SLICE_DELETE_REQ:
-            return service_process_update(task, du_handler_deal_slice_delete,
+            return service_process_update(task,
+                    du_handler_deal_slice_delete,
                     FS_SERVICE_PROTO_SLICE_DELETE_RESP);
         case FS_SERVICE_PROTO_BLOCK_DELETE_REQ:
-            return service_process_update(task, du_handler_deal_block_delete,
+            return service_process_update(task,
+                    du_handler_deal_block_delete,
                     FS_SERVICE_PROTO_BLOCK_DELETE_RESP);
         case FS_SERVICE_PROTO_SLICE_READ_REQ:
             return service_deal_slice_read(task);
