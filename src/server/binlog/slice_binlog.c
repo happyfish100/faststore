@@ -50,10 +50,12 @@ static SFBinlogWriterContext binlog_writer;
 static int init_binlog_writer()
 {
     int result;
+    int ring_size;
 
+    ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
     if ((result=sf_binlog_writer_init_by_version(&binlog_writer.writer,
                     DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
-                    SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, 10240)) != 0)
+                    SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, ring_size)) != 0)
     {
         return result;
     }

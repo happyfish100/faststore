@@ -49,10 +49,20 @@ typedef struct trunk_write_io_buffer {
         iovec_array_t iovec_array;
     };
 
-    struct {
-        trunk_write_io_notify_func func;
-        void *arg;
-    } notify;
+    union {
+        struct {
+            trunk_write_io_notify_func func;
+            void *arg;
+        } notify;
+
+        struct {
+            uint32_t timestamp;
+            char source;
+            uint64_t data_version;  //for replica binlog
+            uint64_t sn;            //for slice binlog
+        } binlog;
+    };
+
     struct trunk_write_io_buffer *next;
 } TrunkWriteIOBuffer;
 
@@ -81,23 +91,39 @@ extern "C" {
                 notify_func, notify_arg);
     }
 
+    int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
+            const int type, const int64_t version,
+            OBSliceEntry *slice, void *data);
+
     static inline int trunk_write_thread_push_slice_by_buff(
-            const int64_t version, OBSliceEntry *slice, char *buff,
+            FSSliceOpContext *op_ctx, const int64_t version,
+            OBSliceEntry *slice, char *buff,
             trunk_write_io_notify_func notify_func, void *notify_arg)
     {
-        return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_BUFF,
-                version, slice->space.store->index, slice->space.id_info.id,
-                slice, buff, notify_func, notify_arg);
+        if (slice->type == OB_SLICE_TYPE_CACHE) {
+            return trunk_write_thread_push_cached_slice(op_ctx,
+                    FS_IO_TYPE_WRITE_SLICE_BY_BUFF, version, slice, buff);
+        } else {
+            return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_BUFF,
+                    version, slice->space.store->index, slice->space.id_info.id,
+                    slice, buff, notify_func, notify_arg);
+        }
     }
 
     static inline int trunk_write_thread_push_slice_by_iovec(
-            const int64_t version, OBSliceEntry *slice, iovec_array_t
-            *iovec_array, trunk_write_io_notify_func notify_func,
-            void *notify_arg)
+            FSSliceOpContext *op_ctx, const int64_t version,
+            OBSliceEntry *slice, iovec_array_t *iovec_array,
+            trunk_write_io_notify_func notify_func, void *notify_arg)
     {
-        return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_IOVEC,
-                version, slice->space.store->index, slice->space.id_info.id,
-                slice, iovec_array, notify_func, notify_arg);
+        if (slice->type == OB_SLICE_TYPE_CACHE) {
+            return trunk_write_thread_push_cached_slice(op_ctx,
+                    FS_IO_TYPE_WRITE_SLICE_BY_IOVEC, version,
+                    slice, iovec_array);
+        } else {
+            return trunk_write_thread_push(FS_IO_TYPE_WRITE_SLICE_BY_IOVEC,
+                    version, slice->space.store->index, slice->space.id_info.id,
+                    slice, iovec_array, notify_func, notify_arg);
+        }
     }
 
 #ifdef __cplusplus

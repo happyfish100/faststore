@@ -46,10 +46,15 @@ static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
     return 0;
 }
 
-static inline void set_data_version(FSSliceOpContext *op_ctx)
+void fs_set_data_version(FSSliceOpContext *op_ctx)
 {
     uint64_t old_version;
 
+    if (op_ctx->info.set_dv_done) {
+        return;
+    }
+
+    op_ctx->info.set_dv_done = true;
     op_ctx->update.timestamp = g_current_time;
     if (!op_ctx->info.write_binlog.log_replica) {
         return;
@@ -133,7 +138,7 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
         }
 
         if (op_ctx->result == 0) {
-            set_data_version(op_ctx);
+            fs_set_data_version(op_ctx);
         }
     } while (0);
 
@@ -166,13 +171,14 @@ static void slice_write_done(struct trunk_write_io_buffer
     }
 }
 
-static inline OBSliceEntry *alloc_init_slice(const FSBlockKey *bkey,
-        FSTrunkSpaceInfo *space, const OBSliceType slice_type,
-        const int offset, const int length)
+static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
+        const FSBlockKey *bkey, FSTrunkSpaceInfo *space, const OBSliceType
+        slice_type, const int offset, const int length)
 {
     OBSliceEntry *slice;
 
-    slice = ob_index_alloc_slice(bkey);
+    slice = ob_index_alloc_slice_ex(&g_ob_hashtable, bkey,
+            slice_type == OB_SLICE_TYPE_CACHE ? 2 : 1);
     if (slice == NULL) {
         return NULL;
     }
@@ -181,11 +187,16 @@ static inline OBSliceEntry *alloc_init_slice(const FSBlockKey *bkey,
     slice->space = *space;
     slice->ssize.offset = offset;
     slice->ssize.length = length;
+    if (slice_type == OB_SLICE_TYPE_CACHE) {
+        slice->cache.mbuffer = op_ctx->mbuffer;
+        slice->cache.buff = op_ctx->info.buff;
+        sf_shared_mbuffer_hold(op_ctx->mbuffer);
+    }
     return slice;
 }
 
-static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
-        const OBSliceType slice_type, const bool reclaim_alloc,
+static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
+        *bs_key, const OBSliceType slice_type, const bool reclaim_alloc,
         FSSliceSNPair *slice_sn_pairs, int *slice_count)
 {
     int result;
@@ -219,9 +230,9 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
             */
 
     if (*slice_count == 1) {
-        slice_sn_pairs[0].slice = alloc_init_slice(&bs_key->block,
-                &spaces[0].space, slice_type, bs_key->slice.offset,
-                bs_key->slice.length);
+        slice_sn_pairs[0].slice = alloc_init_slice(op_ctx,
+                &bs_key->block, &spaces[0].space, slice_type,
+                bs_key->slice.offset, bs_key->slice.length);
         if (slice_sn_pairs[0].slice == NULL) {
             return ENOMEM;
         }
@@ -239,8 +250,8 @@ static int fs_slice_alloc(const FSBlockSliceKeyInfo *bs_key,
         offset = bs_key->slice.offset;
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
-            slice_sn_pairs[i].slice = alloc_init_slice(&bs_key->block,
-                    &spaces[i].space, slice_type, offset,
+            slice_sn_pairs[i].slice = alloc_init_slice(op_ctx, &bs_key->
+                    block, &spaces[i].space, slice_type, offset,
                     (spaces[i].space.size < remain ?
                      spaces[i].space.size : remain));
             if (slice_sn_pairs[i].slice == NULL) {
@@ -299,7 +310,7 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
         }
         op_ctx->iovec_array.count = op_ctx->aio_buffer_parray.count;
 
-        result = trunk_write_thread_push_slice_by_iovec(
+        result = trunk_write_thread_push_slice_by_iovec(op_ctx,
                 op_ctx->update.sarray.slice_sn_pairs[0].version,
                 op_ctx->update.sarray.slice_sn_pairs[0].slice,
                 &op_ctx->iovec_array, slice_write_done, op_ctx);
@@ -357,7 +368,7 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
             }
 
             iov_arr.count = iovc - iov_arr.iovs;
-            if ((result=trunk_write_thread_push_slice_by_iovec(
+            if ((result=trunk_write_thread_push_slice_by_iovec(op_ctx,
                             slice_sn_pair->version, slice_sn_pair->slice,
                             &iov_arr, slice_write_done, op_ctx)) != 0)
             {
@@ -376,11 +387,22 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
+    OBSliceType slice_type;
     int result;
 
+    op_ctx->info.set_dv_done = false;
     op_ctx->done_bytes = 0;
     op_ctx->update.space_changed = 0;
-    if ((result=fs_slice_alloc(&op_ctx->info.bs_key, OB_SLICE_TYPE_FILE,
+    if (WRITE_TO_CACHE && (op_ctx->info.source == BINLOG_SOURCE_RPC_MASTER ||
+                op_ctx->info.source == BINLOG_SOURCE_RPC_SLAVE))
+    {
+        op_ctx->info.write_to_cache = true;
+        slice_type = OB_SLICE_TYPE_CACHE;
+    } else {
+        op_ctx->info.write_to_cache = false;
+        slice_type = OB_SLICE_TYPE_FILE;
+    }
+    if ((result=fs_slice_alloc(op_ctx, &op_ctx->info.bs_key, slice_type,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM,
                     op_ctx->update.sarray.slice_sn_pairs,
                     &op_ctx->update.sarray.count)) != 0)
@@ -392,6 +414,10 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 
     op_ctx->result = 0;
     op_ctx->counter = op_ctx->update.sarray.count;
+    if (slice_type == OB_SLICE_TYPE_CACHE) {
+        fs_set_data_version(op_ctx);
+    }
+
 #ifdef OS_LINUX
     if (op_ctx->info.buffer_type == fs_buffer_type_array) {
         return write_iovec_array(op_ctx);
@@ -399,7 +425,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 #endif
 
     if (op_ctx->update.sarray.count == 1) {
-        result = trunk_write_thread_push_slice_by_buff(
+        result = trunk_write_thread_push_slice_by_buff(op_ctx,
                 op_ctx->update.sarray.slice_sn_pairs[0].version,
                 op_ctx->update.sarray.slice_sn_pairs[0].slice,
                 op_ctx->info.buff, slice_write_done, op_ctx);
@@ -414,7 +440,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
             length = slice_sn_pair->slice->ssize.length;
-            if ((result=trunk_write_thread_push_slice_by_buff(
+            if ((result=trunk_write_thread_push_slice_by_buff(op_ctx,
                             slice_sn_pair->version, slice_sn_pair->slice,
                             ps, slice_write_done, op_ctx)) != 0)
             {
@@ -558,7 +584,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         new_bskey.block = op_ctx->info.bs_key.block;
         for (k=0; k<count; k++) {
             new_bskey.slice = ssizes[k];
-            if ((result=fs_slice_alloc(&new_bskey, OB_SLICE_TYPE_ALLOC,
+            if ((result=fs_slice_alloc(op_ctx, &new_bskey, OB_SLICE_TYPE_ALLOC,
                             false, op_ctx->update.sarray.slice_sn_pairs +
                             op_ctx->update.sarray.count, &n)) != 0)
             {
@@ -590,7 +616,8 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         op_ctx->update.space_changed += inc;
     }
     if (result == 0) {
-        set_data_version(op_ctx);
+        op_ctx->info.set_dv_done = false;
+        fs_set_data_version(op_ctx);
     }
 
     if (result != 0) {
@@ -900,7 +927,8 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
-        set_data_version(op_ctx);
+        op_ctx->info.set_dv_done = false;
+        fs_set_data_version(op_ctx);
     }
 
     return result;
@@ -933,7 +961,8 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
     {
-        set_data_version(op_ctx);
+        op_ctx->info.set_dv_done = false;
+        fs_set_data_version(op_ctx);
     }
 
     return result;

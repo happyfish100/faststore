@@ -323,12 +323,12 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
 #endif
             op->ctx->rw_done_callback = data_thread_rw_done_callback;
             if ((result=fs_slice_write(op->ctx)) == 0) {
-                DATA_THREAD_COND_WAIT(thread_ctx);
+                if (!op->ctx->info.write_to_cache) {
+                    DATA_THREAD_COND_WAIT(thread_ctx);
+                    fs_write_finish(op->ctx);  //for add slice index and cleanup
+                }
             } else {
                 op->ctx->result = result;
-            }
-            if (result == 0) {
-                fs_write_finish(op->ctx);  //for add slice index and cleanup
             }
             break;
         case DATA_OPERATION_SLICE_ALLOCATE:

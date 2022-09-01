@@ -92,13 +92,17 @@ typedef struct {
 } OBHashtable;
 
 typedef struct ob_slice_entry {
+    int64_t data_version;
     OBEntry *ob;
     OBSliceType type;    //in file, write cache or memory as fallocate
     volatile int ref_count;
     FSSliceSize ssize;
     FSTrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
-    char *buff;  //for write cache only
+    struct {
+        SFSharedMBuffer *mbuffer;
+        char *buff;
+    } cache; //for write cache only
     struct fast_mblock_man *allocator; //for free
 } OBSliceEntry;
 
@@ -132,18 +136,20 @@ typedef struct fs_slice_op_context {
     volatile int done_bytes;
 
     struct {
-        bool deal_done;  //for continue deal check
+        bool deal_done;    //for continue deal check
+        bool set_dv_done;
         bool is_update;
         struct {
-            bool log_replica;  //false for trunk reclaim and data rebuild
+            bool log_replica;   //false for trunk reclaim and data rebuild
         } write_binlog;
-        char source;           //for binlog write
+        bool write_to_cache;
+        char source;            //for binlog write
         int data_group_id;
+        int body_len;
         uint64_t data_version;  //for replica binlog
         uint64_t sn;            //for slice binlog
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
-        int body_len;
 #ifdef OS_LINUX
         FSIOBufferType buffer_type;
 #endif

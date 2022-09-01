@@ -24,6 +24,7 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "../server_global.h"
+#include "../binlog/binlog_types.h"
 #include "../binlog/trunk_binlog.h"
 #include "trunk_write_thread.h"
 
@@ -260,20 +261,20 @@ void trunk_write_thread_terminate()
 {
 }
 
-int trunk_write_thread_push(const int type, const int64_t version,
-        const int path_index, const uint64_t hash_code, void *entry,
-        void *data, trunk_write_io_notify_func notify_func, void *notify_arg)
+static inline TrunkWriteIOBuffer *alloc_init_buffer(
+        TrunkWriteThreadContext **thread_ctx, const int type,
+        const int64_t version, const int path_index,
+        const uint64_t hash_code, void *entry, void *data)
 {
     TrunkWritePathContext *path_ctx;
-    TrunkWriteThreadContext *thread_ctx;
     TrunkWriteIOBuffer *iob;
 
     path_ctx = trunk_io_ctx.path_ctx_array.paths + path_index;
-    thread_ctx = path_ctx->writes.contexts +
+    *thread_ctx = path_ctx->writes.contexts +
         hash_code % path_ctx->writes.count;
-    iob = (TrunkWriteIOBuffer *)fast_mblock_alloc_object(&thread_ctx->mblock);
+    iob = fast_mblock_alloc_object(&(*thread_ctx)->mblock);
     if (iob == NULL) {
-        return ENOMEM;
+        return NULL;
     }
 
     iob->type = type;
@@ -289,8 +290,57 @@ int trunk_write_thread_push(const int type, const int64_t version,
     } else {
         iob->buff = (char *)data;
     }
+
+    return iob;
+}
+
+int trunk_write_thread_push(const int type, const int64_t version,
+        const int path_index, const uint64_t hash_code, void *entry,
+        void *data, trunk_write_io_notify_func notify_func, void *notify_arg)
+{
+    TrunkWriteThreadContext *thread_ctx;
+    TrunkWriteIOBuffer *iob;
+
+    if ((iob=alloc_init_buffer(&thread_ctx, type, version, path_index,
+                    hash_code, entry, data)) == NULL)
+    {
+        return ENOMEM;
+    }
+
     iob->notify.func = notify_func;
     iob->notify.arg = notify_arg;
+    fc_queue_push(&thread_ctx->queue, iob);
+    return 0;
+}
+
+int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
+        const int type, const int64_t version,
+        OBSliceEntry *slice, void *data)
+{
+    int result;
+    int inc_alloc;
+    TrunkWriteThreadContext *thread_ctx;
+    TrunkWriteIOBuffer *iob;
+
+    if ((result=ob_index_add_slice(slice, &op_ctx->info.sn, &inc_alloc,
+                    op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) != 0)
+    {
+        return result;
+    }
+    op_ctx->update.space_changed += inc_alloc;
+
+    if ((iob=alloc_init_buffer(&thread_ctx, type, version,
+                    slice->space.store->index,
+                    slice->space.id_info.id,
+                    slice, data)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    iob->binlog.source = op_ctx->info.source;
+    iob->binlog.timestamp = op_ctx->update.timestamp;
+    iob->binlog.data_version = op_ctx->info.data_version;
+    iob->binlog.sn = op_ctx->info.sn;
     fc_queue_push(&thread_ctx->queue, iob);
     return 0;
 }
@@ -583,7 +633,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     if (ctx->iob_array.success > 0) {
         end = ctx->iob_array.iobs + ctx->iob_array.success;
         for (; iob < end; iob++) {
-            if ((*iob)->notify.func != NULL) {
+            if ((*iob)->slice->type != OB_SLICE_TYPE_CACHE) {
                 (*iob)->notify.func(*iob, 0);
             }
 
@@ -594,7 +644,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     if (result != 0) {
         end = ctx->iob_array.iobs + ctx->iob_array.count;
         for (; iob < end; iob++) {
-            if ((*iob)->notify.func != NULL) {
+            if ((*iob)->slice->type != OB_SLICE_TYPE_CACHE) {
                 (*iob)->notify.func(*iob, result);
             }
 
