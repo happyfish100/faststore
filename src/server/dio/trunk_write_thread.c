@@ -26,6 +26,7 @@
 #include "../server_global.h"
 #include "../binlog/binlog_types.h"
 #include "../binlog/trunk_binlog.h"
+#include "../binlog/slice_binlog.h"
 #include "trunk_write_thread.h"
 
 #define IO_THREAD_IOB_MAX     256
@@ -322,6 +323,7 @@ int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
     TrunkWriteThreadContext *thread_ctx;
     TrunkWriteIOBuffer *iob;
 
+    slice->data_version = op_ctx->info.data_version;
     if ((result=ob_index_add_slice(slice, &op_ctx->info.sn, &inc_alloc,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) != 0)
     {
@@ -633,7 +635,15 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     if (ctx->iob_array.success > 0) {
         end = ctx->iob_array.iobs + ctx->iob_array.success;
         for (; iob < end; iob++) {
-            if ((*iob)->slice->type != OB_SLICE_TYPE_CACHE) {
+            if ((*iob)->slice->type == OB_SLICE_TYPE_CACHE) {
+                if (ob_index_update_slice((*iob)->slice) == 0) {
+                    slice_binlog_log_add_slice((*iob)->slice,
+                            (*iob)->binlog.timestamp, (*iob)->binlog.sn,
+                            (*iob)->binlog.data_version,
+                            (*iob)->binlog.source);
+                }
+                ob_index_free_slice((*iob)->slice);
+            } else {
                 (*iob)->notify.func(*iob, 0);
             }
 
@@ -868,6 +878,8 @@ static void *trunk_write_thread_func(void *arg)
             continue;
         }
 
+        //TODO
+        sleep(1);
         deal_request_skiplist(ctx);
     }
 

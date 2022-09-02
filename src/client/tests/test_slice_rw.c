@@ -141,6 +141,14 @@ int main(int argc, char *argv[])
         return result;
     }
 
+    bs_key.slice.length /= 2;
+    if ((result=fs_client_slice_write(&g_fs_client_vars.
+                    client_ctx, &bs_key, out_buff,
+                    &write_bytes, &inc_alloc)) != 0)
+    {
+        return result;
+    }
+
     in_buff = (char *)fc_malloc(bs_key.slice.length);
     if (in_buff == NULL) {
         return ENOMEM;

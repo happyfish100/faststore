@@ -290,6 +290,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             slice->type = record->slice.slice_type;
             slice->ssize = record->slice.bs_key.slice;
             slice->space = record->slice.space;
+            slice->data_version = record->slice.data_version;
             return ob_index_add_slice_by_binlog(slice);
         case BINLOG_OP_TYPE_DEL_SLICE:
             if ((result=ob_index_delete_slices_by_binlog(

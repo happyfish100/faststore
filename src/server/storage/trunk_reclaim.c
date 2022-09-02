@@ -222,7 +222,9 @@ static int migrate_one_slice(TrunkReclaimContext *rctx,
 {
     int result;
 
-    if (slice->type == OB_SLICE_TYPE_ALLOC) {
+    if (slice->type == OB_SLICE_TYPE_CACHE) {
+        return 0;
+    } else if (slice->type == OB_SLICE_TYPE_ALLOC) {
         rctx->bctx.op_ctx.info.bs_key = slice->bs_key;
         rctx->bctx.op_ctx.info.data_group_id = FS_DATA_GROUP_ID(
                 slice->bs_key.block);
