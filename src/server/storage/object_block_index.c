@@ -220,28 +220,6 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     return slice;
 }
 
-void ob_index_free_slice(OBSliceEntry *slice)
-{
-    if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-
-        if (slice->cache.mbuffer != NULL) {
-
-        logInfo("free slice: %p, data version: %"PRId64", ref_count: %d, block "
-                "{oid: %"PRId64", offset: %"PRId64"}, slice {offset: %d, length: %d}, "
-                "alloctor: %p, mbuffer: %p,  ref_count: %d",
-                slice, slice->data_version, FC_ATOMIC_GET(slice->ref_count),
-                slice->ob->bkey.oid, slice->ob->bkey.offset,
-                slice->ssize.offset, slice->ssize.length,
-                slice->allocator, slice->cache.mbuffer,
-                FC_ATOMIC_GET(slice->cache.mbuffer->reffer_count));
-
-            sf_shared_mbuffer_release(slice->cache.mbuffer);
-            slice->cache.mbuffer = NULL;
-        }
-        fast_mblock_free_object(slice->allocator, slice);
-    }
-}
-
 static int slice_compare(const void *p1, const void *p2)
 {
     return ((OBSliceEntry *)p1)->ssize.offset -
@@ -250,19 +228,7 @@ static int slice_compare(const void *p1, const void *p2)
 
 static void slice_free_func(void *ptr, const int delay_seconds)
 {
-    OBSliceEntry *slice;
-
-    slice = (OBSliceEntry *)ptr;
-    if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
-        /*
-           logInfo("free slice3: %p, ref_count: %d, block "
-           "{oid: %"PRId64", offset: %"PRId64"}, allocator: %p",
-           slice, __sync_add_and_fetch(&slice->ref_count, 0),
-           slice->ob->bkey.oid, slice->ob->bkey.offset, slice->allocator);
-         */
-
-        fast_mblock_free_object(slice->allocator, slice);
-    }
+    ob_index_free_slice((OBSliceEntry *)ptr);
 }
 
 static int ob_alloc_init(OBEntry *ob, struct fast_mblock_man *allocator)
@@ -678,8 +644,10 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
     }
 
     if ((OBSliceEntry *)node->data == slice) {
+        /*
         logInfo("file: "__FILE__", line: %d, func: %s, "
                 "found slice: %p", __LINE__, __FUNCTION__, slice);
+                */
 
         new_slice = slice_dup(slice, OB_SLICE_TYPE_FILE,
                 slice->ssize.offset, slice->ssize.length);

@@ -878,8 +878,6 @@ static void *trunk_write_thread_func(void *arg)
             continue;
         }
 
-        //TODO
-        sleep(1);
         deal_request_skiplist(ctx);
     }
 

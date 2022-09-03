@@ -99,6 +99,41 @@ extern "C" {
     OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const int init_refer);
 
+
+    static inline void ob_index_free_slice(OBSliceEntry *slice)
+    {
+        /*
+           logInfo("free slice: %p, data version: %"PRId64", ref_count: %d, "
+           "block {oid: %"PRId64", offset: %"PRId64"}, "
+           "slice {offset: %d, length: %d}, alloctor: %p",
+           slice, slice->data_version, FC_ATOMIC_GET(slice->ref_count),
+           slice->ob->bkey.oid, slice->ob->bkey.offset,
+           slice->ssize.offset, slice->ssize.length,
+           slice->allocator);
+         */
+
+        if (__sync_sub_and_fetch(&slice->ref_count, 1) == 0) {
+
+            if (slice->cache.mbuffer != NULL) {
+
+                /*
+                   logInfo("free slice: %p, data version: %"PRId64", ref_count: %d, block "
+                   "{oid: %"PRId64", offset: %"PRId64"}, slice {offset: %d, length: %d}, "
+                   "alloctor: %p, mbuffer: %p,  ref_count: %d",
+                   slice, slice->data_version, FC_ATOMIC_GET(slice->ref_count),
+                   slice->ob->bkey.oid, slice->ob->bkey.offset,
+                   slice->ssize.offset, slice->ssize.length,
+                   slice->allocator, slice->cache.mbuffer,
+                   FC_ATOMIC_GET(slice->cache.mbuffer->reffer_count));
+                 */
+
+                sf_shared_mbuffer_release(slice->cache.mbuffer);
+                slice->cache.mbuffer = NULL;
+            }
+            fast_mblock_free_object(slice->allocator, slice);
+        }
+    }
+
     void ob_index_free_slice(OBSliceEntry *slice);
 
     int ob_index_get_slices_ex(OBHashtable *htable,

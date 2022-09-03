@@ -175,12 +175,12 @@ static void slice_write_done(struct trunk_write_io_buffer
 }
 
 static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
-        const FSBlockKey *bkey, FSTrunkSpaceInfo *space, const OBSliceType
-        slice_type, const int offset, const int length)
+        const FSBlockSliceKeyInfo *bs_key, FSTrunkSpaceInfo *space,
+        const OBSliceType slice_type, const int offset, const int length)
 {
     OBSliceEntry *slice;
 
-    slice = ob_index_alloc_slice(bkey);
+    slice = ob_index_alloc_slice(&bs_key->block);
     if (slice == NULL) {
         return NULL;
     }
@@ -191,7 +191,8 @@ static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
     slice->ssize.length = length;
     if (slice_type == OB_SLICE_TYPE_CACHE) {
         slice->cache.mbuffer = op_ctx->mbuffer;
-        slice->cache.buff = op_ctx->info.buff;
+        slice->cache.buff = op_ctx->info.buff +
+            (offset - bs_key->slice.offset);
         sf_shared_mbuffer_hold(op_ctx->mbuffer);
     }
     return slice;
@@ -233,7 +234,7 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
 
     if (*slice_count == 1) {
         slice_sn_pairs[0].slice = alloc_init_slice(op_ctx,
-                &bs_key->block, &spaces[0].space, slice_type,
+                bs_key, &spaces[0].space, slice_type,
                 bs_key->slice.offset, bs_key->slice.length);
         if (slice_sn_pairs[0].slice == NULL) {
             return ENOMEM;
@@ -252,8 +253,8 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
         offset = bs_key->slice.offset;
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
-            slice_sn_pairs[i].slice = alloc_init_slice(op_ctx, &bs_key->
-                    block, &spaces[i].space, slice_type, offset,
+            slice_sn_pairs[i].slice = alloc_init_slice(op_ctx, bs_key,
+                    &spaces[i].space, slice_type, offset,
                     (spaces[i].space.size < remain ?
                      spaces[i].space.size : remain));
             if (slice_sn_pairs[i].slice == NULL) {
