@@ -111,9 +111,9 @@ extern "C" {
         return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64
                 " %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
                 (int64_t)current_time, data_version, source,
-                slice->type == OB_SLICE_TYPE_FILE ?
-                BINLOG_OP_TYPE_WRITE_SLICE :
-                BINLOG_OP_TYPE_ALLOC_SLICE,
+                slice->type == OB_SLICE_TYPE_ALLOC ?
+                BINLOG_OP_TYPE_ALLOC_SLICE :
+                BINLOG_OP_TYPE_WRITE_SLICE,
                 slice->ob->bkey.oid, slice->ob->bkey.offset,
                 slice->ssize.offset, slice->ssize.length,
                 slice->space.store->index, slice->space.id_info.id,
