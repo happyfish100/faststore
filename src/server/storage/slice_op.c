@@ -394,15 +394,16 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     int result;
 
     op_ctx->info.set_dv_done = false;
-    op_ctx->done_bytes = 0;
     op_ctx->update.space_changed = 0;
     if (WRITE_TO_CACHE && (op_ctx->info.source == BINLOG_SOURCE_RPC_MASTER ||
                 op_ctx->info.source == BINLOG_SOURCE_RPC_SLAVE))
     {
         op_ctx->info.write_to_cache = true;
+        op_ctx->done_bytes = op_ctx->info.bs_key.slice.length;
         slice_type = OB_SLICE_TYPE_CACHE;
     } else {
         op_ctx->info.write_to_cache = false;
+        op_ctx->done_bytes = 0;
         slice_type = OB_SLICE_TYPE_FILE;
     }
     if ((result=fs_slice_alloc(op_ctx, &op_ctx->info.bs_key, slice_type,
@@ -411,14 +412,14 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
                     &op_ctx->update.sarray.count)) != 0)
     {
         op_ctx->result = result;
-        op_ctx->rw_done_callback(op_ctx, op_ctx->arg);
         return result;
     }
 
     op_ctx->result = 0;
-    op_ctx->counter = op_ctx->update.sarray.count;
     if (slice_type == OB_SLICE_TYPE_CACHE) {
         fs_set_data_version(op_ctx);
+    } else {
+        op_ctx->counter = op_ctx->update.sarray.count;
     }
 
 #ifdef OS_LINUX

@@ -397,12 +397,23 @@ void ob_index_destroy()
 static inline int do_delete_slice(OBHashtable *htable,
         OBEntry *ob, OBSliceEntry *slice)
 {
+    int result;
+
     if (htable->modify_sallocator && slice->type != OB_SLICE_TYPE_CACHE) {
         storage_allocator_delete_slice(slice,
                 htable->modify_used_space);
     }
 
-    return uniq_skiplist_delete(ob->slices, slice);
+    if ((result=uniq_skiplist_delete(ob->slices, slice)) != 0) {
+        logError("file: "__FILE__", line: %d, remove slice "
+                "from skiplist fail, errno: %d, error info: %s, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}", __LINE__,
+                result, STRERROR(result), ob->bkey.oid,
+                ob->bkey.offset, slice->ssize.offset,
+                slice->ssize.length);
+    }
+    return result;
 }
 
 static inline int do_add_slice(OBHashtable *htable,
@@ -411,8 +422,16 @@ static inline int do_add_slice(OBHashtable *htable,
     int result;
 
     if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
+        logError("file: "__FILE__", line: %d, add slice "
+                "to skiplist fail, errno: %d, error info: %s, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "slice {offset: %d, length: %d}", __LINE__,
+                result, STRERROR(result), ob->bkey.oid,
+                ob->bkey.offset, slice->ssize.offset,
+                slice->ssize.length);
         return result;
     }
+
     if (htable->modify_sallocator && slice->type != OB_SLICE_TYPE_CACHE) {
         return storage_allocator_add_slice(slice, htable->modify_used_space);
     } else {
@@ -779,7 +798,6 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
 
 int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice)
 {
-    const bool is_reclaim = false;
     int result;
 
     /*
@@ -791,8 +809,6 @@ int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice)
 
     OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&lcp->lock);
-
-    CHECK_AND_WAIT_RECLAIM_DONE(lcp, slice->ob);
     result = update_slice(htable, slice->ob, slice);
     PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
