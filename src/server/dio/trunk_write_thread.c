@@ -341,7 +341,6 @@ int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
 
     iob->binlog.source = op_ctx->info.source;
     iob->binlog.timestamp = op_ctx->update.timestamp;
-    iob->binlog.data_version = op_ctx->info.data_version;
     iob->binlog.sn = op_ctx->info.sn;
     fc_queue_push(&thread_ctx->queue, iob);
     return 0;
@@ -639,7 +638,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
                 if (ob_index_update_slice((*iob)->slice) == 0) {
                     slice_binlog_log_add_slice((*iob)->slice,
                             (*iob)->binlog.timestamp, (*iob)->binlog.sn,
-                            (*iob)->binlog.data_version,
+                            (*iob)->slice->data_version,
                             (*iob)->binlog.source);
                 }
                 ob_index_free_slice((*iob)->slice);

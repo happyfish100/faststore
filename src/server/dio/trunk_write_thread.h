@@ -58,7 +58,6 @@ typedef struct trunk_write_io_buffer {
         struct {
             uint32_t timestamp;
             char source;
-            uint64_t data_version;  //for replica binlog
             uint64_t sn;            //for slice binlog
         } binlog;
     };

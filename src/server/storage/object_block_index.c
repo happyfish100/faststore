@@ -663,11 +663,6 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
     }
 
     if ((OBSliceEntry *)node->data == slice) {
-        /*
-        logInfo("file: "__FILE__", line: %d, func: %s, "
-                "found slice: %p", __LINE__, __FUNCTION__, slice);
-                */
-
         new_slice = slice_dup(slice, OB_SLICE_TYPE_FILE,
                 slice->ssize.offset, slice->ssize.length);
         if (new_slice == NULL) {
@@ -677,9 +672,6 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
         do_delete_slice(htable, ob, slice);
         return do_add_slice(htable, ob, new_slice);
     }
-
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "try slice: %p", __LINE__, __FUNCTION__, slice);
 
     slice_end = slice->ssize.offset + slice->ssize.length;
     if (slice_end <= ((OBSliceEntry *)node->data)->ssize.offset) { //not overlap
@@ -728,10 +720,6 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
 
         node = UNIQ_SKIPLIST_LEVEL0_NEXT_NODE(node);
     } while (node != ob->slices->factory->tail);
-
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "delete count: %d, add count: %d", __LINE__, __FUNCTION__,
-            del_slice_array.count, add_slice_array.count);
 
     for (i=0; i<del_slice_array.count; i++) {
         do_delete_slice(htable, ob, del_slice_array.slices[i]);
