@@ -183,7 +183,8 @@ static int try_combine_slice(FSAPISliceEntry *slice,
     if (ictx->wbuffer->combined && (slice->stage ==
                 FS_API_COMBINED_WRITER_STAGE_PROCESSING) &&
             (__sync_add_and_fetch(&g_combine_handler_ctx.
-                                  waiting_slice_count, 0) > 0))
+                                  waiting_slice_count, 0) >
+             g_fs_api_ctx.write_combine.max_waiting_slice_count))
     {
         add_to_slice_waiting_list(slice, ictx);  //for flow control
         *is_new_slice = false;

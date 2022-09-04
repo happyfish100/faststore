@@ -120,11 +120,9 @@ extern "C" {
     static inline void fs_api_wait_write_done_and_release(
             FSAPIWaitingTask *waiting_task)
     {
-        FSAPIWaitingTaskSlicePair *ts_pair;
-
         PTHREAD_MUTEX_LOCK(&waiting_task->lcp.lock);
-        while ((ts_pair=fc_list_first_entry(&waiting_task->waitings.head,
-                        FSAPIWaitingTaskSlicePair, dlink)) != NULL)
+        while (fc_list_first_entry(&waiting_task->waitings.head,
+                    FSAPIWaitingTaskSlicePair, dlink) != NULL)
         {
             pthread_cond_wait(&waiting_task->lcp.cond,
                     &waiting_task->lcp.lock);

@@ -163,6 +163,7 @@ typedef struct fs_api_context {
         int max_wait_time_ms;
         int skip_combine_on_slice_size;
         int skip_combine_on_last_merged_slices;
+        int max_waiting_slice_count;   //for flow control
         int timer_shared_lock_count;
         int thread_pool_max_threads;
         int thread_pool_min_idle_count;

@@ -59,9 +59,13 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_MAX_HASHTABLE_TOTAL_CAPACITY      100000000
 #define FS_API_DEFAULT_HASHTABLE_TOTAL_CAPACITY    1403641
 
+#define FS_API_MIN_WAITING_SLICE_MAX_COUNT            1
+#define FS_API_MAX_WAITING_SLICE_MAX_COUNT         1024
+#define FS_API_DEFAULT_WAITING_SLICE_MAX_COUNT       16
+
 #define FS_API_MIN_THREAD_POOL_MAX_THREADS            1
 #define FS_API_MAX_THREAD_POOL_MAX_THREADS         1024
-#define FS_API_DEFAULT_THREAD_POOL_MAX_THREADS       16
+#define FS_API_DEFAULT_THREAD_POOL_MAX_THREADS        8
 
 #define FS_API_MIN_THREAD_POOL_MIN_IDLE_COUNT         0
 #define FS_API_MAX_THREAD_POOL_MIN_IDLE_COUNT        64
@@ -163,6 +167,12 @@ static void fs_api_config_load_write_combine(FSAPIContext *api_ctx,
             FS_API_MIN_TIMER_SHARED_LOCK_COUNT,
             FS_API_MAX_TIMER_SHARED_LOCK_COUNT);
 
+    api_ctx->write_combine.max_waiting_slice_count = iniGetIntCorrectValue(
+            ini_ctx, "max_waiting_slice_count",
+            FS_API_DEFAULT_WAITING_SLICE_MAX_COUNT,
+            FS_API_MIN_WAITING_SLICE_MAX_COUNT,
+            FS_API_MAX_WAITING_SLICE_MAX_COUNT);
+
     api_ctx->write_combine.thread_pool_max_threads = iniGetIntCorrectValue(
             ini_ctx, "thread_pool_max_threads",
             FS_API_DEFAULT_THREAD_POOL_MAX_THREADS,
@@ -260,6 +270,7 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 "max_wait_time_ms: %d ms, "
                 "skip_combine_on_slice_size: %d KB, "
                 "skip_combine_on_last_merged_slices: %d, "
+                "max_waiting_slice_count: %d, "
                 "timer_shared_lock_count: %d, "
                 "shared_allocator_count: %d, "
                 "hashtable_sharding_count: %d, "
@@ -272,6 +283,7 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 api_ctx->write_combine.max_wait_time_ms,
                 api_ctx->write_combine.skip_combine_on_slice_size / 1024,
                 api_ctx->write_combine.skip_combine_on_last_merged_slices,
+                api_ctx->write_combine.max_waiting_slice_count,
                 api_ctx->write_combine.timer_shared_lock_count,
                 api_ctx->common.shared_allocator_count,
                 api_ctx->common.hashtable_sharding_count,
