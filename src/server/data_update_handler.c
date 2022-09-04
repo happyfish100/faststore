@@ -326,7 +326,9 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
 {
     int result;
 
-    if (OP_CTX_INFO.bs_key.slice.length <= task->size - sizeof(FSProtoHeader)) {
+    if (OP_CTX_INFO.bs_key.slice.length <= task->size -
+            sizeof(FSProtoHeader))
+    {
         return 0;
     }
 
