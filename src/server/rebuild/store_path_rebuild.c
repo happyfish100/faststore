@@ -495,7 +495,10 @@ static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
         }
     }
 
-    return slice_binlog_set_binlog_write_index(last_index);
+    if ((result=slice_binlog_set_binlog_indexes(0, last_index)) != 0) {
+        return result;
+    }
+    return slice_binlog_set_binlog_write_index(last_index); //for reopen binlog
 }
 
 static int split_binlog(DataRebuildRedoContext *redo_ctx)

@@ -52,6 +52,9 @@ extern "C" {
 
     int slice_binlog_set_binlog_write_index(const int last_index);
 
+    int slice_binlog_set_binlog_indexes(const int start_index,
+            const int last_index);
+
     void slice_binlog_writer_set_flags(const short flags);
 
     int slice_binlog_set_next_version();

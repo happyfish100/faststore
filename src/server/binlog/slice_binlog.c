@@ -110,6 +110,13 @@ int slice_binlog_get_binlog_indexes(int *start_index, int *last_index)
             start_index, last_index);
 }
 
+int slice_binlog_set_binlog_indexes(const int start_index,
+        const int last_index)
+{
+    return sf_binlog_set_indexes(&binlog_writer.writer,
+            start_index, last_index);
+}
+
 int slice_binlog_rotate_file()
 {
     return sf_binlog_writer_rotate_file(&binlog_writer.writer);
