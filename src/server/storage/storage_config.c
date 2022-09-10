@@ -162,6 +162,8 @@ void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss)
     FSStoragePathInfo **end;
     FSClusterServerSpaceStat stat;
     int64_t disk_avail;
+    int64_t fstore_total;
+    int64_t fstore_avail;
 
     stat.total = stat.used = stat.avail = 0;
     end = STORAGE_CFG.paths_by_index.paths + STORAGE_CFG.paths_by_index.count;
@@ -175,17 +177,32 @@ void storage_config_stat_path_spaces(FSClusterServerSpaceStat *ss)
         if (disk_avail < 0) {
             disk_avail = 0;
         }
-        stat.total += (*pp)->trunk_stat.total + disk_avail;
-        stat.avail += (*pp)->trunk_stat.avail + disk_avail;
+
+        fstore_total = (*pp)->trunk_stat.total + disk_avail;
+        if ((*pp)->trunk_stat.used > fstore_total * STORAGE_CFG.
+                never_reclaim_on_trunk_usage)
+        {
+            fstore_avail = (*pp)->trunk_stat.avail + disk_avail;
+        } else {
+            fstore_avail = fstore_total - (*pp)->trunk_stat.used;
+        }
+
+        stat.total += fstore_total;
+        if (fstore_avail > 0) {
+            stat.avail += fstore_avail;
+        }
         stat.used += (*pp)->trunk_stat.used;
 
         /*
-        logInfo("trunk {total: %"PRId64" MB, avail: %"PRId64" MB, "
+        logInfo("disk: #%d, trunk {total: %"PRId64" MB, "
+                "avail1: %"PRId64" MB, avail2: %"PRId64" MB, "
                 "used: %"PRId64" MB, reserved: %"PRId64" MB}, "
                 "disk_avail: %"PRId64" MB, sum {total: %"PRId64" MB, "
                 "avail: %"PRId64" MB, used: %"PRId64" MB}",
+                (*pp)->store.index,
                 (*pp)->trunk_stat.total / (1024 * 1024),
                 (*pp)->trunk_stat.avail / (1024 * 1024),
+                fstore_avail / (1024 * 1024),
                 (*pp)->trunk_stat.used / (1024 * 1024),
                 (*pp)->reserved_space.value / (1024 * 1024),
                 disk_avail / (1024 * 1024), stat.total / (1024 * 1024),
