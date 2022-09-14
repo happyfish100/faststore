@@ -305,7 +305,7 @@ int main(int argc, char *argv[])
 
         result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
-                sf_proto_set_body_length, NULL, cluster_deal_task_partly,
+                sf_proto_set_body_length, NULL, NULL, cluster_deal_task_partly,
                 cluster_task_finish_cleanup, cluster_recv_timeout_callback,
                 1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
                 init_nio_task, NULL);
@@ -362,7 +362,7 @@ int main(int argc, char *argv[])
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
-                sf_proto_set_body_length, alloc_recv_buffer,
+                sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 replica_deal_task, replica_task_finish_cleanup,
                 replica_recv_timeout_callback, 1000,
                 sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
@@ -376,7 +376,7 @@ int main(int argc, char *argv[])
 
         result = sf_service_init_ex2(&g_sf_context, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
-                sf_proto_set_body_length, alloc_recv_buffer,
+                sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 service_deal_task, service_task_finish_cleanup,
                 NULL, 1000, sizeof(FSProtoHeader),
                 sizeof(FSServerTaskArg), init_nio_task,
