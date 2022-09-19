@@ -335,6 +335,14 @@ static int replica_fetch_binlog_inconsistent_output(struct fast_task_info
     FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
     char *buff;
 
+    if (task->size < g_sf_global_vars.max_buff_size) {
+        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+            return result;
+        }
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+        REQUEST.body = task->data + sizeof(FSProtoHeader);
+    }
+
     body_header = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)REQUEST.body;
     buff = (char *)(body_header + 1);
     result = replica_binlog_load_until_dv(data_group_id, last_data_version,
