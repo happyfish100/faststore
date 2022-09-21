@@ -260,7 +260,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 
     cluster_topology_sync_all_data_servers(peer);
 
-    resp = (FSProtoJoinLeaderResp *)REQUEST.body;
+    resp = (FSProtoJoinLeaderResp *)(task->data + sizeof(FSProtoHeader));
     long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
     RESPONSE.header.body_len = sizeof(FSProtoJoinLeaderResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
