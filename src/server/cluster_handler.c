@@ -177,7 +177,6 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 {
     int result;
     int server_id;
-    int buffer_size;
     int64_t key;
     FSProtoJoinLeaderReq *req;
     FSProtoJoinLeaderResp *resp;
@@ -223,9 +222,8 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
         return EEXIST;
     }
 
-    buffer_size = cluster_relationship_get_max_buffer_size();
-    if (task->size < buffer_size) {
-        if ((result=free_queue_set_buffer_size(task, buffer_size)) != 0) {
+    if (SF_CTX->realloc_task_buffer) {
+        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
             return result;
         }
         SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
