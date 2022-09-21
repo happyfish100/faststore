@@ -459,7 +459,7 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         const bool log_connect_error)
 {
     const int connect_timeout = 2;
-    const int network_timeout = 2;
+    const int network_timeout = 3;
     ConnectionInfo conn;
     int result;
 
@@ -2051,7 +2051,7 @@ static int proto_report_disk_space(ConnectionInfo *conn,
 static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
         ConnectionInfo *conn)
 {
-    const int network_timeout = 2;
+    const int network_timeout = 3;
     int result;
     int start_time;
     int timeout_ms;

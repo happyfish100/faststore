@@ -329,8 +329,8 @@ static bool downgrade_data_server_status(FSClusterDataServerInfo *ds,
     return cluster_relationship_set_ds_status_ex(ds, old_status, new_status);
 }
 
-static void cluster_topology_offline_data_server(
-        FSClusterDataServerInfo *ds, const bool unset_master)
+static void cluster_topology_offline_data_server_ex(FSClusterDataServerInfo *ds,
+        const bool unset_master, bool *trigger_election)
 {
     FSClusterDataServerInfo *cur;
     FSClusterDataServerInfo *end;
@@ -351,9 +351,14 @@ static void cluster_topology_offline_data_server(
                 }
             }
 
-            master_election_queue_push(ds->dg);
+            *trigger_election = true;
+        } else {
+            *trigger_election = false;
         }
+
         notify = true;
+    } else {
+        *trigger_election = false;
     }
 
     if (notify) {
@@ -363,10 +368,21 @@ static void cluster_topology_offline_data_server(
     }
 }
 
+static inline void cluster_topology_offline_data_server(
+        FSClusterDataServerInfo *ds)
+{
+    const bool unset_master = false;
+    bool trigger_election;
+    cluster_topology_offline_data_server_ex(ds,
+            unset_master, &trigger_election);
+}
+
 bool cluster_topology_activate_server(FSClusterServerInfo *cs)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
+    struct common_blocked_chain chain;
+    int dg_count;
 
     if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
         return false;
@@ -375,11 +391,18 @@ bool cluster_topology_activate_server(FSClusterServerInfo *cs)
     cluster_relationship_set_server_status(cs, FS_SERVER_STATUS_ACTIVE);
     cluster_relationship_remove_from_inactive_sarray(cs);
 
+    chain.head = chain.tail = NULL;
+    dg_count = 0;
     end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
     for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
         if (FC_ATOMIC_GET((*ds)->dg->master) == NULL) {
-            master_election_queue_push((*ds)->dg);
+            master_election_add_to_chain(&chain, &dg_count, (*ds)->dg);
         }
+    }
+
+    if (chain.head != NULL) {
+        chain.tail->next = NULL;
+        master_election_queue_batch_push(&chain, dg_count);
     }
 
     return true;
@@ -389,6 +412,9 @@ bool cluster_topology_deactivate_server(FSClusterServerInfo *cs)
 {
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
+    struct common_blocked_chain chain;
+    int dg_count;
+    bool trigger_election;
 
     if (cluster_relationship_swap_server_status(cs,
                 FS_SERVER_STATUS_ACTIVE, FS_SERVER_STATUS_OFFLINE))
@@ -397,10 +423,21 @@ bool cluster_topology_deactivate_server(FSClusterServerInfo *cs)
             return false;
         }
 
+        chain.head = chain.tail = NULL;
+        dg_count = 0;
         end = cs->ds_ptr_array.servers + cs->ds_ptr_array.count;
         for (ds=cs->ds_ptr_array.servers; ds<end; ds++) {
-            cluster_topology_offline_data_server(*ds, true);
+            cluster_topology_offline_data_server_ex(*ds,
+                    true, &trigger_election);
+            if (trigger_election) {
+                master_election_add_to_chain(&chain, &dg_count, (*ds)->dg);
+            }
         }
+        if (chain.head != NULL) {
+            chain.tail->next = NULL;
+            master_election_queue_batch_push(&chain, dg_count);
+        }
+
         cluster_relationship_add_to_inactive_sarray(cs);
     }
 
@@ -421,7 +458,7 @@ void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
         send = group->data_server_array.servers +
             group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<send; ds++) {
-            cluster_topology_offline_data_server(ds, false);
+            cluster_topology_offline_data_server(ds);
         }
     }
 }

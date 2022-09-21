@@ -65,7 +65,53 @@ static inline int master_election_unlock()
     return result;
 }
 
-int master_election_queue_push(FSClusterDataGroupInfo *group);
+void master_election_queue_batch_push(struct common_blocked_chain *chain,
+        const int dg_count);
+
+static inline int master_election_queue_push(FSClusterDataGroupInfo *group)
+{
+    const int dg_count = 1;
+    struct common_blocked_chain chain;
+
+    if (__sync_bool_compare_and_swap(&group->election.in_queue, 0, 1)) {
+        chain.head = chain.tail = common_blocked_queue_alloc_node(
+                &g_master_election_ctx.queue);
+        if (chain.head == NULL) {
+            return ENOMEM;
+        }
+
+        chain.head->data = group;
+        chain.tail->next = NULL;
+        master_election_queue_batch_push(&chain, dg_count);
+    }
+
+    return 0;
+}
+
+static inline int master_election_add_to_chain(
+        struct common_blocked_chain *chain, int *dg_count,
+        FSClusterDataGroupInfo *group)
+{
+    struct common_blocked_node *node;
+
+    if (__sync_bool_compare_and_swap(&group->election.in_queue, 0, 1)) {
+        node = common_blocked_queue_alloc_node(&g_master_election_ctx.queue);
+        if (node == NULL) {
+            return ENOMEM;
+        }
+
+        node->data = group;
+        if (chain->head == NULL) {
+            chain->head = node;
+        } else {
+            chain->tail->next = node;
+        }
+        chain->tail = node;
+        ++(*dg_count);
+    }
+
+    return 0;
+}
 
 bool master_election_set_master(FSClusterDataGroupInfo *group,
         FSClusterDataServerInfo *old_master,

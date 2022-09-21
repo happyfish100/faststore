@@ -142,11 +142,14 @@ void master_election_unset_all_masters()
     FSClusterDataGroupInfo *group;
     FSClusterDataGroupInfo *end;
     FSClusterDataServerInfo *master;
+    struct common_blocked_chain chain;
+    int dg_count;
 
+    chain.head = chain.tail = NULL;
+    dg_count = 0;
     end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
     for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
-        master = (FSClusterDataServerInfo *)__sync_fetch_and_add(
-                &group->master, 0);
+        master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
         if (master != NULL) {
             if (master_election_set_master(group, master, NULL)) {
                 cluster_topology_data_server_chg_notify(master,
@@ -156,10 +159,15 @@ void master_election_unset_all_masters()
         }
 
         if (group->data_server_array.count == 1) {
-            master_election_queue_push(group);
+            master_election_add_to_chain(&chain, &dg_count, group);
         } else {
             master_election_push_to_delay_queue(group);
         }
+    }
+
+    if (chain.head != NULL) {
+        chain.tail->next = NULL;
+        master_election_queue_batch_push(&chain, dg_count);
     }
 }
 
@@ -534,21 +542,30 @@ void master_election_deal_delay_queue()
     struct common_blocked_node *node;
     struct common_blocked_node *current;
     FSClusterDataGroupInfo *group;
+    struct common_blocked_chain chain;
+    int dg_count;
 
     if ((node=common_blocked_queue_try_pop_all_nodes(
                     &g_master_election_ctx.delay_queue)) != NULL)
     {
+        chain.head = chain.tail = NULL;
+        dg_count = 0;
         current = node;
         do {
             group = (FSClusterDataGroupInfo *)current->data;
             __sync_bool_compare_and_swap(&group->
                     election.in_delay_queue, 1, 0);
             if (FC_ATOMIC_GET(group->master) == NULL) {
-                master_election_queue_push(group);
+                master_election_add_to_chain(&chain, &dg_count, group);
             }
 
             current = current->next;
         } while (current != NULL);
+
+        if (chain.head != NULL) {
+            chain.tail->next = NULL;
+            master_election_queue_batch_push(&chain, dg_count);
+        }
 
         common_blocked_queue_free_all_nodes(
                 &g_master_election_ctx.
@@ -556,9 +573,9 @@ void master_election_deal_delay_queue()
     }
 }
 
-int master_election_queue_push(FSClusterDataGroupInfo *group)
+void master_election_queue_batch_push(struct common_blocked_chain *chain,
+        const int dg_count)
 {
-    int result;
     int i;
     int waiting_count;
 
@@ -566,26 +583,18 @@ int master_election_queue_push(FSClusterDataGroupInfo *group)
         master_election_thread_start();
     }
 
-    if (__sync_bool_compare_and_swap(&group->election.in_queue, 0, 1)) {
-        waiting_count = FC_ATOMIC_INC(g_master_election_ctx.waiting_count);
-        if ((result=common_blocked_queue_push(&g_master_election_ctx.
-                        queue, group)) != 0)
-        {
-            FC_ATOMIC_DEC(g_master_election_ctx.waiting_count);
-            return result;
-        }
+    waiting_count = FC_ATOMIC_INC_EX(g_master_election_ctx.
+            waiting_count, dg_count);
+    common_blocked_queue_push_chain(&g_master_election_ctx.queue, chain);
 
-        /* check to start election thread for rare case */
-        i = 0;
-        while ((FC_ATOMIC_GET(g_master_election_ctx.waiting_count) ==
-                    waiting_count) && i++ < 10)
-        {
-            if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
-                master_election_thread_start();
-            }
-            fc_sleep_ms(10);
+    /* check to start election thread for rare case */
+    i = 0;
+    while ((FC_ATOMIC_GET(g_master_election_ctx.waiting_count) ==
+                waiting_count) && i++ < 10)
+    {
+        if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
+            master_election_thread_start();
         }
+        fc_sleep_ms(10);
     }
-
-    return 0;
 }
