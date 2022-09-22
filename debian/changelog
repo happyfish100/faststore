@@ -1,3 +1,9 @@
+faststore (3.6.1-1) unstable; urgency=medium
+
+  * upgrade to 3.6.1-1
+
+ -- YuQing <384681@qq.com>  Thu, 22 Sep 2022 12:24:16 +0000
+
 faststore (3.6.0-1) unstable; urgency=medium
 
   * upgrade to 3.6.0-1
