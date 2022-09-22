@@ -577,24 +577,27 @@ void master_election_queue_batch_push(struct common_blocked_chain *chain,
         const int dg_count)
 {
     int i;
+    int sleep_ms;
     int waiting_count;
 
     if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
         master_election_thread_start();
     }
 
-    waiting_count = FC_ATOMIC_INC_EX(g_master_election_ctx.
+    waiting_count = __sync_add_and_fetch(&g_master_election_ctx.
             waiting_count, dg_count);
     common_blocked_queue_push_chain(&g_master_election_ctx.queue, chain);
 
     /* check to start election thread for rare case */
     i = 0;
+    sleep_ms = 1;
     while ((FC_ATOMIC_GET(g_master_election_ctx.waiting_count) ==
                 waiting_count) && i++ < 10)
     {
         if (FC_ATOMIC_GET(g_master_election_ctx.is_running) == 0) {
             master_election_thread_start();
         }
-        fc_sleep_ms(10);
+        fc_sleep_ms(sleep_ms);
+        sleep_ms *= 2;
     }
 }
