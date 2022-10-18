@@ -7,7 +7,8 @@ Build-Depends: debhelper (>=11~),
                libfastcommon-dev (>= 1.0.56),
                libserverframe-dev (>= 1.1.13),
                fastcfs-auth-dev (>= 3.0.0),
-               fastcfs-vote-dev (>= 3.4.0)
+               fastcfs-vote-dev (>= 3.4.0),
+               fastdir-dev (>= 3.4.0)
 Standards-Version: 4.1.4
 Homepage: http://github.com/happyfish100/faststore
 
