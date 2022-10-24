@@ -113,6 +113,7 @@ static int do_slice_read(FSClientContext *client_ctx,
         const bool is_readv, const void *data, const int iovcnt,
         int *read_bytes)
 {
+    const bool auth_enabled = false;
     const SFConnectionParameters *connection_params;
     char out_buff[sizeof(FSProtoHeader) +
         SF_PROTO_QUERY_EXTRA_BODY_SIZE +
@@ -138,8 +139,8 @@ static int do_slice_read(FSClientContext *client_ctx,
                 header, sreq, 0, out_bytes);
         proto_bs = &sreq->bs;
     } else {
-        SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
-                header, rreq, 0, out_bytes);
+        SF_PROTO_CLIENT_SET_REQ_EX(client_ctx, auth_enabled,
+                out_buff, header, rreq, 0, out_bytes);
         int2buff(slave_id, rreq->slave_id);
         proto_bs = &rreq->bs;
     }
