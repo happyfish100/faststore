@@ -834,7 +834,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     }
 
     if ((result=handler_check_config_signs(task, server_id,
-                    &req->config_signs)) != 0)
+                    req->auth_enabled, &req->config_signs)) != 0)
     {
         return result;
     }

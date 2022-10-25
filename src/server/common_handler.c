@@ -94,9 +94,22 @@ static int handler_check_config_sign(struct fast_task_info *task,
 }
 
 int handler_check_config_signs(struct fast_task_info *task,
-        const int server_id, FSProtoConfigSigns *config_signs)
+        const int server_id, const bool auth_enabled,
+        FSProtoConfigSigns *config_signs)
 {
     int result;
+    int my_auth_enabled;
+    int req_auth_enabled;
+
+    my_auth_enabled = (AUTH_ENABLED ? 1 : 0);
+    req_auth_enabled = (auth_enabled ? 1 : 0);
+    if (req_auth_enabled != my_auth_enabled) {
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "server #%d 's auth enabled: %d != mine: %d",
+                server_id, req_auth_enabled, my_auth_enabled);
+        return EINVAL;
+    }
+
     if ((result=handler_check_config_sign(task, server_id,
                     config_signs->servers, SERVERS_CONFIG_SIGN_BUF,
                     SF_CLUSTER_CONFIG_SIGN_LEN, "servers")) != 0)

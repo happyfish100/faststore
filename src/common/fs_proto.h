@@ -300,6 +300,8 @@ typedef struct fs_proto_get_slaves_resp_body_part {
 
 typedef struct fs_proto_join_leader_req {
     char server_id[4];   //the follower server id
+    char auth_enabled;
+    char padding[3];
     char key[8];         //for leader call follower to unset master
     FSProtoConfigSigns config_signs;
 } FSProtoJoinLeaderReq;
@@ -310,6 +312,8 @@ typedef struct fs_proto_join_leader_resp {
 
 typedef struct fs_proto_join_server_req {
     char server_id[4];   //the server id
+    char auth_enabled;
+    char padding[3];
     char buffer_size[4]; //the task size
     char replica_channels_between_two_servers[4];
     FSProtoConfigSigns config_signs;

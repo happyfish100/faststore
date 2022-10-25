@@ -287,6 +287,7 @@ static int send_join_server_package(FSReplication *replication)
 
     req = (FSProtoJoinServerReq *)(out_buff + sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
+    req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
     int2buff(replication->task->size, req->buffer_size);
     int2buff(REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             req->replica_channels_between_two_servers);

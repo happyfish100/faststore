@@ -129,7 +129,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     req = (FSProtoGetServerStatusReq *)REQUEST.body;
     server_id = buff2int(req->server_id);
     if ((result=handler_check_config_signs(task, server_id,
-                    &req->config_signs)) != 0)
+                    req->auth_enabled, &req->config_signs)) != 0)
     {
         return result;
     }
@@ -205,7 +205,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     if ((result=handler_check_config_signs(task, server_id,
-                    &req->config_signs)) != 0)
+                    req->auth_enabled, &req->config_signs)) != 0)
     {
         return result;
     }

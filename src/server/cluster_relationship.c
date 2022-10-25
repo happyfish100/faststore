@@ -152,6 +152,7 @@ static int proto_get_server_status(ConnectionInfo *conn,
     req = (FSProtoGetServerStatusReq *)(out_buff + sizeof(FSProtoHeader));
     status_request.server_id = CLUSTER_MY_SERVER_ID;
     status_request.is_leader = (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR);
+    status_request.auth_enabled = AUTH_ENABLED;
     status_request.servers_sign = SERVERS_CONFIG_SIGN_BUF;
     status_request.cluster_sign = CLUSTER_CONFIG_SIGN_BUF;
     sf_proto_get_server_status_pack(&status_request, req);
@@ -187,6 +188,7 @@ static int proto_join_leader(FSClusterServerInfo *leader,
 
     req = (FSProtoJoinLeaderReq *)(header + 1);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
+    req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
     long2buff(CLUSTER_MYSELF_PTR->key, req->key);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);

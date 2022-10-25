@@ -32,7 +32,8 @@ extern "C" {
 void common_handler_init();
 
 int handler_check_config_signs(struct fast_task_info *task,
-        const int server_id, FSProtoConfigSigns *config_signs);
+        const int server_id, const bool auth_enabled,
+        FSProtoConfigSigns *config_signs);
 
 #ifdef __cplusplus
 }
