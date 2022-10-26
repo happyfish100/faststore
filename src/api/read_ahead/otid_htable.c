@@ -200,12 +200,13 @@ static int otid_htable_insert_callback(SFShardingHashEntry *he,
     }
 
     if (ictx->ahead_bytes > 0) {
+        const int inc_refers = 2;
         int read_bytes;
 
         read_bytes = ictx->op_ctx->bs_key.slice.length +
             ictx->ahead_bytes;
-        entry->buffer = fs_api_buffer_alloc(&ictx->op_ctx->
-                allocator_ctx->read_ahead.buffer_pool, read_bytes, 2);
+        entry->buffer = fs_api_buffer_alloc(&ictx->op_ctx->allocator_ctx->
+                read_ahead.buffer_pool, read_bytes, inc_refers);
         if (entry->buffer == NULL) {
             ictx->ahead_bytes = 0;
             return ENOMEM;
