@@ -16,7 +16,7 @@ Source: http://github.com/happyfish100/faststore/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n) 
 
 BuildRequires: libaio-devel
-BuildRequires: libfastcommon-devel >= 1.0.62
+BuildRequires: libfastcommon-devel >= 1.0.63
 BuildRequires: libserverframe-devel >= 1.1.22
 BuildRequires: FastCFS-auth-devel >= 3.6.1
 BuildRequires: FastCFS-vote-devel >= 3.6.1
@@ -30,7 +30,7 @@ commit version: %{CommitVersion}
 
 %package -n %{FastStoreServer}
 Requires: libaio
-Requires: libfastcommon >= 1.0.62
+Requires: libfastcommon >= 1.0.63
 Requires: libserverframe >= 1.1.22
 Requires: FastCFS-auth-client >= 3.6.1
 Requires: FastCFS-auth-config >= 2.0.0
@@ -40,7 +40,7 @@ Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
-Requires: libfastcommon >= 1.0.62
+Requires: libfastcommon >= 1.0.63
 Requires: libserverframe >= 1.1.22
 Requires: FastCFS-auth-client >= 3.6.1
 Requires: FastCFS-auth-config >= 2.0.0
