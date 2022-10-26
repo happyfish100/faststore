@@ -171,9 +171,9 @@ static inline int remove_conflict_slices(
         FSPrereadBlockHEntry **bucket, FSPrereadBlockPair *block,
         FSPrereadSliceEntry **slices, bool *release_block)
 {
-    FSPrereadSliceEntry *previous;
     FSPrereadSliceEntry *current;
-    FSPrereadSliceEntry *tail;
+    FSPrereadSliceEntry *match_tail;
+    FSPrereadSliceEntry *keep_tail;
 
     *slices = NULL;
     *release_block = false;
@@ -181,25 +181,27 @@ static inline int remove_conflict_slices(
         return ENOENT;
     }
 
-    previous = tail = NULL;
+    match_tail = keep_tail = NULL;
     current = block->current->slices.head;
+    block->current->slices.head = NULL;
     while (current != NULL) {
         if (fs_slice_is_overlap(ssize, &current->ssize)) {
-            if (previous == NULL) {
-                block->current->slices.head = current->next;
-            } else {
-                previous->next = current->next;
-            }
-
             if (*slices == NULL) {
                 *slices = current;
             } else {
-                tail->next = current;
+                match_tail->next = current;
             }
-            tail = current;
+            match_tail = current;
+        } else {
+            if (block->current->slices.head == NULL) {
+                block->current->slices.head = current;
+            } else {
+                keep_tail->next = current;
+            }
+
+            keep_tail = current;
         }
 
-        previous = current;
         current = current->next;
     }
 
@@ -207,7 +209,10 @@ static inline int remove_conflict_slices(
         return ENOENT;
     }
 
-    tail->next = NULL;
+    if (keep_tail != NULL) {
+        keep_tail->next = NULL;
+    }
+    match_tail->next = NULL;
     check_remove_block(bucket, block, release_block);
     return 0;
 }
