@@ -82,9 +82,6 @@ extern "C" {
                 result, STRERROR(result));
     }
 
-
-    void fs_set_data_version(FSSliceOpContext *op_ctx);
-
 #ifdef OS_LINUX
     static inline void fs_release_aio_buffers(FSSliceOpContext *op_ctx)
     {

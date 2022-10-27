@@ -46,7 +46,7 @@ static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
     return 0;
 }
 
-void fs_set_data_version(FSSliceOpContext *op_ctx)
+static void fs_set_data_version(FSSliceOpContext *op_ctx)
 {
     uint64_t old_version;
 

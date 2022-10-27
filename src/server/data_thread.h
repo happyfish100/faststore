@@ -78,20 +78,21 @@ extern "C" {
     static inline int push_to_data_thread_queue(const int operation,
             const int source, void *arg, FSSliceOpContext *op_ctx)
     {
-        FSDataThreadContext *context;
+        FSDataThreadContext *thread_ctx;
         FSDataOperation *op;
         uint32_t hash_code;
 
         hash_code = op_ctx->info.data_group_id;
         if (FC_ATOMIC_GET(op_ctx->info.myself->is_master)) {
-            context = g_data_thread_vars.thread_arrays.master.contexts +
+            thread_ctx = g_data_thread_vars.thread_arrays.master.contexts +
                  hash_code % g_data_thread_vars.thread_arrays.master.count;
         } else {
-            context = g_data_thread_vars.thread_arrays.slave.contexts +
+            thread_ctx = g_data_thread_vars.thread_arrays.slave.contexts +
                 hash_code % g_data_thread_vars.thread_arrays.slave.count;
         }
 
-        op = (FSDataOperation *)fast_mblock_alloc_object(&context->allocator);
+        op = (FSDataOperation *)fast_mblock_alloc_object(
+                &thread_ctx->allocator);
         if (op == NULL) {
             return ENOMEM;
         }
@@ -100,7 +101,7 @@ extern "C" {
         op->source = source;
         op->arg = arg;
         op->ctx = op_ctx;
-        fc_queue_push(&context->queue, op);
+        fc_queue_push(&thread_ctx->queue, op);
         return 0;
     }
 

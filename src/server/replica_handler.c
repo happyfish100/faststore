@@ -941,7 +941,7 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
         blen = buff2int(body_part->body_len);
         if (blen <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "rpc body length: %d <= 0", blen);
+                    "rpc body length: %d <= 0, rpc count: %d", blen, count);
             return EINVAL;
         }
         current_len += sizeof(*body_part) + blen;
@@ -979,7 +979,8 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
         op_ctx->info.data_version = buff2long(body_part->data_version);
         if (op_ctx->info.data_version <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                    "invalid data version: %"PRId64, op_ctx->info.data_version);
+                    "invalid data version: %"PRId64", rpc count: %d, "
+                    "current: %d", op_ctx->info.data_version, count, i + 1);
             return EINVAL;
         }
 

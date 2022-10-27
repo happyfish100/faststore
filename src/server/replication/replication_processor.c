@@ -465,8 +465,6 @@ static int replication_rpc_from_queue(FSReplication *replication)
     struct iovec *iov;
     FSProtoReplicaRPCReqBodyHeader *body_header;
     FSProtoReplicaRPCReqBodyPart *body_part;
-    uint64_t data_version;
-    int data_group_id;
     int body_len;
     int pkg_len;
     bool notify;
@@ -507,31 +505,26 @@ static int replication_rpc_from_queue(FSReplication *replication)
         ++iov;
 
         body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
-        data_group_id = ((FSServerTaskArg *)rb->task->arg)->
-            context.slice_op_ctx.info.data_group_id;
-        data_version = ((FSServerTaskArg *)rb->task->arg)->
-            context.slice_op_ctx.info.data_version;
 
         if (((FSServerTaskArg *)rb->task->arg)->context.service.
                 idempotency_request != NULL)
         {
             long2buff(((FSServerTaskArg *)rb->task->arg)->context.service.
                     idempotency_request->req_id, body_part->req_id);
-            int2buff(((FSServerTaskArg *)rb->task->arg)->context.
-                    slice_op_ctx.update.space_changed, body_part->inc_alloc);
+            int2buff(rb->op_ctx->update.space_changed, body_part->inc_alloc);
         } else {
             long2buff(0, body_part->req_id);
             int2buff(0, body_part->inc_alloc);
         }
 
         task->length = pkg_len;
-        long2buff(data_version, body_part->data_version);
+        long2buff(rb->op_ctx->info.data_version, body_part->data_version);
         int2buff(rb->op_ctx->info.body_len, body_part->body_len);
         ++body_part;
 
         if ((result=rpc_result_ring_add(&replication->context.caller.
-                        rpc_result_ctx, data_group_id, data_version,
-                        rb->task)) != 0)
+                        rpc_result_ctx, rb->op_ctx->info.data_group_id,
+                        rb->op_ctx->info.data_version, rb->task)) != 0)
         {
             sf_terminate_myself();
             return result;

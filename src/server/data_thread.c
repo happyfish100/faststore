@@ -212,6 +212,21 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
     } else if (op->ctx->info.is_update) {
         op->binlog_write_done = false;
         if (op->source == DATA_SOURCE_MASTER_SERVICE) {
+            if (op->ctx->info.data_version == 0) {
+                if (!(op->operation == DATA_OPERATION_SLICE_ALLOCATE &&
+                            op->ctx->update.sarray.count == 0))
+                {
+                    logCrit("file: "__FILE__", line: %d, "
+                            "invalid data version: %"PRId64", operation: %s, "
+                            "update slice count: %d, program terminate!",
+                            __LINE__, op->ctx->info.data_version,
+                            fs_get_data_operation_caption(op->operation),
+                            op->ctx->update.sarray.count);
+                    sf_terminate_myself();
+                }
+                return;
+            }
+
             if (!MASTER_ELECTION_FAILOVER) {
                 data_thread_log_data_update(op);  //log first
             }
