@@ -132,7 +132,16 @@ replace_makefile()
     sed_replace "s#\\\$(ENABLE_SHARED_LIB)#$ENABLE_SHARED_LIB#g" Makefile
 }
 
-cd src/server
+cwd=$(pwd)
+cd src/include/faststore/
+for subdir in api client; do
+  link=$(readlink $subdir)
+  if [ $? -ne 0 ] || [ "$link" != "../../$subdir" -a "$link" != "../../$subdir/" ]; then
+    ln -sf ../../$subdir/ $subdir
+  fi
+done
+
+cd $cwd/src/server
 replace_makefile
 make $1 $2
 
