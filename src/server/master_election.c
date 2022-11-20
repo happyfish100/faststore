@@ -457,7 +457,9 @@ static int master_election_select_master(FSClusterDataGroupInfo *group)
             logInfo("file: "__FILE__", line: %d, "
                     "re-select master, unset old master: %d",
                     __LINE__, master->cs->server->id);
-            master_election_set_master(group, master, NULL);
+            if (!master_election_set_master(group, master, NULL)) {
+                return EAGAIN;
+            }
         } else {
             return 0;
         }
@@ -498,8 +500,9 @@ static void select_master_thread_run(void *arg, void *thread_data)
     int result;
     FSClusterDataGroupInfo *group;
 
-    logDebug("file: "__FILE__", line: %d, "
-            "select_master_thread enter ...", __LINE__);
+    logDebug("file: "__FILE__", line: %d, waiting_count: %d, "
+            "select_master_thread enter ...", __LINE__,
+            FC_ATOMIC_GET(g_master_election_ctx.waiting_count));
 
     while (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         if ((group=(FSClusterDataGroupInfo *)common_blocked_queue_timedpop_sec(
@@ -522,8 +525,9 @@ static void select_master_thread_run(void *arg, void *thread_data)
     }
 
     __sync_bool_compare_and_swap(&g_master_election_ctx.is_running, 1, 0);
-    logDebug("file: "__FILE__", line: %d, "
-            "select_master_thread exit.", __LINE__);
+    logDebug("file: "__FILE__", line: %d, waiting_count: %d, "
+            "select_master_thread exit.", __LINE__,
+            FC_ATOMIC_GET(g_master_election_ctx.waiting_count));
 }
 
 static inline int master_election_thread_start()
