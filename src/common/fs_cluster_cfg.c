@@ -1348,3 +1348,39 @@ const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(
     cluster_cfg->used_server_array.count = count;
     return &cluster_cfg->used_server_array;
 }
+
+int fs_cluster_cfg_get_my_server_groups(FSClusterConfig *cluster_cfg,
+        const int server_id, FSServerGroup **server_groups, const int size)
+{
+    FSServerGroup *group;
+    FSServerGroup *end;
+    int i;
+    int count;
+
+    count = 0;
+    end = cluster_cfg->server_groups.groups + cluster_cfg->server_groups.count;
+    for (group=cluster_cfg->server_groups.groups; group<end; group++) {
+        for (i=0; i<group->server_array.count; i++) {
+            if (group->server_array.servers[i]->id == server_id) {
+                if (count < size) {
+                    server_groups[count++] = group;
+                }
+                break;
+            }
+        }
+    }
+
+    return count;
+}
+
+const FSServerGroup *fs_cluster_cfg_get_server_group_by_id(
+        FSClusterConfig *cluster_cfg, const int server_group_id)
+{
+    if (!(server_group_id > 0 && server_group_id <=
+                cluster_cfg->server_groups.count))
+    {
+        return NULL;
+    }
+
+    return cluster_cfg->server_groups.groups + (server_group_id - 1);
+}

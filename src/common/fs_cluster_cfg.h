@@ -161,6 +161,12 @@ extern "C" {
         }
     }
 
+    int fs_cluster_cfg_get_my_server_groups(FSClusterConfig *cluster_cfg,
+            const int server_id, FSServerGroup **server_groups, const int size);
+
+    const FSServerGroup *fs_cluster_cfg_get_server_group_by_id(
+            FSClusterConfig *cluster_cfg, const int server_group_id);
+
     const FCServerInfoPtrArray *fs_cluster_cfg_get_used_servers(
             FSClusterConfig *cluster_cfg);
 

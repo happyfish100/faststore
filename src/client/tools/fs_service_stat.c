@@ -27,13 +27,40 @@
 static void usage(char *argv[])
 {
     fprintf(stderr, "Usage: %s [-c config_filename=%s] "
-            "[-s server_id] [-g data_group_id=0] host[:port]\n",
-            argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
+            "[-s server_id] [-G server_group_id=0] [-g data_group_id=0] "
+            "host[:port]|all\n", argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
 }
 
-static void output(FSClientServiceStat *stat)
+static const char *get_server_group_ids(const int server_id,
+        char *server_group_ids)
+{
+#define MAX_SERVER_GROUPS 8
+    int count;
+    int len;
+    int i;
+    FSServerGroup *server_groups[MAX_SERVER_GROUPS];
+    char *p;
+
+    count = fs_cluster_cfg_get_my_server_groups(g_fs_client_vars.client_ctx.
+            cluster_cfg.ptr, server_id, server_groups, MAX_SERVER_GROUPS);
+
+    p = server_group_ids;
+    for (i=0; i<count; i++) {
+        if (i > 0) {
+            *p++ = ',';
+        }
+        len = sprintf(p, "%d", server_groups[i]->server_group_id);
+        p += len;
+    }
+    *p = '\0';
+    return server_group_ids;
+}
+
+static void output(const ConnectionInfo *conn,
+        const FSClientServiceStat *stat)
 {
     double avg_slices;
+    char server_group_ids[64];
 
     if (stat->data.ob_count > 0) {
         avg_slices = (double)stat->data.slice_count /
@@ -43,14 +70,18 @@ static void output(FSClientServiceStat *stat)
     }
 
     printf( "\tserver_id: %d\n"
+            "\thost: %s:%u\n"
             "\tis_leader: %s\n"
+            "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
             "writer: {next_version: %"PRId64", total_count: %"PRId64", "
             "waiting_count: %d, max_waitings: %d}}\n"
             "\tdata : {ob_count: %"PRId64", slice_count: %"PRId64", "
             "avg slices/OB: %.2f}\n\n", stat->server_id,
+            conn->ip_addr, conn->port,
             stat->is_leader ?  "true" : "false",
+            get_server_group_ids(stat->server_id, server_group_ids),
             stat->connection.current_count,
             stat->connection.max_count,
             stat->binlog.current_version,
@@ -65,18 +96,27 @@ static void output(FSClientServiceStat *stat)
 int main(int argc, char *argv[])
 {
 #define EMPTY_POOL_NAME SF_G_EMPTY_STRING
+#define MAX_CONNECTIONS  64
 
     const bool publish = false;
     const char *config_filename = FS_CLIENT_DEFAULT_CONFIG_FILENAME;
 	int ch;
     int server_id;
+    int server_group_id;
     int data_group_id;
+    bool stat_all;
+    int count;
+    int i;
+	int result;
     char *host;
     FCServerInfo *server;
-    ConnectionInfo *spec_conn;
+    FCAddressPtrArray *addr_parray;
+    struct {
+        ConnectionInfo **ptr;
+        ConnectionInfo *holder[MAX_CONNECTIONS];
+    } connections;
     ConnectionInfo conn;
     FSClientServiceStat stat;
-	int result;
 
     if (argc < 2) {
         usage(argv);
@@ -87,8 +127,10 @@ int main(int argc, char *argv[])
     //g_log_context.log_level = LOG_DEBUG;
 
     server_id = 0;
+    server_group_id = 0;
     data_group_id = 0;
-    while ((ch=getopt(argc, argv, "hc:s:g:")) != -1) {
+    stat_all = false;
+    while ((ch=getopt(argc, argv, "hc:s:G:g:")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -99,6 +141,9 @@ int main(int argc, char *argv[])
             case 's':
                 server_id = strtol(optarg, NULL, 10);
                 break;
+            case 'G':
+                server_group_id = strtol(optarg, NULL, 10);
+                break;
             case 'g':
                 data_group_id = strtol(optarg, NULL, 10);
                 break;
@@ -108,23 +153,6 @@ int main(int argc, char *argv[])
         }
     }
 
-    if (server_id > 0) {
-        spec_conn = NULL;
-    } else {
-        if (optind >= argc) {
-            usage(argv);
-            return 1;
-        }
-
-        host = argv[optind];
-        if ((result=conn_pool_parse_server_info(host, &conn,
-                        FS_SERVER_DEFAULT_SERVICE_PORT)) != 0)
-        {
-            return result;
-        }
-        spec_conn = &conn;
-    }
-
     if ((result=fs_client_init_with_auth_ex1(&g_fs_client_vars.client_ctx,
                     &g_fcfs_auth_client_vars.client_ctx, config_filename,
                     NULL, NULL, false, &EMPTY_POOL_NAME, publish)) != 0)
@@ -132,9 +160,9 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if (spec_conn == NULL) {
-        FCAddressPtrArray *addr_parray;
-
+    connections.ptr = connections.holder;
+    count = 0;
+    if (server_id > 0) {
         if ((server=fc_server_get_by_id(&g_fs_client_vars.client_ctx.
                         cluster_cfg.ptr->server_cfg, server_id)) == NULL)
         {
@@ -146,15 +174,70 @@ int main(int argc, char *argv[])
 
         addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(
                 &g_fs_client_vars.client_ctx, server);
-        spec_conn = &addr_parray->addrs[0]->conn;
+        connections.ptr[count++] = &addr_parray->addrs[0]->conn;
+    } else if (server_group_id > 0) {
+        const FSServerGroup *server_group;
+
+        if ((server_group=fs_cluster_cfg_get_server_group_by_id(
+                        g_fs_client_vars.client_ctx.cluster_cfg.ptr,
+                        server_group_id)) == NULL)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "server group id: %d not exist",
+                    __LINE__, server_group_id);
+            return ENOENT;
+        }
+
+        for (i=0; i<server_group->server_array.count; i++) {
+            addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(&g_fs_client_vars.
+                    client_ctx, server_group->server_array.servers[i]);
+            connections.ptr[count++] = &addr_parray->addrs[0]->conn;
+        }
+    } else {
+        if (optind >= argc) {
+            usage(argv);
+            return 1;
+        }
+        host = argv[optind];
+
+        if (strcmp(host, "all") == 0) {
+            FCServerInfoArray *server_array;
+
+            server_array = &g_fs_client_vars.client_ctx.cluster_cfg.
+                ptr->server_cfg.sorted_server_arrays.by_id;
+
+            logInfo("server_array count: %d", server_array->count);
+            if (server_array->count <= MAX_CONNECTIONS) {
+                connections.ptr = connections.holder;
+            } else {
+                if ((connections.ptr=fc_malloc(sizeof(ConnectionInfo *) *
+                                server_array->count)) == NULL)
+                {
+                    return ENOMEM;
+                }
+            }
+            for (i=0; i<server_array->count; i++) {
+                addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(&g_fs_client_vars.
+                        client_ctx, server_array->servers + i);
+                connections.ptr[count++] = &addr_parray->addrs[0]->conn;
+            }
+        } else {
+            if ((result=conn_pool_parse_server_info(host, &conn,
+                            FS_SERVER_DEFAULT_SERVICE_PORT)) != 0)
+            {
+                return result;
+            }
+            connections.ptr[count++] = &conn;
+        }
     }
 
-    if ((result=fs_client_proto_service_stat(&g_fs_client_vars.
-                    client_ctx, spec_conn, data_group_id, &stat)) != 0)
-    {
-        return result;
+    for (i=0; i<count; i++) {
+        if ((result=fs_client_proto_service_stat(&g_fs_client_vars.client_ctx,
+                        connections.ptr[i], data_group_id, &stat)) == 0)
+        {
+            output(connections.ptr[i], &stat);
+        }
     }
 
-    output(&stat);
-    return 0;
+    return result;
 }
