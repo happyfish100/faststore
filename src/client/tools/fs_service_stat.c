@@ -71,6 +71,7 @@ static void output(const ConnectionInfo *conn,
 
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
+            "\tversion: %.*s\n"
             "\tis_leader: %s\n"
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
@@ -78,9 +79,10 @@ static void output(const ConnectionInfo *conn,
             "writer: {next_version: %"PRId64", total_count: %"PRId64", "
             "waiting_count: %d, max_waitings: %d}}\n"
             "\tdata : {ob_count: %"PRId64", slice_count: %"PRId64", "
-            "avg slices/OB: %.2f}\n\n", stat->server_id,
-            conn->ip_addr, conn->port,
-            stat->is_leader ?  "true" : "false",
+            "avg slices/OB: %.2f}\n\n",
+            stat->server_id, conn->ip_addr, conn->port,
+            stat->version.len, stat->version.str,
+            (stat->is_leader ?  "true" : "false"),
             get_server_group_ids(stat->server_id, server_group_ids),
             stat->connection.current_count,
             stat->connection.max_count,
@@ -205,8 +207,6 @@ int main(int argc, char *argv[])
 
             server_array = &g_fs_client_vars.client_ctx.cluster_cfg.
                 ptr->server_cfg.sorted_server_arrays.by_id;
-
-            logInfo("server_array count: %d", server_array->count);
             if (server_array->count <= MAX_CONNECTIONS) {
                 connections.ptr = connections.holder;
             } else {

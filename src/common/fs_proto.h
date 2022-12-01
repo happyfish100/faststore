@@ -205,6 +205,10 @@ typedef struct fs_proto_service_stat_req {
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
     char is_leader;
+    struct {
+        char len;
+        char str[10];
+    } version;
 
     struct {
         char current_count[4];

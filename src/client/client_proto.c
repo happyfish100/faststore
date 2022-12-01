@@ -741,8 +741,23 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
         return result;
     }
 
+    stat->version.str = stat->version_holder;
+    stat->version.len = stat_resp.version.len;
+    if (stat->version.len <= 0 || stat->version.len >=
+            sizeof(stat->version_holder))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "invalid version length: %d, which <= 0 or >= %d",
+                __LINE__, stat->version.len, (int)
+                sizeof(stat->version_holder));
+        return EINVAL;
+    }
+
     stat->is_leader = stat_resp.is_leader;
     stat->server_id = buff2int(stat_resp.server_id);
+    memcpy(stat->version.str, stat_resp.version.str, stat->version.len);
+    *(stat->version.str + stat->version.len) = '\0';
+
     stat->connection.current_count = buff2int(
             stat_resp.connection.current_count);
     stat->connection.max_count = buff2int(stat_resp.connection.max_count);

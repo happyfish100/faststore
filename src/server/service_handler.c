@@ -154,6 +154,10 @@ static int service_deal_service_stat(struct fast_task_info *task)
     stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
+    stat_resp->version.len = sprintf(stat_resp->version.str, "%d.%d.%d",
+            g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
+            g_fs_global_vars.version.patch);
+
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);
 
