@@ -610,8 +610,8 @@ static int load_from_config_file(FSStorageConfig *storage_cfg,
     return 0;
 }
 
-static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
-        int *change_count)
+static int load_path_indexes(FSStoragePathArray *parray,
+        const char *caption, int *change_count)
 {
     int result;
     bool regenerated;
@@ -640,8 +640,8 @@ static int load_path_indexes(FSStoragePathArray *parray, const char *caption,
         }
 
 #ifdef OS_LINUX
-        if ((result=get_path_block_size(p->store.path.str,
-                        &p->block_size)) != 0)
+        if (p->read_direct_io && (result=get_path_block_size(
+                        p->store.path.str, &p->block_size)) != 0)
         {
             return result;
         }
