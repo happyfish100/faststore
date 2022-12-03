@@ -106,7 +106,6 @@ int main(int argc, char *argv[])
     int server_id;
     int server_group_id;
     int data_group_id;
-    bool stat_all;
     int count;
     int i;
 	int result;
@@ -131,7 +130,6 @@ int main(int argc, char *argv[])
     server_id = 0;
     server_group_id = 0;
     data_group_id = 0;
-    stat_all = false;
     while ((ch=getopt(argc, argv, "hc:s:G:g:")) != -1) {
         switch (ch) {
             case 'h':
