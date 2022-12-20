@@ -25,6 +25,7 @@
 #include "sf/sf_shared_mbuffer.h"
 #include "fastcfs/auth/client_types.h"
 #include "common/fs_global.h"
+#include "db/db_interface.h"
 #include "server_types.h"
 #include "storage/storage_config.h"
 
@@ -98,6 +99,18 @@ typedef struct server_global_vars {
         int read_direct_io_paths;
         struct fast_allocator_context wbuffer_allocator;
     } storage;
+
+    struct {
+        bool enabled;
+        bool read_by_direct_io;
+        int batch_store_on_modifies;
+        int batch_store_interval;
+        int eliminate_interval;
+        FSStorageEngineConfig cfg;
+        double memory_limit;   //ratio
+        char *library;
+        FSStorageEngineInterface api;
+    } slice_storage;   //slice storage engine
 
     struct {
         SFReplicationQuorum quorum;
@@ -247,6 +260,30 @@ typedef struct server_global_vars {
 #define DATA_PATH             g_server_global_vars.data.path
 #define DATA_PATH_STR         DATA_PATH.str
 #define DATA_PATH_LEN         DATA_PATH.len
+
+
+#define STORAGE_ENABLED         g_server_global_vars.slice_storage.enabled
+#define STORAGE_PATH            g_server_global_vars.slice_storage.cfg.path
+#define STORAGE_PATH_STR        STORAGE_PATH.str
+#define STORAGE_PATH_LEN        STORAGE_PATH.len
+
+#define STORAGE_ENGINE_LIBRARY  g_server_global_vars.slice_storage.library
+#define BATCH_STORE_INTERVAL    g_server_global_vars.slice_storage.batch_store_interval
+#define BATCH_STORE_ON_MODIFIES g_server_global_vars.slice_storage.batch_store_on_modifies
+#define BLOCK_BINLOG_SUBDIRS    g_server_global_vars.slice_storage.cfg.block_segment.subdirs
+#define DENTRY_ELIMINATE_INTERVAL g_server_global_vars.slice_storage.eliminate_interval
+#define STORAGE_MEMORY_LIMIT      g_server_global_vars.slice_storage.memory_limit
+#define READ_BY_DIRECT_IO         g_server_global_vars.slice_storage.read_by_direct_io
+
+#define STORAGE_ENGINE_INIT_API      g_server_global_vars.slice_storage.api.init
+#define STORAGE_ENGINE_START_API     g_server_global_vars.slice_storage.api.start
+#define STORAGE_ENGINE_TERMINATE_API g_server_global_vars.slice_storage.api.terminate
+#define STORAGE_ENGINE_SAVE_SEGMENT_INDEX_API   \
+    g_server_global_vars.slice_storage.api.save_segment_index
+#define STORAGE_ENGINE_STORE_API     g_server_global_vars.slice_storage.api.store
+#define STORAGE_ENGINE_REDO_API      g_server_global_vars.slice_storage.api.redo
+#define STORAGE_ENGINE_FETCH_API     g_server_global_vars.slice_storage.api.fetch
+
 
 #define SLOW_LOG              g_server_global_vars.slow_log
 #define SLOW_LOG_CFG          SLOW_LOG.cfg
