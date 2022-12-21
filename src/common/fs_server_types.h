@@ -41,8 +41,7 @@ typedef struct fs_db_update_field_array {
 typedef struct fs_storage_engine_config {
     struct {
         short subdirs;
-        char subdir_bits;
-        char total_bits;
+        short subdir_bits;
         int htable_capacity;
         int shared_lock_count;
     } block_segment;

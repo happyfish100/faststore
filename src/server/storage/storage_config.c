@@ -322,7 +322,6 @@ static int load_aio_read_buffer_params(FSStorageConfig *storage_cfg,
         IniFullContext *ini_ctx)
 {
     int result;
-    int64_t total_memory;
 
     ini_ctx->section_name = "aio-read-buffer";
     if ((result=iniGetPercentValue(ini_ctx, "memory_watermark_low",
@@ -339,15 +338,11 @@ static int load_aio_read_buffer_params(FSStorageConfig *storage_cfg,
         return result;
     }
 
-    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
-        return result;
-    }
-
     storage_cfg->aio_read_buffer.memory_watermark_low.value =
-        (int64_t)(total_memory * storage_cfg->aio_read_buffer.
+        (int64_t)(SYSTEM_TOTAL_MEMORY * storage_cfg->aio_read_buffer.
                 memory_watermark_low.ratio);
     storage_cfg->aio_read_buffer.memory_watermark_high.value =
-        (int64_t)(total_memory * storage_cfg->aio_read_buffer.
+        (int64_t)(SYSTEM_TOTAL_MEMORY * storage_cfg->aio_read_buffer.
                 memory_watermark_high.ratio);
 
     storage_cfg->aio_read_buffer.max_idle_time = iniGetIntValue(

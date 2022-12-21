@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <math.h>
+#include <dlfcn.h>
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
@@ -33,6 +34,13 @@
 #include "server_binlog.h"
 #include "server_group_info.h"
 #include "server_func.h"
+
+#define BLOCK_BINLOG_DEFAULT_SUBDIRS          128
+#define BLOCK_BINLOG_MIN_SUBDIRS               32
+#define BLOCK_BINLOG_MAX_SUBDIRS              256
+#define DEFAULT_BATCH_STORE_ON_MODIFIES    102400
+#define DEFAULT_BATCH_STORE_INTERVAL           60
+#define DEFAULT_ELIMINATE_INTERVAL              1
 
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
@@ -313,65 +321,11 @@ static int load_replica_binlog_config(IniContext *ini_context,
     return 0;
 }
 
-static int load_data_path_config(IniContext *ini_context, const char *filename)
-{
-    char *data_path;
-
-    data_path = iniGetStrValue(NULL, "data_path", ini_context);
-    if (data_path == NULL) {
-        data_path = "data";
-    } else if (*data_path == '\0') {
-        logError("file: "__FILE__", line: %d, "
-                "config file: %s, empty data_path! "
-                "please set data_path correctly.",
-                __LINE__, filename);
-        return EINVAL;
-    }
-
-    if (*data_path == '/') {
-        DATA_PATH_LEN = strlen(data_path);
-        DATA_PATH_STR = fc_strdup1(data_path, DATA_PATH_LEN);
-        if (DATA_PATH_STR == NULL) {
-            return ENOMEM;
-        }
-    } else {
-        DATA_PATH_LEN = strlen(SF_G_BASE_PATH_STR) + strlen(data_path) + 1;
-        DATA_PATH_STR = (char *)fc_malloc(DATA_PATH_LEN + 1);
-        if (DATA_PATH_STR == NULL) {
-            return ENOMEM;
-        }
-        DATA_PATH_LEN = sprintf(DATA_PATH_STR, "%s/%s",
-                SF_G_BASE_PATH_STR, data_path);
-    }
-    chopPath(DATA_PATH_STR);
-
-    if (access(DATA_PATH_STR, F_OK) != 0) {
-        if (errno != ENOENT) {
-            logError("file: "__FILE__", line: %d, "
-                    "access %s fail, errno: %d, error info: %s",
-                    __LINE__, DATA_PATH_STR, errno, STRERROR(errno));
-            return errno != 0 ? errno : EPERM;
-        }
-
-        if (mkdir(DATA_PATH_STR, 0775) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "mkdir %s fail, errno: %d, error info: %s",
-                    __LINE__, DATA_PATH_STR, errno, STRERROR(errno));
-            return errno != 0 ? errno : EPERM;
-        }
-        
-        SF_CHOWN_TO_RUNBY_RETURN_ON_ERROR(DATA_PATH_STR);
-    }
-
-    return 0;
-}
-
 static int load_net_buffer_memory_limit(IniContext *ini_context,
         const char *filename)
 {
     int result;
     IniFullContext ini_ctx;
-    int64_t total_memory;
 
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, NULL, ini_context);
     if ((result=iniGetPercentCorrectValue(&ini_ctx,
@@ -382,15 +336,12 @@ static int load_net_buffer_memory_limit(IniContext *ini_context,
         return result;
     }
 
-    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
-        return result;
-    }
-    NET_BUFFER_MEMORY_LIMIT.value = total_memory *
+    NET_BUFFER_MEMORY_LIMIT.value = SYSTEM_TOTAL_MEMORY *
         NET_BUFFER_MEMORY_LIMIT.ratio;
     if (NET_BUFFER_MEMORY_LIMIT.value < 64 * 1024 * 1024) {
         NET_BUFFER_MEMORY_LIMIT.value = 64 * 1024 * 1024;
         NET_BUFFER_MEMORY_LIMIT.ratio = (double)NET_BUFFER_MEMORY_LIMIT.
-            value / (double)total_memory;
+            value / (double)SYSTEM_TOTAL_MEMORY;
     }
     return 0;
 }
@@ -456,6 +407,7 @@ static void server_log_configs()
     char sz_replica_binlog_config[128];
     char sz_slice_binlog_config[128];
     char sz_auth_config[1024];
+    int len;
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
@@ -480,7 +432,7 @@ static void server_log_configs()
     replica_binlog_config_to_string(sz_replica_binlog_config,
             sizeof(sz_replica_binlog_config));
 
-    snprintf(sz_server_config, sizeof(sz_server_config),
+    len = snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, cluster server group id = %d, "
             "data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
@@ -497,7 +449,8 @@ static void server_log_configs()
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
             "max_wait_time: %ds, "
-            "max_shutdown_duration: %ds}",
+            "max_shutdown_duration: %ds}, "
+            "storage-engine { enabled: %d",
             CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
@@ -514,7 +467,36 @@ static void server_log_configs()
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME,
-            LEADER_ELECTION_MAX_SHUTDOWN_DURATION);
+            LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
+            STORAGE_ENABLED);
+
+    if (STORAGE_ENABLED) {
+        len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
+                ", library: %s, data_path: %s, block_binlog_subdirs: %d"
+                ", block_segment_hashtable_capacity: %d"
+                ", block_segment_shared_lock_count: %d"
+                ", batch_store_on_modifies: %d, batch_store_interval: %d s"
+                ", eliminate_interval: %d s, memory_limit: %.2f%%",
+                STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
+                BLOCK_BINLOG_SUBDIRS, g_server_global_vars.
+                slice_storage.cfg.block_segment.htable_capacity,
+                g_server_global_vars.slice_storage.cfg.
+                block_segment.shared_lock_count,
+                BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
+                BLOCK_ELIMINATE_INTERVAL,
+                STORAGE_MEMORY_LIMIT * 100);
+
+#ifdef OS_LINUX
+        len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
+                ", read_by_direct_io: %d}", READ_BY_DIRECT_IO);
+#else
+        len += snprintf(sz_server_config + len,
+                sizeof(sz_server_config) - len, "}");
+#endif
+
+    } else {
+        snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
+    }
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "
@@ -634,11 +616,140 @@ static int server_init_client(const char *config_filename)
     return 0;
 }
 
+#define LOAD_API(var, fname) \
+    do { \
+        var = (fname##_func)dlsym(dlhandle, #fname); \
+        if (var == NULL) {  \
+            logError("file: "__FILE__", line: %d, "  \
+                    "dlsym api %s fail, error info: %s", \
+                    __LINE__, #fname, dlerror()); \
+            return ENOENT; \
+        } \
+    } while (0)
+
+
+static int load_storage_engine_apis()
+{
+    void *dlhandle;
+
+    dlhandle = dlopen(STORAGE_ENGINE_LIBRARY, RTLD_LAZY);
+    if (dlhandle == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "dlopen %s fail, error info: %s", __LINE__,
+                STORAGE_ENGINE_LIBRARY, dlerror());
+        return EFAULT;
+    }
+
+    LOAD_API(STORAGE_ENGINE_INIT_API, fs_storage_engine_init);
+    LOAD_API(STORAGE_ENGINE_START_API, fs_storage_engine_start);
+    LOAD_API(STORAGE_ENGINE_TERMINATE_API, fs_storage_engine_terminate);
+    LOAD_API(STORAGE_ENGINE_SAVE_SEGMENT_INDEX_API,
+            fs_storage_engine_save_segment_index);
+    LOAD_API(STORAGE_ENGINE_STORE_API, fs_storage_engine_store);
+    LOAD_API(STORAGE_ENGINE_REDO_API, fs_storage_engine_redo);
+    LOAD_API(STORAGE_ENGINE_FETCH_API, fs_storage_engine_fetch);
+
+    return 0;
+}
+
+static int load_storage_engine_parames(IniFullContext *ini_ctx)
+{
+    int result;
+    char *library;
+
+    ini_ctx->section_name = "storage-engine";
+    STORAGE_ENABLED = iniGetBoolValue(ini_ctx->section_name,
+            "enabled", ini_ctx->context, false);
+    if (!STORAGE_ENABLED) {
+        return 0;
+    }
+
+    library = iniGetStrValue(ini_ctx->section_name,
+            "library", ini_ctx->context);
+    if (library == NULL) {
+        library = "libfsstorage.so";
+    } else if (*library == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, empty library!",
+                __LINE__, ini_ctx->filename, ini_ctx->section_name);
+        return EINVAL;
+    }
+    if ((STORAGE_ENGINE_LIBRARY=fc_strdup(library)) == NULL) {
+        return ENOMEM;
+    }
+    if ((result=load_storage_engine_apis()) != 0) {
+        return result;
+    }
+
+    if ((result=sf_load_data_path_config_ex(ini_ctx, "data_path",
+                    "db", &STORAGE_PATH)) != 0)
+    {
+        return result;
+    }
+
+    if (fc_string_equals(&STORAGE_PATH, &DATA_PATH)) {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, storage path MUST be "
+                "different from the global data path", __LINE__,
+                ini_ctx->filename, ini_ctx->section_name);
+        return EINVAL;
+    }
+
+    BLOCK_BINLOG_SUBDIRS = iniGetIntCorrectValue(ini_ctx,
+            "block_binlog_subdirs", BLOCK_BINLOG_DEFAULT_SUBDIRS,
+            BLOCK_BINLOG_MIN_SUBDIRS, BLOCK_BINLOG_MAX_SUBDIRS);
+
+    BATCH_STORE_ON_MODIFIES = iniGetIntValue(ini_ctx->section_name,
+            "batch_store_on_modifies", ini_ctx->context,
+            DEFAULT_BATCH_STORE_ON_MODIFIES);
+
+    BATCH_STORE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "batch_store_interval", ini_ctx->context,
+            DEFAULT_BATCH_STORE_INTERVAL);
+
+    BLOCK_ELIMINATE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "eliminate_interval", ini_ctx->context,
+            DEFAULT_ELIMINATE_INTERVAL);
+    if ((result=iniGetPercentValue(ini_ctx, "memory_limit",
+                    &STORAGE_MEMORY_LIMIT, 0.60)) != 0)
+    {
+        return result;
+    }
+
+    if (STORAGE_MEMORY_LIMIT < 0.01) {
+        logWarning("file: "__FILE__", line: %d, "
+                "memory_limit: %%%.2f is too small, set to 1%%",
+                __LINE__, STORAGE_MEMORY_LIMIT);
+        STORAGE_MEMORY_LIMIT = 0.01;
+    }
+    if (STORAGE_MEMORY_LIMIT > 0.99) {
+        logWarning("file: "__FILE__", line: %d, "
+                "memory_limit: %%%.2f is too large, set to 99%%",
+                __LINE__, STORAGE_MEMORY_LIMIT);
+        STORAGE_MEMORY_LIMIT = 0.99;
+    }
+
+#ifdef OS_LINUX
+    READ_BY_DIRECT_IO = iniGetBoolValue(ini_ctx->section_name,
+            "read_by_direct_io", ini_ctx->context, false);
+#endif
+
+    g_server_global_vars.slice_storage.cfg.block_segment.htable_capacity =
+        iniGetIntCorrectValue(ini_ctx, "block_segment_hashtable_capacity",
+                1361, 163, 1403641);
+    g_server_global_vars.slice_storage.cfg.block_segment.shared_lock_count =
+        iniGetIntCorrectValue(ini_ctx, "block_segment_shared_lock_count",
+                163, 1, 1361);
+
+    return 0;
+}
+
 int server_load_config(const char *filename)
 {
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
+    DADataGlobalConfig data_cfg;
     char *rebuild_threads;
     int result;
 
@@ -673,11 +784,10 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if ((result=load_data_path_config(&ini_context, filename)) != 0) {
+    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
+    if ((result=sf_load_data_path_config(&full_ini_ctx, &DATA_PATH)) != 0) {
         return result;
     }
-
-    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
 
     DATA_THREAD_COUNT = iniGetIntCorrectValue(&full_ini_ctx,
             "data_threads", FS_DEFAULT_DATA_THREAD_COUNT,
@@ -724,6 +834,10 @@ int server_load_config(const char *filename)
             FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
+
+    if ((result=get_sys_total_mem_size(&SYSTEM_TOTAL_MEMORY)) != 0) {
+        return result;
+    }
 
     if ((result=load_net_buffer_memory_limit(&ini_context, filename)) != 0) {
         return result;
@@ -776,12 +890,41 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    iniFreeContext(&ini_context);
+    if ((result=load_storage_engine_parames(&full_ini_ctx)) != 0) {
+        return result;
+    }
     
     if ((SYSTEM_CPU_COUNT=get_sys_cpu_count()) <= 0) {
         logCrit("file: "__FILE__", line: %d, "
                 "get CPU count fail", __LINE__);
         return EINVAL;
+    }
+
+    if (BLOCK_ELIMINATE_INTERVAL > 0) {
+        g_server_global_vars.slice_storage.cfg.memory_limit = (int64_t)
+            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
+             MEMORY_LIMIT_LEVEL1_RATIO);
+        if (g_server_global_vars.slice_storage.cfg.
+                memory_limit < 64 * 1024 * 1024)
+        {
+            g_server_global_vars.slice_storage.cfg.
+                memory_limit = 64 * 1024 * 1024;
+        }
+    } else {
+        g_server_global_vars.slice_storage.cfg.memory_limit = 0;  //no limit
+    }
+
+    data_cfg.path = STORAGE_PATH;
+    data_cfg.binlog_buffer_size = BINLOG_BUFFER_SIZE;
+    data_cfg.binlog_subdirs = BLOCK_BINLOG_SUBDIRS;
+    data_cfg.read_by_direct_io = READ_BY_DIRECT_IO;
+
+    if (STORAGE_ENABLED) {
+        if ((result=STORAGE_ENGINE_INIT_API(&full_ini_ctx, CLUSTER_MY_SERVER_ID,
+                        &g_server_global_vars.slice_storage.cfg, &data_cfg)) != 0)
+        {
+            return result;
+        }
     }
 
     g_server_global_vars.replica.active_test_interval = (int)
@@ -790,6 +933,7 @@ int server_load_config(const char *filename)
         g_server_global_vars.replica.active_test_interval = 1;
     }
 
+    iniFreeContext(&ini_context);
     load_local_host_ip_addrs();
     server_log_configs();
     storage_config_to_log(&STORAGE_CFG);

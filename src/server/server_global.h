@@ -32,6 +32,7 @@
 typedef struct server_global_vars {
     struct {
         int cpu_count;
+        int64_t total_memory;
     } system;
 
     struct {
@@ -155,6 +156,7 @@ typedef struct server_global_vars {
 } FSServerGlobalVars;
 
 #define SYSTEM_CPU_COUNT      g_server_global_vars.system.cpu_count
+#define SYSTEM_TOTAL_MEMORY   g_server_global_vars.system.total_memory
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars.cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars.cluster.config.ctx.server_cfg
@@ -271,7 +273,7 @@ typedef struct server_global_vars {
 #define BATCH_STORE_INTERVAL    g_server_global_vars.slice_storage.batch_store_interval
 #define BATCH_STORE_ON_MODIFIES g_server_global_vars.slice_storage.batch_store_on_modifies
 #define BLOCK_BINLOG_SUBDIRS    g_server_global_vars.slice_storage.cfg.block_segment.subdirs
-#define DENTRY_ELIMINATE_INTERVAL g_server_global_vars.slice_storage.eliminate_interval
+#define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars.slice_storage.eliminate_interval
 #define STORAGE_MEMORY_LIMIT      g_server_global_vars.slice_storage.memory_limit
 #define READ_BY_DIRECT_IO         g_server_global_vars.slice_storage.read_by_direct_io
 
