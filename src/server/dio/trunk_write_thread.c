@@ -471,9 +471,14 @@ static int do_delete_trunk(TrunkWriteThreadContext *ctx,
                 iob->space.size);
     } else {
         result = errno != 0 ? errno : EACCES;
-        logError("file: "__FILE__", line: %d, "
-                "trunk_filename file \"%s\" fail, errno: %d, error info: %s",
-                __LINE__, trunk_filename, result, STRERROR(result));
+        if (result == ENOENT) {
+            result = 0;
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "trunk_filename file \"%s\" fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    trunk_filename, result, STRERROR(result));
+        }
     }
 
     return result;
@@ -752,6 +757,11 @@ static void deal_request_skiplist(TrunkWriteThreadContext *ctx)
                     iob->notify.func(iob, result);
                 }
                 ++io_count;
+
+                if (result != 0) {
+                    sf_terminate_myself();
+                    return;
+                }
                 break;
             case FS_IO_TYPE_WRITE_SLICE_BY_BUFF:
             case FS_IO_TYPE_WRITE_SLICE_BY_IOVEC:

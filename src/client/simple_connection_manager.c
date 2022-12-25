@@ -78,18 +78,19 @@ int fs_simple_connection_manager_init_ex(FSClientContext *client_ctx,
         SFConnectionManager *cm, const int max_count_per_entry,
         const int max_idle_time, const bool bg_thread_enabled)
 {
+    int dg_count;
     int server_count;
     int result;
 
+    dg_count = FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr);
     server_count = FC_SID_SERVER_COUNT(client_ctx->
             cluster_cfg.ptr->server_cfg);
     if ((result=sf_connection_manager_init_ex(cm, "fstore",
-                    &client_ctx->common_cfg,
-                    FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
-                    client_ctx->cluster_cfg.group_index, server_count,
+                    &client_ctx->common_cfg, dg_count, client_ctx->
+                    cluster_cfg.group_index, server_count,
                     max_count_per_entry, max_idle_time,
-                    connect_done_callback, client_ctx,
-                    bg_thread_enabled)) != 0)
+                    connect_done_callback, client_ctx, &client_ctx->
+                    cluster_cfg.ptr->server_cfg, bg_thread_enabled)) != 0)
     {
         return result;
     }
