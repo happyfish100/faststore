@@ -56,11 +56,13 @@ typedef struct {
 } OBSlicePtrSmartArray;
 
 typedef struct {
+    int64_t memory_limit;
+    volatile int64_t malloc_bytes;
     OBSharedLockArray lock_array;
     OBSharedAllocatorArray allocator_array;
 } OBSharedContext;
 
-static OBSharedContext ob_shared_ctx = {{0, NULL}, {0, NULL}};
+static OBSharedContext ob_shared_ctx = {0, 0, {0, NULL}, {0, NULL}};
 
 OBHashtable g_ob_hashtable = {0, 0, NULL};
 
@@ -244,6 +246,21 @@ static int slice_alloc_init(OBSliceEntry *slice,
     return 0;
 }
 
+static int block_malloc_trunk_check(const int alloc_bytes, void *args)
+{
+    return __sync_add_and_fetch(&ob_shared_ctx.malloc_bytes, 0) +
+        alloc_bytes <= ob_shared_ctx.memory_limit ? 0 : EOVERFLOW;
+}
+
+static void block_malloc_trunk_notify_func(const int alloc_bytes, void *args)
+{
+    if (alloc_bytes > 0) {
+        __sync_add_and_fetch(&ob_shared_ctx.malloc_bytes, alloc_bytes);
+    } else {
+        __sync_sub_and_fetch(&ob_shared_ctx.malloc_bytes, -1 * alloc_bytes);
+    }
+}
+
 static int init_ob_shared_allocator_array(
         OBSharedAllocatorArray *allocator_array)
 {
@@ -257,6 +274,12 @@ static int init_ob_shared_allocator_array(
     const bool allocator_use_lock = true;
     OBSharedAllocator *allocator;
     OBSharedAllocator *end;
+    struct {
+        struct fast_mblock_trunk_callbacks holder;
+        struct fast_mblock_trunk_callbacks *ptr;
+    } trunk_callbacks;
+    struct fast_mblock_object_callbacks obj_callbacks_obentry;
+    struct fast_mblock_object_callbacks obj_callbacks_slice;
 
     allocator_array->count = STORAGE_CFG.object_block.shared_allocator_count;
     bytes = sizeof(OBSharedAllocator) * allocator_array->count;
@@ -264,6 +287,30 @@ static int init_ob_shared_allocator_array(
     if (allocator_array->allocators == NULL) {
         return ENOMEM;
     }
+
+    if (STORAGE_ENABLED) {
+        ob_shared_ctx.memory_limit = (int64_t)
+            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
+             MEMORY_LIMIT_LEVEL0_RATIO);
+        if (ob_shared_ctx.memory_limit < 128 * 1024 * 1024)
+        {
+            ob_shared_ctx.memory_limit = 128 * 1024 * 1024;
+        }
+
+        trunk_callbacks.holder.check_func = block_malloc_trunk_check;
+        trunk_callbacks.holder.notify_func = block_malloc_trunk_notify_func;
+        trunk_callbacks.holder.args = NULL;
+        trunk_callbacks.ptr = &trunk_callbacks.holder;
+    } else {
+        trunk_callbacks.ptr = NULL;
+    }
+
+    obj_callbacks_obentry.init_func = (fast_mblock_object_init_func)
+        ob_alloc_init;
+    obj_callbacks_obentry.destroy_func = NULL;
+    obj_callbacks_slice.init_func = (fast_mblock_object_init_func)
+        slice_alloc_init;
+    obj_callbacks_slice.destroy_func = NULL;
 
     end = allocator_array->allocators + allocator_array->count;
     for (allocator=allocator_array->allocators; allocator<end; allocator++) {
@@ -275,20 +322,26 @@ static int init_ob_shared_allocator_array(
             return result;
         }
 
-        if ((result=fast_mblock_init_ex1(&allocator->ob,
-                        "ob_entry", sizeof(OBEntry), 16 * 1024, 0,
-                        (fast_mblock_object_init_func)ob_alloc_init,
-                        &allocator->ob, true)) != 0)
+        obj_callbacks_obentry.args = &allocator->ob;
+        if ((result=fast_mblock_init_ex2(&allocator->ob, "ob_entry",
+                        sizeof(OBEntry), 16 * 1024, 0, &obj_callbacks_obentry,
+                        true, trunk_callbacks.ptr)) != 0)
         {
             return result;
         }
 
-        if ((result=fast_mblock_init_ex1(&allocator->slice,
-                        "slice_entry", sizeof(OBSliceEntry), 64 * 1024, 0,
-                        (fast_mblock_object_init_func)slice_alloc_init,
-                        &allocator->slice, true)) != 0)
+        obj_callbacks_slice.args = &allocator->slice;
+        if ((result=fast_mblock_init_ex2(&allocator->slice,
+                        "slice_entry", sizeof(OBSliceEntry),
+                        64 * 1024, 0, &obj_callbacks_slice,
+                        true, trunk_callbacks.ptr)) != 0)
         {
             return result;
+        }
+
+        if (STORAGE_ENABLED) {
+            fast_mblock_set_exceed_silence(&allocator->ob);
+            fast_mblock_set_exceed_silence(&allocator->slice);
         }
     }
 

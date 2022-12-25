@@ -77,9 +77,11 @@ typedef enum ob_slice_type {
 
 typedef struct ob_entry {
     FSBlockKey bkey;
+    volatile int ref_count;  //for storage engine
     int reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
+    struct fc_list_head dlink; //for storage engine LRU
     struct fast_mblock_man *allocator; //for free
 } OBEntry;
 
