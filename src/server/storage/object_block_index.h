@@ -93,6 +93,14 @@ extern "C" {
             const FSBlockKey *bkey, uint64_t *sn,
             int *dec_alloc, const bool is_reclaim);
 
+    static inline void ob_index_ob_entry_release(OBEntry *ob)
+    {
+        if (__sync_sub_and_fetch(&ob->ref_count, 1) == 0) {
+            uniq_skiplist_free(ob->slices);
+            fast_mblock_free_object(ob->allocator, ob);
+        }
+    }
+
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey);
 

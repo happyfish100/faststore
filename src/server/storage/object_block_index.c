@@ -117,13 +117,13 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
         return NULL;
     }
 
+    FC_ATOMIC_INC(ob->ref_count);
     FC_ATOMIC_INC(htable->count);
-    if (!htable->need_reclaim) {
-        return ob;
+    if (htable->need_reclaim) {
+        FC_ATOMIC_INC(segment->count);
+        fc_list_add_tail(&ob->dlink, &segment->lru);
     }
 
-    FC_ATOMIC_INC(segment->count);
-    fc_list_add_tail(&ob->dlink, &segment->lru);
     return ob;
 }
 
@@ -144,6 +144,9 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         cmpr = ob_index_compare_block_key(bkey, &(*bucket)->bkey);
         if (cmpr == 0) {
             *pprev = NULL;
+            if (htable->need_reclaim) {
+                fc_list_move_tail(&(*bucket)->dlink, &segment->lru);
+            }
             return *bucket;
         } else if (cmpr < 0) {
             *pprev = NULL;
@@ -152,6 +155,10 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
             while ((*pprev)->next != NULL) {
                 cmpr = ob_index_compare_block_key(bkey, &(*pprev)->next->bkey);
                 if (cmpr == 0) {
+                    if (htable->need_reclaim) {
+                        fc_list_move_tail(&(*pprev)->next->dlink,
+                                &segment->lru);
+                    }
                     return (*pprev)->next;
                 } else if (cmpr < 0) {
                     break;
@@ -222,11 +229,27 @@ void ob_index_reclaim_unlock(OBEntry *ob)
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 }
 
+static inline OBSliceEntry *ob_slice_alloc(OBEntry *ob, const int init_refer)
+{
+    OBSliceEntry *slice;
+
+    OB_INDEX_SET_HASHTABLE_ALLOCATOR(ob->bkey);
+    slice = (OBSliceEntry *)fast_mblock_alloc_object(
+            &allocator->slice);
+    if (slice != NULL) {
+        slice->ob = ob;
+        if (init_refer > 0) {
+            __sync_add_and_fetch(&slice->ref_count, init_refer);
+        }
+    }
+
+    return slice;
+}
+
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
         const FSBlockKey *bkey, const int init_refer)
 {
     OBEntry *ob;
-    OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
@@ -234,20 +257,10 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     if (ob == NULL) {
-        slice = NULL;
+        return NULL;
     } else {
-        OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
-        slice = (OBSliceEntry *)fast_mblock_alloc_object(
-                &allocator->slice);
-        if (slice != NULL) {
-            slice->ob = ob;
-            if (init_refer > 0) {
-                __sync_add_and_fetch(&slice->ref_count, init_refer);
-            }
-        }
+        return ob_slice_alloc(ob, init_refer);
     }
-
-    return slice;
 }
 
 static int slice_compare(const void *p1, const void *p2)
@@ -537,13 +550,10 @@ static inline OBSliceEntry *slice_dup(const OBSliceEntry *src,
     OBSliceEntry *slice;
     int extra_offset;
 
-    OB_INDEX_SET_HASHTABLE_ALLOCATOR(src->ob->bkey);
-    slice = (OBSliceEntry *)fast_mblock_alloc_object(&allocator->slice);
-    if (slice == NULL) {
+    if ((slice=ob_slice_alloc(src->ob, 1)) == NULL) {
         return NULL;
     }
 
-    slice->ob = src->ob;
     slice->data_version = src->data_version;
     slice->type = dest_type;
     slice->space = src->space;
@@ -562,7 +572,6 @@ static inline OBSliceEntry *slice_dup(const OBSliceEntry *src,
         sf_shared_mbuffer_hold(slice->cache.mbuffer);
     }
 
-    __sync_add_and_fetch(&slice->ref_count, 1);
     return slice;
 }
 
@@ -1009,18 +1018,22 @@ static int delete_slices(OBHashtable *htable, OBEntry *ob,
     return 0;
 }
 
+static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
+        OBEntry **bucket, OBEntry *ob, OBEntry *previous)
+{
+    if (previous == NULL) {
+        *bucket = ob->next;
+    } else {
+        previous->next = ob->next;
+    }
 
-#define OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous) \
-    do {  \
-        if (previous == NULL) {  \
-            *bucket = ob->next;  \
-        } else {  \
-            previous->next = ob->next;  \
-        } \
-        uniq_skiplist_free(ob->slices); \
-        fast_mblock_free_object(ob->allocator, ob); \
-    } while (0)
-
+    FC_ATOMIC_DEC(htable->count);
+    if (htable->need_reclaim) {
+        FC_ATOMIC_DEC(segment->count);
+        fc_list_del_init(&ob->dlink);
+        ob_index_ob_entry_release(ob);
+    }
+}
 
 int ob_index_delete_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
@@ -1043,7 +1056,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
         result = delete_slices(htable, ob, bs_key, &count, dec_alloc);
         if (result == 0) {
             if (uniq_skiplist_empty(ob->slices)) {
-                OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous);
+                ob_entry_remove(segment, htable, bucket, ob, previous);
             }
 
             if (sn != NULL) {
@@ -1084,7 +1097,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
             }
         }
 
-        OB_INDEX_DELETE_OB_ENTRY(bucket, ob, previous);
+        ob_entry_remove(segment, htable, bucket, ob, previous);
         if (*dec_alloc > 0) {
             if (sn != NULL) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
