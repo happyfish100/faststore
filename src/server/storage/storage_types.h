@@ -86,11 +86,12 @@ typedef struct ob_entry {
 } OBEntry;
 
 typedef struct {
-    int64_t count;
+    volatile int64_t count;
     int64_t capacity;
     OBEntry **buckets;
     bool modify_sallocator; //if modify storage allocator
     bool modify_used_space; //if modify used space
+    bool need_reclaim;
 } OBHashtable;
 
 typedef struct ob_slice_entry {

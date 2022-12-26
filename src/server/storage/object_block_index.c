@@ -39,9 +39,17 @@ typedef struct {
 } OBSharedAllocator;
 
 typedef struct {
+    pthread_lock_cond_pair_t lcp; //for lock and notify
+    volatile int64_t count;    //ob count for storage engine
+    struct fc_list_head lru;   //for storage engine, element: OBEntry
+    struct fc_list_head dlink; //for storage engine, order by count
+} OBSegment;
+
+typedef struct {
     int count;
-    pthread_lock_cond_pair_t *pairs;   //for lock and notify
-} OBSharedLockArray;
+    volatile int reclaim_index;  //for storage engine
+    OBSegment *segments;
+} OBSharedSegmentArray;
 
 typedef struct {
     int count;
@@ -58,21 +66,21 @@ typedef struct {
 typedef struct {
     int64_t memory_limit;
     volatile int64_t malloc_bytes;
-    OBSharedLockArray lock_array;
+    OBSharedSegmentArray segment_array;
     OBSharedAllocatorArray allocator_array;
 } OBSharedContext;
 
-static OBSharedContext ob_shared_ctx = {0, 0, {0, NULL}, {0, NULL}};
+static OBSharedContext ob_shared_ctx = {0, 0, {0, 0, NULL}, {0, NULL}};
 
 OBHashtable g_ob_hashtable = {0, 0, NULL};
 
-#define OB_INDEX_SET_HASHTABLE_LOCK(htable, bkey) \
+#define OB_INDEX_SET_HASHTABLE_SEGMENT(htable, bkey) \
     int64_t bucket_index;  \
-    pthread_lock_cond_pair_t *lcp; \
+    OBSegment *segment; \
     do {  \
         bucket_index = FS_BLOCK_HASH_CODE(bkey) % (htable)->capacity; \
-        lcp = ob_shared_ctx.lock_array.pairs + bucket_index %   \
-            ob_shared_ctx.lock_array.count;  \
+        segment = ob_shared_ctx.segment_array.segments + bucket_index % \
+            ob_shared_ctx.segment_array.count;  \
     } while (0)
 
 
@@ -84,18 +92,45 @@ OBHashtable g_ob_hashtable = {0, 0, NULL};
     } while (0)
 
 
-#define OB_INDEX_SET_BUCKET_AND_LOCK(htable, bkey) \
+#define OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, bkey) \
     OBEntry **bucket;   \
-    OB_INDEX_SET_HASHTABLE_LOCK(htable, bkey);  \
+    OB_INDEX_SET_HASHTABLE_SEGMENT(htable, bkey);  \
     do {  \
         bucket = (htable)->buckets + bucket_index; \
     } while (0)
 
-
-static OBEntry *get_ob_entry_ex(OBEntry **bucket, const FSBlockKey *bkey,
-        const bool create_flag, OBEntry **pprev)
+static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
+        const FSBlockKey *bkey)
 {
     const int init_level_count = 2;
+    OBEntry *ob;
+
+    OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
+    ob = (OBEntry *)fast_mblock_alloc_object(&allocator->ob);
+    if (ob == NULL) {
+        return NULL;
+    }
+
+    ob->slices = uniq_skiplist_new(&allocator->factory, init_level_count);
+    if (ob->slices == NULL) {
+        fast_mblock_free_object(&allocator->ob, ob);
+        return NULL;
+    }
+
+    FC_ATOMIC_INC(htable->count);
+    if (!htable->need_reclaim) {
+        return ob;
+    }
+
+    FC_ATOMIC_INC(segment->count);
+    fc_list_add_tail(&ob->dlink, &segment->lru);
+    return ob;
+}
+
+static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
+        OBEntry **bucket, const FSBlockKey *bkey, const bool create_flag,
+        OBEntry **pprev)
+{
     OBEntry *previous;
     OBEntry *ob;
     int cmpr;
@@ -129,42 +164,35 @@ static OBEntry *get_ob_entry_ex(OBEntry **bucket, const FSBlockKey *bkey,
 
     if (!create_flag) {
         return NULL;
-    } else {
-        OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
-        ob = (OBEntry *)fast_mblock_alloc_object(&allocator->ob);
-        if (ob == NULL) {
-            return NULL;
-        }
-        ob->slices = uniq_skiplist_new(&allocator->factory, init_level_count);
-        if (ob->slices == NULL) {
-            fast_mblock_free_object(&allocator->ob, ob);
-            return NULL;
-        }
-
-        ob->bkey = *bkey;
-        if (*pprev == NULL) {
-            ob->next = *bucket;
-            *bucket = ob;
-        } else {
-            ob->next = (*pprev)->next;
-            (*pprev)->next = ob;
-        }
-        return ob;
     }
+
+    if ((ob=ob_entry_alloc(segment, htable, bkey)) == NULL) {
+        return NULL;
+    }
+
+    ob->bkey = *bkey;
+    if (*pprev == NULL) {
+        ob->next = *bucket;
+        *bucket = ob;
+    } else {
+        ob->next = (*pprev)->next;
+        (*pprev)->next = ob;
+    }
+    return ob;
 }
 
-#define get_ob_entry(bucket, bkey, create_flag)  \
-    get_ob_entry_ex(bucket, bkey, create_flag, NULL)
+#define get_ob_entry(segment, htable, bucket, bkey, create_flag)  \
+    get_ob_entry_ex(segment, htable, bucket, bkey, create_flag, NULL)
 
 OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
         const FSBlockKey *bkey)
 {
     OBEntry *ob;
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
 
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry(bucket, bkey, false);
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, htable, bucket, bkey, false);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return ob;
 }
@@ -173,25 +201,25 @@ OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
 {
     OBEntry *ob;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(&g_ob_hashtable, *bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry(bucket, bkey, false);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(&g_ob_hashtable, *bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, false);
     if (ob != NULL) {
         ++(ob->reclaiming_count);
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return ob;
 }
 
 void ob_index_reclaim_unlock(OBEntry *ob)
 {
-    OB_INDEX_SET_HASHTABLE_LOCK(&g_ob_hashtable, ob->bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, ob->bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     if (--(ob->reclaiming_count) == 0) {
-        pthread_cond_broadcast(&lcp->cond);
+        pthread_cond_broadcast(&segment->lcp.cond);
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 }
 
 OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
@@ -200,10 +228,10 @@ OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
     OBEntry *ob;
     OBSliceEntry *slice;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry(bucket, bkey, true);
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, htable, bucket, bkey, true);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     if (ob == NULL) {
         slice = NULL;
@@ -348,26 +376,28 @@ static int init_ob_shared_allocator_array(
     return 0;
 }
 
-static int init_ob_shared_lock_array(
-        OBSharedLockArray *lock_array)
+static int init_ob_shared_segment_array(
+        OBSharedSegmentArray *segment_array)
 {
     int result;
     int bytes;
-    pthread_lock_cond_pair_t *lcp;
-    pthread_lock_cond_pair_t *end;
+    OBSegment *segment;
+    OBSegment *end;
 
-    lock_array->count = STORAGE_CFG.object_block.shared_lock_count;
-    bytes = sizeof(pthread_lock_cond_pair_t) * lock_array->count;
-    lock_array->pairs = (pthread_lock_cond_pair_t *)fc_malloc(bytes);
-    if (lock_array->pairs == NULL) {
+    segment_array->count = STORAGE_CFG.object_block.shared_lock_count;
+    bytes = sizeof(OBSegment) * segment_array->count;
+    segment_array->segments = (OBSegment *)fc_malloc(bytes);
+    if (segment_array->segments == NULL) {
         return ENOMEM;
     }
+    memset(segment_array->segments, 0, bytes);
 
-    end = lock_array->pairs + lock_array->count;
-    for (lcp=lock_array->pairs; lcp<end; lcp++) {
-        if ((result=init_pthread_lock_cond_pair(lcp)) != 0) {
+    end = segment_array->segments + segment_array->count;
+    for (segment=segment_array->segments; segment<end; segment++) {
+        if ((result=init_pthread_lock_cond_pair(&segment->lcp)) != 0) {
             return result;
         }
+        FC_INIT_LIST_HEAD(&segment->lru);
     }
 
     return 0;
@@ -387,6 +417,7 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity)
 
     htable->modify_sallocator = false;
     htable->modify_used_space = false;
+    htable->need_reclaim = false;
     return 0;
 }
 
@@ -396,7 +427,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
     OBEntry **end;
     OBEntry *ob;
     OBEntry *deleted;
-    pthread_lock_cond_pair_t *lcp;
+    OBSegment *segment;
 
     end = htable->buckets + htable->capacity;
     for (bucket=htable->buckets; bucket<end; bucket++) {
@@ -404,10 +435,10 @@ void ob_index_destroy_htable(OBHashtable *htable)
             continue;
         }
 
-        lcp = ob_shared_ctx.lock_array.pairs +
+        segment = ob_shared_ctx.segment_array.segments +
             (bucket - htable->buckets) %
-            ob_shared_ctx.lock_array.count;
-        PTHREAD_MUTEX_LOCK(&lcp->lock);
+            ob_shared_ctx.segment_array.count;
+        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
 
         ob = *bucket;
         do {
@@ -418,7 +449,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
             fast_mblock_free_object(deleted->allocator, deleted);
         } while (ob != NULL);
 
-        PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     }
 
     free(htable->buckets);
@@ -433,14 +464,22 @@ int ob_index_init()
     {
         return result;
     }
-    if ((result=init_ob_shared_lock_array(&ob_shared_ctx.
-                    lock_array)) != 0)
+    if ((result=init_ob_shared_segment_array(&ob_shared_ctx.
+                    segment_array)) != 0)
     {
         return result;
     }
 
-    return ob_index_init_htable_ex(&g_ob_hashtable,
-            STORAGE_CFG.object_block.hashtable_capacity);
+    if ((result=ob_index_init_htable_ex(&g_ob_hashtable,
+                    STORAGE_CFG.object_block.hashtable_capacity)) != 0)
+    {
+        return result;
+    }
+
+    if (STORAGE_ENABLED) {
+        g_ob_hashtable.need_reclaim = true;
+    }
+    return 0;
 }
 
 void ob_index_destroy()
@@ -787,11 +826,11 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
     return 0;
 }
 
-#define CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob) \
+#define CHECK_AND_WAIT_RECLAIM_DONE(segment, ob) \
     do {  \
         if (!is_reclaim) {  \
             while (ob->reclaiming_count > 0) {  \
-                pthread_cond_wait(&lcp->cond, &lcp->lock); \
+                pthread_cond_wait(&segment->lcp.cond, &segment->lcp.lock); \
             } \
         } \
     } while (0)
@@ -808,10 +847,10 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             slice->ob->bkey.oid, slice->ob->bkey.offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(htable, slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
 
-    CHECK_AND_WAIT_RECLAIM_DONE(lcp, slice->ob);
+    CHECK_AND_WAIT_RECLAIM_DONE(segment, slice->ob);
     result = add_slice(htable, slice->ob, slice, inc_alloc);
     if (result == 0) {
         __sync_add_and_fetch(&slice->ref_count, 1);
@@ -819,7 +858,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
@@ -829,10 +868,10 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     int result;
     int inc_alloc;
 
-    OB_INDEX_SET_HASHTABLE_LOCK(&g_ob_hashtable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     result = add_slice(&g_ob_hashtable, slice->ob, slice, &inc_alloc);
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
@@ -848,10 +887,10 @@ int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice)
             slice->ob->bkey.oid, slice->ob->bkey.offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(htable, slice->ob->bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     result = update_slice(htable, slice->ob, slice);
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
@@ -992,14 +1031,15 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     int result;
     int count;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry_ex(bucket, &bs_key->block, false, &previous);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, bs_key->block);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry_ex(segment, htable, bucket,
+            &bs_key->block, false, &previous);
     if (ob == NULL) {
         *dec_alloc = 0;
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         result = delete_slices(htable, ob, bs_key, &count, dec_alloc);
         if (result == 0) {
             if (uniq_skiplist_empty(ob->slices)) {
@@ -1011,7 +1051,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
             }
         }
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
@@ -1026,13 +1066,13 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     UniqSkiplistIterator it;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
 
     *dec_alloc = 0;
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry_ex(bucket, bkey, false, &previous);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry_ex(segment, htable, bucket, bkey, false, &previous);
     if (ob != NULL) {
-        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
@@ -1056,7 +1096,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     } else {
         result = ENOENT;
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
@@ -1321,7 +1361,7 @@ int ob_index_get_slices_ex(OBHashtable *htable,
     OBEntry *ob;
     int result;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, bs_key->block);
     sarray->count = 0;
 
     /*
@@ -1330,15 +1370,15 @@ int ob_index_get_slices_ex(OBHashtable *htable,
             __LINE__, __FUNCTION__, bs_key->block.oid, bs_key->block.offset);
             */
 
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry(bucket, &bs_key->block, false);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, htable, bucket, &bs_key->block, false);
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         result = get_slices(ob, bs_key, sarray);
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     if (result != 0 && sarray->count > 0) {
         free_slices(sarray);
@@ -1352,15 +1392,15 @@ int ob_index_get_slice_count_ex(OBHashtable *htable,
     OBEntry *ob;
     int count;
 
-    OB_INDEX_SET_BUCKET_AND_LOCK(htable, bs_key->block);
-    PTHREAD_MUTEX_LOCK(&lcp->lock);
-    ob = get_ob_entry(bucket, &bs_key->block, false);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, bs_key->block);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, htable, bucket, &bs_key->block, false);
     if (ob == NULL) {
         count = 0;
     } else {
         count = get_slice_count(ob, bs_key);
     }
-    PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return count;
 }
@@ -1540,7 +1580,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     int result;
     int i;
     SFBufferedWriter writer;
-    pthread_lock_cond_pair_t *lcp = NULL;
+    OBSegment *segment = NULL;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
@@ -1559,15 +1599,15 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
     {
         if (need_lock) {
-            lcp = ob_shared_ctx.lock_array.pairs +
+            segment = ob_shared_ctx.segment_array.segments +
                 (bucket - htable->buckets) %
-                ob_shared_ctx.lock_array.count;
-            PTHREAD_MUTEX_LOCK(&lcp->lock);
+                ob_shared_ctx.segment_array.count;
+            PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
         }
 
         if (*bucket == NULL) {
             if (need_lock) {
-                PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+                PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
             }
             continue;
         }
@@ -1598,7 +1638,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         } while (ob != NULL && result == 0);
 
         if (need_lock) {
-            PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+            PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
         }
     }
 
@@ -1887,7 +1927,7 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
 {
     int result;
     SFBufferedWriter writer;
-    pthread_lock_cond_pair_t *lcp;
+    OBSegment *segment;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
@@ -1902,13 +1942,13 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
     for (bucket=htable->buckets; result == 0 &&
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
     {
-        lcp = ob_shared_ctx.lock_array.pairs +
+        segment = ob_shared_ctx.segment_array.segments +
             (bucket - htable->buckets) %
-            ob_shared_ctx.lock_array.count;
-        PTHREAD_MUTEX_LOCK(&lcp->lock);
+            ob_shared_ctx.segment_array.count;
+        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
 
         if (*bucket == NULL) {
-            PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+            PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
             continue;
         }
 
@@ -1924,7 +1964,7 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
             ob = ob->next;
         } while (ob != NULL && result == 0);
 
-        PTHREAD_MUTEX_UNLOCK(&lcp->lock);
+        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     }
 
     if (!SF_G_CONTINUE_FLAG) {
