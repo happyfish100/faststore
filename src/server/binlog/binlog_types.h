@@ -25,17 +25,34 @@
 #include "fastcommon/common_blocked_queue.h"
 #include "../server_types.h"
 
-#define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP      0
-#define BINLOG_COMMON_FIELD_INDEX_DATA_VERSION   1
-#define BINLOG_COMMON_FIELD_INDEX_SOURCE         2
-#define BINLOG_COMMON_FIELD_INDEX_OP_TYPE        3
-#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OID      4
-#define BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET   5
-#define BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET   6
-#define BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH   7
+#define BINLOG_COMMON_FIELD_INDEX_TIMESTAMP     0
 
-#define BINLOG_MAX_FIELD_COUNT  16
+#define REPLICA_BINLOG_FIELD_INDEX_TIMESTAMP    \
+    BINLOG_COMMON_FIELD_INDEX_TIMESTAMP
+#define REPLICA_BINLOG_FIELD_INDEX_DATA_VERSION 1
+#define REPLICA_BINLOG_FIELD_INDEX_SOURCE       2
+#define REPLICA_BINLOG_FIELD_INDEX_OP_TYPE      3
+#define REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID    4
+#define REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET 5
+#define REPLICA_BINLOG_FIELD_INDEX_SLICE_OFFSET 6
+#define REPLICA_BINLOG_FIELD_INDEX_SLICE_LENGTH 7
+
+#define SLICE_BINLOG_FIELD_INDEX_TIMESTAMP     \
+    BINLOG_COMMON_FIELD_INDEX_TIMESTAMP
+#define SLICE_BINLOG_FIELD_INDEX_SN            1
+#define SLICE_BINLOG_FIELD_INDEX_DATA_VERSION  2
+#define SLICE_BINLOG_FIELD_INDEX_SOURCE        3
+#define SLICE_BINLOG_FIELD_INDEX_OP_TYPE       4
+#define SLICE_BINLOG_FIELD_INDEX_BLOCK_OID     5
+#define SLICE_BINLOG_FIELD_INDEX_BLOCK_OFFSET  6
+#define SLICE_BINLOG_FIELD_INDEX_SLICE_OFFSET  7
+#define SLICE_BINLOG_FIELD_INDEX_SLICE_LENGTH  8
+
 #define BINLOG_MIN_FIELD_COUNT   6
+#define BINLOG_MAX_FIELD_COUNT  16
+
+#define REPLICA_MIN_FIELD_COUNT  BINLOG_MIN_FIELD_COUNT
+#define SLICE_MIN_FIELD_COUNT    7
 
 #define BINLOG_OP_TYPE_WRITE_SLICE  'w'
 #define BINLOG_OP_TYPE_ALLOC_SLICE  'a'
@@ -64,6 +81,17 @@ struct fs_binlog_record;
 
 typedef void (*data_thread_notify_func)(struct fs_binlog_record *record,
         const int result, const bool is_error);
+
+typedef struct binlog_common_field_indexes {
+    uint8_t timestamp;
+    uint8_t data_version;
+    uint8_t source;
+    uint8_t op_type;
+    uint8_t block_oid;
+    uint8_t block_offset;
+    uint8_t slice_offset;
+    uint8_t slice_length;
+} BinlogCommonFieldIndexs;
 
 typedef struct binlog_common_fields {
     time_t timestamp;

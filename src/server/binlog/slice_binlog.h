@@ -29,6 +29,7 @@ typedef struct slice_binlog_record {
     OBSliceType slice_type;   //add slice only
     FSBlockSliceKeyInfo bs_key;
     FSTrunkSpaceInfo space;   //add slice only
+    int64_t sn;
     int64_t data_version;
 } SliceBinlogRecord;
 
@@ -107,13 +108,13 @@ extern "C" {
                 FS_SLICE_BINLOG_SUBDIR_NAME, filename, size);
     }
 
-    static inline int slice_binlog_log_add_slice_to_buff(const OBSliceEntry
-            *slice, const time_t current_time, const uint64_t data_version,
-            const int source, char *buff)
+    static inline int slice_binlog_log_add_slice_to_buff_ex(const OBSliceEntry
+            *slice, const time_t current_time, const uint64_t sn,
+            const uint64_t data_version, const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64
-                " %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
-                (int64_t)current_time, data_version, source,
+        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64" %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
+                (int64_t)current_time, sn, data_version, source,
                 slice->type == OB_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
                 BINLOG_OP_TYPE_WRITE_SLICE,
@@ -124,13 +125,23 @@ extern "C" {
                 slice->space.size);
     }
 
+    static inline int slice_binlog_log_add_slice_to_buff(const OBSliceEntry
+            *slice, const time_t current_time, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return slice_binlog_log_add_slice_to_buff_ex(slice, current_time,
+                __sync_add_and_fetch(&SLICE_BINLOG_SN, 1), data_version,
+                source, buff);
+    }
+
     static inline int slice_binlog_log_no_op_to_buff(const FSBlockKey *bkey,
             const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64"\n", (int64_t)current_time, data_version,
-                source, BINLOG_OP_TYPE_NO_OP, bkey->oid, bkey->offset);
+        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64"\n", (int64_t)current_time, __sync_add_and_fetch(
+                    &SLICE_BINLOG_SN, 1), data_version, source,
+                BINLOG_OP_TYPE_NO_OP, bkey->oid, bkey->offset);
     }
 
     int slice_binlog_log_add_slice(const OBSliceEntry *slice,

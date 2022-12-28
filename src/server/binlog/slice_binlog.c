@@ -31,19 +31,16 @@
 #include "slice_loader.h"
 #include "slice_binlog.h"
 
-#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 8
-#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID   9
-#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR    10
-#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    11
-#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      12
-#define ADD_SLICE_EXPECT_FIELD_COUNT          13
+#define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 9
+#define ADD_SLICE_FIELD_INDEX_SPACE_TRUNK_ID  10
+#define ADD_SLICE_FIELD_INDEX_SPACE_SUBDIR    11
+#define ADD_SLICE_FIELD_INDEX_SPACE_OFFSET    12
+#define ADD_SLICE_FIELD_INDEX_SPACE_SIZE      13
+#define ADD_SLICE_EXPECT_FIELD_COUNT          14
 
-#define DEL_SLICE_EXPECT_FIELD_COUNT           8
-#define DEL_BLOCK_EXPECT_FIELD_COUNT           6
-#define NO_OP_EXPECT_FIELD_COUNT               6
-
-#define MAX_BINLOG_FIELD_COUNT  16
-#define MIN_EXPECT_FIELD_COUNT  DEL_BLOCK_EXPECT_FIELD_COUNT
+#define DEL_SLICE_EXPECT_FIELD_COUNT           9
+#define DEL_BLOCK_EXPECT_FIELD_COUNT           7
+#define NO_OP_EXPECT_FIELD_COUNT               7
 
 static SFBinlogWriterContext binlog_writer;
 
@@ -122,8 +119,95 @@ int slice_binlog_rotate_file()
     return sf_binlog_writer_rotate_file(&binlog_writer.writer);
 }
 
+static int slice_check_redo_migrate()
+{
+    return 0;
+}
+
+static int slice_binlog_do_migrate()
+{
+    return slice_check_redo_migrate();
+}
+
+int slice_binlog_get_last_sn()
+{
+    char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
+    string_t line;
+    string_t cols[BINLOG_MAX_FIELD_COUNT];
+    int last_index;
+    int line_count;
+    int col_count;
+    int result;
+
+    if ((result=sf_binlog_writer_get_binlog_last_index(DATA_PATH_STR,
+                    FS_SLICE_BINLOG_SUBDIR_NAME, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    line_count = 1;
+    if ((result=sf_binlog_writer_get_last_lines(DATA_PATH_STR,
+                    FS_SLICE_BINLOG_SUBDIR_NAME, last_index, buff,
+                    sizeof(buff), &line_count, &line.len)) != 0)
+    {
+        return result;
+    }
+
+    if (line_count == 0) {
+        SLICE_BINLOG_SN = 0;
+        return 0;
+    }
+
+    line.str = buff;
+    if (!(line.len > 0 && line.str[line.len - 1] == '\n')) {
+        logError("file: "__FILE__", line: %d, "
+                "the last line of slice binlog is invalid, "
+                "line length: %d, last line: %.*s", __LINE__,
+                line.len, line.len, line.str);
+        return EINVAL;
+    }
+
+    col_count = split_string_ex(&line, ' ', cols,
+            BINLOG_MAX_FIELD_COUNT, false);
+    if (col_count == ADD_SLICE_EXPECT_FIELD_COUNT ||
+            col_count == DEL_SLICE_EXPECT_FIELD_COUNT ||
+            col_count == DEL_BLOCK_EXPECT_FIELD_COUNT)
+    {
+        string_t *sn;
+        char tmp[32];
+
+        sn = cols + SLICE_BINLOG_FIELD_INDEX_SN;
+        snprintf(tmp, sizeof(tmp), "%.*s", sn->len, sn->str);
+        SLICE_BINLOG_SN = strtoll(tmp, NULL, 10);
+        return 0;
+    }
+
+    if (!(col_count == ADD_SLICE_EXPECT_FIELD_COUNT - 1 ||
+                col_count == DEL_SLICE_EXPECT_FIELD_COUNT - 1 ||
+                col_count == DEL_BLOCK_EXPECT_FIELD_COUNT - 1))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "the last line of slice binlog is invalid, "
+                "field count: %d, last line: %.*s", __LINE__,
+                col_count, line.len, line.str);
+        return EINVAL;
+    }
+
+    return slice_binlog_do_migrate();
+}
+
 int slice_binlog_init()
 {
+    int result;
+
+    if ((result=slice_check_redo_migrate()) != 0) {
+        return result;
+    }
+
+    if ((result=slice_binlog_get_last_sn()) != 0) {
+        return result;
+    }
+
     return init_binlog_writer();
 }
 
@@ -151,8 +235,8 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff(slice,
-            current_time, data_version, source, wbuffer->bf.buff);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff_ex(slice,
+            current_time, sn, data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
@@ -172,9 +256,9 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
+    wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
-            (int64_t)current_time, data_version, source,
+            (int64_t)current_time, sn, data_version, source,
             BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
@@ -198,9 +282,9 @@ static inline int log_block_update(const FSBlockKey *bkey,
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff,
+    wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
-            (int64_t)current_time, data_version, source,
+            (int64_t)current_time, sn, data_version, source,
             op_type, bkey->oid, bkey->offset);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
@@ -267,9 +351,9 @@ static inline int unpack_add_slice_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            SLICE_BINLOG_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, ' ', 1);
+            SLICE_BINLOG_FIELD_INDEX_SLICE_LENGTH, ' ', 1);
 
     BINLOG_PARSE_INT_SILENCE(path_index, "path index",
             ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX, ' ', 0);
@@ -308,9 +392,9 @@ static inline int unpack_del_slice_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            SLICE_BINLOG_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
+            SLICE_BINLOG_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     return 0;
 }
 
@@ -331,24 +415,26 @@ int slice_binlog_record_unpack(const string_t *line,
 {
     int count;
     char *endptr;
-    string_t cols[MAX_BINLOG_FIELD_COUNT];
+    string_t cols[BINLOG_MAX_FIELD_COUNT];
 
     count = split_string_ex(line, ' ', cols,
-            MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+            BINLOG_MAX_FIELD_COUNT, false);
+    if (count < SLICE_MIN_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT);
+                count, SLICE_MIN_FIELD_COUNT);
         return EINVAL;
     }
 
-    record->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
-    record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
+    BINLOG_PARSE_INT_SILENCE(record->sn, "sn",
+            SLICE_BINLOG_FIELD_INDEX_SN, ' ', 1);
+    record->source = cols[SLICE_BINLOG_FIELD_INDEX_SOURCE].str[0];
+    record->op_type = cols[SLICE_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 0);
+            SLICE_BINLOG_FIELD_INDEX_DATA_VERSION, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            SLICE_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET,
+            SLICE_BINLOG_FIELD_INDEX_BLOCK_OFFSET,
             ((record->op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
               record->op_type == BINLOG_OP_TYPE_NO_OP) ?
              '\n' : ' '), 0);
@@ -426,7 +512,7 @@ static int slice_binlog_get_first_record(const char *filename,
 
             ++line_end;
             line.len = line_end - line.str;
-            if ((result=binlog_unpack_common_fields(&line,
+            if ((result=binlog_unpack_slice_common_fields(&line,
                             record, error_info)) != 0)
             {
                 logError("file: "__FILE__", line: %d, "
@@ -532,7 +618,7 @@ static int find_position(const char *filename, const int data_group_id,
 
             ++line_end;
             line.len = line_end - line.str;
-            if ((result=binlog_unpack_common_fields(&line,
+            if ((result=binlog_unpack_slice_common_fields(&line,
                             &record, error_info)) != 0)
             {
                 logError("file: "__FILE__", line: %d, "
@@ -679,7 +765,7 @@ static int slice_parse_to_array(const int data_group_id,
             return result;
         }
         record = array->records + array->count;
-        if ((result=binlog_unpack_common_fields(&line,
+        if ((result=binlog_unpack_slice_common_fields(&line,
                         record, error_info)) != 0)
         {
             logError("file: "__FILE__", line: %d, "

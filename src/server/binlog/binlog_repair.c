@@ -59,6 +59,7 @@ typedef struct {
         const char *subdir_name;
         struct sf_binlog_writer_info *writer;
         SFBinlogFilePosition *pos;
+        binlog_unpack_common_fields_func unpack_common_fields;
         BinlogDataGroupVersionArray *varray;
     } input;
     BinlogRepairWriter out_writer;
@@ -337,7 +338,7 @@ static int binlog_filter_buffer(BinlogRepairContext *repair_ctx,
 
         line.str = line_start;
         line.len = ++line_end - line_start;
-        if ((result=binlog_unpack_common_fields(&line,
+        if ((result=repair_ctx->input.unpack_common_fields(&line,
                         &fields, error_info)) != 0)
         {
             break;
@@ -630,6 +631,8 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
         repair_ctx.input.subdir_name = subdir_name;
         repair_ctx.input.writer = replica_binlog_get_writer(data_group_id);
         repair_ctx.input.pos = replica;
+        repair_ctx.input.unpack_common_fields =
+            binlog_unpack_replica_common_fields;
         if ((result=binlog_repair(&repair_ctx)) != 0) {
             break;
         }
@@ -672,6 +675,7 @@ int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx)
     repair_ctx.input.subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
     repair_ctx.input.writer = slice_binlog_get_writer();
     repair_ctx.input.pos = &ctx->positions.slice;
+    repair_ctx.input.unpack_common_fields = binlog_unpack_slice_common_fields;
     if ((result=binlog_repair(&repair_ctx)) == 0) {
         if (repair_ctx.delete_count > 0) {
             logInfo("file: "__FILE__", line: %d, "

@@ -34,7 +34,6 @@
 #define BLOCK_EXPECT_FIELD_COUNT           6
 
 #define MAX_BINLOG_FIELD_COUNT  8
-#define MIN_EXPECT_FIELD_COUNT  BLOCK_EXPECT_FIELD_COUNT
 
 typedef struct {
     SFBinlogWriterInfo **writers;
@@ -448,13 +447,13 @@ static inline int unpack_slice_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            REPLICA_BINLOG_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
+            REPLICA_BINLOG_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     return 0;
 }
 
@@ -470,9 +469,9 @@ static inline int unpack_block_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
     return 0;
 }
 
@@ -486,18 +485,18 @@ int replica_binlog_record_unpack(const string_t *line,
 
     count = split_string_ex(line, ' ', cols,
             MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+    if (count < REPLICA_MIN_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT);
+                count, REPLICA_MIN_FIELD_COUNT);
         return EINVAL;
     }
 
     BINLOG_PARSE_INT_SILENCE(record->timestamp, "timestamp",
-            BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
-    record->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
-    record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
+            REPLICA_BINLOG_FIELD_INDEX_TIMESTAMP, ' ', 0);
+    record->source = cols[REPLICA_BINLOG_FIELD_INDEX_SOURCE].str[0];
+    record->op_type = cols[REPLICA_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_DATA_VERSION, ' ', 1);
     switch (record->op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
         case BINLOG_OP_TYPE_ALLOC_SLICE:
