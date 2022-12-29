@@ -42,6 +42,19 @@
 #define DEL_BLOCK_EXPECT_FIELD_COUNT           7
 #define NO_OP_EXPECT_FIELD_COUNT               7
 
+#define FS_SLICE_MIGRATE_SUBDIR_NAME  FS_SLICE_BINLOG_SUBDIR_NAME"/migrate"
+
+#define MIGRATE_REDO_ITEM_CURRENT_STAGE      "current_stage"
+
+#define MIGRATE_REDO_STAGE_RENAME       1
+#define MIGRATE_REDO_STAGE_MIGRATING    2
+#define MIGRATE_REDO_STAGE_CLEANUP      3
+
+typedef struct slice_binlog_migrate_redo_context {
+    char mark_filename[PATH_MAX];
+    int current_stage;
+} SliceMigrateRedoContext;
+
 static SFBinlogWriterContext binlog_writer;
 
 static int init_binlog_writer()
@@ -119,14 +132,399 @@ int slice_binlog_rotate_file()
     return sf_binlog_writer_rotate_file(&binlog_writer.writer);
 }
 
-static int slice_check_redo_migrate()
+static inline const char *get_migrate_mark_filename(
+        char *filename, const int size)
 {
+    snprintf(filename, size, "%s/%s/.migrate.flag",
+            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
+    return filename;
+}
+
+static int write_to_redo_file(SliceMigrateRedoContext *redo_ctx)
+{
+    char buff[256];
+    int result;
+    int len;
+
+    len = sprintf(buff, "%s=%d\n", MIGRATE_REDO_ITEM_CURRENT_STAGE,
+            redo_ctx->current_stage);
+    if ((result=safeWriteToFile(redo_ctx->mark_filename, buff, len)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "write to file \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, redo_ctx->mark_filename, result, STRERROR(result));
+    }
+
+    return result;
+}
+
+static int load_from_redo_file(SliceMigrateRedoContext *redo_ctx)
+{
+    IniContext ini_context;
+    int result;
+
+    if ((result=iniLoadFromFile(redo_ctx->mark_filename,
+                    &ini_context)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "load from file \"%s\" fail, error code: %d",
+                __LINE__, redo_ctx->mark_filename, result);
+        return result;
+    }
+
+    redo_ctx->current_stage = iniGetIntValue(NULL,
+            MIGRATE_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+
+    iniFreeContext(&ini_context);
     return 0;
+}
+
+static int slice_migrate_rename()
+{
+    int result;
+    int start_index;
+    int last_index;
+    int binlog_index;
+    char slice_index_filename[PATH_MAX];
+    char migrate_index_filename[PATH_MAX];
+    char binlog_filename[PATH_MAX];
+    char migrate_filename[PATH_MAX];
+
+    sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, slice_index_filename,
+            sizeof(slice_index_filename));
+    sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+            FS_SLICE_MIGRATE_SUBDIR_NAME, migrate_index_filename,
+            sizeof(migrate_index_filename));
+    if (access(migrate_index_filename, F_OK) == 0) {
+        return 0;
+    }
+
+    if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
+                    FS_SLICE_BINLOG_SUBDIR_NAME,
+                    &start_index, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    for (binlog_index=start_index; binlog_index<=last_index; binlog_index++) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR,
+                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                binlog_filename, sizeof(binlog_filename));
+        sf_binlog_writer_get_filename(DATA_PATH_STR,
+                FS_SLICE_MIGRATE_SUBDIR_NAME, binlog_index,
+                migrate_filename, sizeof(migrate_filename));
+        if (access(migrate_filename, F_OK) == 0) {
+            continue;
+        }
+
+        if (rename(binlog_filename, migrate_filename) != 0) {
+            result = errno != 0 ? errno : EPERM;
+            logError("file: "__FILE__", line: %d, rename file %s to %s fail, "
+                    "errno: %d, error info: %s", __LINE__, binlog_filename,
+                    migrate_filename, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    if (rename(slice_index_filename, migrate_index_filename) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, rename file %s to %s fail, "
+                "errno: %d, error info: %s", __LINE__, slice_index_filename,
+                migrate_index_filename, result, STRERROR(result));
+        return result;
+    }
+
+    return 0;
+}
+
+static int remove_slice_binlogs(const char *subdir_name)
+{
+    int result;
+    int start_index;
+    int last_index;
+    int binlog_index;
+    char index_filename[PATH_MAX];
+    char binlog_filename[PATH_MAX];
+
+    sf_binlog_writer_get_index_filename(DATA_PATH_STR,
+            subdir_name, index_filename, sizeof(index_filename));
+    if (access(index_filename, F_OK) == 0) {
+        if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
+                        subdir_name, &start_index, &last_index)) != 0)
+        {
+            return result;
+        }
+
+        for (binlog_index=start_index; binlog_index<=last_index;
+                binlog_index++)
+        {
+            sf_binlog_writer_get_filename(DATA_PATH_STR,
+                    subdir_name, binlog_index, binlog_filename,
+                    sizeof(binlog_filename));
+            if ((result=fc_delete_file_ex(binlog_filename,
+                            "slice binlog")) != 0)
+            {
+                return result;
+            }
+        }
+
+        if ((result=fc_delete_file_ex(index_filename,
+                        "slice index")) != 0)
+        {
+            return result;
+        }
+    } else {
+        result = errno != 0 ? errno : EPERM;
+        if (result != ENOENT) {
+            logError("file: "__FILE__", line: %d, access file %s fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    index_filename, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    return 0;
+}
+
+static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
+        const int read_bytes)
+{
+    int front_len;
+    int tail_len;
+    int64_t sn;
+    string_t line;
+    char *line_end;
+    char *buff_end;
+    char *insert_point;
+    char *p;
+    SFBinlogWriterBuffer *wbuffer;
+
+    buff_end = reader->binlog_buffer.buff + read_bytes;
+    line.str = reader->binlog_buffer.buff;
+    while (line.str < buff_end) {
+        line_end = memchr(line.str, '\n', buff_end - line.str);
+        if (line_end == NULL) {
+            break;
+        }
+
+        ++line_end;
+        line.len = line_end - line.str;
+        if (line.len > FS_SLICE_BINLOG_MAX_RECORD_SIZE - 32) {
+            logError("file: "__FILE__", line: %d, "
+                    "binlog file %s, line length %d is too large",
+                    __LINE__, reader->filename, line.len);
+            return EOVERFLOW;
+        }
+
+        insert_point = memchr(line.str, ' ', line.len);
+        if (insert_point == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "binlog file %s, binlog line: %.*s, expect space char",
+                    __LINE__, reader->filename, line.len, line.str);
+            return EINVAL;
+        }
+        ++insert_point;
+        front_len = insert_point - line.str;
+        tail_len = line.len - front_len;
+
+        if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                        &binlog_writer.thread)) == NULL)
+        {
+            return ENOMEM;
+        }
+
+        sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        wbuffer->tag = sn;
+        SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
+
+        p = wbuffer->bf.buff;
+        memcpy(p, line.str, front_len);
+        p += front_len;
+        p += fc_itoa(sn, p);
+        *p++ = ' ';
+        memcpy(p, insert_point, tail_len);
+        p += tail_len;
+
+        wbuffer->bf.length = p - wbuffer->bf.buff;
+        sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+
+        line.str = line_end;
+    }
+
+    return 0;
+}
+
+static int slice_migrate_do()
+{
+    int result;
+    int start_index;
+    int last_index;
+    int read_bytes;
+    int64_t sn;
+    int64_t waiting_count;
+    int64_t start_time_ms;
+    char time_buff[32];
+    ServerBinlogReader reader;
+    SFBinlogFilePosition position;
+
+    start_time_ms = get_current_time_ms();
+    if ((result=remove_slice_binlogs(FS_SLICE_BINLOG_SUBDIR_NAME)) != 0) {
+        return result;
+    }
+    if ((result=slice_binlog_set_binlog_indexes(0, 0)) != 0) {
+        return result;
+    }
+    if ((result=slice_binlog_set_binlog_write_index(0)) != 0) {
+        return result;
+    }
+
+    if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
+                    FS_SLICE_MIGRATE_SUBDIR_NAME,
+                    &start_index, &last_index)) != 0)
+    {
+        return result;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "begin migrate slice binlog, binlog count: %d ...",
+            __LINE__, last_index - start_index + 1);
+
+    position.index = start_index;
+    position.offset = 0;
+    if ((result=binlog_reader_init1_ex(&reader, FS_SLICE_MIGRATE_SUBDIR_NAME,
+                    "", last_index, &position)) != 0)
+    {
+        return result;
+    }
+
+    waiting_count = 0;
+    while ((result=binlog_reader_integral_read(&reader,
+                    reader.binlog_buffer.buff,
+                    reader.binlog_buffer.size,
+                    &read_bytes)) == 0)
+    {
+        if ((result=slice_migrate_parse_buffer(&reader, read_bytes)) != 0) {
+            break;
+        }
+
+        sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+        while (sf_binlog_writer_get_last_version(
+                    &binlog_writer.writer) + 100000 < sn)
+        {
+            ++waiting_count;
+            fc_sleep_ms(1);
+        }
+    }
+
+    binlog_reader_destroy(&reader);
+    if (result == ENOENT) {
+        result = 0;
+    }
+    if (result != 0) {
+        return result;
+    }
+
+    sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+    while (sf_binlog_writer_get_last_version(&binlog_writer.writer) < sn) {
+        ++waiting_count;
+        fc_sleep_ms(1);
+    }
+
+    long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "migrate slice binlog done, time used: %s ms, waiting write "
+            "count: %"PRId64, __LINE__, time_buff, waiting_count);
+    return 0;
+}
+
+static int slice_migrate_cleanup()
+{
+    int result;
+    char migrate_path[PATH_MAX];
+
+    if ((result=remove_slice_binlogs(FS_SLICE_MIGRATE_SUBDIR_NAME)) != 0) {
+        return result;
+    }
+
+    sf_binlog_writer_get_filepath(DATA_PATH_STR,
+            FS_SLICE_MIGRATE_SUBDIR_NAME,
+            migrate_path, sizeof(migrate_path));
+    if (rmdir(migrate_path) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result != ENOENT) {
+            logError("file: "__FILE__", line: %d, rmdir %s fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    migrate_path, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    return 0;
+}
+
+static int slice_migrate_redo(SliceMigrateRedoContext *redo_ctx)
+{
+    int result;
+
+    switch (redo_ctx->current_stage) {
+        case MIGRATE_REDO_STAGE_RENAME:
+            if ((result=slice_migrate_rename()) != 0) {
+                break;
+            }
+            redo_ctx->current_stage = MIGRATE_REDO_STAGE_MIGRATING;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                break;
+            }
+        case MIGRATE_REDO_STAGE_MIGRATING:
+            if ((result=slice_migrate_do()) != 0) {
+                break;
+            }
+            redo_ctx->current_stage = MIGRATE_REDO_STAGE_CLEANUP;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                break;
+            }
+        case MIGRATE_REDO_STAGE_CLEANUP:
+            if ((result=slice_migrate_cleanup()) != 0) {
+                break;
+            }
+            if ((result=fc_delete_file_ex(redo_ctx->mark_filename,
+                            "slice migrate mark")) != 0)
+            {
+                break;
+            }
+            break;
+        default:
+            logError("file: "__FILE__", line: %d, migrate mark file %s, "
+                    "invalid stage: %d", __LINE__, redo_ctx->mark_filename,
+                    redo_ctx->current_stage);
+            result = EINVAL;
+            break;
+    }
+
+    return result;
 }
 
 static int slice_binlog_do_migrate()
 {
-    return slice_check_redo_migrate();
+    int result;
+    char migrate_path[PATH_MAX];
+    SliceMigrateRedoContext redo_ctx;
+
+    sf_binlog_writer_get_filepath(DATA_PATH_STR,
+            FS_SLICE_MIGRATE_SUBDIR_NAME,
+            migrate_path, sizeof(migrate_path));
+    if ((result=fc_check_mkdir(migrate_path, 0755)) != 0) {
+        return result;
+    }
+
+    get_migrate_mark_filename(redo_ctx.mark_filename,
+            sizeof(redo_ctx.mark_filename));
+    redo_ctx.current_stage = MIGRATE_REDO_STAGE_RENAME;
+    if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+        return result;
+    }
+
+    return slice_migrate_redo(&redo_ctx);
 }
 
 int slice_binlog_get_last_sn()
@@ -196,18 +594,34 @@ int slice_binlog_get_last_sn()
     return slice_binlog_do_migrate();
 }
 
-int slice_binlog_init()
+int slice_binlog_migrate_redo()
 {
     int result;
+    SliceMigrateRedoContext redo_ctx;
 
-    if ((result=slice_check_redo_migrate()) != 0) {
+    get_migrate_mark_filename(redo_ctx.mark_filename,
+            sizeof(redo_ctx.mark_filename));
+    if (access(redo_ctx.mark_filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            return 0;
+        }
+
+        logError("file: "__FILE__", line: %d, "
+                "access file %s fail, errno: %d, error info: %s",
+                __LINE__, redo_ctx.mark_filename, result, STRERROR(result));
         return result;
     }
 
-    if ((result=slice_binlog_get_last_sn()) != 0) {
+    if ((result=load_from_redo_file(&redo_ctx)) != 0) {
         return result;
     }
 
+    return slice_migrate_redo(&redo_ctx);
+}
+
+int slice_binlog_init()
+{
     return init_binlog_writer();
 }
 

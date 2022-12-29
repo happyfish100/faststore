@@ -40,6 +40,9 @@ extern "C" {
     int slice_binlog_init();
     void slice_binlog_destroy();
 
+    int slice_binlog_migrate_redo();
+    int slice_binlog_get_last_sn();
+
     int slice_binlog_load();
     int slice_binlog_get_current_write_index();
 

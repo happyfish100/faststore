@@ -42,24 +42,24 @@ typedef struct slice_binlog_dedup_redo_context {
 static inline const char *get_slice_dedup_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/slice/%s/slice.dat",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/%s/slice.dat", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return filename;
 }
 
 static inline int check_make_subdir()
 {
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/slice/%s",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(path, sizeof(path), "%s/%s/%s", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return fc_check_mkdir(path, 0755);
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/slice/%s/.dedup.flag",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/%s/.dedup.flag", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return filename;
 }
 
