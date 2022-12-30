@@ -377,6 +377,7 @@ static int slice_migrate_do()
     if ((result=slice_binlog_set_binlog_write_index(0)) != 0) {
         return result;
     }
+    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
 
     if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
                     FS_SLICE_MIGRATE_SUBDIR_NAME,
@@ -527,7 +528,7 @@ static int slice_binlog_do_migrate()
     return slice_migrate_redo(&redo_ctx);
 }
 
-int slice_binlog_get_last_sn()
+static int get_last_sn(bool *migrate_flag)
 {
     char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
     string_t line;
@@ -591,8 +592,31 @@ int slice_binlog_get_last_sn()
         return EINVAL;
     }
 
+    if (migrate_flag == NULL) {
+        return EINVAL;
+    }
+
+    *migrate_flag = true;
     return slice_binlog_do_migrate();
 }
+
+int slice_binlog_get_last_sn()
+{
+    int result;
+    bool migrate_flag;
+
+    migrate_flag = false;
+    if ((result=get_last_sn(&migrate_flag)) != 0) {
+        return result;
+    }
+
+    if (migrate_flag) {
+        result = get_last_sn(NULL);
+    }
+
+    return result;
+}
+
 
 int slice_binlog_migrate_redo()
 {
