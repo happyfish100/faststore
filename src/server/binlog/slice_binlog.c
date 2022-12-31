@@ -268,11 +268,7 @@ static int remove_slice_binlogs(const char *subdir_name)
             }
         }
 
-        if ((result=fc_delete_file_ex(index_filename,
-                        "slice index")) != 0)
-        {
-            return result;
-        }
+        return fc_delete_file_ex(index_filename, "slice index");
     } else {
         result = errno != 0 ? errno : EPERM;
         if (result != ENOENT) {
@@ -281,9 +277,11 @@ static int remove_slice_binlogs(const char *subdir_name)
                     index_filename, result, STRERROR(result));
             return result;
         }
-    }
 
-    return 0;
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                0, binlog_filename, sizeof(binlog_filename));
+        return fc_delete_file_ex(binlog_filename, "slice binlog");
+    }
 }
 
 static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
@@ -578,6 +576,9 @@ static int get_last_sn(bool *migrate_flag)
         sn = cols + SLICE_BINLOG_FIELD_INDEX_SN;
         snprintf(tmp, sizeof(tmp), "%.*s", sn->len, sn->str);
         SLICE_BINLOG_SN = strtoll(tmp, NULL, 10);
+        if (SLICE_BINLOG_SN > 0) {
+            slice_binlog_set_next_version();
+        }
         return 0;
     }
 
