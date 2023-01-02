@@ -643,8 +643,6 @@ static int load_storage_engine_apis()
     LOAD_API(STORAGE_ENGINE_INIT_API, fs_storage_engine_init);
     LOAD_API(STORAGE_ENGINE_START_API, fs_storage_engine_start);
     LOAD_API(STORAGE_ENGINE_TERMINATE_API, fs_storage_engine_terminate);
-    LOAD_API(STORAGE_ENGINE_SAVE_SEGMENT_INDEX_API,
-            fs_storage_engine_save_segment_index);
     LOAD_API(STORAGE_ENGINE_STORE_API, fs_storage_engine_store);
     LOAD_API(STORAGE_ENGINE_REDO_API, fs_storage_engine_redo);
     LOAD_API(STORAGE_ENGINE_FETCH_API, fs_storage_engine_fetch);
@@ -892,6 +890,10 @@ int server_load_config(const char *filename)
 
     if ((result=load_storage_engine_parames(&full_ini_ctx)) != 0) {
         return result;
+    }
+
+    if (STORAGE_ENABLED && SLICE_DEDUP_ENABLED) {
+        SLICE_DEDUP_ENABLED = false;
     }
     
     if ((SYSTEM_CPU_COUNT=get_sys_cpu_count()) <= 0) {

@@ -33,8 +33,6 @@ typedef int (*fs_storage_engine_start_func)();
 
 typedef void (*fs_storage_engine_terminate_func)();
 
-typedef int (*fs_storage_engine_save_segment_index_func)();
-
 typedef int (*fs_storage_engine_store_func)(const FSDBUpdateFieldArray *array);
 
 typedef int (*fs_storage_engine_redo_func)(const FSDBUpdateFieldArray *array);
@@ -46,7 +44,6 @@ typedef struct fs_storage_engine_interface {
     fs_storage_engine_init_func init;
     fs_storage_engine_start_func start;
     fs_storage_engine_terminate_func terminate;
-    fs_storage_engine_save_segment_index_func save_segment_index;
     fs_storage_engine_store_func store;
     fs_storage_engine_redo_func redo;
     fs_storage_engine_fetch_func fetch;

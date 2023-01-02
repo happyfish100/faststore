@@ -280,8 +280,6 @@ typedef struct server_global_vars {
 #define STORAGE_ENGINE_INIT_API      g_server_global_vars.slice_storage.api.init
 #define STORAGE_ENGINE_START_API     g_server_global_vars.slice_storage.api.start
 #define STORAGE_ENGINE_TERMINATE_API g_server_global_vars.slice_storage.api.terminate
-#define STORAGE_ENGINE_SAVE_SEGMENT_INDEX_API   \
-    g_server_global_vars.slice_storage.api.save_segment_index
 #define STORAGE_ENGINE_STORE_API     g_server_global_vars.slice_storage.api.store
 #define STORAGE_ENGINE_REDO_API      g_server_global_vars.slice_storage.api.redo
 #define STORAGE_ENGINE_FETCH_API     g_server_global_vars.slice_storage.api.fetch

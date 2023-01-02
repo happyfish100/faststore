@@ -266,10 +266,6 @@ int slice_dedup_redo()
     int result;
     SliceBinlogDedupRedoContext redo_ctx;
 
-    if ((result=check_make_subdir()) != 0) {
-        return result;
-    }
-
     get_slice_mark_filename(redo_ctx.mark_filename,
             sizeof(redo_ctx.mark_filename));
     if (access(redo_ctx.mark_filename, F_OK) != 0) {
