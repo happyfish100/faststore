@@ -139,9 +139,17 @@ typedef struct server_global_vars {
     struct {
         //volatile int64_t total_count;
         struct {
-            bool dedup_enabled;
-            double target_dedup_ratio;
-            TimeInfo dedup_time;
+            struct {
+                bool enabled;
+                double target_ratio;
+                TimeInfo time;
+            } dedup;
+
+            struct {
+                int keep_days;
+                TimeInfo time;
+            } cleanup;
+
             volatile int64_t record_count;
             volatile uint64_t sn;  //slice binlog sn
         } binlog;
@@ -224,9 +232,12 @@ typedef struct server_global_vars {
 #define SLICE_BINLOG_COUNT  g_server_global_vars.slice.binlog.record_count
 #define SLICE_BINLOG_SN     g_server_global_vars.slice.binlog.sn
 
-#define SLICE_DEDUP_ENABLED g_server_global_vars.slice.binlog.dedup_enabled
-#define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.target_dedup_ratio
-#define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup_time
+#define SLICE_DEDUP_ENABLED g_server_global_vars.slice.binlog.dedup.enabled
+#define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.dedup.target_ratio
+#define SLICE_DEDUP_TIME    g_server_global_vars.slice.binlog.dedup.time
+
+#define SLICE_KEEP_DAYS    g_server_global_vars.slice.binlog.cleanup.keep_days
+#define SLICE_DELETE_TIME  g_server_global_vars.slice.binlog.cleanup.time
 
 #define REPLICATION_QUORUM  g_server_global_vars.replica.quorum
 #define REPLICA_QUORUM_NEED_MAJORITY g_server_global_vars. \

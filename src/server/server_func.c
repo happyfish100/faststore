@@ -298,6 +298,15 @@ static int load_slice_binlog_config(IniContext *ini_context,
         return result;
     }
 
+    SLICE_KEEP_DAYS = iniGetIntValue(section_name,
+            "keep_days", ini_context, 30);
+
+    if ((result=get_time_item_from_conf_ex(&ini_ctx, "delete_time",
+                    &SLICE_DELETE_TIME, 5, 0, false)) != 0)
+    {
+        return result;
+    }
+
     return 0;
 }
 
@@ -368,16 +377,23 @@ static void master_election_config_to_string(char *buff, const int size)
 
 static void slice_binlog_config_to_string(char *buff, const int size)
 {
-    int len;
-
-    len = snprintf(buff, size, "slice-binlog {dedup_enabled: %d",
-            SLICE_DEDUP_ENABLED);
-    if (SLICE_DEDUP_ENABLED) {
-        len += snprintf(buff + len, size - len, ", target_dedup_ratio=%.2f%%, "
-                "dedup_time=%02d:%02d}", SLICE_DEDUP_RATIO * 100.00,
+    if (STORAGE_ENABLED) {
+        if (SLICE_KEEP_DAYS > 0) {
+            snprintf(buff, size, "slice-binlog {keep_days: %d, "
+                    "delete_time=%02d:%02d}", SLICE_KEEP_DAYS,
+                    SLICE_DELETE_TIME.hour, SLICE_DELETE_TIME.minute);
+        } else {
+            snprintf(buff, size, "slice-binlog {keep_days: %d}",
+                    SLICE_KEEP_DAYS);
+        }
+    } else if (SLICE_DEDUP_ENABLED) {
+        snprintf(buff, size, "slice-binlog {dedup_enabled: %d, "
+                "target_dedup_ratio=%.2f%%, dedup_time=%02d:%02d}",
+                SLICE_DEDUP_ENABLED, SLICE_DEDUP_RATIO * 100.00,
                 SLICE_DEDUP_TIME.hour, SLICE_DEDUP_TIME.minute);
     } else {
-        len += snprintf(buff + len, size - len, "}");
+        snprintf(buff, size, "slice-binlog {dedup_enabled: %d}",
+                SLICE_DEDUP_ENABLED);
     }
 }
 
@@ -892,8 +908,14 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if (STORAGE_ENABLED && SLICE_DEDUP_ENABLED) {
-        SLICE_DEDUP_ENABLED = false;
+    if (STORAGE_ENABLED) {
+        if (SLICE_DEDUP_ENABLED) {
+            SLICE_DEDUP_ENABLED = false;
+        }
+    } else {
+        if (SLICE_KEEP_DAYS > 0) {
+            SLICE_KEEP_DAYS = 0;
+        }
     }
     
     if ((SYSTEM_CPU_COUNT=get_sys_cpu_count()) <= 0) {

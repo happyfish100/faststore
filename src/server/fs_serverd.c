@@ -403,6 +403,10 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=slice_clean_add_schedule()) != 0) {
+            break;
+        }
+
         if ((result=slice_dedup_add_schedule()) != 0) {
             break;
         }
