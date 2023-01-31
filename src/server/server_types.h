@@ -27,6 +27,7 @@
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/fc_atomic.h"
 #include "sf/idempotency/server/request_metadata.h"
+#include "diskallocator/binlog/common/binlog_types.h"
 #include "common/fs_types.h"
 #include "common/fs_proto.h"
 #include "storage/storage_types.h"
