@@ -95,7 +95,23 @@ extern "C" {
 
     static inline void ob_index_ob_entry_release(OBEntry *ob)
     {
-        if (__sync_sub_and_fetch(&ob->ref_count, 1) == 0) {
+        bool need_free;
+
+        if (g_ob_hashtable.need_reclaim) {
+            if (__sync_sub_and_fetch(&ob->db_args->ref_count, 1) == 0) {
+                need_free = true;
+                if (ob->db_args->slices != NULL) {
+                    uniq_skiplist_free(ob->db_args->slices);
+                    ob->db_args->slices = NULL;
+                }
+            } else {
+                need_free = false;
+            }
+        } else {
+            need_free = true;
+        }
+
+        if (need_free) {
             uniq_skiplist_free(ob->slices);
             fast_mblock_free_object(ob->allocator, ob);
         }

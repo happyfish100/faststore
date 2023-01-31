@@ -115,7 +115,7 @@ static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
     FC_ATOMIC_DEC(htable->count);
     if (htable->need_reclaim) {
         FC_ATOMIC_DEC(segment->count);
-        fc_list_del_init(&ob->dlink);
+        fc_list_del_init(&ob->db_args->dlink);
         ob_index_ob_entry_release(ob);
     }
 }
@@ -130,8 +130,8 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
 
     count = target_count;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    fc_list_for_each_entry_safe(ob, tmp, &segment->lru, dlink) {
-        if (ob->locked) {
+    fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
+        if (ob->db_args->locked) {
             continue;
         }
 
@@ -215,11 +215,11 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
         return NULL;
     }
 
-    FC_ATOMIC_INC(ob->ref_count);
     FC_ATOMIC_INC(htable->count);
     if (htable->need_reclaim) {
+        FC_ATOMIC_INC(ob->db_args->ref_count);
         FC_ATOMIC_INC(segment->count);
-        fc_list_add_tail(&ob->dlink, &segment->lru);
+        fc_list_add_tail(&ob->db_args->dlink, &segment->lru);
     }
 
     return ob;
@@ -243,7 +243,7 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         if (cmpr == 0) {
             *pprev = NULL;
             if (need_reclaim) {
-                fc_list_move_tail(&(*bucket)->dlink, &segment->lru);
+                fc_list_move_tail(&(*bucket)->db_args->dlink, &segment->lru);
             }
             return *bucket;
         } else if (cmpr < 0) {
@@ -254,8 +254,8 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
                 cmpr = ob_index_compare_block_key(bkey, &(*pprev)->next->bkey);
                 if (cmpr == 0) {
                     if (need_reclaim) {
-                        fc_list_move_tail(&(*pprev)->next->dlink,
-                                &segment->lru);
+                        fc_list_move_tail(&(*pprev)->next->
+                                db_args->dlink, &segment->lru);
                     }
                     return (*pprev)->next;
                 } else if (cmpr < 0) {
@@ -350,7 +350,7 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
         return NULL;
     }
 
-    ob->locked = true;
+    ob->db_args->locked = true;
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     if ((slice=reclaim_and_alloc(&allocator->slice)) != NULL) {
@@ -358,7 +358,7 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
     }
 
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob->locked = false;
+    ob->db_args->locked = false;
     return slice;
 }
 
@@ -431,6 +431,7 @@ static int init_ob_shared_allocator_array(
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link
     const bool allocator_use_lock = true;
+    int element_size;
     OBSharedAllocator *allocator;
     OBSharedAllocator *end;
     struct {
@@ -448,6 +449,7 @@ static int init_ob_shared_allocator_array(
     }
 
     if (STORAGE_ENABLED) {
+        element_size = sizeof(OBEntry) + sizeof(OBDBArgs);
         ob_shared_ctx.memory_limit = (int64_t)
             (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
              MEMORY_LIMIT_LEVEL0_RATIO);
@@ -461,6 +463,7 @@ static int init_ob_shared_allocator_array(
         trunk_callbacks.holder.args = NULL;
         trunk_callbacks.ptr = &trunk_callbacks.holder;
     } else {
+        element_size = sizeof(OBEntry);
         trunk_callbacks.ptr = NULL;
     }
 
@@ -483,7 +486,7 @@ static int init_ob_shared_allocator_array(
 
         obj_callbacks_obentry.args = &allocator->ob;
         if ((result=fast_mblock_init_ex2(&allocator->ob, "ob_entry",
-                        sizeof(OBEntry), 16 * 1024, 0, &obj_callbacks_obentry,
+                        element_size, 16 * 1024, 0, &obj_callbacks_obentry,
                         true, trunk_callbacks.ptr)) != 0)
         {
             return result;

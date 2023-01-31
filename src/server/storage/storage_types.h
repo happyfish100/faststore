@@ -75,15 +75,20 @@ typedef enum ob_slice_type {
     OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
 } OBSliceType;
 
+typedef struct ob_db_args {
+    bool locked;
+    volatile short ref_count;
+    struct fc_list_head dlink; //for storage engine LRU
+    UniqSkiplist *slices;  //the element is OBSliceEntry
+} OBDBArgs;
+
 typedef struct ob_entry {
     FSBlockKey bkey;
-    bool locked;   //for storage engine
-    volatile short ref_count;  //for storage engine
     short reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
-    struct fc_list_head dlink; //for storage engine LRU
     struct fast_mblock_man *allocator; //for free
+    OBDBArgs db_args[0];    //for storage engine, since V3.8
 } OBEntry;
 
 typedef struct {

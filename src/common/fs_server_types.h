@@ -20,10 +20,6 @@
 
 typedef struct fs_db_update_field_info {
     int64_t version;   //field version, NOT data version!
-    uint64_t inode;
-    int64_t inc_alloc; //for dump namespaces
-    int namespace_id;  //for dump namespaces
-    mode_t mode;       //for dump namespaces
     DABinlogOpType op_type;
     int merge_count;
     int field_index;
