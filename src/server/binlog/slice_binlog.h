@@ -29,7 +29,7 @@ typedef struct slice_binlog_record {
     OBSliceType slice_type;   //add slice only
     FSBlockSliceKeyInfo bs_key;
     FSTrunkSpaceInfo space;   //add slice only
-    int64_t sn;
+    uint64_t sn;
     int64_t data_version;
 } SliceBinlogRecord;
 

@@ -116,8 +116,8 @@ static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
     if (htable->need_reclaim) {
         FC_ATOMIC_DEC(segment->count);
         fc_list_del_init(&ob->db_args->dlink);
-        ob_index_ob_entry_release(ob);
     }
+    ob_index_ob_entry_release(ob);
 }
 
 static void block_reclaim(OBSegment *segment, const int64_t target_count)
@@ -988,7 +988,9 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
     if (result == 0) {
         __sync_add_and_fetch(&slice->ref_count, 1);
         if (sn != NULL) {
-            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+            if (*sn == 0) {
+                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+            }
         }
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
@@ -996,7 +998,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
     return result;
 }
 
-int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
+int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 {
     int result;
     int inc_alloc;
@@ -1010,7 +1012,8 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     return result;
 }
 
-int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice)
+int ob_index_update_slice_ex(OBHashtable *htable,
+        const uint64_t sn, OBSliceEntry *slice)
 {
     int result;
 
@@ -1170,7 +1173,9 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
             }
 
             if (sn != NULL) {
-                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                if (*sn == 0) {
+                    *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                }
             }
         }
     }
@@ -1211,7 +1216,9 @@ int ob_index_delete_block_ex(OBHashtable *htable,
         ob_entry_remove(segment, htable, bucket, ob, previous);
         if (*dec_alloc > 0) {
             if (sn != NULL) {
-                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                if (*sn == 0) {
+                    *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                }
             }
             result = 0;
         } else {  //no slices deleted

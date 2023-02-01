@@ -291,10 +291,10 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             slice->ssize = record->slice.bs_key.slice;
             slice->space = record->slice.space;
             slice->data_version = record->slice.data_version;
-            return ob_index_add_slice_by_binlog(slice);
+            return ob_index_add_slice_by_binlog(record->slice.sn, slice);
         case BINLOG_OP_TYPE_DEL_SLICE:
-            if ((result=ob_index_delete_slices_by_binlog(
-                            &record->slice.bs_key)) != 0)
+            if ((result=ob_index_delete_slices_by_binlog(record->
+                            slice.sn, &record->slice.bs_key)) != 0)
             {
                 SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
                         binlog_filename, line_count);
@@ -311,8 +311,8 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             }
             return result;
         case BINLOG_OP_TYPE_DEL_BLOCK:
-            if ((result=ob_index_delete_block_by_binlog(&record->
-                            slice.bs_key.block)) != 0)
+            if ((result=ob_index_delete_block_by_binlog(record->slice.sn,
+                            &record->slice.bs_key.block)) != 0)
             {
                 SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
                         binlog_filename, line_count);

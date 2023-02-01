@@ -133,6 +133,7 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
         for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
+            slice_sn_pair->sn = 0;
             slice_sn_pair->slice->data_version = op_ctx->info.data_version;
             if ((result=ob_index_add_slice(slice_sn_pair->slice,
                             &slice_sn_pair->sn, &inc_alloc, op_ctx->
@@ -614,6 +615,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
     for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
+        slice_sn_pair->sn = 0;
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
         if ((result=ob_index_add_slice(slice_sn_pair->slice,
                         &slice_sn_pair->sn, &inc, op_ctx->info.
@@ -954,6 +956,7 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
 {
     int result;
 
+    op_ctx->info.sn = 0;
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key,
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)
@@ -988,6 +991,7 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
 {
     int result;
 
+    op_ctx->info.sn = 0;
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block,
                     &op_ctx->info.sn, &op_ctx->update.space_changed,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) == 0)

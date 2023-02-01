@@ -270,7 +270,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     int result;
     int r;
     int dec_alloc;
-    uint64_t sn;
+    uint64_t sn = 0;
 
     fs_calc_block_hashcode(&record->bs_key.block);
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;

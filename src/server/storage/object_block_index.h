@@ -28,8 +28,8 @@ extern "C" {
 #define ob_index_add_slice(slice, sn, inc_alloc, is_reclaim) \
     ob_index_add_slice_ex(&g_ob_hashtable, slice, sn, inc_alloc, is_reclaim)
 
-#define ob_index_update_slice(slice)  \
-    ob_index_update_slice_ex(&g_ob_hashtable, slice)
+#define ob_index_update_slice(sn, slice)  \
+    ob_index_update_slice_ex(&g_ob_hashtable, sn, slice)
 
 #define ob_index_delete_slices(bs_key, sn, dec_alloc, is_reclaim) \
     ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc, is_reclaim)
@@ -83,7 +83,8 @@ extern "C" {
     int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             uint64_t *sn, int *inc_alloc, const bool is_reclaim);
 
-    int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice);
+    int ob_index_update_slice_ex(OBHashtable *htable,
+            const uint64_t sn, OBSliceEntry *slice);
 
     int ob_index_delete_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
@@ -182,22 +183,24 @@ extern "C" {
         }
     }
 
-    int ob_index_add_slice_by_binlog(OBSliceEntry *slice);
+    int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice);
 
-    static inline int ob_index_delete_slices_by_binlog(
+    static inline int ob_index_delete_slices_by_binlog(const uint64_t sn,
             const FSBlockSliceKeyInfo *bs_key)
     {
         const bool is_reclaim = false;
         int dec_alloc;
-        return ob_index_delete_slices(bs_key, NULL, &dec_alloc, is_reclaim);
+        return ob_index_delete_slices(bs_key, (uint64_t *)&sn,
+                &dec_alloc, is_reclaim);
     }
 
     static inline int ob_index_delete_block_by_binlog(
-            const FSBlockKey *bkey)
+            const uint64_t sn, const FSBlockKey *bkey)
     {
         const bool is_reclaim = false;
         int dec_alloc;
-        return ob_index_delete_block(bkey, NULL, &dec_alloc, is_reclaim);
+        return ob_index_delete_block(bkey, (uint64_t *)&sn,
+                &dec_alloc, is_reclaim);
     }
 
     static inline void ob_index_enable_modify_used_space()
