@@ -15,6 +15,7 @@
 
 
 #include "fastcommon/shared_func.h"
+#include "fastcommon/fc_atomic.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/sorted_queue.h"
 #include "sf/sf_func.h"
@@ -35,9 +36,14 @@ static inline int deal_events(struct fc_queue_info *qinfo)
     int result;
     int count;
 
+    //TODO
+    /*
     if ((result=event_dealer_do(qinfo->head, &count)) != 0) {
         return result;
     }
+    */
+    result = 0;
+    count = 0;
 
     sorted_queue_free_chain(&change_notify_ctx.queue,
             &change_notify_ctx.allocator, qinfo);
@@ -153,8 +159,14 @@ static inline void change_notify_push_to_queue(FSChangeNotifyEvent *event)
     }
 }
 
-int change_notify_push_slice(const DABinlogOpType op_type,
-        const int64_t sn, OBEntry *ob, OBSliceEntry *slice)
+#define CHANGE_NOTIFY_SET_EVENT(event, _sn, _ob, _entry_type, _op_type) \
+    FC_ATOMIC_INC(_ob->db_args->ref_count);  \
+    event->sn = _sn;  \
+    event->ob = _ob;  \
+    event->entry_type = _entry_type;  \
+    event->op_type = _op_type
+
+int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice)
 {
     FSChangeNotifyEvent *event;
 
@@ -164,21 +176,18 @@ int change_notify_push_slice(const DABinlogOpType op_type,
         return ENOMEM;
     }
 
-    event->sn = sn;
-    event->ob = ob;
-    event->entry_type = fs_change_entry_type_slice;
-    event->op_type = op_type;
-    if (op_type == da_binlog_op_type_update) {
-        event->slice = slice;
-    } else {
-        event->ssize = slice->ssize;
-    }
+    CHANGE_NOTIFY_SET_EVENT(event, sn, slice->ob,
+            fs_change_entry_type_slice,
+            da_binlog_op_type_create);
+    event->slice.type = slice->type;
+    event->slice.ssize = slice->ssize;
+    event->slice.space = slice->space;
     change_notify_push_to_queue(event);
     return 0;
 }
 
-int change_notify_push_block(const DABinlogOpType op_type,
-        const int64_t sn, OBEntry *ob)
+int change_notify_push_del_slice(const int64_t sn,
+        OBEntry *ob, const FSSliceSize *ssize)
 {
     FSChangeNotifyEvent *event;
 
@@ -188,10 +197,27 @@ int change_notify_push_block(const DABinlogOpType op_type,
         return ENOMEM;
     }
 
-    event->sn = sn;
-    event->ob = ob;
-    event->entry_type = fs_change_entry_type_block;
-    event->op_type = op_type;
+    CHANGE_NOTIFY_SET_EVENT(event, sn, ob,
+            fs_change_entry_type_slice,
+            da_binlog_op_type_remove);
+    event->ssize = *ssize;
+    change_notify_push_to_queue(event);
+    return 0;
+}
+
+int change_notify_push_del_block(const int64_t sn, OBEntry *ob)
+{
+    FSChangeNotifyEvent *event;
+
+    if ((event=fast_mblock_alloc_object(&change_notify_ctx.
+                    allocator)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    CHANGE_NOTIFY_SET_EVENT(event, sn, ob,
+            fs_change_entry_type_block,
+            da_binlog_op_type_remove);
     change_notify_push_to_queue(event);
     return 0;
 }

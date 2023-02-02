@@ -26,6 +26,7 @@
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
 #include "../rebuild/rebuild_binlog.h"
+#include "../db/change_notify.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
 #include "object_block_index.h"
@@ -991,6 +992,10 @@ int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
             if (*sn == 0) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
             }
+
+            if (STORAGE_ENABLED && slice->type != OB_SLICE_TYPE_CACHE) {
+                result = change_notify_push_add_slice(*sn, slice);
+            }
         }
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
@@ -1005,8 +1010,13 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 
     OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    result = add_slice(segment, &g_ob_hashtable,
-            slice->ob, slice, &inc_alloc);
+    if ((result=add_slice(segment, &g_ob_hashtable, slice->ob,
+                    slice, &inc_alloc)) == 0)
+    {
+        if (STORAGE_ENABLED) {
+            result = change_notify_push_add_slice(sn, slice);
+        }
+    }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
@@ -1026,7 +1036,11 @@ int ob_index_update_slice_ex(OBHashtable *htable,
 
     OB_INDEX_SET_HASHTABLE_SEGMENT(htable, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    result = update_slice(segment, htable, slice->ob, slice);
+    if ((result=update_slice(segment, htable, slice->ob, slice)) == 0) {
+        if (STORAGE_ENABLED) {
+            result = change_notify_push_add_slice(sn, slice);
+        }
+    }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
@@ -1176,6 +1190,11 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
                 if (*sn == 0) {
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
                 }
+
+                if (STORAGE_ENABLED) {
+                    result = change_notify_push_del_slice(
+                            *sn, ob, &bs_key->slice);
+                }
             }
         }
     }
@@ -1218,6 +1237,9 @@ int ob_index_delete_block_ex(OBHashtable *htable,
             if (sn != NULL) {
                 if (*sn == 0) {
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                }
+                if (STORAGE_ENABLED) {
+                    result = change_notify_push_del_block(*sn, ob);
                 }
             }
             result = 0;

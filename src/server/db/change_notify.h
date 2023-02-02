@@ -29,8 +29,14 @@ typedef struct fs_change_notify_event {
     OBEntry *ob;
     FSChangeEntryType entry_type;
     DABinlogOpType op_type;
+
     union {
-        OBSliceEntry *slice;  //for slice add
+        struct {
+            OBSliceType type;
+            FSSliceSize ssize;
+            FSTrunkSpaceInfo space;
+        } slice;  //for slice add
+
         FSSliceSize ssize;    //for slice delete
     };
     struct fs_change_notify_event *next; //for queue
@@ -43,11 +49,12 @@ extern "C" {
     int change_notify_init();
     void change_notify_destroy();
 
-    int change_notify_push_slice(const DABinlogOpType op_type,
-            const int64_t sn, OBEntry *ob, OBSliceEntry *slice);
+    int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice);
 
-    int change_notify_push_block(const DABinlogOpType op_type,
-            const int64_t sn, OBEntry *ob);
+    int change_notify_push_del_slice(const int64_t sn,
+            OBEntry *ob, const FSSliceSize *ssize);
+
+    int change_notify_push_del_block(const int64_t sn, OBEntry *ob);
 
     void change_notify_load_done_signal();
 
