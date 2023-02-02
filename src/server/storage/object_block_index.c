@@ -21,6 +21,8 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "sf/sf_buffered_writer.h"
+#include "sf/sf_serializer.h"
+#include "diskallocator/dio/trunk_read_thread.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
@@ -39,10 +41,18 @@ typedef struct {
     struct fast_mblock_man slice;  //for slice_entry
 } OBSharedAllocator;
 
+typedef struct fs_db_fetch_context {
+    DASynchronizedReadContext read_ctx;
+    SFSerializerIterator it;
+} FSDBFetchContext;
+
 typedef struct {
     pthread_lock_cond_pair_t lcp; //for lock and notify
-    volatile int64_t count;    //ob count for storage engine
-    struct fc_list_head lru;   //for storage engine, element: OBEntry
+
+    /* following fields for storage engine */
+    FSDBFetchContext db_fetch_ctx;
+    volatile int64_t count;    //ob count
+    struct fc_list_head lru;   //element: OBEntry
 } OBSegment;
 
 typedef struct {
@@ -532,7 +542,16 @@ static int init_ob_shared_segment_array(
         if ((result=init_pthread_lock_cond_pair(&segment->lcp)) != 0) {
             return result;
         }
-        FC_INIT_LIST_HEAD(&segment->lru);
+
+        if (STORAGE_ENABLED) {
+            if ((result=da_init_read_context(&segment->
+                            db_fetch_ctx.read_ctx)) != 0)
+            {
+                return result;
+            }
+            sf_serializer_iterator_init(&segment->db_fetch_ctx.it);
+            FC_INIT_LIST_HEAD(&segment->lru);
+        }
     }
 
     return 0;
