@@ -17,11 +17,12 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/pthread_func.h"
+#include "../binlog/binlog_types.h"
 #include "../server_global.h"
 #include "block_serializer.h"
 
-#define BLOCK_FIELD_ID         1
-
+#define BLOCK_FIELD_ID                 1
+#define SLICE_RECORD_MAX_SIZE        128
 #define DEFAULT_PACKED_BUFFER_SIZE   (8 * 1024)
 
 BlockSerializerContext g_serializer_ctx;
@@ -75,8 +76,7 @@ int block_serializer_init_packer(BlockSerializerPacker *packer,
         return ENOMEM;
     }
 
-    packer->buffer.alloc = packer->array.alloc *
-        FS_SLICE_BINLOG_MAX_RECORD_SIZE;
+    packer->buffer.alloc = packer->array.alloc * SLICE_RECORD_MAX_SIZE;
     packer->buffer.buff = (char *)fc_malloc(packer->buffer.alloc);
     if (packer->buffer.buff == NULL) {
         return ENOMEM;
@@ -96,7 +96,9 @@ static int block_serializer_realloc_packer(BlockSerializerPacker *packer,
     while (alloc_count < target_count) {
         alloc_count *= 2;
     }
-    if ((result=block_serializer_init_packer(&new_packer, alloc_count)) != 0) {
+    if ((result=block_serializer_init_packer(&new_packer,
+                    alloc_count)) != 0)
+    {
         return result;
     }
 
@@ -109,9 +111,39 @@ static int block_serializer_realloc_packer(BlockSerializerPacker *packer,
 static int pack_to_str_array(BlockSerializerPacker *packer,
         const OBEntry *ob, int *count)
 {
-    //TODO
-    return EOVERFLOW;
-    //return 0;
+    UniqSkiplistIterator it;
+    OBSliceEntry *slice;
+    string_t *s;
+    char *p;
+
+    s = packer->array.strings;
+    p = packer->buffer.buff;
+    *count = 0;
+    uniq_skiplist_iterator(ob->db_args->slices, &it);
+    while ((slice=uniq_skiplist_next(&it)) != NULL) {
+        ++(*count);
+        if (*count > packer->array.alloc) {
+            while (uniq_skiplist_next(&it) != NULL) {
+                ++(*count);
+            }
+            return EOVERFLOW;
+        }
+
+        s->str = p;
+        s->len = sprintf(p, "%c %d %d %d %"PRId64" "
+                "%"PRId64" %"PRId64" %"PRId64"\n",
+                slice->type == OB_SLICE_TYPE_ALLOC ?
+                BINLOG_OP_TYPE_ALLOC_SLICE :
+                BINLOG_OP_TYPE_WRITE_SLICE,
+                slice->ssize.offset, slice->ssize.length,
+                slice->space.store->index, slice->space.id_info.id,
+                slice->space.id_info.subdir, slice->space.offset,
+                slice->space.size);
+        p += s->len;
+        ++s;
+    }
+
+    return 0;
 }
 
 int block_serializer_pack(BlockSerializerPacker *packer,
@@ -145,7 +177,6 @@ int block_serializer_pack(BlockSerializerPacker *packer,
     }
 
     sf_serializer_pack_begin(*buffer);
-
     if ((result=sf_serializer_pack_string_array(*buffer, BLOCK_FIELD_ID,
                     packer->array.strings, count)) != 0)
     {
@@ -157,26 +188,73 @@ int block_serializer_pack(BlockSerializerPacker *packer,
         *buffer = NULL;
         return result;
     }
-
     sf_serializer_pack_end(*buffer);
+
     return 0;
 }
 
-int block_serializer_unpack(SFSerializerIterator *it,
-        const string_t *content, OBEntry *ob)
+#define BLOCK_SERIALIZER_PARSE_INTEGER(var, endchr) \
+    do { \
+        var = strtol(p + 1, &p, 10); \
+        if (*p != endchr) { \
+            logError("file: "__FILE__", line: %d, " \
+                    "offset: %d, char: 0x%02X != expected: 0x%02X, " \
+                    "slice content: %.*s", __LINE__, (int)(p - line->str), \
+                    *p, endchr, line->len, line->str); \
+            return EINVAL; \
+        } \
+    } while (0)
+
+int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
+{
+    char *p;
+
+    if (line->str[0] == BINLOG_OP_TYPE_ALLOC_SLICE) {
+        slice->type = OB_SLICE_TYPE_ALLOC;
+    } else if (line->str[0] == BINLOG_OP_TYPE_WRITE_SLICE) {
+        slice->type = OB_SLICE_TYPE_FILE;
+    } else {
+        logError("file: "__FILE__", line: %d, "
+                "unkown op_type: 0x%02X, slice content: %.*s",
+                __LINE__, line->str[0], line->len, line->str);
+        return EINVAL;
+    }
+    if (line->str[1] != ' ') {
+        logError("file: "__FILE__", line: %d, "
+                "offset: 1, char: 0x%02X != expected: 0x%02X, "
+                "slice content: %.*s", __LINE__, line->str[1], ' ',
+                line->len, line->str);
+        return EINVAL;
+    }
+
+    p = line->str;
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.offset, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.length, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.store->index, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.id, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.subdir, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.offset, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.size, '\n');
+    return 0;
+}
+
+int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
+        const string_t *content)
 {
     int result;
     const SFSerializerFieldValue *fv;
 
-    if ((result=sf_serializer_unpack(it, content)) != 0) {
+    if ((result=sf_serializer_unpack(&segment->
+                    db_fetch_ctx.it, content)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, unpack fail, "
                 "error info: %s", __LINE__, ob->bkey.oid, ob->bkey.offset,
-                it->error_info);
+                segment->db_fetch_ctx.it.error_info);
         return result;
     }
 
-    if ((fv=sf_serializer_next(it)) == NULL) {
+    if ((fv=sf_serializer_next(&segment->db_fetch_ctx.it)) == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, no entry",
                 __LINE__, ob->bkey.oid, ob->bkey.offset);
@@ -200,11 +278,5 @@ int block_serializer_unpack(SFSerializerIterator *it,
         return EINVAL;
     }
 
-    //TODO
-    /*
-    fv->value.str_array.count;
-    fv->value.str_array.strings;
-    */
-
-    return 0;
+    return ob_index_unpack_ob_entry(segment, ob, fv);
 }

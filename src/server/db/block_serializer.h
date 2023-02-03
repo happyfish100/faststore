@@ -18,6 +18,7 @@
 #define _FS_BLOCK_SERIALIZER_H
 
 #include "sf/sf_serializer.h"
+#include "../storage/object_block_index.h"
 #include "../server_types.h"
 #include "change_notify.h"
 
@@ -87,8 +88,11 @@ extern "C" {
     int block_serializer_pack(BlockSerializerPacker *packer,
             const OBEntry *ob, FastBuffer **buffer);
 
-    int block_serializer_unpack(SFSerializerIterator *it,
-            const string_t *content, OBEntry *ob);
+    int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
+            const string_t *content);
+
+    int block_serializer_parse_slice(const string_t *line,
+            OBSliceEntry *slice);
 
 #ifdef __cplusplus
 }

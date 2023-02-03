@@ -21,7 +21,6 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "sf/sf_buffered_writer.h"
-#include "sf/sf_serializer.h"
 #include "diskallocator/dio/trunk_read_thread.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
@@ -29,6 +28,7 @@
 #include "../binlog/replica_binlog.h"
 #include "../rebuild/rebuild_binlog.h"
 #include "../db/change_notify.h"
+#include "../db/block_serializer.h"
 #include "storage_allocator.h"
 #include "slice_op.h"
 #include "object_block_index.h"
@@ -40,20 +40,6 @@ typedef struct {
     struct fast_mblock_man ob;     //for ob_entry
     struct fast_mblock_man slice;  //for slice_entry
 } OBSharedAllocator;
-
-typedef struct fs_db_fetch_context {
-    DASynchronizedReadContext read_ctx;
-    SFSerializerIterator it;
-} FSDBFetchContext;
-
-typedef struct {
-    pthread_lock_cond_pair_t lcp; //for lock and notify
-
-    /* following fields for storage engine */
-    FSDBFetchContext db_fetch_ctx;
-    volatile int64_t count;    //ob count
-    struct fc_list_head lru;   //element: OBEntry
-} OBSegment;
 
 typedef struct {
     int count;
@@ -370,6 +356,27 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
 
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob->db_args->locked = false;
+    return slice;
+}
+
+static inline OBSliceEntry *ob_alloc_slice_for_load(OBSegment *segment,
+        OBSharedAllocator *allocator, OBEntry *ob, const int init_refer)
+{
+    OBSliceEntry *slice;
+
+    slice = fast_mblock_alloc_object(&allocator->slice);
+    if (slice != NULL) {
+        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
+        return slice;
+    }
+
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+
+    if ((slice=reclaim_and_alloc(&allocator->slice)) != NULL) {
+        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
+    }
+
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     return slice;
 }
 
@@ -2353,3 +2360,39 @@ int ob_index_dump_slice_index_to_file(const char *filename,
     return result;
 }
 #endif
+
+int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
+        const SFSerializerFieldValue *fv)
+{
+    const int init_refer = 1;
+    int result;
+    string_t *s;
+    string_t *end;
+    OBSliceEntry *slice;
+
+    OB_INDEX_SET_HASHTABLE_ALLOCATOR(ob->bkey);
+    end = fv->value.str_array.strings + fv->value.str_array.count;
+    for (s=fv->value.str_array.strings; s<end; s++) {
+        slice = ob_alloc_slice_for_load(segment, allocator, ob, init_refer);
+        if (slice == NULL) {
+            return ENOMEM;
+        }
+
+        if ((result=block_serializer_parse_slice(s, slice)) != 0) {
+            return result;
+        }
+
+        if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
+            logError("file: "__FILE__", line: %d, add slice "
+                    "to skiplist fail, errno: %d, error info: %s, "
+                    "block {oid: %"PRId64", offset: %"PRId64"}, "
+                    "slice {offset: %d, length: %d}", __LINE__,
+                    result, STRERROR(result), ob->bkey.oid,
+                    ob->bkey.offset, slice->ssize.offset,
+                    slice->ssize.length);
+            return result;
+        }
+    }
+
+    return 0;
+}

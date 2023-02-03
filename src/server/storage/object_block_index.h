@@ -17,7 +17,22 @@
 #ifndef _OBJECT_BLOCK_INDEX_H
 #define _OBJECT_BLOCK_INDEX_H
 
+#include "sf/sf_serializer.h"
 #include "../server_types.h"
+
+typedef struct fs_db_fetch_context {
+    DASynchronizedReadContext read_ctx;
+    SFSerializerIterator it;
+} FSDBFetchContext;
+
+typedef struct {
+    pthread_lock_cond_pair_t lcp; //for lock and notify
+
+    /* following fields for storage engine */
+    FSDBFetchContext db_fetch_ctx;
+    volatile int64_t count;    //ob count
+    struct fc_list_head lru;   //element: OBEntry
+} OBSegment;
 
 #ifdef __cplusplus
 extern "C" {
@@ -250,6 +265,9 @@ extern "C" {
     int ob_index_dump_slice_index_to_file(const char *filename,
             int64_t *total_slice_count);
 #endif
+
+    int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
+            const SFSerializerFieldValue *fv);
 
 #ifdef __cplusplus
 }
