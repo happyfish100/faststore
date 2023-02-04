@@ -219,15 +219,16 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
                 __LINE__, line->str[0], line->len, line->str);
         return EINVAL;
     }
-    if (line->str[1] != ' ') {
+
+    p = line->str + 1;
+    if (*p != ' ') {
         logError("file: "__FILE__", line: %d, "
                 "offset: 1, char: 0x%02X != expected: 0x%02X, "
-                "slice content: %.*s", __LINE__, line->str[1], ' ',
+                "slice content: %.*s", __LINE__, *p, ' ',
                 line->len, line->str);
         return EINVAL;
     }
 
-    p = line->str;
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.offset, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.length, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.store->index, ' ');

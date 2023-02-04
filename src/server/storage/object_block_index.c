@@ -370,12 +370,14 @@ static inline OBSliceEntry *ob_alloc_slice_for_load(OBSegment *segment,
         return slice;
     }
 
+    ob->db_args->locked = true;
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     if ((slice=reclaim_and_alloc(&allocator->slice)) != NULL) {
         OB_INDEX_INIT_SLICE(slice, ob, init_refer);
     }
 
+    ob->db_args->locked = false;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     return slice;
 }
