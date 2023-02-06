@@ -42,6 +42,12 @@ typedef struct fs_change_notify_event {
     struct fs_change_notify_event *next; //for queue
 } FSChangeNotifyEvent;
 
+typedef struct fs_change_notify_event_ptr_array {
+    FSChangeNotifyEvent **events;
+    int count;
+    int alloc;
+} FSChangeNotifyEventPtrArray;
+
 #ifdef __cplusplus
 extern "C" {
 #endif

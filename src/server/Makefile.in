@@ -44,7 +44,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               rebuild/store_path_rebuild.o rebuild/rebuild_binlog.o \
               rebuild/binlog_spliter.o rebuild/rebuild_thread.o \
               rebuild/binlog_reader.o  \
-              db/change_notify.o db/block_serializer.o
+              db/change_notify.o db/block_serializer.o db/event_dealer.o
 
 
 ALL_OBJS = $(COMMON_OBJS) $(CLIENT_OBJS) $(SERVER_OBJS)

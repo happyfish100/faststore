@@ -19,8 +19,8 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sorted_queue.h"
 #include "sf/sf_func.h"
-//#include "event_dealer.h"
 #include "../server_global.h"
+#include "event_dealer.h"
 #include "change_notify.h"
 
 typedef struct fs_change_notify_context {
@@ -36,14 +36,9 @@ static inline int deal_events(struct fc_queue_info *qinfo)
     int result;
     int count;
 
-    //TODO
-    /*
     if ((result=event_dealer_do(qinfo->head, &count)) != 0) {
         return result;
     }
-    */
-    result = 0;
-    count = 0;
 
     sorted_queue_free_chain(&change_notify_ctx.queue,
             &change_notify_ctx.allocator, qinfo);
