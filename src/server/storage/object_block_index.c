@@ -2477,6 +2477,12 @@ int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
     return 0;
 }
 
+OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
+{
+    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, *bkey);
+    return segment;
+}
+
 int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
         const OBSliceType type, const FSSliceSize *ssize,
         const FSTrunkSpaceInfo *space)

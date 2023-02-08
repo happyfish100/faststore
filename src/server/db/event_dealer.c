@@ -119,39 +119,82 @@ static int compare_event_ptr_func(const FSChangeNotifyEvent **ev1,
 
 static int deal_sorted_events()
 {
-    int result;
+    int result = 0;
     int count;
     FSChangeNotifyEvent **previous;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
     FastBuffer *buffer;
+    OBSegment *prev_segment;
+    OBSegment *segment;
 
-    count = 1;
+    count = 0;
     previous = EVENT_PTR_ARRAY.events;
+    segment = ob_index_get_segment(&(*previous)->ob->bkey);
+    ob_index_segment_lock(segment);
+    prev_segment = segment;
     end = EVENT_PTR_ARRAY.events + EVENT_PTR_ARRAY.count;
     for (event=EVENT_PTR_ARRAY.events; event<end; event++) {
-        if ((*event)->op_type == da_binlog_op_type_remove) {
-            if ((*event)->entry_type == fs_change_entry_type_block) {
-            } else {
-            }
-        } else {
-        }
-
-        if (ob_index_compare_block_key(&(*event)->ob->bkey,
-                    &(*previous)->ob->bkey) != 0)
+        if ((*event)->ob == (*previous)->ob && ob_index_compare_block_key(
+                    &(*event)->ob->bkey, &(*previous)->ob->bkey) == 0)
         {
+            ++count;
+        } else {
+            //TODO
+            if ((*previous)->ob->db_args->slices == NULL ||
+                    uniq_skiplist_empty((*previous)->ob->db_args->slices))
+            {
+            }
+
             if ((result=block_serializer_pack(&event_dealer_ctx.packer,
                             (*previous)->ob, &buffer)) != 0)
             {
                 return result;
             }
 
+            segment = ob_index_get_segment(&(*event)->ob->bkey);
+            if (segment != prev_segment) {
+                ob_index_segment_unlock(prev_segment);
+                ob_index_segment_lock(segment);
+                prev_segment = segment;
+            }
+
             //devent_release_ex(event->args, event->merge_count);
             count = 1;
             previous = event;
-        } else {
-            ++count;
         }
+
+        //TODO load slices
+        if ((*event)->op_type == da_binlog_op_type_remove) {
+            if ((*event)->entry_type == fs_change_entry_type_block) {
+                if ((result=ob_index_delete_block_by_db(segment,
+                                (*event)->ob)) != 0)
+                {
+                    break;
+                }
+            } else {
+                if ((result=ob_index_delete_slice_by_db(segment,
+                                (*event)->ob, &(*event)->ssize)) != 0)
+                {
+                    break;
+                }
+            }
+        } else {
+            if ((result=ob_index_add_slice_by_db(segment, (*event)->ob,
+                            (*event)->slice.type, &(*event)->slice.ssize,
+                            &(*event)->slice.space)) != 0)
+            {
+                break;
+            }
+        }
+    }
+
+    if (result == 0) {
+    }
+    ob_index_segment_unlock(prev_segment);
+
+    if (result != 0) {
+        return result;
     }
 
     //TODO

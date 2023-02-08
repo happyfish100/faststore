@@ -270,6 +270,18 @@ extern "C" {
     int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
             const SFSerializerFieldValue *fv);
 
+    OBSegment *ob_index_get_segment(const FSBlockKey *bkey);
+
+    static inline void ob_index_segment_lock(OBSegment *segment)
+    {
+        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    }
+
+    static inline void ob_index_segment_unlock(OBSegment *segment)
+    {
+        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+    }
+
     int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
             const OBSliceType type, const FSSliceSize *ssize,
             const FSTrunkSpaceInfo *space);
