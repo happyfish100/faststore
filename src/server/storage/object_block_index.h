@@ -129,6 +129,7 @@ extern "C" {
 
         if (need_free) {
             uniq_skiplist_free(ob->slices);
+            ob->slices = NULL;
             fast_mblock_free_object(ob->allocator, ob);
         }
     }
@@ -268,6 +269,15 @@ extern "C" {
 
     int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
             const SFSerializerFieldValue *fv);
+
+    int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
+            const OBSliceType type, const FSSliceSize *ssize,
+            const FSTrunkSpaceInfo *space);
+
+    int ob_index_delete_slice_by_db(OBSegment *segment,
+            OBEntry *ob, const FSSliceSize *ssize);
+
+    int ob_index_delete_block_by_db(OBSegment *segment, OBEntry *ob);
 
 #ifdef __cplusplus
 }

@@ -25,6 +25,7 @@
 #define BUFFER_BATCH_FREE_COUNT  1024
 
 typedef struct fs_event_dealer_context {
+    BlockSerializerPacker packer;
     FSChangeNotifyEventPtrArray event_ptr_array;
     FSDBUpdaterContext updater_ctx;
     struct {
@@ -36,15 +37,21 @@ typedef struct fs_event_dealer_context {
 static FSEventDealerContext event_dealer_ctx;
 
 #define EVENT_PTR_ARRAY     event_dealer_ctx.event_ptr_array
-#define MERGED_DENTRY_ARRAY event_dealer_ctx.updater_ctx.array
 #define BUFFER_PTR_ARRAY    event_dealer_ctx.buffer_ptr_array
 
 int event_dealer_init()
 {
+    const int init_alloc = 1024;
     int result;
 
     if ((result=fast_buffer_init_ex(&event_dealer_ctx.
                     updater_ctx.buffer, 1024)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=block_serializer_init_packer(&event_dealer_ctx.
+                    packer, init_alloc)) != 0)
     {
         return result;
     }
@@ -102,35 +109,55 @@ static int compare_event_ptr_func(const FSChangeNotifyEvent **ev1,
 {
     int sub;
 
-    if ((sub=fc_compare_int64((*ev1)->ob->bkey.oid,
-                    (*ev2)->ob->bkey.oid)) != 0)
+    if ((sub=ob_index_compare_block_key(&(*ev1)->ob->bkey,
+                    &(*ev2)->ob->bkey)) != 0)
     {
         return sub;
     }
-    if ((sub=fc_compare_int64((*ev1)->ob->bkey.offset,
-                    (*ev2)->ob->bkey.offset)) != 0)
-    {
-        return sub;
-    }
-
     return fc_compare_int64((*ev1)->sn, (*ev2)->sn);
 }
 
-static int deal_merged_entries()
+static int deal_sorted_events()
 {
     int result;
-    //FSDBUpdateFieldInfo *entry;
-    FSDBUpdateFieldInfo *end;
+    int count;
+    FSChangeNotifyEvent **previous;
+    FSChangeNotifyEvent **event;
+    FSChangeNotifyEvent **end;
+    FastBuffer *buffer;
 
-    result = db_updater_deal(&event_dealer_ctx.updater_ctx);
-    end = MERGED_DENTRY_ARRAY.entries + MERGED_DENTRY_ARRAY.count;
-    /*
-    for (entry=MERGED_DENTRY_ARRAY.entries; entry<end; entry++) {
-        dentry_release_ex(entry->args, entry->merge_count);
+    count = 1;
+    previous = EVENT_PTR_ARRAY.events;
+    end = EVENT_PTR_ARRAY.events + EVENT_PTR_ARRAY.count;
+    for (event=EVENT_PTR_ARRAY.events; event<end; event++) {
+        if ((*event)->op_type == da_binlog_op_type_remove) {
+            if ((*event)->entry_type == fs_change_entry_type_block) {
+            } else {
+            }
+        } else {
+        }
+
+        if (ob_index_compare_block_key(&(*event)->ob->bkey,
+                    &(*previous)->ob->bkey) != 0)
+        {
+            if ((result=block_serializer_pack(&event_dealer_ctx.packer,
+                            (*previous)->ob, &buffer)) != 0)
+            {
+                return result;
+            }
+
+            //devent_release_ex(event->args, event->merge_count);
+            count = 1;
+            previous = event;
+        } else {
+            ++count;
+        }
     }
-    */
 
-    event_dealer_free_buffers(&MERGED_DENTRY_ARRAY);
+    //TODO
+    //result = db_updater_deal(&event_dealer_ctx.updater_ctx);
+
+    //event_dealer_free_buffers(&EVENT_PTR_ARRAY);
     return result;
 }
 
@@ -161,14 +188,8 @@ int event_dealer_do(FSChangeNotifyEvent *head, int *count)
                 compare_event_ptr_func);
     }
 
-    /*
-    if ((result=merge_events()) != 0) {
-        return result;
-    }
-    */
-
     event_dealer_ctx.updater_ctx.last_versions.dentry.prepare = last->sn;
-    if ((result=deal_merged_entries()) != 0) {
+    if ((result=deal_sorted_events()) != 0) {
         return result;
     }
     event_dealer_ctx.updater_ctx.last_versions.dentry.commit =
