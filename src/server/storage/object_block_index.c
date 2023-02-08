@@ -743,27 +743,36 @@ static int update_slice(OBHashtable *htable, OBEntry *ob,
         } \
     } while (0)
 
-int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
-        uint64_t *sn, int *inc_alloc, const bool is_reclaim)
+int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
+        OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
+        const bool is_reclaim)
 {
+    OBEntry *ob;
     int result;
 
     /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
-            slice->ob->bkey.oid, slice->ob->bkey.offset);
+            bkey->oid, bkey->offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
     PTHREAD_MUTEX_LOCK(&lcp->lock);
-
-    CHECK_AND_WAIT_RECLAIM_DONE(lcp, slice->ob);
-    result = add_slice(htable, slice->ob, slice, inc_alloc);
-    if (result == 0) {
-        __sync_add_and_fetch(&slice->ref_count, 1);
-        if (sn != NULL) {
-            *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+    ob = get_ob_entry(bucket, bkey, true);
+    if (ob == NULL) {
+        result = ENOMEM;
+    } else {
+        if (slice->ob != ob) {
+            slice->ob = ob;
+        }
+        CHECK_AND_WAIT_RECLAIM_DONE(lcp, ob);
+        result = add_slice(htable, ob, slice, inc_alloc);
+        if (result == 0) {
+            __sync_add_and_fetch(&slice->ref_count, 1);
+            if (sn != NULL) {
+                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+            }
         }
     }
     PTHREAD_MUTEX_UNLOCK(&lcp->lock);
@@ -784,20 +793,27 @@ int ob_index_add_slice_by_binlog(OBSliceEntry *slice)
     return result;
 }
 
-int ob_index_update_slice_ex(OBHashtable *htable, OBSliceEntry *slice)
+int ob_index_update_slice_ex(OBHashtable *htable,
+        const FSBlockKey *bkey, OBSliceEntry *slice)
 {
+    OBEntry *ob;
     int result;
 
     /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
-            slice->ob->bkey.oid, slice->ob->bkey.offset);
+            bkey->oid, bkey->offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_LOCK(htable, slice->ob->bkey);
+    OB_INDEX_SET_BUCKET_AND_LOCK(htable, *bkey);
     PTHREAD_MUTEX_LOCK(&lcp->lock);
-    result = update_slice(htable, slice->ob, slice);
+    ob = get_ob_entry(bucket, bkey, false);
+    if (slice->ob == ob) {
+        result = update_slice(htable, ob, slice);
+    } else {
+        result = 0;
+    }
     PTHREAD_MUTEX_UNLOCK(&lcp->lock);
 
     return result;

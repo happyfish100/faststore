@@ -39,7 +39,10 @@ typedef struct trunk_write_io_buffer {
 
     union {
         FSTrunkSpaceInfo space;  //for trunk op
-        OBSliceEntry *slice;     //for slice op
+        struct {
+            OBSliceEntry *slice;
+            FSBlockKey bkey;
+        };  //for slice op
     };
 
     int64_t version; //for write in order

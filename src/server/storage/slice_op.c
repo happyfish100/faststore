@@ -134,9 +134,10 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
             slice_sn_pair->slice->data_version = op_ctx->info.data_version;
-            if ((result=ob_index_add_slice(slice_sn_pair->slice,
-                            &slice_sn_pair->sn, &inc_alloc, op_ctx->
-                            info.source == BINLOG_SOURCE_RECLAIM)) != 0)
+            if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
+                            slice_sn_pair->slice, &slice_sn_pair->sn,
+                            &inc_alloc, op_ctx->info.source ==
+                            BINLOG_SOURCE_RECLAIM)) != 0)
             {
                 op_ctx->result = result;
                 break;
@@ -615,9 +616,10 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
             slice_sn_pair<slice_sn_end; slice_sn_pair++)
     {
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
-        if ((result=ob_index_add_slice(slice_sn_pair->slice,
-                        &slice_sn_pair->sn, &inc, op_ctx->info.
-                        source == BINLOG_SOURCE_RECLAIM)) != 0)
+        if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
+                        slice_sn_pair->slice, &slice_sn_pair->sn,
+                        &inc, op_ctx->info.source ==
+                        BINLOG_SOURCE_RECLAIM)) != 0)
         {
             break;
         }

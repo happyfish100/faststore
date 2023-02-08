@@ -324,8 +324,9 @@ int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
     TrunkWriteIOBuffer *iob;
 
     slice->data_version = op_ctx->info.data_version;
-    if ((result=ob_index_add_slice(slice, &op_ctx->info.sn, &inc_alloc,
-                    op_ctx->info.source == BINLOG_SOURCE_RECLAIM)) != 0)
+    if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block, slice,
+                    &op_ctx->info.sn, &inc_alloc, op_ctx->info.source ==
+                    BINLOG_SOURCE_RECLAIM)) != 0)
     {
         return result;
     }
@@ -339,6 +340,7 @@ int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
         return ENOMEM;
     }
 
+    iob->bkey = op_ctx->info.bs_key.block;
     iob->binlog.source = op_ctx->info.source;
     iob->binlog.timestamp = op_ctx->update.timestamp;
     iob->binlog.sn = op_ctx->info.sn;
@@ -640,7 +642,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
         end = ctx->iob_array.iobs + ctx->iob_array.success;
         for (; iob < end; iob++) {
             if ((*iob)->slice->type == OB_SLICE_TYPE_CACHE) {
-                if (ob_index_update_slice((*iob)->slice) == 0) {
+                if (ob_index_update_slice(&(*iob)->bkey, (*iob)->slice) == 0) {
                     slice_binlog_log_add_slice((*iob)->slice,
                             (*iob)->binlog.timestamp, (*iob)->binlog.sn,
                             (*iob)->slice->data_version,
