@@ -35,6 +35,7 @@ typedef struct fs_change_notify_event {
             OBSliceType type;
             FSSliceSize ssize;
             FSTrunkSpaceInfo space;
+            int64_t data_version;
         } slice;  //for slice add
 
         FSSliceSize ssize;    //for slice delete

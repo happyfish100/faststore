@@ -286,8 +286,8 @@ extern "C" {
     }
 
     int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
-            const OBSliceType type, const FSSliceSize *ssize,
-            const FSTrunkSpaceInfo *space);
+            const int64_t data_version, const OBSliceType type,
+            const FSSliceSize *ssize, const FSTrunkSpaceInfo *space);
 
     int ob_index_delete_slice_by_db(OBSegment *segment,
             OBEntry *ob, const FSSliceSize *ssize);

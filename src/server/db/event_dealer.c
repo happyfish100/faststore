@@ -181,7 +181,8 @@ static int deal_sorted_events()
             }
         } else {
             if ((result=ob_index_add_slice_by_db(segment, (*event)->ob,
-                            (*event)->slice.type, &(*event)->slice.ssize,
+                            (*event)->slice.data_version, (*event)->slice.
+                            type, &(*event)->slice.ssize,
                             &(*event)->slice.space)) != 0)
             {
                 break;

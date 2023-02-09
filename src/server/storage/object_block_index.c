@@ -2498,8 +2498,8 @@ OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
 }
 
 int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
-        const OBSliceType type, const FSSliceSize *ssize,
-        const FSTrunkSpaceInfo *space)
+        const int64_t data_version, const OBSliceType type,
+        const FSSliceSize *ssize, const FSTrunkSpaceInfo *space)
 {
     const int init_refer = 1;
     OBSliceEntry *slice;
@@ -2507,10 +2507,10 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
     if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
         return ENOMEM;
     }
+    slice->data_version = data_version;
     slice->type = type;
     slice->ssize = *ssize;
     slice->space = *space;
-
     return add_slice(&ob_shared_ctx.op_funcs.db, segment,
             &g_ob_hashtable, ob, ob->db_args->slices, slice, NULL);
 }

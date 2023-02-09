@@ -130,15 +130,15 @@ static int pack_to_str_array(BlockSerializerPacker *packer,
         }
 
         s->str = p;
-        s->len = sprintf(p, "%c %d %d %d %"PRId64" "
+        s->len = sprintf(p, "%c %"PRId64" %d %d %d %"PRId64" "
                 "%"PRId64" %"PRId64" %"PRId64"\n",
                 slice->type == OB_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
                 BINLOG_OP_TYPE_WRITE_SLICE,
-                slice->ssize.offset, slice->ssize.length,
-                slice->space.store->index, slice->space.id_info.id,
-                slice->space.id_info.subdir, slice->space.offset,
-                slice->space.size);
+                slice->data_version, slice->ssize.offset,
+                slice->ssize.length, slice->space.store->index,
+                slice->space.id_info.id, slice->space.id_info.subdir,
+                slice->space.offset, slice->space.size);
         p += s->len;
         ++s;
     }
@@ -229,6 +229,7 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
         return EINVAL;
     }
 
+    BLOCK_SERIALIZER_PARSE_INTEGER(slice->data_version, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.offset, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.length, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.store->index, ' ');

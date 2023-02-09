@@ -174,6 +174,7 @@ int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice)
     CHANGE_NOTIFY_SET_EVENT(event, sn, slice->ob,
             fs_change_entry_type_slice,
             da_binlog_op_type_create);
+    event->slice.data_version = slice->data_version;
     event->slice.type = slice->type;
     event->slice.ssize = slice->ssize;
     event->slice.space = slice->space;
