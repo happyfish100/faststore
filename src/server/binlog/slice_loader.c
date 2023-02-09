@@ -258,6 +258,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
     OBSliceEntry *slice;
     char binlog_filename[PATH_MAX];
     int64_t line_count;
+    int log_level;
     int result;
 
     if (MIGRATE_CLEAN_ENABLED) {
@@ -294,11 +295,15 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
             return ob_index_add_slice_by_binlog(slice);
         case BINLOG_OP_TYPE_DEL_SLICE:
             if ((result=ob_index_delete_slices_by_binlog(
-                            &record->slice.bs_key)) != 0)
+                            &record->slice.bs_key)) == 0)
             {
+                return 0;
+            } else {
+                log_level = (result == ENOENT ? LOG_WARNING : LOG_ERR);
                 SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
                         binlog_filename, line_count);
-                logError("file: "__FILE__", line: %d, "
+                log_it_ex(&g_log_context, log_level,
+                        "file: "__FILE__", line: %d, "
                         "delete slice fail, binlong index: %d, offset: %"
                         PRId64", line no: %"PRId64", block {oid: %"PRId64", "
                         "offset: %"PRId64"}, slice {offset: %d, length: %d}"
@@ -308,15 +313,19 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         block.offset, record->slice.bs_key.slice.offset,
                         record->slice.bs_key.slice.length, result,
                         STRERROR(result));
+                return (result == ENOENT ? 0 : result);
             }
-            return result;
         case BINLOG_OP_TYPE_DEL_BLOCK:
             if ((result=ob_index_delete_block_by_binlog(&record->
-                            slice.bs_key.block)) != 0)
+                            slice.bs_key.block)) == 0)
             {
+                return 0;
+            } else {
+                log_level = (result == ENOENT ? LOG_WARNING : LOG_ERR);
                 SLICE_LOADER_GET_FILENAME_LINE_COUNT(record->position,
                         binlog_filename, line_count);
-                logError("file: "__FILE__", line: %d, "
+                log_it_ex(&g_log_context, log_level,
+                        "file: "__FILE__", line: %d, "
                         "delete block fail, binlong index: %d, line no: "
                         "%"PRId64", block {oid: %"PRId64", offset: %"PRId64
                         "}, errno: %d, error info: %s", __LINE__,
@@ -324,8 +333,8 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         record->slice.bs_key.block.oid,
                         record->slice.bs_key.block.offset,
                         result, STRERROR(result));
+                return (result == ENOENT ? 0 : result);
             }
-            return result;
         case BINLOG_OP_TYPE_NO_OP:
         default:
             return 0;
