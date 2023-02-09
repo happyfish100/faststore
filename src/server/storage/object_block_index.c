@@ -21,7 +21,6 @@
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
 #include "sf/sf_buffered_writer.h"
-#include "diskallocator/dio/trunk_read_thread.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../binlog/slice_binlog.h"
@@ -1064,34 +1063,43 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         } \
     } while (0)
 
-int ob_index_add_slice_ex(OBHashtable *htable, OBSliceEntry *slice,
-        uint64_t *sn, int *inc_alloc, const bool is_reclaim)
+int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
+        OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
+        const bool is_reclaim)
 {
+    OBEntry *ob;
     int result;
 
     /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
-            slice->ob->bkey.oid, slice->ob->bkey.offset);
+            bkey->oid, bkey->offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_SEGMENT(htable, slice->ob->bkey);
-
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
     *inc_alloc = 0;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    CHECK_AND_WAIT_RECLAIM_DONE(segment, slice->ob);
-    result = add_slice(&ob_shared_ctx.op_funcs.normal, segment, htable,
-            slice->ob, slice->ob->slices, slice, inc_alloc);
-    if (result == 0) {
-        __sync_add_and_fetch(&slice->ref_count, 1);
-        if (sn != NULL) {
-            if (*sn == 0) {
-                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
-            }
+    ob = get_ob_entry(segment, htable, bucket, bkey, true);
+    if (ob == NULL) {
+        result = ENOMEM;
+    } else {
+        if (slice->ob != ob) {
+            slice->ob = ob;
+        }
+        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
+        result = add_slice(&ob_shared_ctx.op_funcs.normal, segment,
+                htable, ob, ob->slices, slice, inc_alloc);
+        if (result == 0) {
+            __sync_add_and_fetch(&slice->ref_count, 1);
+            if (sn != NULL) {
+                if (*sn == 0) {
+                    *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+                }
 
-            if (STORAGE_ENABLED && slice->type != OB_SLICE_TYPE_CACHE) {
-                result = change_notify_push_add_slice(*sn, slice);
+                if (STORAGE_ENABLED && slice->type != OB_SLICE_TYPE_CACHE) {
+                    result = change_notify_push_add_slice(*sn, slice);
+                }
             }
         }
     }
@@ -1119,24 +1127,30 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
     return result;
 }
 
-int ob_index_update_slice_ex(OBHashtable *htable,
-        const uint64_t sn, OBSliceEntry *slice)
+int ob_index_update_slice_ex(OBHashtable *htable, const uint64_t sn,
+        const FSBlockKey *bkey, OBSliceEntry *slice)
 {
+    OBEntry *ob;
     int result;
 
     /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
-            slice->ob->bkey.oid, slice->ob->bkey.offset);
+            bkey->oid, bkey->offset);
             */
 
-    OB_INDEX_SET_HASHTABLE_SEGMENT(htable, slice->ob->bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    if ((result=update_slice(segment, htable, slice->ob, slice)) == 0) {
-        if (STORAGE_ENABLED) {
-            result = change_notify_push_add_slice(sn, slice);
-        }
+    ob = get_ob_entry(segment, htable, bucket, bkey, false);
+    if (slice->ob == ob) {
+        if ((result=update_slice(segment, htable, ob, slice)) == 0) {
+            if (STORAGE_ENABLED) {
+                result = change_notify_push_add_slice(sn, slice);
+            }
+        } 
+    } else {
+        result = 0;
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 

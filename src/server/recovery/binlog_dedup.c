@@ -86,7 +86,8 @@ static inline int add_slice(OBHashtable *htable,
     slice->type = stype;
     slice->ssize = record->bs_key.slice;
     slice->data_version = record->data_version;
-    return ob_index_add_slice_ex(htable, slice, NULL, &inc_alloc, false);
+    return ob_index_add_slice_ex(htable, &record->bs_key.block,
+            slice, NULL, &inc_alloc, false);
 }
 
 static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
