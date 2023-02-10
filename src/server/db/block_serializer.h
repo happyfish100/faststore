@@ -89,7 +89,7 @@ extern "C" {
             const OBEntry *ob, FastBuffer **buffer);
 
     int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
-            const string_t *content);
+            UniqSkiplist *sl, const string_t *content);
 
     int block_serializer_parse_slice(const string_t *line,
             OBSliceEntry *slice);

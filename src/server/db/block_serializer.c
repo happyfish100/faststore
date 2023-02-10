@@ -241,7 +241,7 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
 }
 
 int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
-        const string_t *content)
+        UniqSkiplist *sl, const string_t *content)
 {
     int result;
     const SFSerializerFieldValue *fv;
@@ -280,5 +280,5 @@ int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
         return EINVAL;
     }
 
-    return ob_index_unpack_ob_entry(segment, ob, fv);
+    return ob_index_unpack_ob_entry(segment, ob, sl, fv);
 }

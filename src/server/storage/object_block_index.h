@@ -277,7 +277,7 @@ extern "C" {
 #endif
 
     int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
-            const SFSerializerFieldValue *fv);
+            UniqSkiplist *sl, const SFSerializerFieldValue *fv);
 
     OBSegment *ob_index_get_segment(const FSBlockKey *bkey);
 

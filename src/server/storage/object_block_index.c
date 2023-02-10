@@ -151,7 +151,7 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
     count = target_count;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
-        if (ob->db_args->locked) {
+        if (ob->db_args->locked || FC_ATOMIC_GET(ob->db_args->ref_count) > 1) {
             continue;
         }
 
@@ -245,6 +245,31 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
     return ob;
 }
 
+static int ob_load_slices(OBSegment *segment, OBEntry *ob, UniqSkiplist *sl)
+{
+    int result;
+    string_t content;
+
+    if ((result=STORAGE_ENGINE_FETCH_API(&ob->bkey, &segment->
+                    db_fetch_ctx.read_ctx)) != 0)
+    {
+        if (result == ENOENT) {
+            return 0;
+        }
+
+        logError("file: "__FILE__", line: %d, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "load slices from db fail, result: %d", __LINE__,
+                ob->bkey.oid, ob->bkey.offset, result);
+        return result;
+    }
+
+    FC_SET_STRING_EX(content, DA_OP_CTX_BUFFER_PTR(segment->
+                db_fetch_ctx.read_ctx.op_ctx), DA_OP_CTX_BUFFER_LEN(
+                    segment->db_fetch_ctx.read_ctx.op_ctx));
+    return block_serializer_unpack(segment, ob, sl, &content);
+}
+
 static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, const FSBlockKey *bkey, const bool create_flag,
         const bool need_reclaim, OBEntry **pprev)
@@ -294,8 +319,14 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
     if ((ob=ob_entry_alloc(segment, htable, bkey)) == NULL) {
         return NULL;
     }
-
     ob->bkey = *bkey;
+
+    if (STORAGE_ENABLED) {
+        if (ob_load_slices(segment, ob, ob->slices) != 0) {
+            return NULL;
+        }
+    }
+
     if (*pprev == NULL) {
         ob->next = *bucket;
         *bucket = ob;
@@ -2456,7 +2487,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 #endif
 
 int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
-        const SFSerializerFieldValue *fv)
+        UniqSkiplist *sl, const SFSerializerFieldValue *fv)
 {
     const int init_refer = 1;
     int result;
@@ -2476,7 +2507,7 @@ int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
             return result;
         }
 
-        if ((result=uniq_skiplist_insert(ob->slices, slice)) != 0) {
+        if ((result=uniq_skiplist_insert(sl, slice)) != 0) {
             logError("file: "__FILE__", line: %d, add slice "
                     "to skiplist fail, errno: %d, error info: %s, "
                     "block {oid: %"PRId64", offset: %"PRId64"}, "
@@ -2497,12 +2528,33 @@ OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
     return segment;
 }
 
+static inline int db_load_slices(OBSegment *segment, OBEntry *ob)
+{
+    const int init_level_count = 2;
+
+    OB_INDEX_SET_HASHTABLE_ALLOCATOR(ob->bkey);
+    if ((ob->db_args->slices=uniq_skiplist_new(&allocator->
+                    factory, init_level_count)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    return ob_load_slices(segment, ob, ob->db_args->slices);
+}
+
 int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
         const int64_t data_version, const OBSliceType type,
         const FSSliceSize *ssize, const FSTrunkSpaceInfo *space)
 {
     const int init_refer = 1;
+    int result;
     OBSliceEntry *slice;
+
+    if (ob->db_args->slices == NULL) {
+        if ((result=db_load_slices(segment, ob)) != 0) {
+            return result;
+        }
+    }
 
     if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
         return ENOMEM;
@@ -2518,8 +2570,15 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
 int ob_index_delete_slice_by_db(OBSegment *segment,
         OBEntry *ob, const FSSliceSize *ssize)
 {
+    int result;
     int count;
     FSBlockSliceKeyInfo bs_key;
+
+    if (ob->db_args->slices == NULL) {
+        if ((result=db_load_slices(segment, ob)) != 0) {
+            return result;
+        }
+    }
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
@@ -2530,7 +2589,10 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
 
 int ob_index_delete_block_by_db(OBSegment *segment, OBEntry *ob)
 {
-    uniq_skiplist_free(ob->db_args->slices);
-    ob->db_args->slices = NULL;
+    if (ob->db_args->slices != NULL) {
+        uniq_skiplist_free(ob->db_args->slices);
+        ob->db_args->slices = NULL;
+    }
+
     return 0;
 }
