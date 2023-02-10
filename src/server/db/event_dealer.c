@@ -62,7 +62,7 @@ int event_dealer_init()
 
 int64_t event_dealer_get_last_data_version()
 {
-    return event_dealer_ctx.updater_ctx.last_versions.dentry.commit;
+    return event_dealer_ctx.updater_ctx.last_versions.block.commit;
 }
 
 static int realloc_event_ptr_array(FSChangeNotifyEventPtrArray *array)
@@ -127,7 +127,7 @@ static int deal_ob_events(OBEntry *ob, const int event_count)
     FSDBUpdateBlockInfo *block;
 
     if (MERGED_BLOCK_ARRAY.count >= MERGED_BLOCK_ARRAY.alloc) {
-        if ((result=db_updater_realloc_dentry_array(
+        if ((result=db_updater_realloc_block_array(
                         &MERGED_BLOCK_ARRAY)) != 0)
         {
             return result;
@@ -252,12 +252,12 @@ int event_dealer_do(FSChangeNotifyEvent *head, int *count)
                 compare_event_ptr_func);
     }
 
-    event_dealer_ctx.updater_ctx.last_versions.dentry.prepare = last->sn;
+    event_dealer_ctx.updater_ctx.last_versions.block.prepare = last->sn;
     if ((result=deal_sorted_events()) != 0) {
         return result;
     }
-    event_dealer_ctx.updater_ctx.last_versions.dentry.commit =
-        event_dealer_ctx.updater_ctx.last_versions.dentry.prepare;
+    event_dealer_ctx.updater_ctx.last_versions.block.commit =
+        event_dealer_ctx.updater_ctx.last_versions.block.prepare;
 
     return result;
 }
