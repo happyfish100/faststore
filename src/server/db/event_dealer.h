@@ -30,7 +30,7 @@ extern "C" {
 
     int event_dealer_do(FSChangeNotifyEvent *head, int *count);
 
-    void event_dealer_free_buffers(FSDBUpdateFieldArray *array);
+    void event_dealer_free_buffers(FSDBUpdateBlockArray *array);
 
 #ifdef __cplusplus
 }

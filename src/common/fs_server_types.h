@@ -17,22 +17,20 @@
 #define _FS_SERVER_COMMON_TYPES_H
 
 #include "fastcommon/fast_buffer.h"
+#include "fs_types.h"
 
-typedef struct fs_db_update_field_info {
+typedef struct fs_db_update_block_info {
     int64_t version;   //field version, NOT data version!
-    DABinlogOpType op_type;
-    int merge_count;
-    int field_index;
+    FSBlockKey bkey;
     FastBuffer *buffer;
-    void *args;   //dentry
-    struct fs_db_update_field_info *next;  //for queue
-} FSDBUpdateFieldInfo;
+    struct fs_db_update_block_info *next;  //for queue
+} FSDBUpdateBlockInfo;
 
-typedef struct fs_db_update_field_array {
-    FSDBUpdateFieldInfo *entries;
+typedef struct fs_db_update_block_array {
+    FSDBUpdateBlockInfo *entries;
     int count;
     int alloc;
-} FSDBUpdateFieldArray;
+} FSDBUpdateBlockArray;
 
 typedef struct fs_storage_engine_config {
     struct {

@@ -37,6 +37,7 @@ typedef struct fs_event_dealer_context {
 static FSEventDealerContext event_dealer_ctx;
 
 #define EVENT_PTR_ARRAY     event_dealer_ctx.event_ptr_array
+#define MERGED_BLOCK_ARRAY  event_dealer_ctx.updater_ctx.array
 #define BUFFER_PTR_ARRAY    event_dealer_ctx.buffer_ptr_array
 
 int event_dealer_init()
@@ -107,14 +108,47 @@ static inline int add_to_event_ptr_array(FSChangeNotifyEvent *event)
 static int compare_event_ptr_func(const FSChangeNotifyEvent **ev1,
         const FSChangeNotifyEvent **ev2)
 {
-    int sub;
+    int64_t sub;
 
-    if ((sub=ob_index_compare_block_key(&(*ev1)->ob->bkey,
-                    &(*ev2)->ob->bkey)) != 0)
-    {
-        return sub;
+    sub = (*ev1)->ob - (*ev2)->ob;
+    if (sub < 0) {
+        return -1;
+    } else if (sub == 0) {
+        return 0;
+    } else {
+        return 1;
     }
     return fc_compare_int64((*ev1)->sn, (*ev2)->sn);
+}
+
+static int deal_ob_events(OBEntry *ob, const int event_count)
+{
+    int result;
+    FSDBUpdateBlockInfo *block;
+
+    if (MERGED_BLOCK_ARRAY.count >= MERGED_BLOCK_ARRAY.alloc) {
+        if ((result=db_updater_realloc_dentry_array(
+                        &MERGED_BLOCK_ARRAY)) != 0)
+        {
+            return result;
+        }
+    }
+
+    block = MERGED_BLOCK_ARRAY.entries + MERGED_BLOCK_ARRAY.count++;
+    block->version = ++event_dealer_ctx.updater_ctx.last_versions.field;
+    block->bkey = ob->bkey;
+    if (ob->db_args->slices == NULL || uniq_skiplist_empty(
+                ob->db_args->slices))
+    {
+        block->buffer = NULL;
+    } else if ((result=block_serializer_pack(&event_dealer_ctx.
+                    packer, ob, &block->buffer)) != 0)
+    {
+        return result;
+    }
+
+    ob_index_ob_entry_release_ex(ob, event_count);
+    return 0;
 }
 
 static int deal_sorted_events()
@@ -124,10 +158,10 @@ static int deal_sorted_events()
     FSChangeNotifyEvent **previous;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
-    FastBuffer *buffer;
     OBSegment *prev_segment;
     OBSegment *segment;
 
+    MERGED_BLOCK_ARRAY.count = 0;
     count = 0;
     previous = EVENT_PTR_ARRAY.events;
     segment = ob_index_get_segment(&(*previous)->ob->bkey);
@@ -135,21 +169,11 @@ static int deal_sorted_events()
     prev_segment = segment;
     end = EVENT_PTR_ARRAY.events + EVENT_PTR_ARRAY.count;
     for (event=EVENT_PTR_ARRAY.events; event<end; event++) {
-        if ((*event)->ob == (*previous)->ob && ob_index_compare_block_key(
-                    &(*event)->ob->bkey, &(*previous)->ob->bkey) == 0)
-        {
+        if ((*event)->ob == (*previous)->ob) {
             ++count;
         } else {
-            //TODO
-            if ((*previous)->ob->db_args->slices == NULL ||
-                    uniq_skiplist_empty((*previous)->ob->db_args->slices))
-            {
-            }
-
-            if ((result=block_serializer_pack(&event_dealer_ctx.packer,
-                            (*previous)->ob, &buffer)) != 0)
-            {
-                return result;
+            if ((result=deal_ob_events((*previous)->ob, count)) != 0) {
+                break;
             }
 
             segment = ob_index_get_segment(&(*event)->ob->bkey);
@@ -159,12 +183,10 @@ static int deal_sorted_events()
                 prev_segment = segment;
             }
 
-            //devent_release_ex(event->args, event->merge_count);
             count = 1;
             previous = event;
         }
 
-        //TODO load slices
         if ((*event)->op_type == da_binlog_op_type_remove) {
             if ((*event)->entry_type == fs_change_entry_type_block) {
                 if ((result=ob_index_delete_block_by_db(segment,
@@ -191,17 +213,15 @@ static int deal_sorted_events()
     }
 
     if (result == 0) {
+        result = deal_ob_events((*previous)->ob, count);
     }
     ob_index_segment_unlock(prev_segment);
-
     if (result != 0) {
         return result;
     }
 
-    //TODO
-    //result = db_updater_deal(&event_dealer_ctx.updater_ctx);
-
-    //event_dealer_free_buffers(&EVENT_PTR_ARRAY);
+    result = db_updater_deal(&event_dealer_ctx.updater_ctx);
+    event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
     return result;
 }
 
@@ -242,10 +262,10 @@ int event_dealer_do(FSChangeNotifyEvent *head, int *count)
     return result;
 }
 
-void event_dealer_free_buffers(FSDBUpdateFieldArray *array)
+void event_dealer_free_buffers(FSDBUpdateBlockArray *array)
 {
-    FSDBUpdateFieldInfo *entry;
-    FSDBUpdateFieldInfo *end;
+    FSDBUpdateBlockInfo *entry;
+    FSDBUpdateBlockInfo *end;
 
     end = array->entries + array->count;
     for (entry=array->entries; entry<end; entry++) {

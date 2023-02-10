@@ -63,6 +63,9 @@ extern "C" {
 #define ob_index_get_ob_entry(bkey) \
     ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey)
 
+#define ob_index_ob_entry_release(ob) \
+    ob_index_ob_entry_release_ex(ob, 1)
+
 #define ob_index_alloc_slice(bkey) \
     ob_index_alloc_slice_ex(&g_ob_hashtable, bkey, 1)
 
@@ -112,12 +115,15 @@ extern "C" {
             const FSBlockKey *bkey, uint64_t *sn,
             int *dec_alloc, const bool is_reclaim);
 
-    static inline void ob_index_ob_entry_release(OBEntry *ob)
+    static inline void ob_index_ob_entry_release_ex(
+            OBEntry *ob, const int dec_count)
     {
         bool need_free;
 
         if (g_ob_hashtable.need_reclaim) {
-            if (__sync_sub_and_fetch(&ob->db_args->ref_count, 1) == 0) {
+            if (__sync_sub_and_fetch(&ob->db_args->
+                        ref_count, dec_count) == 0)
+            {
                 need_free = true;
                 if (ob->db_args->slices != NULL) {
                     uniq_skiplist_free(ob->db_args->slices);
