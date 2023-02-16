@@ -17,6 +17,7 @@
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/pthread_func.h"
+#include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "block_serializer.h"
 #include "event_dealer.h"
@@ -333,6 +334,7 @@ static int unpack_one_block(SFSerializerIterator *it,
                 it->error_no, it->error_info);
         return it->error_no;
     }
+    fs_calc_block_hashcode(&entry->bkey);
 
     ctx->array.count++;
     return 0;
