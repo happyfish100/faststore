@@ -20,6 +20,7 @@
 #include "fastcommon/sorted_queue.h"
 #include "sf/sf_func.h"
 #include "../server_global.h"
+#include "../binlog/slice_binlog.h"
 #include "event_dealer.h"
 #include "change_notify.h"
 
@@ -52,7 +53,6 @@ static void *change_notify_func(void *arg)
     FSChangeNotifyEvent less_equal;
     struct fc_queue_info qinfo;
     time_t last_time;
-    int64_t binlog_last_version;
     int wait_seconds;
     int waiting_count;
 
@@ -80,11 +80,10 @@ static void *change_notify_func(void *arg)
 
         /*
         if (DATA_LOAD_DONE) {
-            binlog_last_version = binlog_writer_get_last_version();
-            less_equal.version = FC_MIN(my_confirmed_version,
-                    binlog_last_version);
+            less_equal.sn = sf_binlog_writer_get_last_version(
+                    slice_binlog_get_writer());
         } else {
-            less_equal.version = data_thread_get_last_data_version();
+            less_equal.sn = data_thread_get_last_data_version();
         }
         */
 

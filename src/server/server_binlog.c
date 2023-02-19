@@ -127,7 +127,7 @@ int server_binlog_init()
     if ((result=slice_binlog_migrate_redo()) != 0) {
         return result;
     }
-    if ((result=slice_binlog_get_last_sn()) != 0) {
+    if ((result=slice_binlog_get_last_sn_from_file()) != 0) {
         return result;
     }
 

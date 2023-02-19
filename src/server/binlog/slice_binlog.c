@@ -601,7 +601,7 @@ static int get_last_sn(bool *migrate_flag)
     return slice_binlog_do_migrate();
 }
 
-int slice_binlog_get_last_sn()
+int slice_binlog_get_last_sn_from_file()
 {
     int result;
     bool migrate_flag;
