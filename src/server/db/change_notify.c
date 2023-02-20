@@ -78,14 +78,12 @@ static void *change_notify_func(void *arg)
             }
         }
 
-        /*
-        if (DATA_LOAD_DONE) {
+        if (SLICE_LOAD_DONE) {
             less_equal.sn = sf_binlog_writer_get_last_version(
                     slice_binlog_get_writer());
         } else {
-            less_equal.sn = data_thread_get_last_data_version();
+            less_equal.sn = SLICE_LOAD_LAST_SN;
         }
-        */
 
         sorted_queue_try_pop_to_queue(&change_notify_ctx.
                 queue, &less_equal, &qinfo);

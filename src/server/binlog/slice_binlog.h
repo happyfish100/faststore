@@ -25,7 +25,7 @@
 
 typedef struct slice_binlog_record {
     char source;
-    char op_type;
+    unsigned char op_type;
     OBSliceType slice_type;   //add slice only
     FSBlockSliceKeyInfo bs_key;
     FSTrunkSpaceInfo space;   //add slice only

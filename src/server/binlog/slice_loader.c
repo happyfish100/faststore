@@ -34,6 +34,7 @@
 #include "slice_loader.h"
 
 #define MBLOCK_BATCH_ALLOC_SIZE  1024
+#define BINLOG_OP_TYPE_SET_SN     255
 
 struct slice_loader_context;
 
@@ -50,6 +51,7 @@ typedef struct slice_record_chain {
 } SliceRecordChain;
 
 typedef struct slice_parse_thread_context {
+    int thread_index;
     int64_t total_count;
     struct {
         bool parse_done;
@@ -69,10 +71,15 @@ typedef struct slice_parse_thread_ctx_array {
 } SliceParseThreadCtxArray;
 
 typedef struct slice_data_thread_context {
+    int thread_index;
     int64_t total_count;
     int64_t skip_count;
     int64_t rebuild_count;   //for data rebuilding of the specify store path
     volatile int64_t done_count;
+    struct {
+        int64_t waiting;
+        volatile int64_t done;
+    } last_sns; //for storage engine
     SliceRecordChain slices;  //for enqueue
     struct fc_queue queue;   //element: SliceLoaderRecord
     struct slice_loader_context *loader_ctx;
@@ -174,6 +181,9 @@ static void waiting_and_process_parse_result(SliceLoaderContext
         data_thread = slice_ctx->data_thread_array.contexts + record->slice.
             bs_key.block.hash_code % slice_ctx->data_thread_array.count;
         SLICE_ADD_TO_CHAIN(data_thread, record);
+        if (record->slice.sn > data_thread->last_sns.waiting) {
+            data_thread->last_sns.waiting = record->slice.sn;
+        }
 
         record = record->next;
     }
@@ -188,6 +198,7 @@ static void waiting_and_process_parse_outputs(SliceLoaderContext *slice_ctx)
     SliceDataThreadContext *data_thread;
     SliceDataThreadContext *data_end;
     struct fc_queue_info qinfo;
+    SliceLoaderRecord *record;
 
     parse_end = slice_ctx->parse_thread_array.contexts +
         slice_ctx->dealing_threads;
@@ -207,11 +218,29 @@ static void waiting_and_process_parse_outputs(SliceLoaderContext *slice_ctx)
             data_thread<data_end; data_thread++)
     {
         if (data_thread->slices.head != NULL) {
+            if (STORAGE_ENABLED) {
+                if ((record=fast_mblock_alloc_object(&slice_ctx->
+                                parse_thread_array.contexts->
+                                record_allocator)) != NULL)
+                {
+                    record->slice.op_type = BINLOG_OP_TYPE_SET_SN;
+                    record->slice.sn = data_thread->last_sns.waiting;
+                    data_thread->slices.tail->next = record;
+                    data_thread->slices.tail = record;
+                }
+            }
+
             data_thread->slices.tail->next = NULL;
             qinfo.head = data_thread->slices.head;
             qinfo.tail = data_thread->slices.tail;
             fc_queue_push_queue_to_tail(&data_thread->queue, &qinfo);
             data_thread->slices.head = data_thread->slices.tail = NULL;
+        }
+
+        if (STORAGE_ENABLED && data_thread->last_sns.done >
+                SLICE_LOAD_LAST_SN)
+        {
+            SLICE_LOAD_LAST_SN = data_thread->last_sns.done;
         }
     }
 
@@ -335,6 +364,9 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         result, STRERROR(result));
                 return (result == ENOENT ? 0 : result);
             }
+        case BINLOG_OP_TYPE_SET_SN:
+            thread_ctx->last_sns.done = record->slice.sn;
+            return 0;
         case BINLOG_OP_TYPE_NO_OP:
         default:
             return 0;
@@ -542,6 +574,8 @@ static int init_data_thread_context(SliceDataThreadContext *thread_ctx)
     thread_ctx->skip_count = 0;
     thread_ctx->rebuild_count = 0;
     thread_ctx->done_count = 0;
+    thread_ctx->last_sns.waiting = 0;
+    thread_ctx->last_sns.done = 0;
     thread_ctx->slices.head = thread_ctx->slices.tail = NULL;
     return 0;
 }
@@ -568,6 +602,7 @@ static int init_parse_thread_ctx_array(SliceLoaderContext *loader_ctx,
             return result;
         }
 
+        ctx->thread_index = ctx - ctx_array->contexts;
         ctx->loader_ctx = loader_ctx;
         if ((result=shared_thread_pool_run((fc_thread_pool_callback)
                         slice_parse_thread_run, ctx)) != 0)
@@ -601,6 +636,7 @@ static int init_data_thread_ctx_array(SliceLoaderContext *loader_ctx,
             return result;
         }
 
+        ctx->thread_index = ctx - ctx_array->contexts;
         ctx->loader_ctx = loader_ctx;
         if ((result=shared_thread_pool_run((fc_thread_pool_callback)
                         slice_data_thread_run, ctx)) != 0)
@@ -692,15 +728,16 @@ static void terminate_parse_threads(SliceLoaderContext *slice_ctx)
 static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
         SliceDataThreadCtxArray *ctx_array)
 {
-    SliceDataThreadContext *ctx;
+    SliceDataThreadContext *data_thread;
     SliceDataThreadContext *end;
     bool all_done;
 
+    logInfo("SLICE_LOAD_LAST_SN: %"PRId64, SLICE_LOAD_LAST_SN);
     end = ctx_array->contexts + ctx_array->count;
     while (SF_G_CONTINUE_FLAG) {
         all_done = true;
-        for (ctx=ctx_array->contexts; ctx<end; ctx++) {
-            if (ctx->done_count < ctx->total_count) {
+        for (data_thread=ctx_array->contexts; data_thread<end; data_thread++) {
+            if (data_thread->done_count < data_thread->total_count) {
                 all_done = false;
                 break;
             }
@@ -708,13 +745,25 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
         if (all_done) {
             break;
         }
+
         fc_sleep_ms(10);
+        if (STORAGE_ENABLED) {
+            for (data_thread=ctx_array->contexts;
+                    data_thread<end; data_thread++)
+            {
+                if (data_thread->last_sns.done > SLICE_LOAD_LAST_SN) {
+                    SLICE_LOAD_LAST_SN = data_thread->last_sns.done;
+                    logInfo("thread: #%d, SLICE_LOAD_LAST_SN: %"PRId64,
+                            (int)(data_thread - ctx_array->contexts), SLICE_LOAD_LAST_SN);
+                }
+            }
+        }
     }
 
     slice_ctx->data_continue_flag = false;
     while (SF_G_CONTINUE_FLAG) {
-        for (ctx=ctx_array->contexts; ctx<end; ctx++) {
-            fc_queue_terminate(&ctx->queue);
+        for (data_thread=ctx_array->contexts; data_thread<end; data_thread++) {
+            fc_queue_terminate(&data_thread->queue);
         }
 
         if (FC_ATOMIC_GET(slice_ctx->thread_counts.data) == 0) {
@@ -947,6 +996,8 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     result = binlog_loader_load_ex(FS_SLICE_BINLOG_SUBDIR_NAME,
             slice_writer, &callbacks, (ctx.parse_thread_array.count +
                 ctx.data_thread_array.count) * 2);
+    SLICE_LOAD_DONE = true;
+    SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;
 
     if (result == 0) {
         __sync_add_and_fetch(&SLICE_BINLOG_COUNT, ctx.binlog_count);

@@ -140,6 +140,11 @@ typedef struct server_global_vars {
         //volatile int64_t total_count;
         struct {
             struct {
+                volatile bool done;
+                volatile uint64_t last_sn;
+            } data_load;
+
+            struct {
                 bool enabled;
                 double target_ratio;
                 TimeInfo time;
@@ -153,6 +158,7 @@ typedef struct server_global_vars {
             volatile int64_t record_count;
             volatile uint64_t sn;  //slice binlog sn
         } binlog;
+
     } slice;
 
     SFSlowLogContext slow_log;
@@ -231,6 +237,8 @@ typedef struct server_global_vars {
 //#define SLICE_TOTAL_COUNT g_server_global_vars.slice.total_count
 #define SLICE_BINLOG_COUNT  g_server_global_vars.slice.binlog.record_count
 #define SLICE_BINLOG_SN     g_server_global_vars.slice.binlog.sn
+#define SLICE_LOAD_DONE     g_server_global_vars.slice.binlog.data_load.done
+#define SLICE_LOAD_LAST_SN  g_server_global_vars.slice.binlog.data_load.last_sn
 
 #define SLICE_DEDUP_ENABLED g_server_global_vars.slice.binlog.dedup.enabled
 #define SLICE_DEDUP_RATIO   g_server_global_vars.slice.binlog.dedup.target_ratio
