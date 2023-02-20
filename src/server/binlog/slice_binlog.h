@@ -68,6 +68,9 @@ extern "C" {
     int slice_binlog_get_position_by_dv(const int data_group_id,
             const uint64_t last_data_version, SFBinlogFilePosition *pos);
 
+    int slice_binlog_get_position_by_sn(const uint64_t last_sn,
+            SFBinlogFilePosition *pos);
+
     static inline void slice_binlog_init_record_array(
             BinlogCommonFieldsArray *array)
     {

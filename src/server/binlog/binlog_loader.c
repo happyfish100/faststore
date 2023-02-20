@@ -55,34 +55,22 @@ int binlog_loader_parse_buffer(BinlogLoaderContext *ctx)
     return result;
 }
 
-int binlog_loader_load_ex(const char *subdir_name,
+int binlog_loader_load1(const char *subdir_name,
         struct sf_binlog_writer_info *writer,
+        const SFBinlogFilePosition *position,
         BinlogLoaderCallbacks *callbacks,
         const int buffer_count)
 {
     BinlogReadThreadContext read_thread_ctx;
     BinlogLoaderContext parse_ctx;
-    struct {
-        SFBinlogFilePosition holder;
-        SFBinlogFilePosition *ptr;
-    } position;
     int64_t start_time;
     int64_t end_time;
     char time_buff[32];
     int result;
 
     start_time = get_current_time_ms();
-
-    if (writer != NULL) {
-        position.holder.index = sf_binlog_get_start_index(writer);
-        position.holder.offset = 0;
-        position.ptr = &position.holder;
-    } else {
-        position.ptr = NULL;
-    }
-
     if ((result=binlog_read_thread_init_ex(&read_thread_ctx,
-                    subdir_name, writer, position.ptr,
+                    subdir_name, writer, position,
                     BINLOG_BUFFER_SIZE, buffer_count)) != 0)
     {
         return result;
@@ -153,4 +141,26 @@ int binlog_loader_load_ex(const char *subdir_name,
     }
 
     return SF_G_CONTINUE_FLAG ? result : EINTR;
+}
+
+int binlog_loader_load_ex(const char *subdir_name,
+        struct sf_binlog_writer_info *writer,
+        BinlogLoaderCallbacks *callbacks,
+        const int buffer_count)
+{
+    struct {
+        SFBinlogFilePosition holder;
+        SFBinlogFilePosition *ptr;
+    } position;
+
+    if (writer != NULL) {
+        position.holder.index = sf_binlog_get_start_index(writer);
+        position.holder.offset = 0;
+        position.ptr = &position.holder;
+    } else {
+        position.ptr = NULL;
+    }
+
+    return binlog_loader_load1(subdir_name, writer,
+            position.ptr, callbacks, buffer_count);
 }

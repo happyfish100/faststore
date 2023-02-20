@@ -24,6 +24,29 @@
 #include "binlog/trunk_binlog.h"
 #include "server_storage.h"
 
+static int slice_storage_engine_init()
+{
+    int result;
+
+    if ((result=block_serializer_init()) != 0) {
+        return result;
+    }
+
+    if ((result=change_notify_init()) != 0) {
+        return result;
+    }
+
+    if ((result=STORAGE_ENGINE_START_API()) != 0) {
+        return result;
+    }
+
+    if ((result=event_dealer_init()) != 0) {
+        return result;
+    }
+
+    return 0;
+}
+
 int server_storage_init()
 {
     int result;
@@ -42,6 +65,12 @@ int server_storage_init()
 
     if ((result=trunk_maker_init()) != 0) {
         return result;
+    }
+
+    if (STORAGE_ENABLED) {
+        if ((result=slice_storage_engine_init()) != 0) {
+            return result;
+        }
     }
 
     return 0;

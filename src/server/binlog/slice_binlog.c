@@ -902,6 +902,33 @@ int slice_binlog_record_unpack(const string_t *line,
     }
 }
 
+static int slice_binlog_get_first_sn(const char *filename, int64_t *sn)
+{
+    int result;
+    char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
+    char error_info[256];
+    string_t line;
+    SliceBinlogRecord record;
+
+    if ((result=fc_get_first_line(filename, buff,
+                    sizeof(buff), &line)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=slice_binlog_record_unpack(&line,
+                    &record, error_info)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "slice first line of binlog file %s, %s",
+                __LINE__, filename, error_info);
+        return result;
+    }
+
+    *sn = record.sn;
+    return 0;
+}
+
 static int slice_binlog_get_first_record(const char *filename,
         const int data_group_id, BinlogCommonFields *record,
         SFBinlogFilePosition *pos)
@@ -1000,7 +1027,7 @@ static inline int slice_binlog_get_first_data_version(
     return result;
 }
 
-static int find_position(const char *filename, const int data_group_id,
+static int find_position_by_dv(const char *filename, const int data_group_id,
         const uint64_t last_data_version, SFBinlogFilePosition *pos)
 {
     char buff[64 * 1024];
@@ -1138,8 +1165,144 @@ int slice_binlog_get_position_by_dv(const int data_group_id,
         if (last_data_version + 1 == first_data_version) {
             return 0;
         } else if (last_data_version + 1 > first_data_version) {
-            return find_position(filename, data_group_id,
+            return find_position_by_dv(filename, data_group_id,
                     last_data_version, pos);
+        }
+
+        --binlog_index;
+    }
+
+    return ENOENT;
+}
+
+static int find_position_by_sn(const char *filename,
+        const uint64_t last_sn, SFBinlogFilePosition *pos)
+{
+    char buff[64 * 1024];
+    char error_info[256];
+    string_t line;
+    SliceBinlogRecord record;
+    char *line_end;
+    char *buff_end;
+    int fd;
+    int read_bytes;
+    bool found;
+    int result;
+
+    if ((fd=open(filename, O_RDONLY | O_CLOEXEC)) < 0) {
+        result = errno != 0 ? errno : ENOENT;
+        logError("file: "__FILE__", line: %d, "
+                "open file %s fail, errno: %d, error info: %s",
+                __LINE__, filename, result, STRERROR(result));
+        return result;
+    }
+
+    if (lseek(fd, pos->offset, SEEK_SET) < 0) {
+        result = errno != 0 ? errno : ENOENT;
+        logError("file: "__FILE__", line: %d, "
+                "lseek file %s fail, errno: %d, error info: %s",
+                __LINE__, filename, result, STRERROR(result));
+        close(fd);
+        return result;
+    }
+
+    found = false;
+    result = ENOENT;
+    while (1) {
+        if ((read_bytes=fc_read_lines(fd, buff, sizeof(buff))) < 0) {
+            result = errno != 0 ? errno : ENOENT;
+            logError("file: "__FILE__", line: %d, "
+                    "read from file %s fail, errno: %d, error info: %s",
+                    __LINE__, filename, result, STRERROR(result));
+            break;
+        }
+        if (read_bytes == 0) {
+            result = ENOENT;
+            break;
+        }
+
+        buff_end = buff + read_bytes;
+        line.str = buff;
+        while (line.str < buff_end) {
+            line_end = memchr(line.str, '\n', buff_end - line.str);
+            if (line_end == NULL) {
+                result = ENOENT;
+                break;
+            }
+
+            ++line_end;
+            line.len = line_end - line.str;
+            if ((result=slice_binlog_record_unpack(&line,
+                            &record, error_info)) != 0)
+            {
+                logError("file: "__FILE__", line: %d, "
+                        "binlog file %s, %s", __LINE__,
+                        filename, error_info);
+                break;
+            }
+
+            if (record.sn > last_sn) {
+                pos->offset += (line.str - buff);
+                found = true;
+                break;
+            }
+
+            line.str = line_end;
+        }
+
+        if (result != 0 || found) {
+            break;
+        }
+        pos->offset += read_bytes;
+    }
+
+    close(fd);
+    return result;
+}
+
+int slice_binlog_get_position_by_sn(const uint64_t last_sn,
+        SFBinlogFilePosition *pos)
+{
+    int result;
+    int start_index;
+    int last_index;
+    int binlog_index;
+    SFBinlogWriterInfo *writer;
+    char filename[PATH_MAX];
+    int64_t first_sn;
+
+    writer = slice_binlog_get_writer();
+    if ((result=sf_binlog_get_indexes(writer, &start_index,
+                    &last_index)) != 0)
+    {
+        return result;
+    }
+    if (last_sn == 0) {
+        pos->index = start_index;
+        pos->offset = 0;
+        return 0;
+    }
+
+    binlog_index = last_index;
+    while (binlog_index >= start_index) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR,
+                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                filename, sizeof(filename));
+        pos->index = binlog_index;
+        pos->offset = 0;
+        if ((result=slice_binlog_get_first_sn(filename, &first_sn)) != 0) {
+            if (result == ENOENT) {
+                --binlog_index;
+                continue;
+            }
+
+            return result;
+        }
+
+        if (last_sn + 1 == first_sn) {
+            return 0;
+        } else if (last_sn + 1 > first_sn) {
+            return find_position_by_sn(filename, last_sn, pos);
         }
 
         --binlog_index;

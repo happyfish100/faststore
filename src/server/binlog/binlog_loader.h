@@ -98,6 +98,12 @@ typedef struct {
 extern "C" {
 #endif
 
+    int binlog_loader_load1(const char *subdir_name,
+            struct sf_binlog_writer_info *writer,
+            const SFBinlogFilePosition *position,
+            BinlogLoaderCallbacks *callbacks,
+            const int buffer_count);
+
     int binlog_loader_load_ex(const char *subdir_name,
             struct sf_binlog_writer_info *writer,
             BinlogLoaderCallbacks *callbacks,

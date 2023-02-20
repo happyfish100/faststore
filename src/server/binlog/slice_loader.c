@@ -28,6 +28,7 @@
 #include "../storage/storage_allocator.h"
 #include "../storage/trunk_id_info.h"
 #include "../rebuild/store_path_rebuild.h"
+#include "../db/event_dealer.h"
 #include "binlog_loader.h"
 #include "migrate_clean.h"
 #include "slice_binlog.h"
@@ -199,6 +200,7 @@ static void waiting_and_process_parse_outputs(SliceLoaderContext *slice_ctx)
     SliceDataThreadContext *data_end;
     struct fc_queue_info qinfo;
     SliceLoaderRecord *record;
+    int64_t min_sn;
 
     parse_end = slice_ctx->parse_thread_array.contexts +
         slice_ctx->dealing_threads;
@@ -212,6 +214,7 @@ static void waiting_and_process_parse_outputs(SliceLoaderContext *slice_ctx)
         return;
     }
 
+    min_sn = slice_ctx->data_thread_array.contexts->last_sns.done;
     data_end = slice_ctx->data_thread_array.contexts +
         slice_ctx->data_thread_array.count;
     for (data_thread=slice_ctx->data_thread_array.contexts;
@@ -237,13 +240,14 @@ static void waiting_and_process_parse_outputs(SliceLoaderContext *slice_ctx)
             data_thread->slices.head = data_thread->slices.tail = NULL;
         }
 
-        if (STORAGE_ENABLED && data_thread->last_sns.done >
-                SLICE_LOAD_LAST_SN)
-        {
-            SLICE_LOAD_LAST_SN = data_thread->last_sns.done;
+        if (STORAGE_ENABLED && data_thread->last_sns.done < min_sn) {
+            min_sn = data_thread->last_sns.done;
         }
     }
 
+    if (STORAGE_ENABLED && min_sn > SLICE_LOAD_LAST_SN) {
+        SLICE_LOAD_LAST_SN = min_sn;
+    }
     slice_ctx->dealing_threads = 0;
 }
 
@@ -730,6 +734,7 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
 {
     SliceDataThreadContext *data_thread;
     SliceDataThreadContext *end;
+    int64_t min_sn;
     bool all_done;
 
     logInfo("SLICE_LOAD_LAST_SN: %"PRId64, SLICE_LOAD_LAST_SN);
@@ -748,14 +753,19 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
 
         fc_sleep_ms(10);
         if (STORAGE_ENABLED) {
-            for (data_thread=ctx_array->contexts;
+            min_sn = ctx_array->contexts->last_sns.done;
+            for (data_thread=ctx_array->contexts + 1;
                     data_thread<end; data_thread++)
             {
-                if (data_thread->last_sns.done > SLICE_LOAD_LAST_SN) {
-                    SLICE_LOAD_LAST_SN = data_thread->last_sns.done;
-                    logInfo("thread: #%d, SLICE_LOAD_LAST_SN: %"PRId64,
-                            (int)(data_thread - ctx_array->contexts), SLICE_LOAD_LAST_SN);
+                if (data_thread->last_sns.done < min_sn) {
+                    min_sn = data_thread->last_sns.done;
                 }
+            }
+
+            if (min_sn > SLICE_LOAD_LAST_SN) {
+                SLICE_LOAD_LAST_SN = min_sn;
+                logInfo("thread: #%d, SLICE_LOAD_LAST_SN: %"PRId64,
+                        (int)(data_thread - ctx_array->contexts), SLICE_LOAD_LAST_SN);
             }
         }
     }
@@ -978,6 +988,14 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     int result;
     SliceLoaderContext ctx;
     BinlogLoaderCallbacks callbacks;
+    SFBinlogFilePosition position;
+
+    if (STORAGE_ENABLED) {
+        if (event_dealer_get_last_data_version() >= SLICE_BINLOG_SN) {
+            g_ob_hashtable.modify_sallocator = true;
+            return 0;
+        }
+    }
 
     ctx.parse_continue_flag = true;
     ctx.data_continue_flag = true;
@@ -993,8 +1011,19 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     callbacks.parse_line = NULL;
     callbacks.read_done = (binlog_read_done_func)slice_binlog_read_done;
     callbacks.arg = &ctx;
-    result = binlog_loader_load_ex(FS_SLICE_BINLOG_SUBDIR_NAME,
-            slice_writer, &callbacks, (ctx.parse_thread_array.count +
+    if (STORAGE_ENABLED) {
+        if ((result=slice_binlog_get_position_by_sn(
+                        event_dealer_get_last_data_version(),
+                        &position)) != 0)
+        {
+            return result;
+        }
+    } else {
+        position.index = sf_binlog_get_start_index(slice_writer);
+        position.offset = 0;
+    }
+    result = binlog_loader_load1(FS_SLICE_BINLOG_SUBDIR_NAME, slice_writer,
+            &position, &callbacks, (ctx.parse_thread_array.count +
                 ctx.data_thread_array.count) * 2);
     SLICE_LOAD_DONE = true;
     SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;

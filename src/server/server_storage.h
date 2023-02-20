@@ -28,6 +28,10 @@
 #include "storage/storage_allocator.h"
 #include "storage/object_block_index.h"
 #include "storage/slice_op.h"
+#include "db/block_serializer.h"
+#include "db/change_notify.h"
+#include "db/event_dealer.h"
+#include "db/db_updater.h"
 
 #ifdef __cplusplus
 extern "C" {
