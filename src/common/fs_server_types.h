@@ -39,6 +39,12 @@ typedef struct fs_storage_engine_config {
         int htable_capacity;
         int shared_lock_count;
     } block_segment;
+
+    struct {
+        int index_dump_interval;
+        TimeInfo index_dump_base_time;
+    } trunk;
+
     int64_t memory_limit;   //limit for block segment
     string_t path;   //data path
 } FSStorageEngineConfig;

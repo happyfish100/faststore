@@ -40,7 +40,8 @@
 #define BLOCK_BINLOG_MAX_SUBDIRS              256
 #define DEFAULT_BATCH_STORE_ON_MODIFIES    102400
 #define DEFAULT_BATCH_STORE_INTERVAL           60
-#define DEFAULT_ELIMINATE_INTERVAL              1
+#define DEFAULT_TRUNK_INDEX_DUMP_INTERVAL     600
+#define DEFAULT_ELIMINATE_INTERVAL        1
 
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
@@ -492,6 +493,8 @@ static void server_log_configs()
                 ", block_segment_hashtable_capacity: %d"
                 ", block_segment_shared_lock_count: %d"
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
+                ", trunk_index_dump_interval: %d s"
+                ", trunk_index_dump_base_time: %02d:%02d"
                 ", eliminate_interval: %d s, memory_limit: %.2f%%",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
                 BLOCK_BINLOG_SUBDIRS, g_server_global_vars.
@@ -499,7 +502,8 @@ static void server_log_configs()
                 g_server_global_vars.slice_storage.cfg.
                 block_segment.shared_lock_count,
                 BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
-                BLOCK_ELIMINATE_INTERVAL,
+                TRUNK_INDEX_DUMP_INTERVAL, TRUNK_INDEX_DUMP_BASE_TIME.hour,
+                TRUNK_INDEX_DUMP_BASE_TIME.minute, BLOCK_ELIMINATE_INTERVAL,
                 STORAGE_MEMORY_LIMIT * 100);
 
 #ifdef OS_LINUX
@@ -721,6 +725,18 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
             "batch_store_interval", ini_ctx->context,
             DEFAULT_BATCH_STORE_INTERVAL);
 
+    TRUNK_INDEX_DUMP_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "trunk_index_dump_interval", ini_ctx->context,
+            DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+
+    if ((result=get_time_item_from_conf_ex(ini_ctx,
+                    "trunk_index_dump_base_time",
+                    &TRUNK_INDEX_DUMP_BASE_TIME,
+                    0, 0, false)) != 0)
+    {
+        return result;
+    }
+
     BLOCK_ELIMINATE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
             "eliminate_interval", ini_ctx->context,
             DEFAULT_ELIMINATE_INTERVAL);
@@ -941,6 +957,8 @@ int server_load_config(const char *filename)
     data_cfg.path = STORAGE_PATH;
     data_cfg.binlog_buffer_size = BINLOG_BUFFER_SIZE;
     data_cfg.binlog_subdirs = BLOCK_BINLOG_SUBDIRS;
+    data_cfg.trunk_index_dump_interval = TRUNK_INDEX_DUMP_INTERVAL;
+    data_cfg.trunk_index_dump_base_time = TRUNK_INDEX_DUMP_BASE_TIME;
     data_cfg.read_by_direct_io = READ_BY_DIRECT_IO;
 
     if (STORAGE_ENABLED) {

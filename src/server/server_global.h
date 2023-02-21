@@ -292,6 +292,8 @@ typedef struct server_global_vars {
 #define BATCH_STORE_INTERVAL    g_server_global_vars.slice_storage.batch_store_interval
 #define BATCH_STORE_ON_MODIFIES g_server_global_vars.slice_storage.batch_store_on_modifies
 #define BLOCK_BINLOG_SUBDIRS    g_server_global_vars.slice_storage.cfg.block_segment.subdirs
+#define TRUNK_INDEX_DUMP_INTERVAL   g_server_global_vars.slice_storage.cfg.trunk.index_dump_interval
+#define TRUNK_INDEX_DUMP_BASE_TIME  g_server_global_vars.slice_storage.cfg.trunk.index_dump_base_time
 #define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars.slice_storage.eliminate_interval
 #define STORAGE_MEMORY_LIMIT      g_server_global_vars.slice_storage.memory_limit
 #define READ_BY_DIRECT_IO         g_server_global_vars.slice_storage.read_by_direct_io
