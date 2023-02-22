@@ -78,8 +78,8 @@ typedef enum ob_slice_type {
 typedef struct ob_db_args {
     bool locked;
     volatile short ref_count;
-    struct fc_list_head dlink; //for storage engine LRU
     UniqSkiplist *slices;  //the element is OBSliceEntry
+    struct fc_list_head dlink; //for storage engine LRU
 } OBDBArgs;
 
 typedef struct ob_entry {

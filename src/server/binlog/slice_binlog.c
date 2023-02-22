@@ -69,6 +69,9 @@ static int init_binlog_writer()
     {
         return result;
     }
+    if (STORAGE_ENABLED) {
+        slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
+    }
 
     return sf_binlog_writer_init_thread(&binlog_writer.thread, "slice",
             &binlog_writer.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
@@ -95,7 +98,9 @@ int slice_binlog_set_binlog_write_index(const int last_index)
 
 void slice_binlog_writer_set_flags(const short flags)
 {
-    sf_binlog_writer_set_flags(&binlog_writer.writer, flags);
+    if (!(STORAGE_ENABLED && flags == 0)) {
+        sf_binlog_writer_set_flags(&binlog_writer.writer, flags);
+    }
 }
 
 int slice_binlog_set_next_version()
@@ -428,6 +433,7 @@ static int slice_migrate_do()
         ++waiting_count;
         fc_sleep_ms(1);
     }
+    slice_binlog_writer_set_flags(0);
 
     long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
     logInfo("file: "__FILE__", line: %d, "

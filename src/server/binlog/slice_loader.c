@@ -737,7 +737,6 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
     int64_t min_sn;
     bool all_done;
 
-    logInfo("SLICE_LOAD_LAST_SN: %"PRId64, SLICE_LOAD_LAST_SN);
     end = ctx_array->contexts + ctx_array->count;
     while (SF_G_CONTINUE_FLAG) {
         all_done = true;
@@ -990,6 +989,9 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     BinlogLoaderCallbacks callbacks;
     SFBinlogFilePosition position;
 
+    logInfo("event_dealer_get_last_data_version: %"PRId64,
+            event_dealer_get_last_data_version());
+
     if (STORAGE_ENABLED) {
         if (event_dealer_get_last_data_version() >= SLICE_BINLOG_SN) {
             g_ob_hashtable.modify_sallocator = true;
@@ -1025,8 +1027,13 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     result = binlog_loader_load1(FS_SLICE_BINLOG_SUBDIR_NAME, slice_writer,
             &position, &callbacks, (ctx.parse_thread_array.count +
                 ctx.data_thread_array.count) * 2);
-    SLICE_LOAD_DONE = true;
     SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;
+    if (STORAGE_ENABLED && result == 0) {
+        if (event_dealer_get_last_data_version() < SLICE_BINLOG_SN) {
+            change_notify_load_done_signal();
+        }
+    }
+    SLICE_LOAD_DONE = true;
 
     if (result == 0) {
         __sync_add_and_fetch(&SLICE_BINLOG_COUNT, ctx.binlog_count);

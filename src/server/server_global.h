@@ -109,6 +109,10 @@ typedef struct server_global_vars {
         int eliminate_interval;
         FSStorageEngineConfig cfg;
         double memory_limit;   //ratio
+        struct {
+            int64_t ob_count;
+            int64_t slice_count;
+        } stats;
         char *library;
         FSStorageEngineInterface api;
     } slice_storage;   //slice storage engine
@@ -297,6 +301,8 @@ typedef struct server_global_vars {
 #define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars.slice_storage.eliminate_interval
 #define STORAGE_MEMORY_LIMIT      g_server_global_vars.slice_storage.memory_limit
 #define READ_BY_DIRECT_IO         g_server_global_vars.slice_storage.read_by_direct_io
+#define STORAGE_ENGINE_OB_COUNT     g_server_global_vars.slice_storage.stats.ob_count
+#define STORAGE_ENGINE_SLICE_COUNT  g_server_global_vars.slice_storage.stats.slice_count
 
 #define STORAGE_ENGINE_INIT_API      g_server_global_vars.slice_storage.api.init
 #define STORAGE_ENGINE_START_API     g_server_global_vars.slice_storage.api.start

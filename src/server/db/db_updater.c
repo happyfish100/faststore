@@ -29,6 +29,8 @@
 #define REDO_HEADER_FIELD_ID_RECORD_COUNT         1
 #define REDO_HEADER_FIELD_ID_LAST_FIELD_VERSION   2
 #define REDO_HEADER_FIELD_ID_LAST_BLOCK_VERSION   3
+#define REDO_HEADER_FIELD_ID_OB_COUNT             4
+#define REDO_HEADER_FIELD_ID_SLICE_COUNT          5
 
 #define REDO_ENTRY_FIELD_ID_VERSION               1
 #define REDO_ENTRY_FIELD_ID_BLOCK_OID             2
@@ -108,10 +110,22 @@ static int write_header(FSDBUpdaterContext *ctx)
     {
         return result;
     }
-
     if ((result=sf_serializer_pack_int64(&ctx->buffer,
                     REDO_HEADER_FIELD_ID_LAST_BLOCK_VERSION,
                     ctx->last_versions.block.prepare)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+                    REDO_HEADER_FIELD_ID_OB_COUNT,
+                    STORAGE_ENGINE_OB_COUNT)) != 0)
+    {
+        return result;
+    }
+    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+                    REDO_HEADER_FIELD_ID_SLICE_COUNT,
+                    STORAGE_ENGINE_SLICE_COUNT)) != 0)
     {
         return result;
     }
@@ -263,6 +277,12 @@ static int unpack_header(SFSerializerIterator *it,
                 break;
             case REDO_HEADER_FIELD_ID_LAST_BLOCK_VERSION:
                 ctx->last_versions.block.prepare = fv->value.n;
+                break;
+            case REDO_HEADER_FIELD_ID_OB_COUNT:
+                STORAGE_ENGINE_OB_COUNT = fv->value.n;
+                break;
+            case REDO_HEADER_FIELD_ID_SLICE_COUNT:
+                STORAGE_ENGINE_SLICE_COUNT = fv->value.n;
                 break;
             default:
                 break;

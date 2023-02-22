@@ -121,7 +121,8 @@ static int compare_event_ptr_func(const FSChangeNotifyEvent **ev1,
     return fc_compare_int64((*ev1)->sn, (*ev2)->sn);
 }
 
-static int deal_ob_events(OBEntry *ob, const int event_count)
+static int deal_ob_events(OBEntry *ob, const int event_count,
+        const int old_slice_count)
 {
     int result;
     FSDBUpdateBlockInfo *block;
@@ -141,10 +142,20 @@ static int deal_ob_events(OBEntry *ob, const int event_count)
                 ob->db_args->slices))
     {
         block->buffer = NULL;
-    } else if ((result=block_serializer_pack(&event_dealer_ctx.
-                    packer, ob, &block->buffer)) != 0)
-    {
-        return result;
+        --STORAGE_ENGINE_OB_COUNT;
+        STORAGE_ENGINE_SLICE_COUNT -= old_slice_count;
+    } else {
+        if ((result=block_serializer_pack(&event_dealer_ctx.
+                        packer, ob, &block->buffer)) != 0)
+        {
+            return result;
+        }
+
+        if (old_slice_count == 0) {
+            ++STORAGE_ENGINE_OB_COUNT;
+        }
+        STORAGE_ENGINE_SLICE_COUNT += uniq_skiplist_count(
+                ob->db_args->slices) - old_slice_count;
     }
 
     ob_index_ob_entry_release_ex(ob, event_count);
@@ -154,7 +165,8 @@ static int deal_ob_events(OBEntry *ob, const int event_count)
 static int deal_sorted_events()
 {
     int result = 0;
-    int count;
+    int event_count;
+    int old_slice_count;
     FSChangeNotifyEvent **previous;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
@@ -162,17 +174,28 @@ static int deal_sorted_events()
     OBSegment *segment;
 
     MERGED_BLOCK_ARRAY.count = 0;
-    count = 0;
+    event_count = 0;
     previous = EVENT_PTR_ARRAY.events;
     segment = ob_index_get_segment(&(*previous)->ob->bkey);
     ob_index_segment_lock(segment);
     prev_segment = segment;
+    if ((*previous)->ob->db_args->slices == NULL) {
+        if ((result=ob_index_load_db_slices(segment,
+                        (*previous)->ob)) != 0)
+        {
+            return result;
+        }
+    }
+    old_slice_count  = uniq_skiplist_count(
+            (*previous)->ob->db_args->slices);
     end = EVENT_PTR_ARRAY.events + EVENT_PTR_ARRAY.count;
     for (event=EVENT_PTR_ARRAY.events; event<end; event++) {
         if ((*event)->ob == (*previous)->ob) {
-            ++count;
+            ++event_count;
         } else {
-            if ((result=deal_ob_events((*previous)->ob, count)) != 0) {
+            if ((result=deal_ob_events((*previous)->ob, event_count,
+                            old_slice_count)) != 0)
+            {
                 break;
             }
 
@@ -183,8 +206,18 @@ static int deal_sorted_events()
                 prev_segment = segment;
             }
 
-            count = 1;
+            if ((*event)->ob->db_args->slices == NULL) {
+                if ((result=ob_index_load_db_slices(segment,
+                                (*event)->ob)) != 0)
+                {
+                    break;
+                }
+            }
+
+            event_count = 1;
             previous = event;
+            old_slice_count  = uniq_skiplist_count(
+                    (*event)->ob->db_args->slices);
         }
 
         if ((*event)->op_type == da_binlog_op_type_remove) {
@@ -213,7 +246,8 @@ static int deal_sorted_events()
     }
 
     if (result == 0) {
-        result = deal_ob_events((*previous)->ob, count);
+        result = deal_ob_events((*previous)->ob,
+                event_count, old_slice_count);
     }
     ob_index_segment_unlock(prev_segment);
     if (result != 0) {
@@ -258,6 +292,9 @@ int event_dealer_do(FSChangeNotifyEvent *head, int *count)
     }
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
+
+    logInfo("count: %d, last sn: %"PRId64, EVENT_PTR_ARRAY.count,
+            event_dealer_ctx.updater_ctx.last_versions.block.commit);
 
     return result;
 }

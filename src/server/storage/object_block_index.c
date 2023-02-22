@@ -2528,7 +2528,7 @@ OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
     return segment;
 }
 
-static inline int db_load_slices(OBSegment *segment, OBEntry *ob)
+int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob)
 {
     const int init_level_count = 2;
 
@@ -2547,14 +2547,7 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
         const FSSliceSize *ssize, const FSTrunkSpaceInfo *space)
 {
     const int init_refer = 1;
-    int result;
     OBSliceEntry *slice;
-
-    if (ob->db_args->slices == NULL) {
-        if ((result=db_load_slices(segment, ob)) != 0) {
-            return result;
-        }
-    }
 
     if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
         return ENOMEM;
@@ -2570,15 +2563,8 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
 int ob_index_delete_slice_by_db(OBSegment *segment,
         OBEntry *ob, const FSSliceSize *ssize)
 {
-    int result;
     int count;
     FSBlockSliceKeyInfo bs_key;
-
-    if (ob->db_args->slices == NULL) {
-        if ((result=db_load_slices(segment, ob)) != 0) {
-            return result;
-        }
-    }
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;

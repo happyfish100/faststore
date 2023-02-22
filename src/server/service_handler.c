@@ -149,7 +149,13 @@ static int service_deal_service_stat(struct fast_task_info *task)
         current_version = FC_ATOMIC_GET(group->myself->data.current_version);
         replica_binlog_writer_stat(data_group_id, &writer_stat);
     }
-    ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
+
+    if (STORAGE_ENABLED) {
+        ob_count = STORAGE_ENGINE_OB_COUNT;
+        slice_count = STORAGE_ENGINE_SLICE_COUNT;
+    } else {
+        ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
+    }
 
     stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;

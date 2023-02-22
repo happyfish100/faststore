@@ -85,14 +85,13 @@ static void *change_notify_func(void *arg)
             less_equal.sn = SLICE_LOAD_LAST_SN;
         }
 
+        logInfo("file: "__FILE__", line: %d, "
+                "less than version: %"PRId64,
+                __LINE__, less_equal.sn);
+
         sorted_queue_try_pop_to_queue(&change_notify_ctx.
                 queue, &less_equal, &qinfo);
         if (qinfo.head != NULL) {
-            /*
-               logInfo("file: "__FILE__", line: %d, "
-               "less than version: %"PRId64,
-               __LINE__, less_equal.version);
-             */
             if (deal_events(&qinfo) != 0) {
                 logCrit("file: "__FILE__", line: %d, "
                         "deal notify events fail, "
