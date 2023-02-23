@@ -666,6 +666,7 @@ static int load_storage_engine_apis()
     LOAD_API(STORAGE_ENGINE_STORE_API, fs_storage_engine_store);
     LOAD_API(STORAGE_ENGINE_REDO_API, fs_storage_engine_redo);
     LOAD_API(STORAGE_ENGINE_FETCH_API, fs_storage_engine_fetch);
+    LOAD_API(STORAGE_ENGINE_WALK_API, fs_storage_engine_walk);
 
     return 0;
 }

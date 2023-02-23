@@ -2306,6 +2306,7 @@ typedef struct {
     FSSliceBlockedOpContext bctx;
 #endif
     SFBufferedWriter writer;
+    int64_t total_slice_count;
 } DumpSliceIndexContext;
 
 #if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
@@ -2425,6 +2426,31 @@ static int dump_slice_index_to_file(OBEntry *ob,
     return 0;
 }
 
+static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
+{
+    int result;
+    int slice_count;
+    DumpSliceIndexContext *dump_ctx;
+    OBEntry *ob;
+
+    dump_ctx = arg;
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(&g_ob_hashtable, *bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, true);
+    if (ob != NULL) {
+        if ((result=dump_slice_index_to_file(ob, dump_ctx,
+                                &slice_count)) == 0)
+        {
+            dump_ctx->total_slice_count += slice_count;
+        }
+    } else {
+        result = ENOMEM;
+    }
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+
+    return result;
+}
+
 int ob_index_dump_slice_index_to_file(const char *filename,
         int64_t *total_slice_count)
 {
@@ -2436,7 +2462,6 @@ int ob_index_dump_slice_index_to_file(const char *filename,
     OBEntry *ob;
 
     *total_slice_count = 0;
-
     memset(&dump_ctx, 0, sizeof(dump_ctx));
 #if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
     if ((result=fs_slice_blocked_op_ctx_init(&dump_ctx.bctx)) != 0) {
@@ -2448,27 +2473,36 @@ int ob_index_dump_slice_index_to_file(const char *filename,
         return result;
     }
 
-    end = g_ob_hashtable.buckets + g_ob_hashtable.capacity;
-    for (bucket=g_ob_hashtable.buckets; result == 0 &&
-            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
-    {
-        if (*bucket == NULL) {
-            continue;
+    if (STORAGE_ENABLED) {
+        if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slice,
+                        &dump_ctx)) != 0)
+        {
+            return result;
         }
-
-        ob = *bucket;
-        do {
-            if ((result=dump_slice_index_to_file(ob, &dump_ctx,
-                            &slice_count)) != 0)
-            {
-                break;
+    } else {
+        end = g_ob_hashtable.buckets + g_ob_hashtable.capacity;
+        for (bucket=g_ob_hashtable.buckets; result == 0 &&
+                bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+        {
+            if (*bucket == NULL) {
+                continue;
             }
 
-            *total_slice_count += slice_count;
-            ob = ob->next;
-        } while (ob != NULL && result == 0);
+            ob = *bucket;
+            do {
+                if ((result=dump_slice_index_to_file(ob, &dump_ctx,
+                                &slice_count)) != 0)
+                {
+                    break;
+                }
+
+                dump_ctx.total_slice_count += slice_count;
+                ob = ob->next;
+            } while (ob != NULL && result == 0);
+        }
     }
 
+    *total_slice_count = dump_ctx.total_slice_count;
     if (!SF_G_CONTINUE_FLAG) {
         result = EINTR;
     }

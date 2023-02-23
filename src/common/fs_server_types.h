@@ -19,6 +19,9 @@
 #include "fastcommon/fast_buffer.h"
 #include "fs_types.h"
 
+typedef int (*fs_storage_engine_walk_callback)(
+        const FSBlockKey *bkey, void *arg);
+
 typedef struct fs_db_update_block_info {
     int64_t version;   //field version, NOT data version!
     FSBlockKey bkey;
