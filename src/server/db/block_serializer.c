@@ -208,6 +208,7 @@ int block_serializer_pack(BlockSerializerPacker *packer,
 int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
 {
     char *p;
+    int path_index;
 
     if (line->str[0] == BINLOG_OP_TYPE_ALLOC_SLICE) {
         slice->type = OB_SLICE_TYPE_ALLOC;
@@ -232,7 +233,21 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->data_version, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.offset, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.length, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.store->index, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(path_index, ' ');
+    if (path_index < 0 || path_index > STORAGE_CFG.max_store_path_index) {
+        logError("file: "__FILE__", line: %d, "
+                "invalid path_index: %d, max_store_path_index: %d",
+                __LINE__, path_index, STORAGE_CFG.max_store_path_index);
+        return EINVAL;
+    }
+    if (PATHS_BY_INDEX_PPTR[path_index] == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "path_index: %d not exist",
+                __LINE__, path_index);
+        return ENOENT;
+    }
+    slice->space.store = &PATHS_BY_INDEX_PPTR[path_index]->store;
+
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.id, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.subdir, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.offset, ' ');

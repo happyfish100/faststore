@@ -2437,6 +2437,7 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
     OB_INDEX_SET_BUCKET_AND_SEGMENT(&g_ob_hashtable, *bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, true);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     if (ob != NULL) {
         if ((result=dump_slice_index_to_file(ob, dump_ctx,
                                 &slice_count)) == 0)
@@ -2446,7 +2447,6 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
     } else {
         result = ENOMEM;
     }
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }
