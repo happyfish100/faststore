@@ -291,6 +291,8 @@ extern "C" {
         PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     }
 
+    int ob_index_alloc_db_slices(OBEntry *ob);
+
     int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob);
 
     int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,

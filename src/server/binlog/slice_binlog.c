@@ -103,7 +103,7 @@ void slice_binlog_writer_set_flags(const short flags)
     }
 }
 
-int slice_binlog_set_next_version()
+static inline int slice_binlog_set_next_version()
 {
     return sf_binlog_writer_change_next_version(&binlog_writer.
             writer, FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);

@@ -167,7 +167,7 @@ static int deal_sorted_events()
     int result = 0;
     int event_count;
     int old_slice_count;
-    FSChangeNotifyEvent **previous;
+    OBEntry *ob;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
     OBSegment *prev_segment;
@@ -175,79 +175,76 @@ static int deal_sorted_events()
 
     MERGED_BLOCK_ARRAY.count = 0;
     event_count = 0;
-    previous = EVENT_PTR_ARRAY.events;
-    segment = ob_index_get_segment(&(*previous)->ob->bkey);
+    ob = EVENT_PTR_ARRAY.events[0]->ob;
+    segment = ob_index_get_segment(&ob->bkey);
     ob_index_segment_lock(segment);
     prev_segment = segment;
-    if ((*previous)->ob->db_args->slices == NULL) {
-        if ((result=ob_index_load_db_slices(segment,
-                        (*previous)->ob)) != 0)
-        {
+    if (ob->db_args->slices == NULL) {
+        if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
             return result;
         }
     }
-    old_slice_count  = uniq_skiplist_count(
-            (*previous)->ob->db_args->slices);
+    old_slice_count = uniq_skiplist_count(ob->db_args->slices);
     end = EVENT_PTR_ARRAY.events + EVENT_PTR_ARRAY.count;
     for (event=EVENT_PTR_ARRAY.events; event<end; event++) {
-        if ((*event)->ob == (*previous)->ob) {
+        if ((*event)->ob == ob) {
             ++event_count;
         } else {
-            if ((result=deal_ob_events((*previous)->ob, event_count,
+            if ((result=deal_ob_events(ob, event_count,
                             old_slice_count)) != 0)
             {
                 break;
             }
 
-            segment = ob_index_get_segment(&(*event)->ob->bkey);
+            ob = (*event)->ob;
+            segment = ob_index_get_segment(&ob->bkey);
             if (segment != prev_segment) {
                 ob_index_segment_unlock(prev_segment);
                 ob_index_segment_lock(segment);
                 prev_segment = segment;
             }
 
-            if ((*event)->ob->db_args->slices == NULL) {
-                if ((result=ob_index_load_db_slices(segment,
-                                (*event)->ob)) != 0)
-                {
+            if (ob->db_args->slices == NULL) {
+                if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
                     break;
                 }
             }
-
+            old_slice_count = uniq_skiplist_count(ob->db_args->slices);
             event_count = 1;
-            previous = event;
-            old_slice_count  = uniq_skiplist_count(
-                    (*event)->ob->db_args->slices);
         }
 
-        if ((*event)->op_type == da_binlog_op_type_remove) {
-            if ((*event)->entry_type == fs_change_entry_type_block) {
-                if ((result=ob_index_delete_block_by_db(segment,
-                                (*event)->ob)) != 0)
+        if ((*event)->op_type == da_binlog_op_type_remove &&
+                (*event)->entry_type == fs_change_entry_type_block)
+        {
+            if ((result=ob_index_delete_block_by_db(segment, ob)) != 0) {
+                break;
+            }
+        } else {
+            if (ob->db_args->slices == NULL) {
+                if ((result=ob_index_alloc_db_slices(ob)) != 0) {
+                    break;
+                }
+            }
+            if ((*event)->op_type == da_binlog_op_type_remove) {
+                if ((result=ob_index_delete_slice_by_db(segment,
+                                ob, &(*event)->ssize)) != 0)
                 {
                     break;
                 }
             } else {
-                if ((result=ob_index_delete_slice_by_db(segment,
-                                (*event)->ob, &(*event)->ssize)) != 0)
+                if ((result=ob_index_add_slice_by_db(segment, ob, (*event)->
+                                slice.data_version, (*event)->slice.type,
+                                &(*event)->slice.ssize,
+                                &(*event)->slice.space)) != 0)
                 {
                     break;
                 }
-            }
-        } else {
-            if ((result=ob_index_add_slice_by_db(segment, (*event)->ob,
-                            (*event)->slice.data_version, (*event)->slice.
-                            type, &(*event)->slice.ssize,
-                            &(*event)->slice.space)) != 0)
-            {
-                break;
             }
         }
     }
 
     if (result == 0) {
-        result = deal_ob_events((*previous)->ob,
-                event_count, old_slice_count);
+        result = deal_ob_events(ob, event_count, old_slice_count);
     }
     ob_index_segment_unlock(prev_segment);
     if (result != 0) {

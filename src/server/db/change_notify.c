@@ -55,6 +55,7 @@ static void *change_notify_func(void *arg)
     time_t last_time;
     int wait_seconds;
     int waiting_count;
+    int result;
 
 #ifdef OS_LINUX
     prctl(PR_SET_NAME, "chg-notify");
@@ -86,16 +87,16 @@ static void *change_notify_func(void *arg)
         }
 
         logInfo("file: "__FILE__", line: %d, "
-                "less than version: %"PRId64,
-                __LINE__, less_equal.sn);
+                "SLICE_LOAD_DONE: %d, less than version: %"PRId64,
+                __LINE__, SLICE_LOAD_DONE, less_equal.sn);
 
         sorted_queue_try_pop_to_queue(&change_notify_ctx.
                 queue, &less_equal, &qinfo);
         if (qinfo.head != NULL) {
-            if (deal_events(&qinfo) != 0) {
+            if ((result=deal_events(&qinfo)) != 0) {
                 logCrit("file: "__FILE__", line: %d, "
-                        "deal notify events fail, "
-                        "program exit!", __LINE__);
+                        "deal notify events fail, error code: %d, "
+                        "program exit!", __LINE__, result);
                 sf_terminate_myself();
             }
         }

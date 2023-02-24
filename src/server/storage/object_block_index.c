@@ -1177,9 +1177,10 @@ int ob_index_update_slice_ex(OBHashtable *htable, const uint64_t sn,
     if (slice->ob == ob) {
         if ((result=update_slice(segment, htable, ob, slice)) == 0) {
             if (STORAGE_ENABLED) {
+                slice->type = OB_SLICE_TYPE_FILE;
                 result = change_notify_push_add_slice(sn, slice);
             }
-        } 
+        }
     } else {
         result = 0;
     }
@@ -2562,17 +2563,27 @@ OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
     return segment;
 }
 
-int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob)
+int ob_index_alloc_db_slices(OBEntry *ob)
 {
     const int init_level_count = 2;
 
     OB_INDEX_SET_HASHTABLE_ALLOCATOR(ob->bkey);
     if ((ob->db_args->slices=uniq_skiplist_new(&allocator->
-                    factory, init_level_count)) == NULL)
+                    factory, init_level_count)) != NULL)
     {
+        return 0;
+    } else {
         return ENOMEM;
     }
+}
 
+int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob)
+{
+    int result;
+
+    if ((result=ob_index_alloc_db_slices(ob)) != 0) {
+        return result;
+    }
     return ob_load_slices(segment, ob, ob->db_args->slices);
 }
 
@@ -2598,13 +2609,15 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
         OBEntry *ob, const FSSliceSize *ssize)
 {
     int count;
+    int result;
     FSBlockSliceKeyInfo bs_key;
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
-    return delete_slices(&ob_shared_ctx.op_funcs.db, segment,
-            &g_ob_hashtable, ob, ob->db_args->slices,
-            &bs_key, &count, NULL);
+    result = delete_slices(&ob_shared_ctx.op_funcs.db, segment,
+            &g_ob_hashtable, ob, ob->db_args->slices, &bs_key,
+            &count, NULL);
+    return (result == ENOENT ? 0 : result);
 }
 
 int ob_index_delete_block_by_db(OBSegment *segment, OBEntry *ob)

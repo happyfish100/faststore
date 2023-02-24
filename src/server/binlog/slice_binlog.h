@@ -61,8 +61,6 @@ extern "C" {
 
     void slice_binlog_writer_set_flags(const short flags);
 
-    int slice_binlog_set_next_version();
-
     int slice_binlog_rotate_file();
 
     int slice_binlog_get_position_by_dv(const int data_group_id,
