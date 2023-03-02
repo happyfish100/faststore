@@ -27,7 +27,7 @@
 
 typedef int (*fs_storage_engine_init_func)(IniFullContext *ini_ctx,
         const int my_server_id, const FSStorageEngineConfig *db_cfg,
-        const DADataGlobalConfig *data_cfg);
+        const DADataConfig *data_cfg);
 
 typedef int (*fs_storage_engine_start_func)();
 
@@ -38,7 +38,7 @@ typedef int (*fs_storage_engine_store_func)(const FSDBUpdateBlockArray *array);
 typedef int (*fs_storage_engine_redo_func)(const FSDBUpdateBlockArray *array);
 
 typedef int (*fs_storage_engine_fetch_func)(const struct fs_block_key *bkey,
-        DASynchronizedReadContext *ctx);
+        DASynchronizedReadContext *rctx);
 
 typedef int (*fs_storage_engine_walk_func)(
         fs_storage_engine_walk_callback callback, void *arg);

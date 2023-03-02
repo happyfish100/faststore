@@ -495,7 +495,7 @@ static void server_log_configs()
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
                 ", trunk_index_dump_interval: %d s"
                 ", trunk_index_dump_base_time: %02d:%02d"
-                ", eliminate_interval: %d s, memory_limit: %.2f%%",
+                ", eliminate_interval: %d s, memory_limit: %.2f%%}",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
                 BLOCK_BINLOG_SUBDIRS, g_server_global_vars.
                 slice_storage.cfg.block_segment.htable_capacity,
@@ -505,15 +505,6 @@ static void server_log_configs()
                 TRUNK_INDEX_DUMP_INTERVAL, TRUNK_INDEX_DUMP_BASE_TIME.hour,
                 TRUNK_INDEX_DUMP_BASE_TIME.minute, BLOCK_ELIMINATE_INTERVAL,
                 STORAGE_MEMORY_LIMIT * 100);
-
-#ifdef OS_LINUX
-        len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
-                ", read_by_direct_io: %d}", READ_BY_DIRECT_IO);
-#else
-        len += snprintf(sz_server_config + len,
-                sizeof(sz_server_config) - len, "}");
-#endif
-
     } else {
         snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
     }
@@ -760,11 +751,6 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
         STORAGE_MEMORY_LIMIT = 0.99;
     }
 
-#ifdef OS_LINUX
-    READ_BY_DIRECT_IO = iniGetBoolValue(ini_ctx->section_name,
-            "read_by_direct_io", ini_ctx->context, false);
-#endif
-
     g_server_global_vars.slice_storage.cfg.block_segment.htable_capacity =
         iniGetIntCorrectValue(ini_ctx, "block_segment_hashtable_capacity",
                 1361, 163, 1403641);
@@ -780,7 +766,7 @@ int server_load_config(const char *filename)
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
-    DADataGlobalConfig data_cfg;
+    DADataConfig data_cfg;
     char *rebuild_threads;
     int result;
 
@@ -960,8 +946,6 @@ int server_load_config(const char *filename)
     data_cfg.binlog_subdirs = BLOCK_BINLOG_SUBDIRS;
     data_cfg.trunk_index_dump_interval = TRUNK_INDEX_DUMP_INTERVAL;
     data_cfg.trunk_index_dump_base_time = TRUNK_INDEX_DUMP_BASE_TIME;
-    data_cfg.read_by_direct_io = READ_BY_DIRECT_IO;
-
     if (STORAGE_ENABLED) {
         if ((result=STORAGE_ENGINE_INIT_API(&full_ini_ctx, CLUSTER_MY_SERVER_ID,
                         &g_server_global_vars.slice_storage.cfg, &data_cfg)) != 0)
