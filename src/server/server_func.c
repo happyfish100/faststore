@@ -497,9 +497,9 @@ static void server_log_configs()
                 ", trunk_index_dump_base_time: %02d:%02d"
                 ", eliminate_interval: %d s, memory_limit: %.2f%%}",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
-                BLOCK_BINLOG_SUBDIRS, g_server_global_vars.
+                BLOCK_BINLOG_SUBDIRS, g_server_global_vars->
                 slice_storage.cfg.block_segment.htable_capacity,
-                g_server_global_vars.slice_storage.cfg.
+                g_server_global_vars->slice_storage.cfg.
                 block_segment.shared_lock_count,
                 BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
                 TRUNK_INDEX_DUMP_INTERVAL, TRUNK_INDEX_DUMP_BASE_TIME.hour,
@@ -751,10 +751,10 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
         STORAGE_MEMORY_LIMIT = 0.99;
     }
 
-    g_server_global_vars.slice_storage.cfg.block_segment.htable_capacity =
+    g_server_global_vars->slice_storage.cfg.block_segment.htable_capacity =
         iniGetIntCorrectValue(ini_ctx, "block_segment_hashtable_capacity",
                 1361, 163, 1403641);
-    g_server_global_vars.slice_storage.cfg.block_segment.shared_lock_count =
+    g_server_global_vars->slice_storage.cfg.block_segment.shared_lock_count =
         iniGetIntCorrectValue(ini_ctx, "block_segment_shared_lock_count",
                 163, 1, 1361);
 
@@ -928,17 +928,17 @@ int server_load_config(const char *filename)
     }
 
     if (BLOCK_ELIMINATE_INTERVAL > 0) {
-        g_server_global_vars.slice_storage.cfg.memory_limit = (int64_t)
+        g_server_global_vars->slice_storage.cfg.memory_limit = (int64_t)
             (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
              MEMORY_LIMIT_LEVEL1_RATIO);
-        if (g_server_global_vars.slice_storage.cfg.
+        if (g_server_global_vars->slice_storage.cfg.
                 memory_limit < 64 * 1024 * 1024)
         {
-            g_server_global_vars.slice_storage.cfg.
+            g_server_global_vars->slice_storage.cfg.
                 memory_limit = 64 * 1024 * 1024;
         }
     } else {
-        g_server_global_vars.slice_storage.cfg.memory_limit = 0;  //no limit
+        g_server_global_vars->slice_storage.cfg.memory_limit = 0;  //no limit
     }
 
     data_cfg.path = STORAGE_PATH;
@@ -948,16 +948,16 @@ int server_load_config(const char *filename)
     data_cfg.trunk_index_dump_base_time = TRUNK_INDEX_DUMP_BASE_TIME;
     if (STORAGE_ENABLED) {
         if ((result=STORAGE_ENGINE_INIT_API(&full_ini_ctx, CLUSTER_MY_SERVER_ID,
-                        &g_server_global_vars.slice_storage.cfg, &data_cfg)) != 0)
+                        &g_server_global_vars->slice_storage.cfg, &data_cfg)) != 0)
         {
             return result;
         }
     }
 
-    g_server_global_vars.replica.active_test_interval = (int)
+    g_server_global_vars->replica.active_test_interval = (int)
         ceil(SF_G_NETWORK_TIMEOUT / 2.00);
-    if (g_server_global_vars.replica.active_test_interval == 0) {
-        g_server_global_vars.replica.active_test_interval = 1;
+    if (g_server_global_vars->replica.active_test_interval == 0) {
+        g_server_global_vars->replica.active_test_interval = 1;
     }
 
     iniFreeContext(&ini_context);
