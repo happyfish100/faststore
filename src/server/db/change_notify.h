@@ -32,9 +32,9 @@ typedef struct fs_change_notify_event {
 
     union {
         struct {
-            OBSliceType type;
+            DASliceType type;
             FSSliceSize ssize;
-            FSTrunkSpaceInfo space;
+            DATrunkSpaceInfo space;
             int64_t data_version;
         } slice;  //for slice add
 

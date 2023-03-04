@@ -59,7 +59,7 @@ extern "C" {
     int storage_allocator_prealloc_trunk_freelists();
 
     static inline int storage_allocator_add_trunk_ex(const int path_index,
-            const FSTrunkIdInfo *id_info, const int64_t size,
+            const DATrunkIdInfo *id_info, const int64_t size,
             FSTrunkFileInfo **pp_trunk)
     {
         int result;
@@ -73,13 +73,13 @@ extern "C" {
     }
 
     static inline int storage_allocator_add_trunk(const int path_index,
-            const FSTrunkIdInfo *id_info, const int64_t size)
+            const DATrunkIdInfo *id_info, const int64_t size)
     {
         return storage_allocator_add_trunk_ex(path_index, id_info, size, NULL);
     }
 
     static inline int storage_allocator_delete_trunk(const int path_index,
-            const FSTrunkIdInfo *id_info)
+            const DATrunkIdInfo *id_info)
     {
         int result;
         if ((result=trunk_id_info_delete(path_index, id_info)) != 0) {
@@ -94,7 +94,7 @@ extern "C" {
 
     static inline int storage_allocator_normal_alloc_ex(
             const uint32_t blk_hc, const int size,
-            FSTrunkSpaceWithVersion *spaces,
+            DATrunkSpaceWithVersion *spaces,
             int *count, const bool is_normal)
     {
         FSTrunkAllocatorPtrArray *avail_array;
@@ -120,7 +120,7 @@ extern "C" {
     }
 
     static inline int storage_allocator_reclaim_alloc(const uint32_t blk_hc,
-            const int size, FSTrunkSpaceWithVersion *spaces, int *count)
+            const int size, DATrunkSpaceWithVersion *spaces, int *count)
     {
         const bool is_normal = false;
         int result;

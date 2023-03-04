@@ -28,11 +28,11 @@ extern "C" {
 
     void trunk_id_info_destroy();
 
-    int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info);
+    int trunk_id_info_add(const int path_index, const DATrunkIdInfo *id_info);
 
-    int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info);
+    int trunk_id_info_delete(const int path_index, const DATrunkIdInfo *id_info);
 
-    int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info);
+    int trunk_id_info_generate(const int path_index, DATrunkIdInfo *id_info);
 
 #ifdef __cplusplus
 }

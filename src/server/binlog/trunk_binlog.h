@@ -49,16 +49,16 @@ extern "C" {
     int trunk_binlog_set_binlog_write_index(const int binlog_index);
 
     static inline int trunk_binlog_log_to_buff(const char op_type,
-            const int path_index, const FSTrunkIdInfo *id_info,
+            const int path_index, const DATrunkIdInfo *id_info,
             const int64_t file_size, char *buff)
     {
-        return sprintf(buff, "%d %c %d %"PRId64" %"PRId64" %"PRId64"\n",
+        return sprintf(buff, "%d %c %d %"PRId64" %u %"PRId64"\n",
                 (int)g_current_time, op_type, path_index, id_info->id,
                 id_info->subdir, file_size);
     }
 
     int trunk_binlog_write(const char op_type, const int path_index,
-            const FSTrunkIdInfo *id_info, const int64_t file_size);
+            const DATrunkIdInfo *id_info, const int64_t file_size);
 
 #ifdef __cplusplus
 }

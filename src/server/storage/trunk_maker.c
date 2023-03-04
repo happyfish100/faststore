@@ -170,7 +170,7 @@ static void create_trunk_done(struct trunk_write_io_buffer *record,
 }
 
 static int prealloc_trunk_finish(FSTrunkAllocator *allocator,
-        FSTrunkSpaceInfo *space, FSTrunkFreelistType *freelist_type)
+        DATrunkSpaceInfo *space, FSTrunkFreelistType *freelist_type)
 {
     int result;
     time_t last_stat_time;
@@ -197,7 +197,7 @@ static int do_prealloc_trunk(TrunkMakerThreadInfo *thread,
         TrunkMakerTask *task, FSTrunkFreelistType *freelist_type)
 {
     int result;
-    FSTrunkSpaceInfo space;
+    DATrunkSpaceInfo space;
 
     space.store = &task->allocator->path_info->store;
     if ((result=trunk_id_info_generate(space.store->index,

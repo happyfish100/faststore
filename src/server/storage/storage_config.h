@@ -31,7 +31,7 @@ typedef struct {
 #ifdef OS_LINUX
     int block_size;
 #endif
-    FSStorePath store;
+    DAStorePath store;
     int write_thread_count;
     int read_thread_count;
     int prealloc_trunks;
@@ -73,7 +73,7 @@ typedef struct {
     FSStoragePathArray store_path;
     FSStoragePathArray write_cache;
     FSStoragePathPtrArray paths_by_index;
-    int max_store_path_index;  //the max of FSStorePath->index from dat file
+    int max_store_path_index;  //the max of DAStorePath->index from dat file
 
     struct {
         double on_usage;  //usage ratio

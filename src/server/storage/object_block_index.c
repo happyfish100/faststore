@@ -719,7 +719,7 @@ static inline int do_add_slice(OBHashtable *htable, OBEntry *ob,
         return result;
     }
 
-    if (htable->modify_sallocator && slice->type != OB_SLICE_TYPE_CACHE) {
+    if (htable->modify_sallocator && slice->type != DA_SLICE_TYPE_CACHE) {
         return storage_allocator_add_slice(slice, htable->modify_used_space);
     } else {
         return 0;
@@ -731,7 +731,7 @@ static inline int do_delete_slice(OBHashtable *htable, OBEntry *ob,
 {
     int result;
 
-    if (htable->modify_sallocator && slice->type != OB_SLICE_TYPE_CACHE) {
+    if (htable->modify_sallocator && slice->type != DA_SLICE_TYPE_CACHE) {
         storage_allocator_delete_slice(slice,
                 htable->modify_used_space);
     }
@@ -786,7 +786,7 @@ static inline int db_delete_slice(OBHashtable *htable, OBEntry *ob,
 }
 
 static inline OBSliceEntry *slice_dup(OBSegment *segment,
-        const OBSliceEntry *src, const OBSliceType dest_type,
+        const OBSliceEntry *src, const DASliceType dest_type,
         const int offset, const int length)
 {
     OBSliceEntry *slice;
@@ -808,7 +808,7 @@ static inline OBSliceEntry *slice_dup(OBSegment *segment,
     }
     slice->ssize.length = length;
 
-    if (slice->type == OB_SLICE_TYPE_CACHE) {
+    if (slice->type == DA_SLICE_TYPE_CACHE) {
         slice->cache.mbuffer = src->cache.mbuffer;
         slice->cache.buff = src->cache.buff + extra_offset;
         sf_shared_mbuffer_hold(slice->cache.mbuffer);
@@ -846,7 +846,7 @@ static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
 }
 
 static inline int dup_slice_to_smart_array_ex(OBSegment *segment,
-        const OBSliceEntry *src_slice, const OBSliceType dest_type,
+        const OBSliceEntry *src_slice, const DASliceType dest_type,
         const int offset, const int length, OBSlicePtrSmartArray *array)
 {
     OBSliceEntry *new_slice;
@@ -1014,7 +1014,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     }
 
     if ((OBSliceEntry *)node->data == slice) {
-        new_slice = slice_dup(segment, slice, OB_SLICE_TYPE_FILE,
+        new_slice = slice_dup(segment, slice, DA_SLICE_TYPE_FILE,
                 slice->ssize.offset, slice->ssize.length);
         if (new_slice == NULL) {
             return ENOMEM;
@@ -1038,7 +1038,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         }
 
         if (curr_slice->data_version == slice->data_version) {
-            if (curr_slice->type != OB_SLICE_TYPE_CACHE ||
+            if (curr_slice->type != DA_SLICE_TYPE_CACHE ||
                     curr_slice->ssize.offset + curr_slice->
                     ssize.length > slice_end)
             {
@@ -1062,7 +1062,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
 
             if ((result=dup_slice_to_smart_array_ex(segment, slice,
-                            OB_SLICE_TYPE_FILE, curr_slice->ssize.offset,
+                            DA_SLICE_TYPE_FILE, curr_slice->ssize.offset,
                             curr_slice->ssize.length, &add_slice_array)) != 0)
             {
                 return result;
@@ -1128,7 +1128,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
                 }
 
-                if (STORAGE_ENABLED && slice->type != OB_SLICE_TYPE_CACHE) {
+                if (STORAGE_ENABLED && slice->type != DA_SLICE_TYPE_CACHE) {
                     result = change_notify_push_add_slice(*sn, slice);
                 }
             }
@@ -1177,7 +1177,7 @@ int ob_index_update_slice_ex(OBHashtable *htable, const uint64_t sn,
     if (slice->ob == ob) {
         if ((result=update_slice(segment, htable, ob, slice)) == 0) {
             if (STORAGE_ENABLED) {
-                slice->type = OB_SLICE_TYPE_FILE;
+                slice->type = DA_SLICE_TYPE_FILE;
                 result = change_notify_push_add_slice(sn, slice);
             }
         }
@@ -1377,7 +1377,7 @@ int ob_index_delete_block_ex(OBHashtable *htable,
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
             if (htable->modify_sallocator && slice->type !=
-                    OB_SLICE_TYPE_CACHE)
+                    DA_SLICE_TYPE_CACHE)
             {
                 storage_allocator_delete_slice(slice,
                         htable->modify_used_space);
@@ -1923,7 +1923,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         do {
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (slice->type == OB_SLICE_TYPE_CACHE) {
+                if (slice->type == DA_SLICE_TYPE_CACHE) {
                     continue;
                 }
 
@@ -2025,7 +2025,7 @@ static inline int write_slice_index_to_file(OBEntry *ob,
     }
 
     writer->buffer.current += rebuild_binlog_log_to_buff(
-            slice_type == OB_SLICE_TYPE_FILE ?
+            slice_type == DA_SLICE_TYPE_FILE ?
             BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE,
             &ob->bkey, ssize, writer->buffer.current);
@@ -2173,7 +2173,7 @@ static int do_write_replica_binlog(OBEntry *ob, const int slice_type,
     bs_key.slice = *ssize;
     writer->buffer.current += replica_binlog_log_slice_to_buff(
             g_current_time, data_version, &bs_key, BINLOG_SOURCE_DUMP,
-            slice_type == OB_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
+            slice_type == DA_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE, writer->buffer.current);
     return 0;
 }
@@ -2196,7 +2196,7 @@ static int dump_replica_binlog_to_file(OBEntry *ob, SFBufferedWriter
     ++(*total_replica_count);
     SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
     while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-        if (slice->type == OB_SLICE_TYPE_CACHE) {
+        if (slice->type == DA_SLICE_TYPE_CACHE) {
             continue;
         }
 
@@ -2371,7 +2371,7 @@ static int do_write_slice_index(OBEntry *ob, const int slice_type,
 
     dump_ctx->writer.buffer.current += sprintf(dump_ctx->writer.buffer.
             current, "%c %"PRId64" %"PRId64" %d %d %d %u\n",
-            slice_type == OB_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
+            slice_type == DA_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE, ob->bkey.oid, ob->bkey.offset,
             ssize->offset, ssize->length, dump_ctx->bctx.op_ctx.done_bytes,
             crc32);
@@ -2588,8 +2588,8 @@ int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob)
 }
 
 int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
-        const int64_t data_version, const OBSliceType type,
-        const FSSliceSize *ssize, const FSTrunkSpaceInfo *space)
+        const int64_t data_version, const DASliceType type,
+        const FSSliceSize *ssize, const DATrunkSpaceInfo *space)
 {
     const int init_refer = 1;
     OBSliceEntry *slice;

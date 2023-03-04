@@ -73,7 +73,7 @@ typedef struct {
 static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
 
 static inline int add_slice(OBHashtable *htable,
-        ReplicaBinlogRecord *record, const OBSliceType stype)
+        ReplicaBinlogRecord *record, const DASliceType stype)
 {
     OBSliceEntry *slice;
     int inc_alloc;
@@ -132,10 +132,10 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
             case BINLOG_OP_TYPE_ALLOC_SLICE:
                 if (op_type == BINLOG_OP_TYPE_WRITE_SLICE) {
                     result = add_slice(&dedup_ctx->htables.create,
-                            &dedup_ctx->record, OB_SLICE_TYPE_FILE);
+                            &dedup_ctx->record, DA_SLICE_TYPE_FILE);
                 } else {
                     result = add_slice(&dedup_ctx->htables.create,
-                            &dedup_ctx->record, OB_SLICE_TYPE_ALLOC);
+                            &dedup_ctx->record, DA_SLICE_TYPE_ALLOC);
                 }
                 dedup_ctx->rstat.create.total++;
                 if (result == 0) {
@@ -163,7 +163,7 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                 {
                     if ((r=add_slice(&dedup_ctx->htables.remove,
                                     &dedup_ctx->record,
-                                    OB_SLICE_TYPE_FILE)) == 0)
+                                    DA_SLICE_TYPE_FILE)) == 0)
                     {
                         dedup_ctx->rstat.partial_deletes++;
                     } else {
@@ -302,7 +302,7 @@ static int slice_array_to_file(BinlogDedupContext *dedup_ctx)
         if (dedup_ctx->out.current_op_type == BINLOG_OP_TYPE_DEL_SLICE) {
             op_type = BINLOG_OP_TYPE_DEL_SLICE;
         } else {
-            if ((*pp)->type == OB_SLICE_TYPE_FILE) {
+            if ((*pp)->type == DA_SLICE_TYPE_FILE) {
                 op_type = BINLOG_OP_TYPE_WRITE_SLICE;
             } else {
                 op_type = BINLOG_OP_TYPE_ALLOC_SLICE;

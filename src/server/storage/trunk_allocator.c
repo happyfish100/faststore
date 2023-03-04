@@ -127,7 +127,7 @@ int trunk_allocator_init_instance(FSTrunkAllocator *allocator,
 }
 
 int trunk_allocator_add(FSTrunkAllocator *allocator,
-        const FSTrunkIdInfo *id_info, const int64_t size,
+        const DATrunkIdInfo *id_info, const int64_t size,
         FSTrunkFileInfo **pp_trunk)
 {
     FSTrunkFileInfo *trunk_info;
@@ -161,7 +161,7 @@ int trunk_allocator_add(FSTrunkAllocator *allocator,
 
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
-                "add trunk fail, path index: %d, subdir id: %"PRId64", "
+                "add trunk fail, path index: %d, subdir: %u, "
                 "trunk id: %"PRId64", errno: %d, error info: %s",
                 __LINE__, allocator->path_info->store.index,
                 id_info->subdir, id_info->id, result, STRERROR(result));
@@ -385,8 +385,8 @@ void trunk_allocator_deal_on_ready(FSTrunkAllocator *allocator)
 
 void trunk_allocator_log_trunk_info(FSTrunkFileInfo *trunk_info)
 {
-    logInfo("trunk id: %"PRId64", subdir: %"PRId64", status: %d, "
-            "slice count: %d, used bytes: %"PRId64", trunk size: %"PRId64", "
+    logInfo("trunk id: %"PRId64", subdir: %u, status: %d, slice count: %d, "
+            "used bytes: %"PRId64", trunk size: %"PRId64", "
             "free start: %"PRId64", remain bytes: %"PRId64,
             trunk_info->id_info.id, trunk_info->id_info.subdir,
             trunk_info->status, trunk_info->used.count, trunk_info->used.bytes,

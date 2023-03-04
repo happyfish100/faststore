@@ -21,6 +21,7 @@
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/uniq_skiplist.h"
 #include "sf/sf_shared_mbuffer.h"
+#include "diskallocator/storage_types.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
@@ -36,28 +37,6 @@ typedef void (*fs_rw_done_callback_func)(
         struct fs_slice_op_context *op_ctx, void *arg);
 
 typedef struct {
-    int index;   //the inner index is important!
-    string_t path;
-} FSStorePath;
-
-typedef struct {
-    int64_t id;
-    int64_t subdir;     //in which subdir
-} FSTrunkIdInfo;
-
-typedef struct {
-    FSStorePath *store;
-    FSTrunkIdInfo id_info;
-    int64_t offset;  //offset of the trunk file
-    int64_t size;    //alloced space size
-} FSTrunkSpaceInfo;
-
-typedef struct {
-    FSTrunkSpaceInfo space;
-    int64_t version; //for write in order
-} FSTrunkSpaceWithVersion;
-
-typedef struct {
     struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
     int64_t version; //for write in order
@@ -68,12 +47,6 @@ typedef struct {
     int alloc;
     FSSliceSNPair *slice_sn_pairs;
 } FSSliceSNPairArray;
-
-typedef enum ob_slice_type {
-    OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
-    OB_SLICE_TYPE_CACHE = 'C', /* in memory cache */
-    OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
-} OBSliceType;
 
 typedef struct ob_db_args {
     bool locked;
@@ -103,10 +76,10 @@ typedef struct {
 typedef struct ob_slice_entry {
     int64_t data_version;
     OBEntry *ob;
-    OBSliceType type;    //in file, write cache or memory as fallocate
+    DASliceType type;    //in file, write cache or memory as fallocate
     volatile int ref_count;
     FSSliceSize ssize;
-    FSTrunkSpaceInfo space;
+    DATrunkSpaceInfo space;
     struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
     struct {
         SFSharedMBuffer *mbuffer;
@@ -197,7 +170,7 @@ typedef struct fs_slice_blocked_op_context {
 
 typedef struct fs_trunk_file_info {
     struct fs_trunk_allocator *allocator;
-    FSTrunkIdInfo id_info;
+    DATrunkIdInfo id_info;
     volatile int status;
     struct {
         int count;  //slice count

@@ -63,7 +63,7 @@ static int trunk_parse_line(BinlogReadThreadResult *r, string_t *line)
     char *endptr;
     char op_type;
     int path_index;
-    FSTrunkIdInfo id_info;
+    DATrunkIdInfo id_info;
     int64_t trunk_size;
 
     count = split_string_ex(line, ' ', cols,
@@ -181,7 +181,7 @@ void trunk_binlog_destroy()
 }
 
 int trunk_binlog_write(const char op_type, const int path_index,
-        const FSTrunkIdInfo *id_info, const int64_t file_size)
+        const DATrunkIdInfo *id_info, const int64_t file_size)
 {
     SFBinlogWriterBuffer *wbuffer;
 

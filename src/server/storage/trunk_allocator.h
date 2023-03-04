@@ -97,7 +97,7 @@ extern "C" {
             FSStoragePathInfo *path_info);
 
     int trunk_allocator_add(FSTrunkAllocator *allocator,
-            const FSTrunkIdInfo *id_info, const int64_t size,
+            const DATrunkIdInfo *id_info, const int64_t size,
             FSTrunkFileInfo **pp_trunk);
 
     int trunk_allocator_delete(FSTrunkAllocator *allocator, const int64_t id);

@@ -281,7 +281,7 @@ static inline TrunkWriteIOBuffer *alloc_init_buffer(
     iob->type = type;
     iob->version = version;
     if (type == FS_IO_TYPE_CREATE_TRUNK || type == FS_IO_TYPE_DELETE_TRUNK) {
-        iob->space = *((FSTrunkSpaceInfo *)entry);
+        iob->space = *((DATrunkSpaceInfo *)entry);
     } else {
         iob->slice = (OBSliceEntry *)entry;
     }
@@ -349,10 +349,10 @@ int trunk_write_thread_push_cached_slice(FSSliceOpContext *op_ctx,
     return 0;
 }
 
-static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
+static inline void get_trunk_filename(DATrunkSpaceInfo *space,
         char *trunk_filename, const int size)
 {
-    snprintf(trunk_filename, size, "%s/%04"PRId64"/%06"PRId64,
+    snprintf(trunk_filename, size, "%s/%04u/%06"PRId64,
             space->store->path.str, space->id_info.subdir,
             space->id_info.id);
 }
@@ -378,7 +378,7 @@ static inline void clear_write_fd(TrunkWriteThreadContext *ctx)
 }
 
 static int get_write_fd(TrunkWriteThreadContext *ctx,
-        FSTrunkSpaceInfo *space, int *fd)
+        DATrunkSpaceInfo *space, int *fd)
 {
     char trunk_filename[PATH_MAX];
     int result;
@@ -559,7 +559,7 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
                     sizeof(trunk_filename));
             result = errno != 0 ? errno : EIO;
             logError("file: "__FILE__", line: %d, "
-                    "lseek file: %s fail, offset: %"PRId64", "
+                    "lseek file: %s fail, offset: %u, "
                     "errno: %d, error info: %s", __LINE__, trunk_filename,
                     first->slice->space.offset, result, STRERROR(result));
             clear_write_fd(ctx);
@@ -570,7 +570,7 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
         /*
         get_trunk_filename(&first->slice->space, trunk_filename,
                 sizeof(trunk_filename));
-        logInfo("trunk file: %s, lseek to offset: %"PRId64,
+        logInfo("trunk file: %s, lseek to offset: %u",
                 trunk_filename, first->slice->space.offset);
                 */
     }
@@ -616,7 +616,7 @@ static int do_write_slices(TrunkWriteThreadContext *ctx)
         get_trunk_filename(&first->slice->space, trunk_filename,
                 sizeof(trunk_filename));
         logError("file: "__FILE__", line: %d, "
-                "write to trunk file: %s fail, offset: %"PRId64", "
+                "write to trunk file: %s fail, offset: %u, "
                 "errno: %d, error info: %s", __LINE__, trunk_filename,
                 first->slice->space.offset + (ctx->iovec_bytes -
                     remain_bytes), result, STRERROR(result));
@@ -642,7 +642,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     if (ctx->iob_array.success > 0) {
         end = ctx->iob_array.iobs + ctx->iob_array.success;
         for (; iob < end; iob++) {
-            if ((*iob)->slice->type == OB_SLICE_TYPE_CACHE) {
+            if ((*iob)->slice->type == DA_SLICE_TYPE_CACHE) {
                 if (ob_index_update_slice((*iob)->binlog.sn,
                             &(*iob)->bkey, (*iob)->slice) == 0)
                 {
@@ -663,7 +663,7 @@ static int batch_write(TrunkWriteThreadContext *ctx)
     if (result != 0) {
         end = ctx->iob_array.iobs + ctx->iob_array.count;
         for (; iob < end; iob++) {
-            if ((*iob)->slice->type != OB_SLICE_TYPE_CACHE) {
+            if ((*iob)->slice->type != DA_SLICE_TYPE_CACHE) {
                 (*iob)->notify.func(*iob, result);
             }
 

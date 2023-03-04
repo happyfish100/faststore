@@ -26,9 +26,9 @@
 typedef struct slice_binlog_record {
     char source;
     unsigned char op_type;
-    OBSliceType slice_type;   //add slice only
+    DASliceType slice_type;   //add slice only
     FSBlockSliceKeyInfo bs_key;
-    FSTrunkSpaceInfo space;   //add slice only
+    DATrunkSpaceInfo space;   //add slice only
     uint64_t sn;
     int64_t data_version;
 } SliceBinlogRecord;
@@ -117,9 +117,9 @@ extern "C" {
             const uint64_t data_version, const int source, char *buff)
     {
         return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64" %d %d %d %"PRId64" %"PRId64" %"PRId64" %"PRId64"\n",
+                "%"PRId64" %d %d %d %"PRId64" %u %u %u\n",
                 (int64_t)current_time, sn, data_version, source,
-                slice->type == OB_SLICE_TYPE_ALLOC ?
+                slice->type == DA_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
                 BINLOG_OP_TYPE_WRITE_SLICE,
                 slice->ob->bkey.oid, slice->ob->bkey.offset,

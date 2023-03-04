@@ -38,7 +38,7 @@ typedef struct trunk_write_io_buffer {
     int type;
 
     union {
-        FSTrunkSpaceInfo space;  //for trunk op
+        DATrunkSpaceInfo space;  //for trunk op
         struct {
             OBSliceEntry *slice;
             FSBlockKey bkey;
@@ -81,7 +81,7 @@ extern "C" {
             void *notify_arg);
 
     static inline int trunk_write_thread_push_trunk_op(const int type,
-            const FSTrunkSpaceInfo *space, trunk_write_io_notify_func
+            const DATrunkSpaceInfo *space, trunk_write_io_notify_func
             notify_func, void *notify_arg)
     {
         FSTrunkAllocator *allocator;
@@ -102,7 +102,7 @@ extern "C" {
             OBSliceEntry *slice, char *buff,
             trunk_write_io_notify_func notify_func, void *notify_arg)
     {
-        if (slice->type == OB_SLICE_TYPE_CACHE) {
+        if (slice->type == DA_SLICE_TYPE_CACHE) {
             return trunk_write_thread_push_cached_slice(op_ctx,
                     FS_IO_TYPE_WRITE_SLICE_BY_BUFF, version, slice, buff);
         } else {
@@ -117,7 +117,7 @@ extern "C" {
             OBSliceEntry *slice, iovec_array_t *iovec_array,
             trunk_write_io_notify_func notify_func, void *notify_arg)
     {
-        if (slice->type == OB_SLICE_TYPE_CACHE) {
+        if (slice->type == DA_SLICE_TYPE_CACHE) {
             return trunk_write_thread_push_cached_slice(op_ctx,
                     FS_IO_TYPE_WRITE_SLICE_BY_IOVEC, version,
                     slice, iovec_array);

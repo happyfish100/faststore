@@ -340,16 +340,16 @@ int trunk_read_thread_push(OBSliceEntry *slice, void *data,
     return 0;
 }
 
-static inline void get_trunk_filename(FSTrunkSpaceInfo *space,
+static inline void get_trunk_filename(DATrunkSpaceInfo *space,
         char *trunk_filename, const int size)
 {
-    snprintf(trunk_filename, size, "%s/%04"PRId64"/%06"PRId64,
+    snprintf(trunk_filename, size, "%s/%04u/%06"PRId64,
             space->store->path.str, space->id_info.subdir,
             space->id_info.id);
 }
 
 static int get_read_fd(TrunkReadThreadContext *ctx,
-        FSTrunkSpaceInfo *space, int *fd)
+        DATrunkSpaceInfo *space, int *fd)
 {
     char trunk_filename[PATH_MAX];
     int result;
@@ -608,7 +608,7 @@ static int do_read_slice(TrunkReadThreadContext *ctx, TrunkReadIOBuffer *iob)
             get_trunk_filename(&iob->slice->space, trunk_filename,
                     sizeof(trunk_filename));
             logError("file: "__FILE__", line: %d, "
-                    "read trunk file: %s fail, offset: %"PRId64", "
+                    "read trunk file: %s fail, offset: %u, "
                     "errno: %d, error info: %s", __LINE__, trunk_filename,
                     iob->slice->space.offset + data_len,
                     result, STRERROR(result));

@@ -130,9 +130,8 @@ static int pack_to_str_array(BlockSerializerPacker *packer,
         }
 
         s->str = p;
-        s->len = sprintf(p, "%c %"PRId64" %d %d %d %"PRId64" "
-                "%"PRId64" %"PRId64" %"PRId64"\n",
-                slice->type == OB_SLICE_TYPE_ALLOC ?
+        s->len = sprintf(p, "%c %"PRId64" %d %d %d %"PRId64" %u %u %u\n",
+                slice->type == DA_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
                 BINLOG_OP_TYPE_WRITE_SLICE,
                 slice->data_version, slice->ssize.offset,
@@ -211,9 +210,9 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
     int path_index;
 
     if (line->str[0] == BINLOG_OP_TYPE_ALLOC_SLICE) {
-        slice->type = OB_SLICE_TYPE_ALLOC;
+        slice->type = DA_SLICE_TYPE_ALLOC;
     } else if (line->str[0] == BINLOG_OP_TYPE_WRITE_SLICE) {
-        slice->type = OB_SLICE_TYPE_FILE;
+        slice->type = DA_SLICE_TYPE_FILE;
     } else {
         logError("file: "__FILE__", line: %d, "
                 "unkown op_type: 0x%02X, slice content: %.*s",

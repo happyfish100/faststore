@@ -887,11 +887,11 @@ int slice_binlog_record_unpack(const string_t *line,
 
     switch (record->op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
-            record->slice_type = OB_SLICE_TYPE_FILE;
+            record->slice_type = DA_SLICE_TYPE_FILE;
             return unpack_add_slice_record(cols,
                     count, record, error_info);
         case BINLOG_OP_TYPE_ALLOC_SLICE:
-            record->slice_type = OB_SLICE_TYPE_ALLOC;
+            record->slice_type = DA_SLICE_TYPE_ALLOC;
             return unpack_add_slice_record(cols,
                     count, record, error_info);
         case BINLOG_OP_TYPE_DEL_SLICE:

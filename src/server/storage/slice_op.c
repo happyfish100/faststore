@@ -177,8 +177,8 @@ static void slice_write_done(struct trunk_write_io_buffer
 }
 
 static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
-        const FSBlockSliceKeyInfo *bs_key, FSTrunkSpaceInfo *space,
-        const OBSliceType slice_type, const int offset, const int length)
+        const FSBlockSliceKeyInfo *bs_key, DATrunkSpaceInfo *space,
+        const DASliceType slice_type, const int offset, const int length)
 {
     OBSliceEntry *slice;
 
@@ -191,7 +191,7 @@ static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
     slice->space = *space;
     slice->ssize.offset = offset;
     slice->ssize.length = length;
-    if (slice_type == OB_SLICE_TYPE_CACHE) {
+    if (slice_type == DA_SLICE_TYPE_CACHE) {
         slice->cache.mbuffer = op_ctx->mbuffer;
         slice->cache.buff = op_ctx->info.buff +
             (offset - bs_key->slice.offset);
@@ -201,11 +201,11 @@ static inline OBSliceEntry *alloc_init_slice(FSSliceOpContext *op_ctx,
 }
 
 static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
-        *bs_key, const OBSliceType slice_type, const bool reclaim_alloc,
+        *bs_key, const DASliceType slice_type, const bool reclaim_alloc,
         FSSliceSNPair *slice_sn_pairs, int *slice_count)
 {
     int result;
-    FSTrunkSpaceWithVersion spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
+    DATrunkSpaceWithVersion spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
 
     if (reclaim_alloc) {
         result = storage_allocator_reclaim_alloc(
@@ -392,7 +392,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
-    OBSliceType slice_type;
+    DASliceType slice_type;
     int result;
 
     op_ctx->info.set_dv_done = false;
@@ -402,11 +402,11 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     {
         op_ctx->info.write_to_cache = true;
         op_ctx->done_bytes = op_ctx->info.bs_key.slice.length;
-        slice_type = OB_SLICE_TYPE_CACHE;
+        slice_type = DA_SLICE_TYPE_CACHE;
     } else {
         op_ctx->info.write_to_cache = false;
         op_ctx->done_bytes = 0;
-        slice_type = OB_SLICE_TYPE_FILE;
+        slice_type = DA_SLICE_TYPE_FILE;
     }
     if ((result=fs_slice_alloc(op_ctx, &op_ctx->info.bs_key, slice_type,
                     op_ctx->info.source == BINLOG_SOURCE_RECLAIM,
@@ -418,7 +418,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     }
 
     op_ctx->result = 0;
-    if (slice_type == OB_SLICE_TYPE_CACHE) {
+    if (slice_type == DA_SLICE_TYPE_CACHE) {
         fs_set_data_version(op_ctx);
     } else {
         op_ctx->counter = op_ctx->update.sarray.count;
@@ -590,7 +590,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         new_bskey.block = op_ctx->info.bs_key.block;
         for (k=0; k<count; k++) {
             new_bskey.slice = ssizes[k];
-            if ((result=fs_slice_alloc(op_ctx, &new_bskey, OB_SLICE_TYPE_ALLOC,
+            if ((result=fs_slice_alloc(op_ctx, &new_bskey, DA_SLICE_TYPE_ALLOC,
                             false, op_ctx->update.sarray.slice_sn_pairs +
                             op_ctx->update.sarray.count, &n)) != 0)
             {
@@ -841,7 +841,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
         }
 
         ssize = (*pp)->ssize;
-        if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {
+        if ((*pp)->type == DA_SLICE_TYPE_ALLOC) {
             if ((result=add_zero_aligned_buffer(op_ctx, (*pp)->space.
                             store->index, (*pp)->ssize.length)) != 0)
             {
@@ -849,7 +849,7 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             }
 
             do_read_done(*pp, op_ctx, 0);
-        } else if ((*pp)->type == OB_SLICE_TYPE_CACHE) {
+        } else if ((*pp)->type == DA_SLICE_TYPE_CACHE) {
             if ((result=add_cached_aligned_buffer(op_ctx, *pp)) != 0) {
                 return result;
             }
@@ -935,10 +935,10 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
         }
 
         ssize = (*pp)->ssize;
-        if ((*pp)->type == OB_SLICE_TYPE_ALLOC) {
+        if ((*pp)->type == DA_SLICE_TYPE_ALLOC) {
             memset(ps, 0, (*pp)->ssize.length);
             do_read_done(*pp, op_ctx, 0);
-        } else if ((*pp)->type == OB_SLICE_TYPE_CACHE) {
+        } else if ((*pp)->type == DA_SLICE_TYPE_CACHE) {
             memcpy(ps, (*pp)->cache.buff, (*pp)->ssize.length);
             do_read_done(*pp, op_ctx, 0);
         } else if ((result=trunk_read_thread_push(*pp, ps,

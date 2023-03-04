@@ -45,7 +45,7 @@ extern "C" {
 
     int trunk_freelist_alloc_space(struct fs_trunk_allocator *allocator,
             FSTrunkFreelist *freelist, const uint32_t blk_hc, const int size,
-            FSTrunkSpaceWithVersion *spaces, int *count, const bool is_normal);
+            DATrunkSpaceWithVersion *spaces, int *count, const bool is_normal);
 
     void trunk_freelist_decrease_reffer_count_ex(FSTrunkFileInfo
             *trunk_info, const int dec_count);
