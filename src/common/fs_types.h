@@ -55,16 +55,8 @@
 
 #define FS_BLOCK_HASH_CODE(blk) (blk).hash_code
 
-typedef struct fs_block_key {
-    int64_t oid;    //object id
-    int64_t offset; //aligned by block size
-    uint64_t hash_code;
-} FSBlockKey;
-
-typedef struct fs_slice_size {
-    int offset;  //offset within the block
-    int length;  //slice length
-} FSSliceSize;
+typedef SFBlockKey FSBlockKey;
+typedef SFSliceSize FSSliceSize;
 
 typedef struct fs_block_slice_key_info {
     FSBlockKey block;

@@ -30,6 +30,7 @@
 #include "diskallocator/binlog/common/binlog_types.h"
 #include "common/fs_types.h"
 #include "common/fs_proto.h"
+#include "common/fs_server_types.h"
 #include "storage/storage_types.h"
 
 #define FS_SPACE_ALIGN_SIZE  8

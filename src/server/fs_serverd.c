@@ -58,8 +58,8 @@
 #include "server_recovery.h"
 #include "storage/slice_op.h"
 #include "rebuild/store_path_rebuild.h"
-#include "dio/trunk_write_thread.h"
-#include "dio/trunk_read_thread.h"
+//#include "dio/trunk_write_thread.h"
+//#include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"
 
 static int setup_server_env(const char *config_filename);
@@ -291,6 +291,7 @@ int main(int argc, char *argv[])
             break;
         }
 
+        /*
         if ((result=trunk_write_thread_init()) != 0) {
             break;
         }
@@ -298,6 +299,7 @@ int main(int argc, char *argv[])
         if ((result=trunk_read_thread_init()) != 0) {
             break;
         }
+        */
 
         if ((result=data_thread_init()) != 0) {
             break;
@@ -336,9 +338,11 @@ int main(int argc, char *argv[])
             break;
         }
 
+        /*
         if ((result=storage_allocator_prealloc_trunk_freelists()) != 0) {
             break;
         }
+        */
 
         if ((result=server_recovery_init(config_filename)) != 0) {
             break;
@@ -348,9 +352,11 @@ int main(int argc, char *argv[])
             break;
         }
 
+        /*
         if ((result=trunk_prealloc_init()) != 0) {
             break;
         }
+        */
 
         if ((result=fcfs_auth_for_server_start(&AUTH_CTX)) != 0) {
             break;
@@ -434,7 +440,7 @@ int main(int argc, char *argv[])
         pthread_kill(schedule_tid, SIGINT);
     }
 
-    trunk_write_thread_terminate();
+    //trunk_write_thread_terminate();
     server_replication_terminate();
     server_recovery_terminate();
 

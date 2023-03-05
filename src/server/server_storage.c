@@ -21,7 +21,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
-#include "binlog/trunk_binlog.h"
+#include "server_global.h"
 #include "server_storage.h"
 
 static int slice_storage_engine_init()
@@ -51,19 +51,7 @@ int server_storage_init()
 {
     int result;
 
-    if ((result=storage_allocator_init()) != 0) {
-        return result;
-    }
-
-    if ((result=trunk_binlog_init()) != 0) {
-        return result;
-    }
-
     if ((result=ob_index_init()) != 0) {
-        return result;
-    }
-
-    if ((result=trunk_maker_init()) != 0) {
         return result;
     }
 
@@ -78,6 +66,8 @@ int server_storage_init()
 
 void server_storage_destroy()
 {
+    /*
     trunk_binlog_destroy();
     trunk_id_info_destroy();
+    */
 }

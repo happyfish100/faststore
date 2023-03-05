@@ -515,7 +515,7 @@ static int init_ob_shared_allocator_array(
     struct fast_mblock_object_callbacks obj_callbacks_obentry;
     struct fast_mblock_object_callbacks obj_callbacks_slice;
 
-    allocator_array->count = STORAGE_CFG.object_block.shared_allocator_count;
+    allocator_array->count = OB_SHARED_ALLOCATOR_COUNT;
     bytes = sizeof(OBSharedAllocator) * allocator_array->count;
     allocator_array->allocators = (OBSharedAllocator *)fc_malloc(bytes);
     if (allocator_array->allocators == NULL) {
@@ -592,7 +592,7 @@ static int init_ob_shared_segment_array(
     OBSegment *segment;
     OBSegment *end;
 
-    segment_array->count = STORAGE_CFG.object_block.shared_lock_count;
+    segment_array->count = OB_SHARED_LOCK_COUNT;
     bytes = sizeof(OBSegment) * segment_array->count;
     segment_array->segments = (OBSegment *)fc_malloc(bytes);
     if (segment_array->segments == NULL) {
@@ -688,7 +688,7 @@ int ob_index_init()
     }
 
     if ((result=ob_index_init_htable_ex(&g_ob_hashtable,
-                    STORAGE_CFG.object_block.hashtable_capacity)) != 0)
+                    OB_HASHTABLE_CAPACITY)) != 0)
     {
         return result;
     }

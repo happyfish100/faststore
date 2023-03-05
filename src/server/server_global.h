@@ -90,7 +90,14 @@ typedef struct server_global_vars {
 
     struct {
         DAContext ctx;
-        FSStorageConfig cfg;
+        struct {
+            bool write_to_cache;
+            struct {
+                int shared_lock_count;
+                int shared_allocator_count;
+                int64_t hashtable_capacity;
+            } object_block;
+        } cfg;
         int rebuild_threads;
         struct {
             int64_t trunk_count;         //trunk count in trunk binlog
@@ -272,10 +279,17 @@ typedef struct server_global_vars {
 #define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
 
-#define STORAGE_CFG           g_server_global_vars->storage.cfg
+#define DA_CTX                g_server_global_vars->storage.ctx
+#define STORAGE_CFG           DA_CTX.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
-#define WRITE_TO_CACHE        STORAGE_CFG.write_to_cache
+#define WRITE_TO_CACHE            g_server_global_vars->storage.cfg.write_to_cache
+#define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \
+    storage.cfg.object_block.hashtable_capacity
+#define OB_SHARED_ALLOCATOR_COUNT g_server_global_vars->  \
+    storage.cfg.object_block.shared_allocator_count
+#define OB_SHARED_LOCK_COUNT      g_server_global_vars->  \
+    storage.cfg.object_block.shared_lock_count
 
 #define NET_BUFFER_MEMORY_LIMIT g_server_global_vars->  \
     network.net_buffer_memory_limit

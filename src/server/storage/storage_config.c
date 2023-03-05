@@ -378,6 +378,9 @@ static int load_global_items(FSStorageConfig *storage_cfg,
         storage_cfg->fd_cache_capacity_per_read_thread = 256;
     }
 
+    storage_cfg->write_to_cache = iniGetBoolValue(NULL,
+            "write_to_cache", ini_ctx->context, true);
+
     storage_cfg->object_block.hashtable_capacity = iniGetInt64Value(NULL,
             "object_block_hashtable_capacity", ini_ctx->context, 11229331);
     if (storage_cfg->object_block.hashtable_capacity <= 0) {

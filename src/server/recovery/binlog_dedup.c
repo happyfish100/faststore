@@ -628,13 +628,12 @@ static int init_htables(DataRecoveryContext *ctx)
     int64_t deleted_capacity;
 
     dedup_ctx = (BinlogDedupContext *)ctx->arg;
-
     slice_capacity = ctx->master->data.current_version -
         ctx->master->dg->myself->data.current_version;
     if (slice_capacity < 256) {
         slice_capacity = 256;
-    } else if (slice_capacity > STORAGE_CFG.object_block.hashtable_capacity) {
-        slice_capacity = STORAGE_CFG.object_block.hashtable_capacity;
+    } else if (slice_capacity > OB_HASHTABLE_CAPACITY) {
+        slice_capacity = OB_HASHTABLE_CAPACITY;
     }
     if ((result=ob_index_init_htable_ex(&dedup_ctx->
                     htables.create, slice_capacity)) != 0)

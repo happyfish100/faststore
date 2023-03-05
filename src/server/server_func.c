@@ -462,6 +462,10 @@ static void server_log_configs()
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
+            "write_to_cache: %d, "
+            "object_block_hashtable_capacity: %"PRId64", "
+            "object_block_shared_allocator_count: %d, "
+            "object_block_shared_lock_count: %d, "
             "leader-election {quorum: %s, "
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
@@ -480,6 +484,8 @@ static void server_log_configs()
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
+            WRITE_TO_CACHE, OB_HASHTABLE_CAPACITY,
+            OB_SHARED_ALLOCATOR_COUNT, OB_SHARED_LOCK_COUNT,
             sf_get_election_quorum_caption(LEADER_ELECTION_QUORUM),
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
@@ -548,25 +554,6 @@ static int load_binlog_buffer_size(IniContext *ini_context,
     }
 
     return 0;
-}
-
-static int load_storage_cfg(IniContext *ini_context, const char *filename)
-{
-    char *storage_config_filename;
-    char full_filename[PATH_MAX];
-
-    storage_config_filename = iniGetStrValue(NULL,
-            "storage_config_filename", ini_context);
-    if (storage_config_filename == NULL || *storage_config_filename == '\0') {
-        logError("file: "__FILE__", line: %d, "
-                "item \"storage_config_filename\" not exist or empty",
-                __LINE__);
-        return ENOENT;
-    }
-
-    resolve_path(filename, storage_config_filename,
-            full_filename, sizeof(full_filename));
-    return storage_config_load(&STORAGE_CFG, full_filename);
 }
 
 static int init_net_retry_config(const char *config_filename)
@@ -757,6 +744,62 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
     g_server_global_vars->slice_storage.cfg.block_segment.shared_lock_count =
         iniGetIntCorrectValue(ini_ctx, "block_segment_shared_lock_count",
                 163, 1, 1361);
+
+    return 0;
+}
+
+static int load_storage_cfg(IniContext *ini_context, const char *filename)
+{
+    char *storage_config_filename;
+    char full_filename[PATH_MAX];
+
+    storage_config_filename = iniGetStrValue(NULL,
+            "storage_config_filename", ini_context);
+    if (storage_config_filename == NULL || *storage_config_filename == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "item \"storage_config_filename\" not exist or empty",
+                __LINE__);
+        return ENOENT;
+    }
+
+    resolve_path(filename, storage_config_filename,
+            full_filename, sizeof(full_filename));
+
+    WRITE_TO_CACHE = iniGetBoolValue(NULL,
+            "write_to_cache", ini_context, true);
+
+    OB_HASHTABLE_CAPACITY = iniGetInt64Value(NULL,
+            "object_block_hashtable_capacity",
+            ini_context, 11229331);
+    if (OB_HASHTABLE_CAPACITY <= 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s, item \"object_block_hashtable_capacity\": "
+                "%"PRId64" is invalid, set to default: %d", __LINE__,
+                filename, OB_HASHTABLE_CAPACITY, 11229331);
+        OB_HASHTABLE_CAPACITY = 11229331;
+    }
+
+    OB_SHARED_ALLOCATOR_COUNT = iniGetIntValue(NULL,
+            "object_block_shared_allocator_count",
+            ini_context, 79);
+    if (OB_SHARED_ALLOCATOR_COUNT <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_allocator_count\": %d "
+                "is invalid, set to default: %d", __LINE__,
+                filename, OB_SHARED_ALLOCATOR_COUNT, 79);
+        OB_SHARED_ALLOCATOR_COUNT = 79;
+    }
+
+    OB_SHARED_LOCK_COUNT = iniGetIntValue(NULL,
+            "object_block_shared_lock_count",
+            ini_context, 1361);
+    if (OB_SHARED_LOCK_COUNT <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_lock_count\": %d "
+                "is invalid, set to default: %d", __LINE__,
+                filename, OB_SHARED_LOCK_COUNT, 1361);
+        OB_SHARED_LOCK_COUNT = 1361;
+    }
 
     return 0;
 }
@@ -963,7 +1006,8 @@ int server_load_config(const char *filename)
     iniFreeContext(&ini_context);
     load_local_host_ip_addrs();
     server_log_configs();
-    storage_config_to_log(&STORAGE_CFG);
+    //TODO
+    //storage_config_to_log(&STORAGE_CFG);
 
     return server_init_client(filename);
 }

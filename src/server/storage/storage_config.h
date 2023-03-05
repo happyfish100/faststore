@@ -84,7 +84,6 @@ typedef struct {
     int write_threads_per_path;
     int read_threads_per_path;
     int io_depth_per_read_thread;
-    bool write_to_cache;
     bool read_direct_io;
     int fsync_every_n_writes;
     int max_trunk_files_per_subdir;
@@ -93,11 +92,14 @@ typedef struct {
     int discard_remain_space_size;
     int trunk_prealloc_threads;
     int fd_cache_capacity_per_read_thread;
+
+    bool write_to_cache;
     struct {
         int shared_lock_count;
         int shared_allocator_count;
         int64_t hashtable_capacity;
     } object_block;
+
     double reclaim_trunks_on_path_usage;
     double never_reclaim_on_trunk_usage;
 
