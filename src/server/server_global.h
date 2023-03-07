@@ -97,6 +97,9 @@ typedef struct server_global_vars {
                 int shared_allocator_count;
                 int64_t hashtable_capacity;
             } object_block;
+
+            DADataConfig data_cfg;
+            char *storage_filename;
         } cfg;
         int rebuild_threads;
         struct {
@@ -283,13 +286,17 @@ typedef struct server_global_vars {
 #define STORAGE_CFG           DA_CTX.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 
-#define WRITE_TO_CACHE            g_server_global_vars->storage.cfg.write_to_cache
+#define WRITE_TO_CACHE            g_server_global_vars->  \
+    storage.cfg.write_to_cache
 #define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \
     storage.cfg.object_block.hashtable_capacity
 #define OB_SHARED_ALLOCATOR_COUNT g_server_global_vars->  \
     storage.cfg.object_block.shared_allocator_count
 #define OB_SHARED_LOCK_COUNT      g_server_global_vars->  \
     storage.cfg.object_block.shared_lock_count
+
+#define DATA_CFG          g_server_global_vars->storage.cfg.data_cfg
+#define STORAGE_FILENAME  g_server_global_vars->storage.cfg.storage_filename
 
 #define NET_BUFFER_MEMORY_LIMIT g_server_global_vars->  \
     network.net_buffer_memory_limit

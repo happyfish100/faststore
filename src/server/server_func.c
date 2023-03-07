@@ -35,14 +35,6 @@
 #include "server_group_info.h"
 #include "server_func.h"
 
-#define BLOCK_BINLOG_DEFAULT_SUBDIRS          128
-#define BLOCK_BINLOG_MIN_SUBDIRS               32
-#define BLOCK_BINLOG_MAX_SUBDIRS              256
-#define DEFAULT_BATCH_STORE_ON_MODIFIES    102400
-#define DEFAULT_BATCH_STORE_INTERVAL           60
-#define DEFAULT_TRUNK_INDEX_DUMP_INTERVAL     600
-#define DEFAULT_ELIMINATE_INTERVAL        1
-
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
         const int64_t default_value, int64_t *bytes)
@@ -466,6 +458,8 @@ static void server_log_configs()
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_allocator_count: %d, "
             "object_block_shared_lock_count: %d, "
+            "trunk_index_dump_base_time: %02d:%02d, "
+            "trunk_index_dump_interval: %d s, "
             "leader-election {quorum: %s, "
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
@@ -486,6 +480,9 @@ static void server_log_configs()
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
             WRITE_TO_CACHE, OB_HASHTABLE_CAPACITY,
             OB_SHARED_ALLOCATOR_COUNT, OB_SHARED_LOCK_COUNT,
+            DATA_CFG.trunk_index_dump_base_time.hour,
+            DATA_CFG.trunk_index_dump_base_time.minute,
+            DATA_CFG.trunk_index_dump_interval,
             sf_get_election_quorum_caption(LEADER_ELECTION_QUORUM),
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
@@ -499,8 +496,8 @@ static void server_log_configs()
                 ", block_segment_hashtable_capacity: %d"
                 ", block_segment_shared_lock_count: %d"
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
-                ", trunk_index_dump_interval: %d s"
                 ", trunk_index_dump_base_time: %02d:%02d"
+                ", trunk_index_dump_interval: %d s"
                 ", eliminate_interval: %d s, memory_limit: %.2f%%}",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
                 BLOCK_BINLOG_SUBDIRS, g_server_global_vars->
@@ -508,8 +505,10 @@ static void server_log_configs()
                 g_server_global_vars->slice_storage.cfg.
                 block_segment.shared_lock_count,
                 BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
-                TRUNK_INDEX_DUMP_INTERVAL, TRUNK_INDEX_DUMP_BASE_TIME.hour,
-                TRUNK_INDEX_DUMP_BASE_TIME.minute, BLOCK_ELIMINATE_INTERVAL,
+                TRUNK_INDEX_DUMP_BASE_TIME.hour,
+                TRUNK_INDEX_DUMP_BASE_TIME.minute,
+                TRUNK_INDEX_DUMP_INTERVAL,
+                BLOCK_ELIMINATE_INTERVAL,
                 STORAGE_MEMORY_LIMIT * 100);
     } else {
         snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
@@ -693,20 +692,20 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
     }
 
     BLOCK_BINLOG_SUBDIRS = iniGetIntCorrectValue(ini_ctx,
-            "block_binlog_subdirs", BLOCK_BINLOG_DEFAULT_SUBDIRS,
-            BLOCK_BINLOG_MIN_SUBDIRS, BLOCK_BINLOG_MAX_SUBDIRS);
+            "block_binlog_subdirs", FS_BLOCK_BINLOG_DEFAULT_SUBDIRS,
+            FS_BLOCK_BINLOG_MIN_SUBDIRS, FS_BLOCK_BINLOG_MAX_SUBDIRS);
 
     BATCH_STORE_ON_MODIFIES = iniGetIntValue(ini_ctx->section_name,
             "batch_store_on_modifies", ini_ctx->context,
-            DEFAULT_BATCH_STORE_ON_MODIFIES);
+            FS_DEFAULT_BATCH_STORE_ON_MODIFIES);
 
     BATCH_STORE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
             "batch_store_interval", ini_ctx->context,
-            DEFAULT_BATCH_STORE_INTERVAL);
+            FS_DEFAULT_BATCH_STORE_INTERVAL);
 
     TRUNK_INDEX_DUMP_INTERVAL = iniGetIntValue(ini_ctx->section_name,
             "trunk_index_dump_interval", ini_ctx->context,
-            DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
 
     if ((result=get_time_item_from_conf_ex(ini_ctx,
                     "trunk_index_dump_base_time",
@@ -718,7 +717,7 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
 
     BLOCK_ELIMINATE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
             "eliminate_interval", ini_ctx->context,
-            DEFAULT_ELIMINATE_INTERVAL);
+            FS_DEFAULT_ELIMINATE_INTERVAL);
     if ((result=iniGetPercentValue(ini_ctx, "memory_limit",
                     &STORAGE_MEMORY_LIMIT, 0.60)) != 0)
     {
@@ -750,8 +749,25 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
 
 static int load_storage_cfg(IniContext *ini_context, const char *filename)
 {
+    int result;
     char *storage_config_filename;
     char full_filename[PATH_MAX];
+    IniFullContext ini_ctx;
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, NULL, ini_context);
+    DATA_CFG.path = DATA_PATH;
+    DATA_CFG.binlog_buffer_size = BINLOG_BUFFER_SIZE;
+    DATA_CFG.binlog_subdirs = 0;
+    DATA_CFG.trunk_index_dump_interval = iniGetIntValue(NULL,
+            "trunk_index_dump_interval", ini_ctx.context,
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+    if ((result=get_time_item_from_conf_ex(&ini_ctx,
+                    "trunk_index_dump_base_time",
+                    &DATA_CFG.trunk_index_dump_base_time,
+                    0, 0, false)) != 0)
+    {
+        return result;
+    }
 
     storage_config_filename = iniGetStrValue(NULL,
             "storage_config_filename", ini_context);
@@ -761,9 +777,12 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
                 __LINE__);
         return ENOENT;
     }
-
     resolve_path(filename, storage_config_filename,
             full_filename, sizeof(full_filename));
+    STORAGE_FILENAME = fc_strdup(full_filename);
+    if (STORAGE_FILENAME == NULL) {
+        return ENOMEM;
+    }
 
     WRITE_TO_CACHE = iniGetBoolValue(NULL,
             "write_to_cache", ini_context, true);

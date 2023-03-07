@@ -21,8 +21,30 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
+#include "binlog/slice_binlog.h"
 #include "server_global.h"
 #include "server_storage.h"
+
+static int storage_init()
+{
+    int result;
+
+    if ((result=da_global_init(CLUSTER_MY_SERVER_ID)) != 0) {
+        return result;
+    }
+
+    if ((result=da_load_config(&DA_CTX, FS_FILE_BLOCK_SIZE,
+                    &DATA_CFG, STORAGE_FILENAME)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=da_init_start(&DA_CTX, slice_binlog_write_thread_push)) != 0) {
+        return result;
+    }
+
+    return 0;
+}
 
 static int slice_storage_engine_init()
 {
@@ -52,6 +74,10 @@ int server_storage_init()
     int result;
 
     if ((result=ob_index_init()) != 0) {
+        return result;
+    }
+
+    if ((result=storage_init()) != 0) {
         return result;
     }
 

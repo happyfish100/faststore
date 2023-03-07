@@ -1434,3 +1434,48 @@ int slice_binlog_load_records(const int data_group_id,
     binlog_reader_destroy(&reader);
     return (result == ENOENT ? 0 : result);
 }
+
+int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
+        struct fc_queue_info *space_chain,
+        SFSynchronizeContext *sctx, int *flags)
+{
+    /*
+    const bool normal_update = false;
+    int result;
+    FDIRInodeUpdateRecord *record;
+    FDIRInodeUpdateResult r;
+
+    result = inode_segment_index_update(field, normal_update, &r);
+    if (result != 0 || r.version == 0) {  //NOT modified
+        da_trunk_space_log_free_chain(&DA_CTX, space_chain);
+        sf_synchronize_counter_notify(sctx, 1);
+
+        if (result == 0) {
+            *flags = DA_REDO_QUEUE_PUSH_FLAGS_SKIP;
+            return 0;
+        } else if (result == ENOENT) {
+            *flags = DA_REDO_QUEUE_PUSH_FLAGS_IGNORE;
+            return 0;
+        } else {
+            *flags = 0;
+            return result;
+        }
+    }
+
+    *flags = 0;
+    if ((record=(FDIRInodeUpdateRecord *)fast_mblock_alloc_object(
+                    &UPDATE_RECORD_ALLOCATOR)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    record->sctx = sctx;
+    record->version = r.version;
+    record->inode.segment = r.segment;
+    record->inode.field = *field;
+    record->space_chain = *space_chain;
+    fc_queue_push(&BINLOG_WRITE_THREAD_CTX.queue, record);
+    */
+
+    return 0;
+}
