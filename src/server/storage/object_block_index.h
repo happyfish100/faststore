@@ -188,7 +188,8 @@ extern "C" {
 
     int ob_index_get_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key,
-            OBSlicePtrArray *sarray, const bool is_reclaim);
+            OBSliceReadBufferArray *sarray,
+            const bool is_reclaim);
 
     int ob_index_get_slice_count_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key);
@@ -205,6 +206,23 @@ extern "C" {
             free(sarray->slices);
             sarray->slices = NULL;
             sarray->alloc = sarray->count = 0;
+        }
+    }
+
+    static inline void ob_index_init_slice_rbuffer_array(
+            OBSliceReadBufferArray *array)
+    {
+        array->pairs = NULL;
+        array->alloc = array->count = 0;
+    }
+
+    static inline void ob_index_free_slice_rbuffer_array(
+            OBSliceReadBufferArray *array)
+    {
+        if (array->pairs != NULL) {
+            free(array->pairs);
+            array->pairs = NULL;
+            array->alloc = array->count = 0;
         }
     }
 

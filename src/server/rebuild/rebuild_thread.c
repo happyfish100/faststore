@@ -285,7 +285,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
         rebuild_write_done_callback;
     thread->op_ctx.arg = thread;
-    ob_index_init_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
+    ob_index_init_slice_rbuffer_array(&thread->op_ctx.slice_rbuffer_array);
     return fs_slice_array_init(&thread->op_ctx.update.sarray);
 }
 
@@ -295,7 +295,7 @@ static void destroy_thread(DataRebuildThreadInfo *thread)
     fc_free_buffer(&thread->rbuffer);
     free(thread->op_ctx.info.buff);
     destroy_pthread_lock_cond_pair(&thread->notify.lcp);
-    ob_index_free_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
+    ob_index_free_slice_rbuffer_array(&thread->op_ctx.slice_rbuffer_array);
     fs_slice_array_destroy(&thread->op_ctx.update.sarray);
 }
 

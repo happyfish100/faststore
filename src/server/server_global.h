@@ -89,7 +89,7 @@ typedef struct server_global_vars {
     } data;
 
     struct {
-        DAContext ctx;
+        DAContext da_ctx;
         struct {
             bool write_to_cache;
             struct {
@@ -108,7 +108,6 @@ typedef struct server_global_vars {
             int index;
             const char *str;
         } rebuild_path;
-        int read_direct_io_paths;
         struct fast_allocator_context wbuffer_allocator;
     } storage;
 
@@ -202,7 +201,7 @@ typedef struct server_global_vars {
 #define DATA_REBUILD_SLICE_COUNT g_server_global_vars-> \
     storage.rebuild_path.slice_count
 #define DATA_REBUILD_THREADS g_server_global_vars->storage.rebuild_threads
-#define READ_DIRECT_IO_PATHS g_server_global_vars->storage.read_direct_io_paths
+#define READ_DIRECT_IO_PATHS DA_CTX.storage.read_direct_io_paths
 
 #define LEADER_ELECTION_QUORUM g_server_global_vars->cluster. \
     config.leader_election.quorum
@@ -282,7 +281,7 @@ typedef struct server_global_vars {
 #define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
 
-#define DA_CTX                g_server_global_vars->storage.ctx
+#define DA_CTX                g_server_global_vars->storage.da_ctx
 #define STORAGE_CFG           DA_CTX.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths
 

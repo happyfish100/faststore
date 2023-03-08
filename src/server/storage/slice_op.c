@@ -19,11 +19,11 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
+#include "diskallocator/dio/trunk_read_thread.h"
 #include "../common/fs_proto.h"
 #include "../server_global.h"
 #include "../data_thread.h"
 #include "../dio/trunk_write_thread.h"
-#include "../dio/trunk_read_thread.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
 #include "storage_allocator.h"
@@ -291,8 +291,8 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
 {
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
-    AlignedReadBuffer **aligned_buffer;
-    AlignedReadBuffer **aligned_bend;
+    DAAlignedReadBuffer **aligned_buffer;
+    DAAlignedReadBuffer **aligned_bend;
     struct iovec *iovc;
     int result;
 
@@ -465,11 +465,11 @@ static int get_slice_index_holes(FSSliceOpContext *op_ctx,
     int result;
     int offset;
     int hole_len;
-    OBSliceEntry **pp;
-    OBSliceEntry **end;
+    OBSliceReadBufferPair *pair;
+    OBSliceReadBufferPair *end;
 
     if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
-                    &op_ctx->slice_ptr_array, op_ctx->info.
+                    &op_ctx->slice_rbuffer_array, op_ctx->info.
                     source == BINLOG_SOURCE_RECLAIM)) != 0)
     {
         if (result == ENOENT) {
@@ -485,16 +485,16 @@ static int get_slice_index_holes(FSSliceOpContext *op_ctx,
     /*
     logInfo("file: "__FILE__", line: %d, "
             "read sarray.count: %"PRId64", target slice offset: %d, "
-            "length: %d", __LINE__, op_ctx->slice_ptr_array.count,
+            "length: %d", __LINE__, op_ctx->slice_rbuffer_array.count,
             op_ctx->info.bs_key.slice.offset,
             op_ctx->info.bs_key.slice.length);
             */
 
     *count = 0;
     offset = op_ctx->info.bs_key.slice.offset;
-    end = op_ctx->slice_ptr_array.slices + op_ctx->slice_ptr_array.count;
-    for (pp=op_ctx->slice_ptr_array.slices; pp<end; pp++) {
-        hole_len = (*pp)->ssize.offset - offset;
+    end = op_ctx->slice_rbuffer_array.pairs + op_ctx->slice_rbuffer_array.count;
+    for (pair=op_ctx->slice_rbuffer_array.pairs; pair<end; pair++) {
+        hole_len = pair->slice->ssize.offset - offset;
         if (hole_len > 0) {
             if (*count < max_size) {
                 ssizes[*count].offset = offset;
@@ -505,13 +505,13 @@ static int get_slice_index_holes(FSSliceOpContext *op_ctx,
 
         /*
         logInfo("slice %d. type: %c (0x%02x), offset: %d, "
-                "length: %d, hole_len: %d", (int)(pp - op_ctx->
-                slice_ptr_array.slices), (*pp)->type, (*pp)->type,
-                (*pp)->ssize.offset, (*pp)->ssize.length, hole_len);
+                "length: %d, hole_len: %d", (int)(pair - op_ctx->
+                slice_rbuffer_array.pairs), pair->slice->type, pair->slice->type,
+                pair->slice->ssize.offset, pair->slice->ssize.length, hole_len);
                 */
 
-        offset = (*pp)->ssize.offset + (*pp)->ssize.length;
-        ob_index_free_slice(*pp);
+        offset = pair->slice->ssize.offset + pair->slice->ssize.length;
+        ob_index_free_slice(pair->slice);
     }
 
     if (offset < op_ctx->info.bs_key.slice.offset +
@@ -703,10 +703,10 @@ static void do_read_done(OBSliceEntry *slice, FSSliceOpContext *op_ctx,
     }
 }
 
-static void slice_read_done(struct trunk_read_io_buffer
+static void slice_read_done(struct da_trunk_read_io_buffer
         *record, const int result)
 {
-    do_read_done(record->slice, (FSSliceOpContext *)
+    do_read_done(record->rb->arg, (FSSliceOpContext *)
             record->notify.arg, result);
 }
 
@@ -716,7 +716,7 @@ static inline int check_realloc_buffer_ptr_array(AIOBufferPtrArray
         *barray, const int target_size)
 {
     int new_alloc;
-    AlignedReadBuffer **new_buffers;
+    DAAlignedReadBuffer **new_buffers;
 
     if (barray->alloc >= target_size) {
         return 0;
@@ -731,8 +731,8 @@ static inline int check_realloc_buffer_ptr_array(AIOBufferPtrArray
         new_alloc *= 2;
     }
 
-    new_buffers = (AlignedReadBuffer **)fc_malloc(
-            sizeof(AlignedReadBuffer *) * new_alloc);
+    new_buffers = (DAAlignedReadBuffer **)fc_malloc(
+            sizeof(DAAlignedReadBuffer *) * new_alloc);
     if (new_buffers == NULL) {
         return ENOMEM;
     }
@@ -748,9 +748,10 @@ static inline int check_realloc_buffer_ptr_array(AIOBufferPtrArray
 static inline int add_zero_aligned_buffer(FSSliceOpContext *op_ctx,
         const int path_index, const int length)
 {
-    AlignedReadBuffer *aligned_buffer;
+    DAAlignedReadBuffer *aligned_buffer;
 
-    aligned_buffer = aligned_buffer_new(path_index, 0, length, length);
+    aligned_buffer = da_aligned_buffer_new(&DA_CTX,
+            path_index, 0, length, length);
     if (aligned_buffer == NULL) {
         return ENOMEM;
     }
@@ -764,10 +765,10 @@ static inline int add_zero_aligned_buffer(FSSliceOpContext *op_ctx,
 static inline int add_cached_aligned_buffer(FSSliceOpContext *op_ctx,
         OBSliceEntry *slice)
 {
-    AlignedReadBuffer *aligned_buffer;
+    DAAlignedReadBuffer *aligned_buffer;
 
-    aligned_buffer = aligned_buffer_new(slice->space.store->index,
-            0, slice->ssize.length, slice->space.size);
+    aligned_buffer = da_aligned_buffer_new(&DA_CTX, slice->space.store->
+            index, 0, slice->ssize.length, slice->space.size);
     if (aligned_buffer == NULL) {
         return ENOMEM;
     }
@@ -785,9 +786,8 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     int offset;
     int hole_len;
     FSSliceSize ssize;
-    OBSliceEntry **pp;
-    OBSliceEntry **end;
-    void *data;
+    OBSliceReadBufferPair *pair;
+    OBSliceReadBufferPair *end;
 
     if (READ_DIRECT_IO_PATHS == 0) {
         op_ctx->info.buffer_type = fs_buffer_type_direct;
@@ -795,21 +795,21 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     }
 
     if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
-                    &op_ctx->slice_ptr_array, op_ctx->info.
+                    &op_ctx->slice_rbuffer_array, op_ctx->info.
                     source == BINLOG_SOURCE_RECLAIM)) != 0)
     {
         return result;
     }
 
     if ((result=check_realloc_buffer_ptr_array(&op_ctx->aio_buffer_parray,
-                    op_ctx->slice_ptr_array.count * 2)) != 0)
+                    op_ctx->slice_rbuffer_array.count * 2)) != 0)
     {
         return result;
     }
 
     /*
     logInfo("read sarray->count: %"PRId64", target slice "
-            "offset: %d, length: %d", op_ctx->slice_ptr_array.count,
+            "offset: %d, length: %d", op_ctx->slice_rbuffer_array.count,
             op_ctx->info.bs_key.slice.offset,
             op_ctx->info.bs_key.slice.length);
             */
@@ -817,14 +817,14 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
     op_ctx->info.buffer_type = fs_buffer_type_array;
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
-    op_ctx->counter = op_ctx->slice_ptr_array.count;
+    op_ctx->counter = op_ctx->slice_rbuffer_array.count;
     op_ctx->aio_buffer_parray.count = 0;
     offset = op_ctx->info.bs_key.slice.offset;
-    end = op_ctx->slice_ptr_array.slices + op_ctx->slice_ptr_array.count;
-    for (pp=op_ctx->slice_ptr_array.slices; pp<end; pp++) {
-        hole_len = (*pp)->ssize.offset - offset;
+    end = op_ctx->slice_rbuffer_array.pairs + op_ctx->slice_rbuffer_array.count;
+    for (pair=op_ctx->slice_rbuffer_array.pairs; pair<end; pair++) {
+        hole_len = pair->slice->ssize.offset - offset;
         if (hole_len > 0) {
-            if ((result=add_zero_aligned_buffer(op_ctx, (*pp)->
+            if ((result=add_zero_aligned_buffer(op_ctx, pair->slice->
                             space.store->index, hole_len)) != 0)
             {
                 return result;
@@ -834,46 +834,50 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
                     "slice offset: %d, length: %d, total offset: %d, hole_len: %d",
-                    (int)(pp - op_ctx->slice_ptr_array.slices), (*pp)->type,
-                    (*pp)->type, __sync_add_and_fetch(&(*pp)->ref_count, 0),
-                    (*pp)->ssize.offset, (*pp)->ssize.length, offset, hole_len);
+                    (int)(pair - op_ctx->slice_rbuffer_array.pairs), pair->slice->type,
+                    pair->slice->type, __sync_add_and_fetch(&pair->slice->ref_count, 0),
+                    pair->slice->ssize.offset, pair->slice->ssize.length, offset, hole_len);
                     */
         }
 
-        ssize = (*pp)->ssize;
-        if ((*pp)->type == DA_SLICE_TYPE_ALLOC) {
-            if ((result=add_zero_aligned_buffer(op_ctx, (*pp)->space.
-                            store->index, (*pp)->ssize.length)) != 0)
+        ssize = pair->slice->ssize;
+        if (pair->slice->type == DA_SLICE_TYPE_ALLOC) {
+            if ((result=add_zero_aligned_buffer(op_ctx, pair->slice->space.
+                            store->index, pair->slice->ssize.length)) != 0)
             {
                 return result;
             }
 
-            do_read_done(*pp, op_ctx, 0);
-        } else if ((*pp)->type == DA_SLICE_TYPE_CACHE) {
-            if ((result=add_cached_aligned_buffer(op_ctx, *pp)) != 0) {
+            do_read_done(pair->slice, op_ctx, 0);
+        } else if (pair->slice->type == DA_SLICE_TYPE_CACHE) {
+            if ((result=add_cached_aligned_buffer(op_ctx, pair->slice)) != 0) {
                 return result;
             }
 
-            do_read_done(*pp, op_ctx, 0);
+            do_read_done(pair->slice, op_ctx, 0);
         } else {
-            AlignedReadBuffer **aligned_buffer;
+            DAAlignedReadBuffer **aligned_buffer;
             aligned_buffer = op_ctx->aio_buffer_parray.buffers +
                 op_ctx->aio_buffer_parray.count++;
-
-            if (STORAGE_CFG.paths_by_index.paths[(*pp)->space.
-                    store->index]->read_direct_io)
-            {
-                data = aligned_buffer;
-            } else {
-                *aligned_buffer = aligned_buffer_new((*pp)->space.store->
-                        index, 0, (*pp)->ssize.length, (*pp)->space.size);
-                if (*aligned_buffer == NULL) {
-                    return ENOMEM;
-                }
-                data = (*aligned_buffer)->buff;
+            *aligned_buffer = da_aligned_buffer_new(&DA_CTX, pair->
+                    slice->space.store->index, 0, pair->slice->
+                    ssize.length, pair->slice->space.size);
+            if (*aligned_buffer == NULL) {
+                return ENOMEM;
             }
 
-            if ((result=trunk_read_thread_push(*pp, data,
+            if (STORAGE_CFG.paths_by_index.paths[pair->slice->space.
+                    store->index]->read_direct_io)
+            {
+                pair->rb.type = da_buffer_type_aio;
+                pair->rb.aio_buffer = *aligned_buffer;
+            } else {
+                pair->rb.type = da_buffer_type_direct;
+                pair->rb.buffer.buff = (*aligned_buffer)->buff;
+            }
+            pair->rb.arg = pair->slice;
+            if ((result=da_trunk_read_thread_push(&DA_CTX, &pair->slice->
+                            space, pair->slice->ssize.length, &pair->rb,
                             slice_read_done, op_ctx)) != 0)
             {
                 break;
@@ -895,11 +899,11 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
     int hole_len;
     FSSliceSize ssize;
     char *ps;
-    OBSliceEntry **pp;
-    OBSliceEntry **end;
+    OBSliceReadBufferPair *pair;
+    OBSliceReadBufferPair *end;
 
     if ((result=ob_index_get_slices(&op_ctx->info.bs_key,
-                    &op_ctx->slice_ptr_array, op_ctx->info.
+                    &op_ctx->slice_rbuffer_array, op_ctx->info.
                     source == BINLOG_SOURCE_RECLAIM)) != 0)
     {
         return result;
@@ -907,19 +911,19 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
 
     /*
     logInfo("read sarray->count: %"PRId64", target slice "
-            "offset: %d, length: %d", op_ctx->slice_ptr_array.count,
+            "offset: %d, length: %d", op_ctx->slice_rbuffer_array.count,
             op_ctx->info.bs_key.slice.offset,
             op_ctx->info.bs_key.slice.length);
             */
 
     op_ctx->result = 0;
     op_ctx->done_bytes = 0;
-    op_ctx->counter = op_ctx->slice_ptr_array.count;
+    op_ctx->counter = op_ctx->slice_rbuffer_array.count;
     ps = op_ctx->info.buff;
     offset = op_ctx->info.bs_key.slice.offset;
-    end = op_ctx->slice_ptr_array.slices + op_ctx->slice_ptr_array.count;
-    for (pp=op_ctx->slice_ptr_array.slices; pp<end; pp++) {
-        hole_len = (*pp)->ssize.offset - offset;
+    end = op_ctx->slice_rbuffer_array.pairs + op_ctx->slice_rbuffer_array.count;
+    for (pair=op_ctx->slice_rbuffer_array.pairs; pair<end; pair++) {
+        hole_len = pair->slice->ssize.offset - offset;
         if (hole_len > 0) {
             memset(ps, 0, hole_len);
             ps += hole_len;
@@ -928,23 +932,31 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
             /*
             logInfo("slice %d. type: %c (0x%02x), ref_count: %d, "
                     "slice offset: %d, length: %d, total offset: %d, hole_len: %d",
-                    (int)(pp - op_ctx->slice_ptr_array.slices), (*pp)->type,
-                    (*pp)->type, __sync_add_and_fetch(&(*pp)->ref_count, 0),
-                    (*pp)->ssize.offset, (*pp)->ssize.length, offset, hole_len);
+                    (int)(pair - op_ctx->slice_rbuffer_array.pairs), pair->slice->type,
+                    pair->slice->type, __sync_add_and_fetch(&pair->slice->ref_count, 0),
+                    pair->slice->ssize.offset, pair->slice->ssize.length, offset, hole_len);
                     */
         }
 
-        ssize = (*pp)->ssize;
-        if ((*pp)->type == DA_SLICE_TYPE_ALLOC) {
-            memset(ps, 0, (*pp)->ssize.length);
-            do_read_done(*pp, op_ctx, 0);
-        } else if ((*pp)->type == DA_SLICE_TYPE_CACHE) {
-            memcpy(ps, (*pp)->cache.buff, (*pp)->ssize.length);
-            do_read_done(*pp, op_ctx, 0);
-        } else if ((result=trunk_read_thread_push(*pp, ps,
-                        slice_read_done, op_ctx)) != 0)
-        {
-            break;
+        ssize = pair->slice->ssize;
+        if (pair->slice->type == DA_SLICE_TYPE_ALLOC) {
+            memset(ps, 0, pair->slice->ssize.length);
+            do_read_done(pair->slice, op_ctx, 0);
+        } else if (pair->slice->type == DA_SLICE_TYPE_CACHE) {
+            memcpy(ps, pair->slice->cache.buff, pair->slice->ssize.length);
+            do_read_done(pair->slice, op_ctx, 0);
+        } else {
+#ifdef OS_LINUX
+            pair->rb.type = da_buffer_type_direct;
+#endif
+            pair->rb.buffer.buff = ps;
+            pair->rb.arg = pair->slice;
+            if ((result=da_trunk_read_thread_push(&DA_CTX, &pair->slice->
+                            space, pair->slice->ssize.length, &pair->rb,
+                            slice_read_done, op_ctx)) != 0)
+            {
+                break;
+            }
         }
 
         ps += ssize.length;
@@ -1039,7 +1051,7 @@ int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx)
     int result;
     bool malloc_buff;
 
-    ob_index_init_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+    ob_index_init_slice_rbuffer_array(&bctx->op_ctx.slice_rbuffer_array);
 
 #ifdef OS_LINUX
     malloc_buff = (READ_DIRECT_IO_PATHS == 0);
@@ -1071,7 +1083,7 @@ int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx)
 
 void fs_slice_blocked_op_ctx_destroy(FSSliceBlockedOpContext *bctx)
 {
-    ob_index_free_slice_ptr_array(&bctx->op_ctx.slice_ptr_array);
+    ob_index_free_slice_rbuffer_array(&bctx->op_ctx.slice_rbuffer_array);
     destroy_pthread_lock_cond_pair(&bctx->notify.lcp);
 
     if (bctx->op_ctx.info.buff != NULL) {

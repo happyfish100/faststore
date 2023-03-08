@@ -489,7 +489,6 @@ typedef struct server_task_arg {
 } FSServerTaskArg;
 
 
-struct ob_slice_ptr_array;
 typedef struct fs_server_context {
     union {
         struct {

@@ -1406,42 +1406,42 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     return result;
 }
 
-static int add_to_slice_ptr_array(OBSlicePtrArray *array,
+static int add_to_slice_rbuffer_array(OBSliceReadBufferArray *array,
         OBSliceEntry *slice)
 {
     if (array->alloc <= array->count) {
         int alloc;
         int bytes;
-        OBSliceEntry **slices;
+        OBSliceReadBufferPair *pairs;
 
         if (array->alloc == 0) {
             alloc = 256;
         } else {
             alloc = array->alloc * 2;
         }
-        bytes = sizeof(OBSliceEntry *) * alloc;
-        slices = (OBSliceEntry **)fc_malloc(bytes);
-        if (slices == NULL) {
+        bytes = sizeof(OBSliceReadBufferPair) * alloc;
+        pairs = (OBSliceReadBufferPair *)fc_malloc(bytes);
+        if (pairs == NULL) {
             return ENOMEM;
         }
 
-        if (array->slices != NULL) {
-            memcpy(slices, array->slices, sizeof(OBSliceEntry *) *
-                    array->count);
-            free(array->slices);
+        if (array->pairs != NULL) {
+            memcpy(pairs, array->pairs, array->count *
+                    sizeof(OBSliceReadBufferPair));
+            free(array->pairs);
         }
 
         array->alloc = alloc;
-        array->slices = slices;
+        array->pairs = pairs;
     }
 
-    array->slices[array->count++] = slice;
+    array->pairs[array->count++].slice = slice;
     return 0;
 }
 
 static inline int dup_slice_to_array(OBSegment *segment, OBHashtable *htable,
         const OBSliceEntry *src_slice, const int offset, const int length,
-        OBSlicePtrArray *array)
+        OBSliceReadBufferArray *array)
 {
     OBSliceEntry *new_slice;
 
@@ -1451,7 +1451,7 @@ static inline int dup_slice_to_array(OBSegment *segment, OBHashtable *htable,
         return ENOMEM;
     }
 
-    return add_to_slice_ptr_array(array, new_slice);
+    return add_to_slice_rbuffer_array(array, new_slice);
 }
 
 /*
@@ -1500,7 +1500,7 @@ static void print_skiplist(OBEntry *ob)
 */
 
 static int get_slices(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
-        const FSBlockSliceKeyInfo *bs_key, OBSlicePtrArray *sarray)
+        const FSBlockSliceKeyInfo *bs_key, OBSliceReadBufferArray *sarray)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -1583,7 +1583,7 @@ static int get_slices(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
             break;
         } else {
             __sync_add_and_fetch(&curr_slice->ref_count, 1);
-            if ((result=add_to_slice_ptr_array(sarray, curr_slice)) != 0) {
+            if ((result=add_to_slice_rbuffer_array(sarray, curr_slice)) != 0) {
                 return result;
             }
         }
@@ -1644,26 +1644,27 @@ static int get_slice_count(OBEntry *ob, const FSBlockSliceKeyInfo *bs_key)
     return count;
 }
 
-static void free_slices(OBSlicePtrArray *sarray)
+static void free_slices(OBSliceReadBufferArray *array)
 {
-    OBSliceEntry **pp;
-    OBSliceEntry **end;
+    OBSliceReadBufferPair *pair;
+    OBSliceReadBufferPair *end;
 
-    if (sarray->count == 0) {
+    if (array->count == 0) {
         return;
     }
 
-    end = sarray->slices + sarray->count;
-    for (pp=sarray->slices; pp<end; pp++) {
-        ob_index_free_slice(*pp);
+    end = array->pairs + array->count;
+    for (pair=array->pairs; pair<end; pair++) {
+        ob_index_free_slice(pair->slice);
     }
 
-    sarray->count = 0;
+    array->count = 0;
 }
 
 int ob_index_get_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key,
-        OBSlicePtrArray *sarray, const bool is_reclaim)
+        OBSliceReadBufferArray *sarray,
+        const bool is_reclaim)
 {
     OBEntry *ob;
     int result;

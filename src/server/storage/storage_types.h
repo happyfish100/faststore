@@ -94,6 +94,17 @@ typedef struct ob_slice_ptr_array {
     OBSliceEntry **slices;
 } OBSlicePtrArray;
 
+typedef struct ob_slice_read_buffer_pair {
+    OBSliceEntry *slice;
+    DATrunkReadBuffer rb;
+} OBSliceReadBufferPair;
+
+typedef struct ob_slice_read_buffer_array {
+    int64_t alloc;
+    int64_t count;
+    OBSliceReadBufferPair *pairs;
+} OBSliceReadBufferArray;
+
 #ifdef OS_LINUX
 typedef struct aio_buffer_ptr_array {
     int alloc;
@@ -146,7 +157,7 @@ typedef struct fs_slice_op_context {
     } update;  //for slice update
 
     SFSharedMBuffer *mbuffer;  //for slice write
-    struct ob_slice_ptr_array slice_ptr_array;  //for slice read
+    OBSliceReadBufferArray slice_rbuffer_array;  //for slice read
     iovec_array_t iovec_array;
 
 #ifdef OS_LINUX
