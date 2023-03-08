@@ -23,7 +23,7 @@
 #include "../common/fs_proto.h"
 #include "../server_global.h"
 #include "../data_thread.h"
-#include "../dio/trunk_write_thread.h"
+#include "../storage/trunk_write_thread.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
 #include "storage_allocator.h"
@@ -152,23 +152,24 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
     }
 }
 
-static void slice_write_done(struct trunk_write_io_buffer
+static void slice_write_done(struct da_trunk_write_io_buffer
         *record, const int result)
 {
     FSSliceOpContext *op_ctx;
+    OBSliceEntry *slice;
 
-    op_ctx = (FSSliceOpContext *)record->notify.arg;
+    op_ctx = record->notify.arg1;
+    slice = record->notify.arg2;
     if (result == 0) {
-        __sync_add_and_fetch(&op_ctx->done_bytes,
-                record->slice->ssize.length);
+        __sync_add_and_fetch(&op_ctx->done_bytes, slice->ssize.length);
     } else {
         op_ctx->result = result;
     }
 
     /*
     logInfo("slice_write_done result: %d, offset: %d, length: %d, "
-            "done_bytes: %d", result, record->slice->ssize.offset,
-            record->slice->ssize.length, op_ctx->done_bytes);
+            "done_bytes: %d", result, slice->ssize.offset,
+            slice->ssize.length, op_ctx->done_bytes);
             */
 
     if (__sync_sub_and_fetch(&op_ctx->counter, 1) == 0) {

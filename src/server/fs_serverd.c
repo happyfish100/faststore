@@ -58,8 +58,6 @@
 #include "server_recovery.h"
 #include "storage/slice_op.h"
 #include "rebuild/store_path_rebuild.h"
-//#include "dio/trunk_write_thread.h"
-//#include "dio/trunk_read_thread.h"
 #include "shared_thread_pool.h"
 
 static int setup_server_env(const char *config_filename);
