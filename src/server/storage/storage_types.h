@@ -179,28 +179,4 @@ typedef struct fs_slice_blocked_op_context {
     } notify;
 } FSSliceBlockedOpContext;
 
-typedef struct fs_trunk_file_info {
-    struct fs_trunk_allocator *allocator;
-    DATrunkIdInfo id_info;
-    volatile int status;
-    struct {
-        int count;  //slice count
-        volatile int64_t bytes;
-        struct fc_list_head slice_head; //OBSliceEntry double link
-    } used;
-    int64_t size;        //file size
-    int64_t free_start;  //free space offset
-
-    struct {
-        struct fs_trunk_file_info *next;
-    } alloc;  //for space allocate
-
-    volatile int reffer_count;  //for waiting slice write done
-    struct {
-        volatile char event;
-        int64_t last_used_bytes;
-        struct fs_trunk_file_info *next;
-    } util;  //for util manager queue
-} FSTrunkFileInfo;
-
 #endif

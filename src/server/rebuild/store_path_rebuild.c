@@ -19,14 +19,14 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "diskallocator/binlog/trunk/trunk_binlog.h"
+#include "diskallocator/trunk/trunk_hashtable.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
-#include "../binlog/trunk_binlog.h"
 #include "../binlog/slice_binlog.h"
 #include "../storage/object_block_index.h"
-#include "../storage/storage_allocator.h"
 #include "rebuild_binlog.h"
 #include "binlog_spliter.h"
 #include "binlog_reader.h"
@@ -441,7 +441,7 @@ static int backup_binlogs(DataRebuildRedoContext *redo_ctx,
 static inline int backup_trunk_binlogs(DataRebuildRedoContext *redo_ctx)
 {
     int last_index;
-    last_index = trunk_binlog_get_current_write_index();
+    last_index = da_trunk_binlog_get_current_write_index(&DA_CTX);
     return backup_binlogs(redo_ctx, FS_TRUNK_BINLOG_SUBDIR_NAME, last_index);
 }
 
@@ -462,15 +462,15 @@ static int rename_trunk_binlogs(DataRebuildRedoContext *redo_ctx)
     char binlog_filename[PATH_MAX];
 
     get_trunk_dump_filename(dump_filename, sizeof(dump_filename));
-    trunk_binlog_get_filename(binlog_index, binlog_filename,
-            sizeof(binlog_filename));
+    da_trunk_binlog_get_filename(&DA_CTX, binlog_index,
+            binlog_filename, sizeof(binlog_filename));
     if ((result=fc_check_rename_ex(dump_filename,
                     binlog_filename, overwritten)) != 0)
     {
         return result;
     }
 
-    return trunk_binlog_set_binlog_write_index(last_index);
+    return da_trunk_binlog_set_binlog_write_index(&DA_CTX, last_index);
 }
 
 static int rename_slice_binlogs(DataRebuildRedoContext *redo_ctx)
@@ -863,7 +863,7 @@ static inline int dump_trunk_binlog()
 
     start_time = get_current_time_ms();
     get_trunk_dump_filename(filename, sizeof(filename));
-    if ((result=storage_allocator_dump_trunks_to_file(
+    if ((result=da_trunk_hashtable_dump_to_file(&DA_CTX.trunk_htable_ctx,
                     filename, &total_trunk_count)) == 0)
     {
         logInfo("file: "__FILE__", line: %d, "

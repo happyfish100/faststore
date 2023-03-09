@@ -2113,7 +2113,8 @@ static int leader_check()
     sleep(1);
     if (g_current_time - relationship_ctx.last_stat_time >= 10) {
         relationship_ctx.last_stat_time = g_current_time;
-        storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+        da_storage_config_stat_path_spaces(&DA_CTX,
+                &CLUSTER_MYSELF_PTR->space_stat);
     }
 
     if (NEED_CHECK_VOTE_NODE()) {
@@ -2200,7 +2201,8 @@ static int follower_ping(FSClusterServerInfo *leader,
     if (result == 0) {
         if (g_current_time - relationship_ctx.last_stat_time >= 10) {
             relationship_ctx.last_stat_time = g_current_time;
-            storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+            da_storage_config_stat_path_spaces(&DA_CTX,
+                    &CLUSTER_MYSELF_PTR->space_stat);
             result = proto_report_disk_space(conn,
                     &CLUSTER_MYSELF_PTR->space_stat);
         }
@@ -2335,7 +2337,8 @@ static void *cluster_thread_entrance(void *arg)
 
     memset(&mconn, 0, sizeof(mconn));
     mconn.sock = -1;
-    storage_config_stat_path_spaces(&CLUSTER_MYSELF_PTR->space_stat);
+    da_storage_config_stat_path_spaces(&DA_CTX,
+            &CLUSTER_MYSELF_PTR->space_stat);
 
     fail_count = 0;
     sleep_seconds = 1;

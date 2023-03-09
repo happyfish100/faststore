@@ -24,7 +24,6 @@
 #endif
 
 #include "object_block_index.h"
-#include "storage_config.h"
 
 #ifdef __cplusplus
 extern "C" {

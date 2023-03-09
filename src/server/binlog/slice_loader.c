@@ -25,8 +25,6 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
-#include "../storage/storage_allocator.h"
-#include "../storage/trunk_id_info.h"
 #include "../rebuild/store_path_rebuild.h"
 #include "../db/event_dealer.h"
 #include "binlog_loader.h"

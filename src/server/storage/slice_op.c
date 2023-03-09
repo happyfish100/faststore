@@ -26,7 +26,6 @@
 #include "../storage/trunk_write_thread.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
-#include "storage_allocator.h"
 #include "slice_op.h"
 
 static int realloc_slice_sn_pairs(FSSliceSNPairArray *parray,
@@ -209,11 +208,11 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
     DATrunkSpaceWithVersion spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
 
     if (reclaim_alloc) {
-        result = storage_allocator_reclaim_alloc(
+        result = da_storage_allocator_reclaim_alloc(&DA_CTX, 
                 FS_BLOCK_HASH_CODE(bs_key->block),
                 bs_key->slice.length, spaces, slice_count);
     } else {
-        result = storage_allocator_normal_alloc(
+        result = da_storage_allocator_normal_alloc(&DA_CTX,
                 FS_BLOCK_HASH_CODE(bs_key->block),
                 bs_key->slice.length, spaces, slice_count);
     }

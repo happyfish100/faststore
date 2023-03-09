@@ -27,7 +27,6 @@
 #include "common/fs_global.h"
 #include "db/db_interface.h"
 #include "server_types.h"
-#include "storage/storage_config.h"
 
 typedef struct server_global_vars {
     struct {

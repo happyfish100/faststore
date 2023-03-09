@@ -28,7 +28,6 @@
 #include "../rebuild/rebuild_binlog.h"
 #include "../db/change_notify.h"
 #include "../db/block_serializer.h"
-#include "storage_allocator.h"
 #include "slice_op.h"
 #include "object_block_index.h"
 
