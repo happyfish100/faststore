@@ -57,11 +57,7 @@
 
 typedef SFBlockKey FSBlockKey;
 typedef SFSliceSize FSSliceSize;
-
-typedef struct fs_block_slice_key_info {
-    FSBlockKey block;
-    FSSliceSize slice;
-} FSBlockSliceKeyInfo;
+typedef SFBlockSliceKeyInfo FSBlockSliceKeyInfo;
 
 typedef struct {
     int64_t total;

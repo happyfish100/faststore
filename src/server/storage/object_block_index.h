@@ -19,6 +19,7 @@
 
 #include "sf/sf_serializer.h"
 #include "diskallocator/dio/trunk_read_thread.h"
+#include "diskallocator/dio/trunk_write_thread.h"
 #include "../server_types.h"
 
 typedef struct fs_db_fetch_context {
@@ -45,8 +46,8 @@ extern "C" {
     ob_index_add_slice_ex(&g_ob_hashtable, bkey, slice, \
             sn, inc_alloc, is_reclaim)
 
-#define ob_index_update_slice(sn, bkey, slice)  \
-    ob_index_update_slice_ex(&g_ob_hashtable, sn, bkey, slice)
+#define ob_index_update_slice(se, space)  \
+    ob_index_update_slice_ex(&g_ob_hashtable, se, space)
 
 #define ob_index_delete_slices(bs_key, sn, dec_alloc, is_reclaim) \
     ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc, is_reclaim)
@@ -104,8 +105,8 @@ extern "C" {
             OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
             const bool is_reclaim);
 
-    int ob_index_update_slice_ex(OBHashtable *htable, const uint64_t sn,
-            const FSBlockKey *bkey, OBSliceEntry *slice);
+    int ob_index_update_slice_ex(OBHashtable *htable,
+            const DASliceEntry *se, const DATrunkSpaceInfo *space);
 
     int ob_index_delete_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,

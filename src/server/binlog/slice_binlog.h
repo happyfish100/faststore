@@ -112,21 +112,33 @@ extern "C" {
                 FS_SLICE_BINLOG_SUBDIR_NAME, filename, size);
     }
 
-    static inline int slice_binlog_log_add_slice_to_buff_ex(const OBSliceEntry
-            *slice, const time_t current_time, const uint64_t sn,
+    static inline int slice_binlog_log_add_slice_to_buff1(
+            const DASliceType slice_type, const FSBlockKey *bkey,
+            const FSSliceSize *ssize, const DATrunkSpaceInfo *space,
+            const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source, char *buff)
     {
         return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
                 "%"PRId64" %d %d %d %"PRId64" %u %u %u\n",
                 (int64_t)current_time, sn, data_version, source,
-                slice->type == DA_SLICE_TYPE_ALLOC ?
+                slice_type == DA_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
                 BINLOG_OP_TYPE_WRITE_SLICE,
-                slice->ob->bkey.oid, slice->ob->bkey.offset,
-                slice->ssize.offset, slice->ssize.length,
-                slice->space.store->index, slice->space.id_info.id,
-                slice->space.id_info.subdir, slice->space.offset,
-                slice->space.size);
+                bkey->oid, bkey->offset,
+                ssize->offset, ssize->length,
+                space->store->index, space->id_info.id,
+                space->id_info.subdir, space->offset,
+                space->size);
+    }
+
+    static inline int slice_binlog_log_add_slice_to_buff_ex(
+            const OBSliceEntry *slice, const time_t current_time,
+            const uint64_t sn, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return slice_binlog_log_add_slice_to_buff1(slice->type,
+                &slice->ob->bkey, &slice->ssize, &slice->space,
+                current_time, sn, data_version, source, buff);
     }
 
     static inline int slice_binlog_log_add_slice_to_buff(const OBSliceEntry
@@ -148,9 +160,19 @@ extern "C" {
                 BINLOG_OP_TYPE_NO_OP, bkey->oid, bkey->offset);
     }
 
-    int slice_binlog_log_add_slice(const OBSliceEntry *slice,
+    int slice_binlog_log_add_slice1(const DASliceType slice_type,
+            const FSBlockKey *bkey, const FSSliceSize *ssize,
+            const DATrunkSpaceInfo *space, const time_t current_time,
+            const uint64_t sn, const uint64_t data_version, const int source);
+
+    static inline int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source);
+            const uint64_t data_version, const int source)
+    {
+        return slice_binlog_log_add_slice1(slice->type,
+                &slice->ob->bkey, &slice->ssize, &slice->space,
+                current_time, sn, data_version, source);
+    }
 
     int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,
@@ -174,6 +196,9 @@ extern "C" {
     int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
             struct fc_queue_info *space_chain,
             SFSynchronizeContext *sctx, int *flags);
+
+    int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
+            const DATrunkSpaceInfo *space);
 
 #ifdef __cplusplus
 }

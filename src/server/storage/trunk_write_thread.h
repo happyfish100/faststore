@@ -42,8 +42,8 @@ extern "C" {
 
         se.timestamp = op_ctx->update.timestamp;
         se.source = op_ctx->info.source;
-        se.bkey = op_ctx->info.bs_key.block;
-        se.ssize = slice->ssize;
+        se.bs_key.block = op_ctx->info.bs_key.block;
+        se.bs_key.slice = slice->ssize;
         se.data_version = slice->data_version;
         se.sn = op_ctx->info.sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX,

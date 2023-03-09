@@ -996,11 +996,10 @@ static int add_slice(const OBSliceOPFuncs *op_funcs, OBSegment *segment,
 }
 
 static int update_slice(OBSegment *segment, OBHashtable *htable,
-        OBEntry *ob, OBSliceEntry *slice)
+        OBEntry *ob, OBSliceEntry *slice, bool *release_slice)
 {
     UniqSkiplistNode *node;
     OBSliceEntry *curr_slice;
-    OBSliceEntry *new_slice;
     OBSlicePtrSmartArray add_slice_array;
     OBSlicePtrSmartArray del_slice_array;
     int result;
@@ -1009,22 +1008,24 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
 
     node = uniq_skiplist_find_ge_node(ob->slices, slice);
     if (node == NULL) {
+        *release_slice = true;
         return 0;
     }
 
-    if ((OBSliceEntry *)node->data == slice) {
-        new_slice = slice_dup(segment, slice, DA_SLICE_TYPE_FILE,
-                slice->ssize.offset, slice->ssize.length);
-        if (new_slice == NULL) {
-            return ENOMEM;
-        }
-
-        do_delete_slice(htable, ob, ob->slices, slice);
-        return do_add_slice(htable, ob, ob->slices, new_slice);
+    curr_slice = (OBSliceEntry *)node->data;
+    if ((curr_slice->type == DA_SLICE_TYPE_CACHE) &&
+            (curr_slice->data_version == slice->data_version) &&
+            (curr_slice->ssize.offset == slice->ssize.offset &&
+             curr_slice->ssize.length == slice->ssize.length))
+    {
+        *release_slice = false;
+        do_delete_slice(htable, ob, ob->slices, curr_slice);
+        return do_add_slice(htable, ob, ob->slices, slice);
     }
 
+    *release_slice = true;
     slice_end = slice->ssize.offset + slice->ssize.length;
-    if (slice_end <= ((OBSliceEntry *)node->data)->ssize.offset) { //not overlap
+    if (slice_end <= curr_slice->ssize.offset) { //not overlap
         return 0;
     }
 
@@ -1157,27 +1158,41 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
     return result;
 }
 
-int ob_index_update_slice_ex(OBHashtable *htable, const uint64_t sn,
-        const FSBlockKey *bkey, OBSliceEntry *slice)
+int ob_index_update_slice_ex(OBHashtable *htable,
+        const DASliceEntry *se, const DATrunkSpaceInfo *space)
 {
-    OBEntry *ob;
+    const int init_refer = 1;
     int result;
+    bool release_slice;
+    OBEntry *ob;
+    OBSliceEntry *slice;
 
-    /*
-    logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
-            "block {oid: %"PRId64", offset: %"PRId64"}",
-            slice, __sync_add_and_fetch(&slice->ref_count, 0),
-            bkey->oid, bkey->offset);
-            */
+    logInfo("####### ob_index_update_slice: %p, "
+            "block {oid: %"PRId64", offset: %"PRId64"}, "
+            "slice: {offset: %d, length: %d}",
+            se, se->bs_key.block.oid, se->bs_key.block.offset,
+            se->bs_key.slice.offset, se->bs_key.slice.length);
 
-    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, se->bs_key.block);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob = get_ob_entry(segment, htable, bucket, bkey, false);
-    if (slice->ob == ob) {
-        if ((result=update_slice(segment, htable, ob, slice)) == 0) {
-            if (STORAGE_ENABLED) {
-                slice->type = DA_SLICE_TYPE_FILE;
-                result = change_notify_push_add_slice(sn, slice);
+    ob = get_ob_entry(segment, htable, bucket, &se->bs_key.block, false);
+    if (ob != NULL) {
+        if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
+            result = ENOMEM;
+        } else {
+            slice->data_version = se->data_version;
+            slice->type = DA_SLICE_TYPE_FILE;
+            slice->ssize = se->bs_key.slice;
+            slice->space = *space;
+            if ((result=update_slice(segment, htable, ob,
+                            slice, &release_slice)) == 0)
+            {
+                if (STORAGE_ENABLED) {
+                    result = change_notify_push_add_slice(se->sn, slice);
+                }
+            }
+            if (release_slice) {
+                ob_index_free_slice(slice);
             }
         }
     } else {

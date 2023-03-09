@@ -664,9 +664,10 @@ void slice_binlog_destroy()
     sf_binlog_writer_finish(&binlog_writer.writer);
 }
 
-int slice_binlog_log_add_slice(const OBSliceEntry *slice,
-        const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source)
+int slice_binlog_log_add_slice1(const DASliceType slice_type,
+        const FSBlockKey *bkey, const FSSliceSize *ssize,
+        const DATrunkSpaceInfo *space, const time_t current_time,
+        const uint64_t sn, const uint64_t data_version, const int source)
 {
     SFBinlogWriterBuffer *wbuffer;
 
@@ -678,8 +679,9 @@ int slice_binlog_log_add_slice(const OBSliceEntry *slice,
 
     wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff_ex(slice,
-            current_time, sn, data_version, source, wbuffer->bf.buff);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice_type,
+            bkey, ssize, space, current_time, sn, data_version, source,
+            wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
@@ -1476,4 +1478,19 @@ int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
     */
 
     return 0;
+}
+
+int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
+        const DATrunkSpaceInfo *space)
+{
+    int result;
+
+    if ((result=ob_index_update_slice(se, space)) != 0) {
+        return result;
+    }
+
+    return slice_binlog_log_add_slice1(DA_SLICE_TYPE_FILE,
+            &se->bs_key.block, &se->bs_key.slice, space,
+            se->timestamp, se->sn, se->data_version,
+            se->source);
 }
