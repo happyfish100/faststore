@@ -193,8 +193,8 @@ extern "C" {
     int slice_binlog_record_unpack(const string_t *line,
             SliceBinlogRecord *record, char *error_info);
 
-    int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
-            struct fc_queue_info *space_chain,
+    int slice_binlog_write_thread_push(const DAFullTrunkIdInfo *trunk,
+            const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
             SFSynchronizeContext *sctx, int *flags);
 
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,

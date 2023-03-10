@@ -263,9 +263,6 @@ extern "C" {
         return fc_compare_int64(bkey1->offset, bkey2->offset);
     }
 
-    OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey);
-    void ob_index_reclaim_unlock(OBEntry *ob);
-
     void ob_index_get_ob_and_slice_counts(int64_t *ob_count,
             int64_t *slice_count);
 

@@ -57,7 +57,6 @@ typedef struct ob_db_args {
 
 typedef struct ob_entry {
     FSBlockKey bkey;
-    short reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
     struct fast_mblock_man *allocator; //for free
@@ -80,7 +79,6 @@ typedef struct ob_slice_entry {
     volatile int ref_count;
     FSSliceSize ssize;
     DATrunkSpaceInfo space;
-    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
     struct {
         SFSharedMBuffer *mbuffer;
         char *buff;

@@ -1435,16 +1435,34 @@ int slice_binlog_load_records(const int data_group_id,
     return (result == ENOENT ? 0 : result);
 }
 
-int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
-        struct fc_queue_info *space_chain,
+int slice_binlog_write_thread_push(const DAFullTrunkIdInfo *trunk,
+        const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
         SFSynchronizeContext *sctx, int *flags)
 {
-    /*
-    const bool normal_update = false;
+    DATrunkSpaceInfo space;
+    DASliceEntry se;
     int result;
-    FDIRInodeUpdateRecord *record;
-    FDIRInodeUpdateResult r;
 
+    space.store = trunk->store;
+    space.id_info = trunk->id_info;
+    space.offset = field->storage.offset;
+    space.size = field->storage.size;
+
+    se.timestamp = g_current_time;
+    se.source = field->source;
+    se.data_version = field->storage.version;
+    se.bs_key.block.oid = field->oid;
+    se.bs_key.block.offset = field->fid;
+    //TODO
+    //se.bs_key.slice.offset = ;
+    se.bs_key.slice.length = field->storage.length;
+    se.sn = 0;
+
+    if ((result=ob_index_update_slice(&se, &space)) != 0) {
+        return result;
+    }
+
+    /*
     result = inode_segment_index_update(field, normal_update, &r);
     if (result != 0 || r.version == 0) {  //NOT modified
         da_trunk_space_log_free_chain(&DA_CTX, space_chain);
@@ -1463,18 +1481,6 @@ int slice_binlog_write_thread_push(const DAPieceFieldInfo *field,
     }
 
     *flags = 0;
-    if ((record=(FDIRInodeUpdateRecord *)fast_mblock_alloc_object(
-                    &UPDATE_RECORD_ALLOCATOR)) == NULL)
-    {
-        return ENOMEM;
-    }
-
-    record->sctx = sctx;
-    record->version = r.version;
-    record->inode.segment = r.segment;
-    record->inode.field = *field;
-    record->space_chain = *space_chain;
-    fc_queue_push(&BINLOG_WRITE_THREAD_CTX.queue, record);
     */
 
     return 0;

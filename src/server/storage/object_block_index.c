@@ -353,31 +353,6 @@ OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
     return ob;
 }
 
-OBEntry *ob_index_reclaim_lock(const FSBlockKey *bkey)
-{
-    OBEntry *ob;
-
-    OB_INDEX_SET_BUCKET_AND_SEGMENT(&g_ob_hashtable, *bkey);
-    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, false);
-    if (ob != NULL) {
-        ++(ob->reclaiming_count);
-    }
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-
-    return ob;
-}
-
-void ob_index_reclaim_unlock(OBEntry *ob)
-{
-    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, ob->bkey);
-    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    if (--(ob->reclaiming_count) == 0) {
-        pthread_cond_broadcast(&segment->lcp.cond);
-    }
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-}
-
 #define OB_INDEX_INIT_SLICE(slice, _ob, init_refer) \
     if (init_refer > 0) {  \
         __sync_add_and_fetch(&slice->ref_count, init_refer); \
@@ -1085,15 +1060,6 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     return 0;
 }
 
-#define CHECK_AND_WAIT_RECLAIM_DONE(segment, ob) \
-    do {  \
-        if (!is_reclaim) {  \
-            while (ob->reclaiming_count > 0) {  \
-                pthread_cond_wait(&segment->lcp.cond, &segment->lcp.lock); \
-            } \
-        } \
-    } while (0)
-
 int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
         OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
         const bool is_reclaim)
@@ -1118,7 +1084,6 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
         if (slice->ob != ob) {
             slice->ob = ob;
         }
-        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         result = add_slice(&ob_shared_ctx.op_funcs.normal, segment,
                 htable, ob, ob->slices, slice, inc_alloc);
         if (result == 0) {
@@ -1344,7 +1309,6 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         result = delete_slices(&ob_shared_ctx.op_funcs.normal, segment,
                 htable, ob, ob->slices, bs_key, &count, dec_alloc);
         if (result == 0) {
@@ -1386,7 +1350,6 @@ int ob_index_delete_block_ex(OBHashtable *htable,
     ob = get_ob_entry_ex(segment, htable, bucket, bkey,
             false, htable->need_reclaim, &previous);
     if (ob != NULL) {
-        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
@@ -1697,7 +1660,6 @@ int ob_index_get_slices_ex(OBHashtable *htable,
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        CHECK_AND_WAIT_RECLAIM_DONE(segment, ob);
         result = get_slices(segment, htable, ob, bs_key, sarray);
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
