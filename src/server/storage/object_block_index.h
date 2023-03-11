@@ -46,8 +46,8 @@ extern "C" {
     ob_index_add_slice_ex(&g_ob_hashtable, bkey, slice, \
             sn, inc_alloc, is_reclaim)
 
-#define ob_index_update_slice(se, space)  \
-    ob_index_update_slice_ex(&g_ob_hashtable, se, space)
+#define ob_index_update_slice(se, space, update_count)  \
+    ob_index_update_slice_ex(&g_ob_hashtable, se, space, update_count)
 
 #define ob_index_delete_slices(bs_key, sn, dec_alloc, is_reclaim) \
     ob_index_delete_slices_ex(&g_ob_hashtable, bs_key, sn, dec_alloc, is_reclaim)
@@ -73,10 +73,6 @@ extern "C" {
 #define ob_index_init_htable(ht) \
     ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.  \
             hashtable_capacity)
-
-#define ob_index_dump_slices_to_trunk(start_index, end_index, slice_count) \
-    ob_index_dump_slices_to_trunk_ex(&g_ob_hashtable, \
-            start_index, end_index, slice_count)
 
 #define ob_index_dump_slices_to_file(start_index, \
         end_index, filename, slice_count) \
@@ -106,7 +102,8 @@ extern "C" {
             const bool is_reclaim);
 
     int ob_index_update_slice_ex(OBHashtable *htable,
-            const DASliceEntry *se, const DATrunkSpaceInfo *space);
+            const DASliceEntry *se, const DATrunkSpaceInfo *space,
+            int *update_count);
 
     int ob_index_delete_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
@@ -267,10 +264,6 @@ extern "C" {
             int64_t *slice_count);
 
     int64_t ob_index_get_total_slice_count();
-
-    int ob_index_dump_slices_to_trunk_ex(OBHashtable *htable,
-            const int64_t start_index, const int64_t end_index,
-            int64_t *slice_count);
 
     int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,

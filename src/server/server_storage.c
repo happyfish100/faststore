@@ -27,19 +27,22 @@
 
 static int storage_init()
 {
+    const bool have_extra_field = true;
     int result;
 
     if ((result=da_global_init(CLUSTER_MY_SERVER_ID)) != 0) {
         return result;
     }
 
-    if ((result=da_load_config(&DA_CTX, FS_FILE_BLOCK_SIZE,
-                    &DATA_CFG, STORAGE_FILENAME)) != 0)
+    if ((result=da_load_config(&DA_CTX, "[faststore]", FS_FILE_BLOCK_SIZE,
+                    &DATA_CFG, STORAGE_FILENAME, have_extra_field)) != 0)
     {
         return result;
     }
 
-    if ((result=da_init_start(&DA_CTX, slice_binlog_write_thread_push)) != 0) {
+    if ((result=da_init_start_ex(&DA_CTX, slice_migrate_done_callback,
+                    slice_binlog_cached_slice_write_done)) != 0)
+    {
         return result;
     }
 

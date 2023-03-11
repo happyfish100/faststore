@@ -22,6 +22,7 @@
 #include "fastcommon/fc_atomic.h"
 #include "sf/sf_global.h"
 #include "sf/sf_binlog_writer.h"
+#include "diskallocator/binlog/trunk/trunk_space_log.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
 #include "binlog_func.h"
@@ -1435,13 +1436,14 @@ int slice_binlog_load_records(const int data_group_id,
     return (result == ENOENT ? 0 : result);
 }
 
-int slice_binlog_write_thread_push(const DAFullTrunkIdInfo *trunk,
+int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
         const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
         SFSynchronizeContext *sctx, int *flags)
 {
+    int result;
+    int update_count;
     DATrunkSpaceInfo space;
     DASliceEntry se;
-    int result;
 
     space.store = trunk->store;
     space.id_info = trunk->id_info;
@@ -1453,35 +1455,18 @@ int slice_binlog_write_thread_push(const DAFullTrunkIdInfo *trunk,
     se.data_version = field->storage.version;
     se.bs_key.block.oid = field->oid;
     se.bs_key.block.offset = field->fid;
-    //TODO
-    //se.bs_key.slice.offset = ;
+    se.bs_key.slice.offset = field->extra;
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
-
-    if ((result=ob_index_update_slice(&se, &space)) != 0) {
+    fs_calc_block_hashcode(&se.bs_key.block);
+    if ((result=ob_index_update_slice(&se, &space, &update_count)) != 0) {
         return result;
     }
 
-    /*
-    result = inode_segment_index_update(field, normal_update, &r);
-    if (result != 0 || r.version == 0) {  //NOT modified
-        da_trunk_space_log_free_chain(&DA_CTX, space_chain);
-        sf_synchronize_counter_notify(sctx, 1);
-
-        if (result == 0) {
-            *flags = DA_REDO_QUEUE_PUSH_FLAGS_SKIP;
-            return 0;
-        } else if (result == ENOENT) {
-            *flags = DA_REDO_QUEUE_PUSH_FLAGS_IGNORE;
-            return 0;
-        } else {
-            *flags = 0;
-            return result;
-        }
-    }
-
-    *flags = 0;
-    */
+    //TODO
+    *flags = update_count > 0 ? 0 : DA_REDO_QUEUE_PUSH_FLAGS_IGNORE;
+    sf_synchronize_counter_notify(sctx, 1);
+    da_trunk_space_log_free_chain(&DA_CTX, space_chain);
 
     return 0;
 }
@@ -1490,8 +1475,9 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
         const DATrunkSpaceInfo *space)
 {
     int result;
+    int update_count;
 
-    if ((result=ob_index_update_slice(se, space)) != 0) {
+    if ((result=ob_index_update_slice(se, space, &update_count)) != 0) {
         return result;
     }
 
