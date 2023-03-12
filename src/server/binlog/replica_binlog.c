@@ -348,7 +348,7 @@ int replica_binlog_init()
     writer = binlog_writer_array.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
                     "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
-                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
+                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
                     use_fixed_buffer_size, passive_write)) != 0)
     {
         return result;
@@ -537,7 +537,6 @@ int replica_binlog_log_slice(const time_t current_time,
         return ENOMEM;
     }
 
-    wbuffer->tag = source;
     wbuffer->bf.length = replica_binlog_log_slice_to_buff(current_time,
             data_version, bs_key, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
@@ -557,7 +556,6 @@ int replica_binlog_log_block(const time_t current_time,
         return ENOMEM;
     }
 
-    wbuffer->tag = source;
     wbuffer->bf.length = replica_binlog_log_block_to_buff(current_time,
             data_version, bkey, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);

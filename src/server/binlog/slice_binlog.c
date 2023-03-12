@@ -336,7 +336,6 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
         }
 
         sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
-        wbuffer->tag = sn;
         SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
 
         p = wbuffer->bf.buff;
@@ -678,7 +677,6 @@ int slice_binlog_log_add_slice1(const DASliceType slice_type,
         return ENOMEM;
     }
 
-    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice_type,
             bkey, ssize, space, current_time, sn, data_version, source,
@@ -700,7 +698,6 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
         return ENOMEM;
     }
 
-    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
@@ -726,7 +723,6 @@ static inline int log_block_update(const FSBlockKey *bkey,
         return ENOMEM;
     }
 
-    wbuffer->tag = data_version;
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
