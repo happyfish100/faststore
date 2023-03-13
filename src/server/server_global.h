@@ -27,6 +27,7 @@
 #include "common/fs_global.h"
 #include "db/db_interface.h"
 #include "server_types.h"
+#include "storage/committed_version.h"
 
 typedef struct server_global_vars {
     struct {
@@ -108,6 +109,7 @@ typedef struct server_global_vars {
             const char *str;
         } rebuild_path;
         struct fast_allocator_context wbuffer_allocator;
+        FSCommittedVersionRing committed_version_ring;
     } storage;
 
     struct {
@@ -201,6 +203,9 @@ typedef struct server_global_vars {
     storage.rebuild_path.slice_count
 #define DATA_REBUILD_THREADS g_server_global_vars->storage.rebuild_threads
 #define READ_DIRECT_IO_PATHS DA_CTX.storage.read_direct_io_paths
+
+#define COMMITTED_VERSION_RING  g_server_global_vars-> \
+    storage.committed_version_ring
 
 #define LEADER_ELECTION_QUORUM g_server_global_vars->cluster. \
     config.leader_election.quorum
