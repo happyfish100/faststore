@@ -13,17 +13,58 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include "fastcommon/logger.h"
 #include "fastcommon/sockopt.h"
 #include "fastcommon/shared_func.h"
+#include "diskallocator/store_path_index.h"
 #include "binlog/slice_binlog.h"
 #include "server_global.h"
 #include "server_storage.h"
+
+static int set_data_rebuild_path_index()
+{
+    int result;
+    int child_count;
+    char rebuild_path[PATH_MAX];
+    DAStorePathEntry *pentry;
+
+    if (DATA_REBUILD_PATH_STR == NULL) {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return 0;
+    }
+
+    if ((result=fc_remove_redundant_slashes2(DATA_REBUILD_PATH_STR,
+                    rebuild_path, sizeof(rebuild_path))) != 0)
+    {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return result;
+    }
+
+    if ((pentry=da_store_path_index_get(&DA_CTX, rebuild_path)) == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "data rebuild path: %s not exist in storage.conf",
+                __LINE__, rebuild_path);
+        DATA_REBUILD_PATH_INDEX = -1;
+        return ENOENT;
+    }
+
+    child_count = fc_get_path_child_count(rebuild_path);
+    if (child_count < 0) {
+        DATA_REBUILD_PATH_INDEX = -1;
+        return errno != 0 ? errno : EPERM;
+    }
+
+    if (child_count > 1) {
+        logError("file: "__FILE__", line: %d, "
+                "data rebuild path: %s not empty, child count: %d",
+                __LINE__, rebuild_path, child_count);
+        DATA_REBUILD_PATH_INDEX = -1;
+        return ENOTEMPTY;
+    }
+
+    DATA_REBUILD_PATH_INDEX = pentry->index;
+    return 0;
+}
 
 static int storage_init()
 {
@@ -37,6 +78,10 @@ static int storage_init()
     if ((result=da_load_config(&DA_CTX, "[faststore]", FS_FILE_BLOCK_SIZE,
                     &DATA_CFG, STORAGE_FILENAME, have_extra_field)) != 0)
     {
+        return result;
+    }
+
+    if ((result=set_data_rebuild_path_index()) != 0) {
         return result;
     }
 
