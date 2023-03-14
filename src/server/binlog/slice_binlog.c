@@ -54,15 +54,13 @@ typedef struct slice_binlog_migrate_redo_context {
     int current_stage;
 } SliceMigrateRedoContext;
 
-static SFBinlogWriterContext binlog_writer;
-
 static int init_binlog_writer()
 {
     int result;
     int ring_size;
 
     ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
-    if ((result=sf_binlog_writer_init_by_version(&binlog_writer.writer,
+    if ((result=sf_binlog_writer_init_by_version(&SLICE_BINLOG_WRITER.writer,
                     DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
                     SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, ring_size)) != 0)
     {
@@ -72,68 +70,63 @@ static int init_binlog_writer()
         slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     }
 
-    return sf_binlog_writer_init_thread(&binlog_writer.thread, "slice",
-            &binlog_writer.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
-}
-
-struct sf_binlog_writer_info *slice_binlog_get_writer()
-{
-    return &binlog_writer.writer;
+    return sf_binlog_writer_init_thread(&SLICE_BINLOG_WRITER.thread, "slice",
+            &SLICE_BINLOG_WRITER.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 int slice_binlog_set_binlog_start_index(const int start_index)
 {
     return sf_binlog_writer_set_binlog_start_index(
-            &binlog_writer.writer, start_index);
+            &SLICE_BINLOG_WRITER.writer, start_index);
 }
 
 int slice_binlog_set_binlog_write_index(const int last_index)
 {
     /* force write to binlog index file */
-    binlog_writer.writer.fw.binlog.last_index = -1;
+    SLICE_BINLOG_WRITER.writer.fw.binlog.last_index = -1;
     return sf_binlog_writer_set_binlog_write_index(
-            &binlog_writer.writer, last_index);
+            &SLICE_BINLOG_WRITER.writer, last_index);
 }
 
 void slice_binlog_writer_set_flags(const short flags)
 {
     if (!(STORAGE_ENABLED && flags == 0)) {
-        sf_binlog_writer_set_flags(&binlog_writer.writer, flags);
+        sf_binlog_writer_set_flags(&SLICE_BINLOG_WRITER.writer, flags);
     }
 }
 
 static inline int slice_binlog_set_next_version()
 {
-    return sf_binlog_writer_change_next_version(&binlog_writer.
+    return sf_binlog_writer_change_next_version(&SLICE_BINLOG_WRITER.
             writer, FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
 }
 
 int slice_binlog_get_binlog_start_index()
 {
-    return sf_binlog_get_start_index(&binlog_writer.writer);
+    return sf_binlog_get_start_index(&SLICE_BINLOG_WRITER.writer);
 }
 
 int slice_binlog_get_current_write_index()
 {
-    return sf_binlog_get_current_write_index(&binlog_writer.writer);
+    return sf_binlog_get_current_write_index(&SLICE_BINLOG_WRITER.writer);
 }
 
 int slice_binlog_get_binlog_indexes(int *start_index, int *last_index)
 {
-    return sf_binlog_get_indexes(&binlog_writer.writer,
+    return sf_binlog_get_indexes(&SLICE_BINLOG_WRITER.writer,
             start_index, last_index);
 }
 
 int slice_binlog_set_binlog_indexes(const int start_index,
         const int last_index)
 {
-    return sf_binlog_set_indexes(&binlog_writer.writer,
+    return sf_binlog_set_indexes(&SLICE_BINLOG_WRITER.writer,
             start_index, last_index);
 }
 
 int slice_binlog_rotate_file()
 {
-    return sf_binlog_writer_rotate_file(&binlog_writer.writer);
+    return sf_binlog_writer_rotate_file(&SLICE_BINLOG_WRITER.writer);
 }
 
 static inline const char *get_migrate_mark_filename(
@@ -330,7 +323,7 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
         tail_len = line.len - front_len;
 
         if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                        &binlog_writer.thread)) == NULL)
+                        &SLICE_BINLOG_WRITER.thread)) == NULL)
         {
             return ENOMEM;
         }
@@ -347,7 +340,7 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
         p += tail_len;
 
         wbuffer->bf.length = p - wbuffer->bf.buff;
-        sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+        sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
 
         line.str = line_end;
     }
@@ -411,7 +404,7 @@ static int slice_migrate_do()
 
         sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
         while (sf_binlog_writer_get_last_version(
-                    &binlog_writer.writer) + 100000 < sn)
+                    &SLICE_BINLOG_WRITER.writer) + 100000 < sn)
         {
             ++waiting_count;
             fc_sleep_ms(1);
@@ -427,7 +420,7 @@ static int slice_migrate_do()
     }
 
     sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
-    while (sf_binlog_writer_get_last_version(&binlog_writer.writer) < sn) {
+    while (sf_binlog_writer_get_last_version(&SLICE_BINLOG_WRITER.writer) < sn) {
         ++waiting_count;
         fc_sleep_ms(1);
     }
@@ -656,12 +649,12 @@ int slice_binlog_init()
 
 int slice_binlog_load()
 {
-    return slice_loader_load(&binlog_writer.writer);
+    return slice_loader_load(&SLICE_BINLOG_WRITER.writer);
 }
 
 void slice_binlog_destroy()
 {
-    sf_binlog_writer_finish(&binlog_writer.writer);
+    sf_binlog_writer_finish(&SLICE_BINLOG_WRITER.writer);
 }
 
 int slice_binlog_log_add_slice1(const DASliceType slice_type,
@@ -672,7 +665,7 @@ int slice_binlog_log_add_slice1(const DASliceType slice_type,
     SFBinlogWriterBuffer *wbuffer;
 
     if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                    &binlog_writer.thread)) == NULL)
+                    &SLICE_BINLOG_WRITER.thread)) == NULL)
     {
         return ENOMEM;
     }
@@ -681,7 +674,7 @@ int slice_binlog_log_add_slice1(const DASliceType slice_type,
     wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice_type,
             bkey, ssize, space, current_time, sn, data_version, source,
             wbuffer->bf.buff);
-    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
@@ -693,7 +686,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
     SFBinlogWriterBuffer *wbuffer;
 
     if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                    &binlog_writer.thread)) == NULL)
+                    &SLICE_BINLOG_WRITER.thread)) == NULL)
     {
         return ENOMEM;
     }
@@ -705,7 +698,7 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
             bs_key->block.offset, bs_key->slice.offset,
             bs_key->slice.length);
-    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
@@ -718,7 +711,7 @@ static inline int log_block_update(const FSBlockKey *bkey,
     SFBinlogWriterBuffer *wbuffer;
 
     if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                    &binlog_writer.thread)) == NULL)
+                    &SLICE_BINLOG_WRITER.thread)) == NULL)
     {
         return ENOMEM;
     }
@@ -728,7 +721,7 @@ static inline int log_block_update(const FSBlockKey *bkey,
             "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
             (int64_t)current_time, sn, data_version, source,
             op_type, bkey->oid, bkey->offset);
-    sf_push_to_binlog_write_queue(&binlog_writer.writer, wbuffer);
+    sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
@@ -774,10 +767,10 @@ int slice_binlog_padding_for_check(const int source)
 
 void slice_binlog_writer_stat(FSBinlogWriterStat *stat)
 {
-    stat->total_count = binlog_writer.writer.fw.total_count;
-    stat->next_version = binlog_writer.writer.version_ctx.next;
-    stat->waiting_count = binlog_writer.writer.version_ctx.ring.waiting_count;
-    stat->max_waitings = binlog_writer.writer.version_ctx.ring.max_waitings;
+    stat->total_count = SLICE_BINLOG_WRITER.writer.fw.total_count;
+    stat->next_version = SLICE_BINLOG_WRITER.writer.version_ctx.next;
+    stat->waiting_count = SLICE_BINLOG_WRITER.writer.version_ctx.ring.waiting_count;
+    stat->max_waitings = SLICE_BINLOG_WRITER.writer.version_ctx.ring.max_waitings;
 }
 
 static inline int unpack_add_slice_record(string_t *cols, const int count,

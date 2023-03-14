@@ -145,6 +145,14 @@ typedef struct server_global_vars {
         struct {
             int keep_days;
             TimeInfo delete_time;
+
+            struct {
+                SFBinlogWriterInfo **writers;
+                SFBinlogWriterInfo *holders;
+                int count;
+                int base_id;
+            } binlog_writer_array;
+            SFBinlogWriterThread binlog_writer_thread; //only one write thread
         } binlog;
 
         SFContext sf_context;       //for replica communication
@@ -171,6 +179,7 @@ typedef struct server_global_vars {
 
             volatile int64_t record_count;
             volatile uint64_t sn;  //slice binlog sn
+            SFBinlogWriterContext binlog_writer;
         } binlog;
 
     } slice;
@@ -256,6 +265,7 @@ typedef struct server_global_vars {
 #define SLICE_BINLOG_SN     g_server_global_vars->slice.binlog.sn
 #define SLICE_LOAD_DONE     g_server_global_vars->slice.binlog.data_load.done
 #define SLICE_LOAD_LAST_SN  g_server_global_vars->slice.binlog.data_load.last_sn
+#define SLICE_BINLOG_WRITER g_server_global_vars->slice.binlog.binlog_writer
 
 #define SLICE_DEDUP_ENABLED g_server_global_vars->slice.binlog.dedup.enabled
 #define SLICE_DEDUP_RATIO   g_server_global_vars->slice.binlog.dedup.target_ratio
@@ -275,6 +285,11 @@ typedef struct server_global_vars {
     replica.quorum_rollback_done
 #define REPLICA_KEEP_DAYS   g_server_global_vars->replica.binlog.keep_days
 #define REPLICA_DELETE_TIME g_server_global_vars->replica.binlog.delete_time
+
+#define REPLICA_BINLOG_WRITER_ARRAY   g_server_global_vars-> \
+    replica.binlog.binlog_writer_array
+#define REPLICA_BINLOG_WRITER_THREAD  g_server_global_vars-> \
+    replica.binlog.binlog_writer_thread
 
 #define LOCAL_BINLOG_CHECK_LAST_SECONDS g_server_global_vars->data. \
     local_binlog_check_last_seconds

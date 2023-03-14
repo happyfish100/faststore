@@ -53,8 +53,12 @@ extern "C" {
                 data_group_id);
     }
 
-    SFBinlogWriterInfo *replica_binlog_get_writer(
-            const int data_group_id);
+    static inline SFBinlogWriterInfo *replica_binlog_get_writer(
+            const int data_group_id)
+    {
+        return REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id -
+            REPLICA_BINLOG_WRITER_ARRAY.base_id];
+    }
 
     static inline const char *replica_binlog_get_filepath(
             const int data_group_id, char *filepath, const int size)

@@ -50,7 +50,10 @@ extern "C" {
 
     int slice_binlog_get_binlog_indexes(int *start_index, int *last_index);
 
-    struct sf_binlog_writer_info *slice_binlog_get_writer();
+    static inline SFBinlogWriterInfo *slice_binlog_get_writer()
+    {
+        return &SLICE_BINLOG_WRITER.writer;
+    }
 
     int slice_binlog_set_binlog_start_index(const int start_index);
 
