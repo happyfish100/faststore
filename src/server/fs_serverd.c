@@ -289,16 +289,6 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /*
-        if ((result=trunk_write_thread_init()) != 0) {
-            break;
-        }
-
-        if ((result=trunk_read_thread_init()) != 0) {
-            break;
-        }
-        */
-
         if ((result=data_thread_init()) != 0) {
             break;
         }
@@ -336,12 +326,6 @@ int main(int argc, char *argv[])
             break;
         }
 
-        /*
-        if ((result=storage_allocator_prealloc_trunk_freelists()) != 0) {
-            break;
-        }
-        */
-
         if ((result=server_recovery_init(config_filename)) != 0) {
             break;
         }
@@ -349,12 +333,6 @@ int main(int argc, char *argv[])
         if ((result=store_path_rebuild_redo_step2()) != 0) {
             break;
         }
-
-        /*
-        if ((result=trunk_prealloc_init()) != 0) {
-            break;
-        }
-        */
 
         if ((result=fcfs_auth_for_server_start(&AUTH_CTX)) != 0) {
             break;

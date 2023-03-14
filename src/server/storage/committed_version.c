@@ -15,6 +15,7 @@
 
 #include "fastcommon/logger.h"
 #include "../server_global.h"
+#include "../binlog/replica_binlog.h"
 #include "committed_version.h"
 
 #define COMMITTED_VERSION_RING_SIZE   (16 * 1024)
@@ -23,6 +24,8 @@ static void deal_entry(FSVersionEntry *entry, const int64_t sn)
 {
     int data_group_id;
     int64_t data_version;
+    int64_t last_dv;
+    SFBinlogWriterInfo *replica_writer;
 
     data_group_id = FC_ATOMIC_GET(entry->data_group_id);
     data_version = FC_ATOMIC_GET(entry->data_version);
@@ -30,11 +33,23 @@ static void deal_entry(FSVersionEntry *entry, const int64_t sn)
     __sync_bool_compare_and_swap(&entry->data_version, data_version, 0);
     __sync_bool_compare_and_swap(&entry->sn, sn, 0);
 
-    /*
-    while (sf_binlog_writer_get_last_version(&binlog_writer.writer) < sn) {
+    if (data_group_id > 0 && data_version > 0) {
+        replica_writer = replica_binlog_get_writer(data_group_id);
+        while (1) {
+            last_dv = sf_binlog_writer_get_last_version_ex(
+                    replica_writer, LOG_NOTHING);
+            if (last_dv >= data_version || last_dv < 0) {
+                break;
+            }
+            fc_sleep_ms(1);
+        }
+    }
+
+    while (sf_binlog_writer_get_last_version(
+                &SLICE_BINLOG_WRITER.writer) < sn)
+    {
         fc_sleep_ms(1);
     }
-    */
 }
 
 static void *committed_version_thread_run(void *arg)
@@ -51,8 +66,8 @@ static void *committed_version_thread_run(void *arg)
     end = COMMITTED_VERSION_RING.versions +
         COMMITTED_VERSION_RING_SIZE;
     while (SF_G_CONTINUE_FLAG) {
-        fc_sleep_ms(1);
         if (FC_ATOMIC_GET(COMMITTED_VERSION_RING.count) == 0) {
+            fc_sleep_ms(10);
             continue;
         }
 
@@ -71,8 +86,11 @@ static void *committed_version_thread_run(void *arg)
             if (FC_ATOMIC_GET(COMMITTED_VERSION_RING.waitings) > 0) {
                 pthread_cond_broadcast(&COMMITTED_VERSION_RING.lcp.cond);
             }
+        } else {
+            fc_sleep_ms(1);
         }
     }
+
     return NULL;
 }
 

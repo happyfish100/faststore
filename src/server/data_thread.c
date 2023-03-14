@@ -20,6 +20,8 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "binlog/binlog_types.h"
+#include "storage/committed_version.h"
 #include "server_global.h"
 #include "server_replication.h"
 #include "data_thread.h"
@@ -198,6 +200,8 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
         FSDataOperation *op)
 {
     struct fast_task_info *task;
+    int data_group_id;
+    int64_t sn;
 
     if (op->ctx->result != 0) {
         if (op->ctx->info.is_update && op->source ==
@@ -284,6 +288,29 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             FC_ATOMIC_SET(op->ctx->info.myself->data.confirmed_version,
                     op->ctx->info.data_version);
         }
+
+        if (FS_IS_BINLOG_SOURCE_RPC(op->ctx->info.source)) {
+            data_group_id =  op->ctx->info.data_group_id;
+        } else {
+            data_group_id = 0;
+        }
+
+        switch (op->operation) {
+            case DATA_OPERATION_SLICE_WRITE:
+            case DATA_OPERATION_SLICE_ALLOCATE:
+                sn = op->ctx->update.sarray.slice_sn_pairs[
+                    op->ctx->update.sarray.count - 1].sn;
+                break;
+            case DATA_OPERATION_SLICE_DELETE:
+            case DATA_OPERATION_BLOCK_DELETE:
+                sn = op->ctx->info.sn;
+                break;
+            default:
+                return;
+        }
+
+        committed_version_add(data_group_id, op->ctx->
+                info.data_version, sn);
 
         /*
            logInfo("file: "__FILE__", line: %d, op ptr: %p, "
