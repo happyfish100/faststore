@@ -68,7 +68,6 @@ typedef struct {
     int64_t capacity;
     OBEntry **buckets;
     bool modify_sallocator; //if modify storage allocator
-    bool modify_used_space; //if modify used space
     bool need_reclaim;
 } OBHashtable;
 

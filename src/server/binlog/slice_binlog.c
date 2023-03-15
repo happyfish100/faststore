@@ -1440,7 +1440,8 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     space.size = field->storage.size;
 
     se.timestamp = g_current_time;
-    se.source = field->source;
+    //se.source = field->source;
+    se.source = BINLOG_SOURCE_RECLAIM;
     se.data_version = field->storage.version;
     se.bs_key.block.oid = field->oid;
     se.bs_key.block.offset = field->fid;

@@ -293,7 +293,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
             record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
     {
         if ((r=ob_index_delete_slices(&record->bs_key,
-                        &sn, &dec_alloc, false)) == 0)
+                        &sn, &dec_alloc)) == 0)
         {
             r = slice_binlog_log_del_slice(&record->bs_key,
                     g_current_time, sn, record->data_version,

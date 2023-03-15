@@ -87,7 +87,7 @@ static inline int add_slice(OBHashtable *htable,
     slice->ssize = record->bs_key.slice;
     slice->data_version = record->data_version;
     return ob_index_add_slice_ex(htable, &record->bs_key.block,
-            slice, NULL, &inc_alloc, false);
+            slice, NULL, &inc_alloc);
 }
 
 static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
@@ -147,11 +147,11 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                 if (op_type == BINLOG_OP_TYPE_DEL_SLICE) {
                     result = ob_index_delete_slices_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key,
-                            NULL, &dec_alloc, false);
+                            NULL, &dec_alloc);
                 } else {
                     result = ob_index_delete_block_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key.
-                            block, NULL, &dec_alloc, false);
+                            block, NULL, &dec_alloc);
                     dedup_ctx->record.bs_key.slice.offset = 0;
                     dedup_ctx->record.bs_key.slice.length =
                         FS_FILE_BLOCK_SIZE;
@@ -503,7 +503,7 @@ static void htable_reverse_remove(BinlogHashtables *htables)
                     bs_key.block = slice->ob->bkey;
                     bs_key.slice = slice->ssize;
                     ob_index_delete_slices_ex(&htables->remove,
-                            &bs_key, NULL, &dec_alloc, false);
+                            &bs_key, NULL, &dec_alloc);
                 }
             } while (0);
 

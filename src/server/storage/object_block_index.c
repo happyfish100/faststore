@@ -607,7 +607,6 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity)
     memset(htable->buckets, 0, bytes);
 
     htable->modify_sallocator = false;
-    htable->modify_used_space = false;
     htable->need_reclaim = false;
     return 0;
 }
@@ -1073,8 +1072,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
 }
 
 int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
-        OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
-        const bool is_reclaim)
+        OBSliceEntry *slice, uint64_t *sn, int *inc_alloc)
 {
     OBEntry *ob;
     int result;
@@ -1105,8 +1103,10 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
                 }
 
-                if (STORAGE_ENABLED && slice->type != DA_SLICE_TYPE_CACHE) {
-                    result = change_notify_push_add_slice(*sn, slice);
+                if (slice->type != DA_SLICE_TYPE_CACHE) {
+                    if (STORAGE_ENABLED) {
+                        result = change_notify_push_add_slice(*sn, slice);
+                    }
                 }
             }
         }
@@ -1308,7 +1308,7 @@ static int delete_slices(const OBSliceOPFuncs *op_funcs, OBSegment *segment,
 
 int ob_index_delete_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
-        int *dec_alloc, const bool is_reclaim)
+        int *dec_alloc)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -1349,8 +1349,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
 }
 
 int ob_index_delete_block_ex(OBHashtable *htable,
-        const FSBlockKey *bkey, uint64_t *sn,
-        int *dec_alloc, const bool is_reclaim)
+        const FSBlockKey *bkey, uint64_t *sn, int *dec_alloc)
 {
     OBEntry *ob;
     OBEntry *previous;
@@ -1658,8 +1657,7 @@ static void free_slices(OBSliceReadBufferArray *array)
 
 int ob_index_get_slices_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key,
-        OBSliceReadBufferArray *sarray,
-        const bool is_reclaim)
+        OBSliceReadBufferArray *sarray)
 {
     OBEntry *ob;
     int result;
@@ -2465,8 +2463,8 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
     slice->type = type;
     slice->ssize = *ssize;
     slice->space = *space;
-    return add_slice(&ob_shared_ctx.op_funcs.db, segment,
-            &g_ob_hashtable, ob, ob->db_args->slices, slice, NULL);
+    return add_slice(&ob_shared_ctx.op_funcs.db, segment, &g_ob_hashtable,
+            ob, ob->db_args->slices, slice, NULL);
 }
 
 int ob_index_delete_slice_by_db(OBSegment *segment,

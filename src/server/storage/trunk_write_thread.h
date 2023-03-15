@@ -33,8 +33,7 @@ extern "C" {
 
         slice->data_version = op_ctx->info.data_version;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block, slice,
-                        &op_ctx->info.sn, &inc_alloc, op_ctx->info.source ==
-                        BINLOG_SOURCE_RECLAIM)) != 0)
+                        &op_ctx->info.sn, &inc_alloc)) != 0)
         {
             return result;
         }

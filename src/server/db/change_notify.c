@@ -80,8 +80,7 @@ static void *change_notify_func(void *arg)
         }
 
         if (SLICE_LOAD_DONE) {
-            less_equal.sn = sf_binlog_writer_get_last_version(
-                    slice_binlog_get_writer());
+            less_equal.sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn) - 1;
         } else {
             less_equal.sn = SLICE_LOAD_LAST_SN;
         }
