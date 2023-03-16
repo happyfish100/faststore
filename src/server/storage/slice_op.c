@@ -136,7 +136,7 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
             slice_sn_pair->slice->data_version = op_ctx->info.data_version;
             if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
                             slice_sn_pair->slice, &slice_sn_pair->sn,
-                            &inc_alloc)) != 0)
+                            &inc_alloc, &op_ctx->update.space_chain)) != 0)
             {
                 op_ctx->result = result;
                 break;
@@ -206,6 +206,7 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
     int result;
     DATrunkSpaceWithVersion spaces[FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC];
 
+    *slice_count = 2;
     if (reclaim_alloc) {
         result = da_storage_allocator_reclaim_alloc(&DA_CTX, 
                 FS_BLOCK_HASH_CODE(bs_key->block),
@@ -396,6 +397,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 
     op_ctx->info.set_dv_done = false;
     op_ctx->update.space_changed = 0;
+    op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
     if (WRITE_TO_CACHE && (op_ctx->info.source == BINLOG_SOURCE_RPC_MASTER ||
                 op_ctx->info.source == BINLOG_SOURCE_RPC_SLAVE))
     {
@@ -543,6 +545,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
 
     op_ctx->update.sarray.count = 0;
     op_ctx->update.space_changed = 0;
+    op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
     ssizes = fixed_ssizes;
     if ((result=get_slice_index_holes(op_ctx, ssizes,
                     FS_SLICE_HOLES_FIXED_COUNT, &count)) != 0)
@@ -618,7 +621,7 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
                         slice_sn_pair->slice, &slice_sn_pair->sn,
-                        &inc)) != 0)
+                        &inc, &op_ctx->update.space_chain)) != 0)
         {
             break;
         }
@@ -966,8 +969,10 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
     int result;
 
     op_ctx->info.sn = 0;
+    op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
     if ((result=ob_index_delete_slices(&op_ctx->info.bs_key, &op_ctx->
-                    info.sn, &op_ctx->update.space_changed)) == 0)
+                    info.sn, &op_ctx->update.space_changed,
+                    &op_ctx->update.space_chain)) == 0)
     {
         op_ctx->info.set_dv_done = false;
         fs_set_data_version(op_ctx);
@@ -1000,8 +1005,10 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
     int result;
 
     op_ctx->info.sn = 0;
+    op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block, &op_ctx->
-                    info.sn, &op_ctx->update.space_changed)) == 0)
+                    info.sn, &op_ctx->update.space_changed,
+                    &op_ctx->update.space_chain)) == 0)
     {
         op_ctx->info.set_dv_done = false;
         fs_set_data_version(op_ctx);

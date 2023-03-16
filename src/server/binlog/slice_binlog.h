@@ -201,7 +201,7 @@ extern "C" {
             SFSynchronizeContext *sctx, int *flags);
 
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-            const DATrunkSpaceInfo *space);
+            const DATrunkSpaceInfo *space, void *arg1, void *arg2);
 
 #ifdef __cplusplus
 }

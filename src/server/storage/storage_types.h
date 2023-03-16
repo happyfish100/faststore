@@ -20,6 +20,8 @@
 #include "fastcommon/fc_list.h"
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/uniq_skiplist.h"
+#include "fastcommon/fast_mblock.h"
+#include "fastcommon/sorted_queue.h"
 #include "sf/sf_shared_mbuffer.h"
 #include "diskallocator/storage_types.h"
 #include "../../common/fs_types.h"
@@ -67,7 +69,6 @@ typedef struct {
     volatile int64_t count;
     int64_t capacity;
     OBEntry **buckets;
-    bool modify_sallocator; //if modify storage allocator
     bool need_reclaim;
 } OBHashtable;
 
@@ -151,6 +152,7 @@ typedef struct fs_slice_op_context {
         int timestamp;      //for log to binlog
         int space_changed;  //increase /decrease space in bytes for slice operate
         FSSliceSNPairArray sarray;
+        struct fc_queue_info space_chain;
     } update;  //for slice update
 
     SFSharedMBuffer *mbuffer;  //for slice write
@@ -175,5 +177,25 @@ typedef struct fs_slice_blocked_op_context {
         pthread_lock_cond_pair_t lcp; //for notify
     } notify;
 } FSSliceBlockedOpContext;
+
+typedef struct fs_binlog_write_file_buffer_pair {
+    SafeWriteFileInfo fi;
+    FastBuffer buffer;
+    int record_count;
+} FSBinlogWriteFileBufferPair;
+
+typedef struct fs_slice_space_log_record {
+    int64_t last_sn;
+    SFBinlogWriterBuffer *slice_head;
+    struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
+    struct fs_slice_log_record *next;
+} FSSliceSpaceLogRecord;
+
+typedef struct fs_slice_space_log_context {
+    FSBinlogWriteFileBufferPair field_redo;
+    FSBinlogWriteFileBufferPair space_redo;
+    struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
+    struct sorted_queue queue;
+} FSSliceSpaceLogContext;
 
 #endif

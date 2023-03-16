@@ -110,6 +110,7 @@ typedef struct server_global_vars {
         } rebuild_path;
         struct fast_allocator_context wbuffer_allocator;
         FSCommittedVersionRing committed_version_ring;
+        FSSliceSpaceLogContext slice_space_log_ctx;
     } storage;
 
     struct {
@@ -215,6 +216,8 @@ typedef struct server_global_vars {
 
 #define COMMITTED_VERSION_RING  g_server_global_vars-> \
     storage.committed_version_ring
+
+#define SLICE_SPACE_LOG_CTX  g_server_global_vars->storage.slice_space_log_ctx
 
 #define LEADER_ELECTION_QUORUM g_server_global_vars->cluster. \
     config.leader_election.quorum

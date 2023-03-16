@@ -851,7 +851,6 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         logInfo("event_dealer_get_last_data_version: %"PRId64,
                 event_dealer_get_last_data_version());
         if (event_dealer_get_last_data_version() >= SLICE_BINLOG_SN) {
-            g_ob_hashtable.modify_sallocator = true;
             SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;
             SLICE_LOAD_DONE = true;
             return 0;
@@ -910,7 +909,6 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
             }
         }
     }
-    g_ob_hashtable.modify_sallocator = true;
 
     if (result == 0 && MIGRATE_CLEAN_ENABLED) {
         bool dump_slice_index;

@@ -271,6 +271,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     int r;
     int dec_alloc;
     uint64_t sn = 0;
+    struct fc_queue_info space_chain;
 
     fs_calc_block_hashcode(&record->bs_key.block);
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
@@ -292,9 +293,11 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     if (record->op_type == BINLOG_OP_TYPE_WRITE_SLICE ||
             record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
     {
-        if ((r=ob_index_delete_slices(&record->bs_key,
-                        &sn, &dec_alloc)) == 0)
+        space_chain.head = space_chain.tail = NULL;
+        if ((r=ob_index_delete_slices(&record->bs_key, &sn,
+                        &dec_alloc, &space_chain)) == 0)
         {
+            //TODO
             r = slice_binlog_log_del_slice(&record->bs_key,
                     g_current_time, sn, record->data_version,
                     BINLOG_SOURCE_ROLLBACK);

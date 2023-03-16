@@ -25,6 +25,7 @@
 #include "diskallocator/binlog/trunk/trunk_space_log.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
+#include "../storage/slice_space_log.h"
 #include "binlog_func.h"
 #include "binlog_loader.h"
 #include "slice_loader.h"
@@ -1429,10 +1430,16 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
         const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
         SFSynchronizeContext *sctx, int *flags)
 {
+    const bool call_by_reclaim = true;
     int result;
     int update_count;
     DATrunkSpaceInfo space;
     DASliceEntry se;
+    FSSliceSpaceLogRecord *record;
+
+    if ((record=slice_space_log_alloc_init_record()) == NULL) {
+        return ENOMEM;
+    }
 
     space.store = trunk->store;
     space.id_info = trunk->id_info;
@@ -1449,7 +1456,9 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
     fs_calc_block_hashcode(&se.bs_key.block);
-    if ((result=ob_index_update_slice(&se, &space, &update_count)) != 0) {
+    if ((result=ob_index_update_slice(&se, &space, &update_count,
+                    record, call_by_reclaim)) != 0)
+    {
         return result;
     }
 
@@ -1462,15 +1471,27 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
 }
 
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-        const DATrunkSpaceInfo *space)
+        const DATrunkSpaceInfo *space, void *arg1, void *arg2)
 {
+    const bool call_by_reclaim = false;
     int result;
     int update_count;
+    FSSliceSpaceLogRecord *record;
 
-    if ((result=ob_index_update_slice(se, space, &update_count)) != 0) {
+    if ((record=slice_space_log_alloc_record()) == NULL) {
+        return ENOMEM;
+    }
+
+    record->slice_head = NULL;
+    record->space_chain.head = arg1;
+    record->space_chain.tail = arg2;
+    if ((result=ob_index_update_slice(se, space, &update_count,
+                    record, call_by_reclaim)) != 0)
+    {
         return result;
     }
 
+    //TODO
     return slice_binlog_log_add_slice1(DA_SLICE_TYPE_FILE,
             &se->bs_key.block, &se->bs_key.slice, space,
             se->timestamp, se->sn, se->data_version,
