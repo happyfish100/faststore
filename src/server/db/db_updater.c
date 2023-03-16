@@ -43,12 +43,6 @@ typedef struct db_updater_ctx {
 
 static DBUpdaterCtx db_updater_ctx;
 
-static int compare_field_version(const FSDBUpdateBlockInfo *entry1,
-        const FSDBUpdateBlockInfo *entry2)
-{
-    return fc_compare_int64(entry1->version, entry2->version);
-}
-
 int db_updater_realloc_block_array(FSDBUpdateBlockArray *array)
 {
     FSDBUpdateBlockInfo *entries;
@@ -447,12 +441,6 @@ void db_updater_destroy()
 int db_updater_deal(FSDBUpdaterContext *ctx)
 {
     int result;
-
-    if (ctx->array.count > 1) {
-        qsort(ctx->array.entries, ctx->array.count, sizeof(
-                    FSDBUpdateBlockInfo), (int (*)(const void *,
-                            const void *))compare_field_version);
-    }
 
     if ((result=write_redo_log(ctx)) != 0) {
         return result;
