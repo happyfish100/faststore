@@ -225,6 +225,18 @@ extern "C" {
         }
     }
 
+    int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
+            SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice,
+            const time_t timestamp, const int64_t sn, const char source);
+
+    int ob_index_del_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
+            const FSBlockSliceKeyInfo *bs_key, const time_t timestamp,
+            const int64_t sn, const int64_t data_version, const char source);
+
+    int ob_index_del_block_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
+            const FSBlockKey *bkey, const time_t timestamp, const int64_t sn,
+            const int64_t data_version, const char source);
+
     int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice);
 
     static inline int ob_index_delete_slices_by_binlog(const uint64_t sn,

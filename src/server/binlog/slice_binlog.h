@@ -153,14 +153,44 @@ extern "C" {
                 source, buff);
     }
 
+    static inline int slice_binlog_log_update_block_to_buff(
+            const FSBlockKey *bkey, const time_t current_time,
+            const char op_type, const int64_t sn, const uint64_t
+            data_version, const int source, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
+                "%"PRId64"\n", (int64_t)current_time, sn, data_version,
+                source, op_type, bkey->oid, bkey->offset);
+    }
+
+    static inline int slice_binlog_log_del_block_to_buff(
+            const FSBlockKey *bkey, const time_t current_time,
+            const int64_t sn, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return slice_binlog_log_update_block_to_buff(bkey, current_time,
+                BINLOG_OP_TYPE_DEL_BLOCK, sn, data_version, source, buff);
+    }
+
     static inline int slice_binlog_log_no_op_to_buff(const FSBlockKey *bkey,
             const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64"\n", (int64_t)current_time, __sync_add_and_fetch(
-                    &SLICE_BINLOG_SN, 1), data_version, source,
-                BINLOG_OP_TYPE_NO_OP, bkey->oid, bkey->offset);
+        return slice_binlog_log_update_block_to_buff(bkey, current_time,
+                BINLOG_OP_TYPE_NO_OP, __sync_add_and_fetch(&SLICE_BINLOG_SN,
+                    1), data_version, source, buff);
+    }
+
+    static inline int slice_binlog_log_del_slice_to_buff(
+            const FSBlockSliceKeyInfo *bs_key, const time_t current_time,
+            const uint64_t sn, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c "
+                "%"PRId64" %"PRId64" %d %d\n", (int64_t)current_time, sn,
+                data_version, source, BINLOG_OP_TYPE_DEL_SLICE,
+                bs_key->block.oid, bs_key->block.offset,
+                bs_key->slice.offset, bs_key->slice.length);
     }
 
     int slice_binlog_log_add_slice1(const DASliceType slice_type,

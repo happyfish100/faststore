@@ -44,12 +44,6 @@ static void deal_entry(FSVersionEntry *entry, const int64_t sn)
             fc_sleep_ms(1);
         }
     }
-
-    while (sf_binlog_writer_get_last_version(
-                &SLICE_BINLOG_WRITER.writer) < sn)
-    {
-        fc_sleep_ms(1);
-    }
 }
 
 static void *committed_version_thread_run(void *arg)

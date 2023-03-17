@@ -693,21 +693,18 @@ int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
     }
 
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64" %d %d\n",
-            (int64_t)current_time, sn, data_version, source,
-            BINLOG_OP_TYPE_DEL_SLICE, bs_key->block.oid,
-            bs_key->block.offset, bs_key->slice.offset,
-            bs_key->slice.length);
+    wbuffer->bf.length = slice_binlog_log_del_slice_to_buff(
+            bs_key, current_time, sn, data_version, source,
+            wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
 }
 
 static inline int log_block_update(const FSBlockKey *bkey,
-        const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source,
-        const char op_type)
+        const time_t current_time, const char op_type,
+        const uint64_t sn, const uint64_t data_version,
+        const int source)
 {
     SFBinlogWriterBuffer *wbuffer;
 
@@ -718,10 +715,9 @@ static inline int log_block_update(const FSBlockKey *bkey,
     }
 
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = sprintf(wbuffer->bf.buff, "%"PRId64" "
-            "%"PRId64" %"PRId64" %c %c %"PRId64" %"PRId64"\n",
-            (int64_t)current_time, sn, data_version, source,
-            op_type, bkey->oid, bkey->offset);
+    wbuffer->bf.length = slice_binlog_log_update_block_to_buff(
+            bkey, current_time, op_type, sn, data_version,
+            source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
@@ -731,16 +727,17 @@ int slice_binlog_log_del_block(const FSBlockKey *bkey,
         const time_t current_time, const uint64_t sn,
         const uint64_t data_version, const int source)
 {
-    return log_block_update(bkey, current_time, sn, data_version,
-            source, BINLOG_OP_TYPE_DEL_BLOCK);
+    return log_block_update(bkey, current_time,
+            BINLOG_OP_TYPE_DEL_BLOCK,
+            sn, data_version, source);
 }
 
 int slice_binlog_log_no_op(const FSBlockKey *bkey,
         const time_t current_time, const uint64_t sn,
         const uint64_t data_version, const int source)
 {
-    return log_block_update(bkey, current_time, sn, data_version,
-            source, BINLOG_OP_TYPE_NO_OP);
+    return log_block_update(bkey, current_time, BINLOG_OP_TYPE_NO_OP,
+            sn, data_version, source);
 }
 
 int slice_binlog_padding_for_check(const int source)
@@ -1447,7 +1444,6 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     space.size = field->storage.size;
 
     se.timestamp = g_current_time;
-    //se.source = field->source;
     se.source = BINLOG_SOURCE_RECLAIM;
     se.data_version = field->storage.version;
     se.bs_key.block.oid = field->oid;
@@ -1462,11 +1458,18 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
         return result;
     }
 
-    //TODO
+    da_trunk_space_log_free_chain(&DA_CTX, space_chain);
+    if (record->slice_head != NULL) {
+        slice_space_log_push(record);
+        while (sf_binlog_writer_get_last_version(&SLICE_BINLOG_WRITER.
+                    writer) < record->last_sn)
+        {
+            fc_sleep_ms(1);
+        }
+    }
+
     *flags = update_count > 0 ? 0 : DA_REDO_QUEUE_PUSH_FLAGS_IGNORE;
     sf_synchronize_counter_notify(sctx, 1);
-    da_trunk_space_log_free_chain(&DA_CTX, space_chain);
-
     return 0;
 }
 
@@ -1477,12 +1480,12 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     int result;
     int update_count;
     FSSliceSpaceLogRecord *record;
+    SFBinlogWriterBuffer *wbuffer;
 
     if ((record=slice_space_log_alloc_record()) == NULL) {
         return ENOMEM;
     }
 
-    record->slice_head = NULL;
     record->space_chain.head = arg1;
     record->space_chain.tail = arg2;
     if ((result=ob_index_update_slice(se, space, &update_count,
@@ -1491,9 +1494,20 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
         return result;
     }
 
-    //TODO
-    return slice_binlog_log_add_slice1(DA_SLICE_TYPE_FILE,
-            &se->bs_key.block, &se->bs_key.slice, space,
-            se->timestamp, se->sn, se->data_version,
-            se->source);
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                    &SLICE_BINLOG_WRITER.thread)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, se->sn);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(
+            DA_SLICE_TYPE_FILE, &se->bs_key.block, &se->bs_key.slice,
+            space, se->timestamp, se->sn, se->data_version,
+            se->source, wbuffer->bf.buff);
+    wbuffer->next = NULL;
+    record->slice_head = wbuffer;
+    record->last_sn = se->sn;
+    slice_space_log_push(record);
+    return 0;
 }
