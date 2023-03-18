@@ -977,7 +977,6 @@ int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     }
     *slice_tail = wbuffer;
     record->last_sn = sn;
-
     return 0;
 }
 

@@ -658,10 +658,9 @@ void slice_binlog_destroy()
     sf_binlog_writer_finish(&SLICE_BINLOG_WRITER.writer);
 }
 
-int slice_binlog_log_add_slice1(const DASliceType slice_type,
-        const FSBlockKey *bkey, const FSSliceSize *ssize,
-        const DATrunkSpaceInfo *space, const time_t current_time,
-        const uint64_t sn, const uint64_t data_version, const int source)
+int slice_binlog_log_add_slice(const OBSliceEntry *slice,
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version, const int source)
 {
     SFBinlogWriterBuffer *wbuffer;
 
@@ -672,9 +671,9 @@ int slice_binlog_log_add_slice1(const DASliceType slice_type,
     }
 
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice_type,
-            bkey, ssize, space, current_time, sn, data_version, source,
-            wbuffer->bf.buff);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice->type,
+            &slice->ob->bkey,  &slice->ssize, &slice->space, current_time,
+            sn, data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
     return 0;
@@ -1442,7 +1441,6 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     space.id_info = trunk->id_info;
     space.offset = field->storage.offset;
     space.size = field->storage.size;
-
     se.timestamp = g_current_time;
     se.source = BINLOG_SOURCE_RECLAIM;
     se.data_version = field->storage.version;
@@ -1508,6 +1506,28 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     wbuffer->next = NULL;
     record->slice_head = wbuffer;
     record->last_sn = se->sn;
+    slice_space_log_push(record);
+    return 0;
+}
+
+int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version, const int source,
+        struct fc_queue_info *space_chain)
+{
+    FSSliceSpaceLogRecord *record;
+    int result;
+
+    if ((record=slice_space_log_alloc_record()) == NULL) {
+        return ENOMEM;
+    }
+
+    record->space_chain = *space_chain;
+    if ((result=ob_index_del_slice_to_wbuffer_chain(record, bs_key,
+                    current_time, sn, data_version, source)) != 0)
+    {
+        return result;
+    }
     slice_space_log_push(record);
     return 0;
 }

@@ -32,7 +32,6 @@ static void deal_entry(FSVersionEntry *entry, const int64_t sn)
     __sync_bool_compare_and_swap(&entry->data_group_id, data_group_id, 0);
     __sync_bool_compare_and_swap(&entry->data_version, data_version, 0);
     __sync_bool_compare_and_swap(&entry->sn, sn, 0);
-
     if (data_group_id > 0 && data_version > 0) {
         replica_writer = replica_binlog_get_writer(data_group_id);
         while (1) {
@@ -139,7 +138,7 @@ int committed_version_add(const int data_group_id,
                 &COMMITTED_VERSION_RING.lcp.lock);
         PTHREAD_MUTEX_UNLOCK(&COMMITTED_VERSION_RING.lcp.lock);
         FC_ATOMIC_DEC(COMMITTED_VERSION_RING.waitings);
-    } while (SF_G_CONTINUE_FLAG);
+    } while (1);
 
     entry = COMMITTED_VERSION_RING.versions +
         sn % COMMITTED_VERSION_RING_SIZE;

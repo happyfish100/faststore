@@ -1025,8 +1025,6 @@ int server_load_config(const char *filename)
     iniFreeContext(&ini_context);
     load_local_host_ip_addrs();
     server_log_configs();
-    //TODO
-    //storage_config_to_log(&STORAGE_CFG);
 
     return server_init_client(filename);
 }

@@ -195,19 +195,9 @@ extern "C" {
                 bs_key->slice.offset, bs_key->slice.length);
     }
 
-    int slice_binlog_log_add_slice1(const DASliceType slice_type,
-            const FSBlockKey *bkey, const FSSliceSize *ssize,
-            const DATrunkSpaceInfo *space, const time_t current_time,
-            const uint64_t sn, const uint64_t data_version, const int source);
-
-    static inline int slice_binlog_log_add_slice(const OBSliceEntry *slice,
+    int slice_binlog_log_add_slice(const OBSliceEntry *slice,
             const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source)
-    {
-        return slice_binlog_log_add_slice1(slice->type,
-                &slice->ob->bkey, &slice->ssize, &slice->space,
-                current_time, sn, data_version, source);
-    }
+            const uint64_t data_version, const int source);
 
     int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,
@@ -234,6 +224,11 @@ extern "C" {
 
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
             const DATrunkSpaceInfo *space, void *arg1, void *arg2);
+
+    int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
+            const time_t current_time, const uint64_t sn,
+            const uint64_t data_version, const int source,
+            struct fc_queue_info *space_chain);
 
 #ifdef __cplusplus
 }

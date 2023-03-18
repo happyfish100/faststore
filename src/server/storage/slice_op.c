@@ -977,9 +977,9 @@ int fs_delete_slice(FSSliceOpContext *op_ctx)
 
     op_ctx->info.sn = 0;
     op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
-    if ((result=ob_index_delete_slice(&op_ctx->info.bs_key, &op_ctx->
-                    info.sn, &op_ctx->update.space_changed,
-                    &op_ctx->update.space_chain)) == 0)
+    if ((result=ob_index_delete_slice(&op_ctx->info.bs_key, &op_ctx->info.sn,
+                    &op_ctx->update.space_changed, &op_ctx->
+                    update.space_chain)) == 0)
     {
         op_ctx->info.set_dv_done = false;
         fs_set_data_version(op_ctx);
@@ -990,27 +990,22 @@ int fs_delete_slice(FSSliceOpContext *op_ctx)
 
 int fs_log_delete_slice(FSSliceOpContext *op_ctx)
 {
-    FSSliceSpaceLogRecord *record;
     int result;
 
-    if ((record=slice_space_log_alloc_record()) == NULL) {
-        return ENOMEM;
-    }
-
-    record->space_chain = op_ctx->update.space_chain;
-    if ((result=ob_index_del_slice_to_wbuffer_chain(record, &op_ctx->
-                    info.bs_key, op_ctx->update.timestamp, op_ctx->info.sn,
-                    op_ctx->info.data_version, op_ctx->info.source)) != 0)
+    if ((result=slice_binlog_del_slice_push(&op_ctx->info.bs_key,
+                    op_ctx->update.timestamp, op_ctx->info.sn,
+                    op_ctx->info.data_version, op_ctx->info.source,
+                    &op_ctx->update.space_chain)) != 0)
     {
         return result;
     }
-    slice_space_log_push(record);
 
     if (op_ctx->info.write_binlog.log_replica) {
         return replica_binlog_log_del_slice(op_ctx->update.timestamp,
                 op_ctx->info.data_group_id, op_ctx->info.data_version,
                 &op_ctx->info.bs_key, op_ctx->info.source);
     }
+
     return 0;
 }
 

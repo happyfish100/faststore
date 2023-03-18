@@ -297,10 +297,9 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         if ((r=ob_index_delete_slice(&record->bs_key, &sn,
                         &dec_alloc, &space_chain)) == 0)
         {
-            //TODO
-            r = slice_binlog_log_del_slice(&record->bs_key,
+            r = slice_binlog_del_slice_push(&record->bs_key,
                     g_current_time, sn, record->data_version,
-                    BINLOG_SOURCE_ROLLBACK);
+                    BINLOG_SOURCE_ROLLBACK, &space_chain);
         } else if (r == ENOENT) {
             r = 0;
         }
