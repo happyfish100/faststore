@@ -114,12 +114,12 @@ extern "C" {
 
     int fs_slice_normal_read(FSSliceOpContext *op_ctx);
 
-    int fs_delete_slices(FSSliceOpContext *op_ctx);
+    int fs_delete_slice(FSSliceOpContext *op_ctx);
     int fs_delete_block(FSSliceOpContext *op_ctx);
 
     int fs_log_slice_write(FSSliceOpContext *op_ctx);
     int fs_log_slice_allocate(FSSliceOpContext *op_ctx);
-    int fs_log_delete_slices(FSSliceOpContext *op_ctx);
+    int fs_log_delete_slice(FSSliceOpContext *op_ctx);
     int fs_log_delete_block(FSSliceOpContext *op_ctx);
 
     int fs_slice_blocked_op_ctx_init(FSSliceBlockedOpContext *bctx);

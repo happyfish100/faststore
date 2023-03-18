@@ -50,8 +50,8 @@ extern "C" {
     ob_index_update_slice_ex(&g_ob_hashtable, se, space, \
             update_count, record, call_by_reclaim)
 
-#define ob_index_delete_slices(bs_key, sn, dec_alloc, space_chain) \
-    ob_index_delete_slices_ex(&g_ob_hashtable, \
+#define ob_index_delete_slice(bs_key, sn, dec_alloc, space_chain) \
+    ob_index_delete_slice_ex(&g_ob_hashtable, \
             bs_key, sn, dec_alloc, space_chain)
 
 #define ob_index_delete_block(bkey, sn, dec_alloc, space_chain) \
@@ -108,7 +108,7 @@ extern "C" {
             const DATrunkSpaceInfo *space, int *update_count,
             FSSliceSpaceLogRecord *record, const bool call_by_reclaim);
 
-    int ob_index_delete_slices_ex(OBHashtable *htable,
+    int ob_index_delete_slice_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
             int *dec_alloc, struct fc_queue_info *space_chain);
 
@@ -239,11 +239,11 @@ extern "C" {
 
     int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice);
 
-    static inline int ob_index_delete_slices_by_binlog(const uint64_t sn,
+    static inline int ob_index_delete_slice_by_binlog(const uint64_t sn,
             const FSBlockSliceKeyInfo *bs_key)
     {
         int dec_alloc;
-        return ob_index_delete_slices(bs_key,
+        return ob_index_delete_slice(bs_key,
                 (uint64_t *)&sn, &dec_alloc, NULL);
     }
 

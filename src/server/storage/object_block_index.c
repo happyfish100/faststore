@@ -1023,14 +1023,24 @@ int ob_index_del_block_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     return 0;
 }
 
-static inline int add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
+static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
         SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice)
 {
     int64_t sn;
+    int result;
 
     sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
-    return ob_index_add_slice_to_wbuffer_chain(record, slice_tail,
-            slice, g_current_time, sn, BINLOG_SOURCE_RECLAIM);
+    if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail, slice,
+                    g_current_time, sn, BINLOG_SOURCE_RECLAIM)) != 0)
+    {
+        return result;
+    }
+
+    if (STORAGE_ENABLED) {
+        return change_notify_push_add_slice(sn, slice);
+    } else {
+        return 0;
+    }
 }
 
 static int update_slice(OBSegment *segment, OBHashtable *htable,
@@ -1039,7 +1049,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         const bool call_by_reclaim)
 {
     UniqSkiplistNode *node;
-    OBSliceEntry *curr_slice;
+    OBSliceEntry *current;
     SFBinlogWriterBuffer *slice_tail = NULL;
     OBSlicePtrSmartArray add_slice_array;
     OBSlicePtrSmartArray del_slice_array;
@@ -1054,18 +1064,18 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         return 0;
     }
 
-    curr_slice = (OBSliceEntry *)node->data;
-    if ((curr_slice->type == DA_SLICE_TYPE_CACHE) &&
-            (curr_slice->data_version == slice->data_version) &&
-            (curr_slice->ssize.offset == slice->ssize.offset &&
-             curr_slice->ssize.length == slice->ssize.length))
+    current = (OBSliceEntry *)node->data;
+    if ((call_by_reclaim || current->type == DA_SLICE_TYPE_CACHE) &&
+            (current->data_version == slice->data_version) &&
+            (current->ssize.offset == slice->ssize.offset &&
+             current->ssize.length == slice->ssize.length))
     {
         *update_count = 1;
         *release_slice = false;
         do_delete_slice(htable, ob, ob->slices,
-                curr_slice, &record->space_chain);
+                current, &record->space_chain);
         if (call_by_reclaim) {
-            if ((result=add_slice_to_wbuffer_chain(record,
+            if ((result=add_slice_for_reclaim(record,
                             &slice_tail, slice)) != 0)
             {
                 return result;
@@ -1077,7 +1087,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
 
     *release_slice = true;
     slice_end = slice->ssize.offset + slice->ssize.length;
-    if (slice_end <= curr_slice->ssize.offset) { //not overlap
+    if (slice_end <= current->ssize.offset) { //not overlap
         *update_count = 0;
         return 0;
     }
@@ -1085,15 +1095,14 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     INIT_SLICE_PTR_ARRAY(add_slice_array);
     INIT_SLICE_PTR_ARRAY(del_slice_array);
     do {
-        curr_slice = (OBSliceEntry *)node->data;
-        if (slice_end <= curr_slice->ssize.offset) {  //not overlap
+        current = (OBSliceEntry *)node->data;
+        if (slice_end <= current->ssize.offset) {  //not overlap
             break;
         }
 
-        if (curr_slice->data_version == slice->data_version) {
-            if (curr_slice->type != DA_SLICE_TYPE_CACHE ||
-                    curr_slice->ssize.offset + curr_slice->
-                    ssize.length > slice_end)
+        if (current->data_version == slice->data_version) {
+            if (!(call_by_reclaim || current->type == DA_SLICE_TYPE_CACHE) ||
+                    current->ssize.offset + current->ssize.length > slice_end)
             {
                 logCrit("file: "__FILE__", line: %d, "
                         "some mistake happen! data version: %"PRId64", "
@@ -1101,22 +1110,22 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
                         "old slice {offset: %d, length: %d, type: %c}, "
                         "new slice {offset: %d, length: %d}",
                         __LINE__, slice->data_version, ob->bkey.oid,
-                        ob->bkey.offset, curr_slice->ssize.offset,
-                        curr_slice->ssize.length, curr_slice->type,
+                        ob->bkey.offset, current->ssize.offset,
+                        current->ssize.length, current->type,
                         slice->ssize.offset, slice->ssize.length);
                 sf_terminate_myself();
                 return EFAULT;
             }
 
             if ((result=add_to_slice_ptr_smart_array(&del_slice_array,
-                            curr_slice)) != 0)
+                            current)) != 0)
             {
                 return result;
             }
 
             if ((result=dup_slice_to_smart_array_ex(segment, slice,
-                            DA_SLICE_TYPE_FILE, curr_slice->ssize.offset,
-                            curr_slice->ssize.length, &add_slice_array)) != 0)
+                            DA_SLICE_TYPE_FILE, current->ssize.offset,
+                            current->ssize.length, &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -1137,7 +1146,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     if (add_slice_array.count > 0) {
         for (i=0; i<add_slice_array.count; i++) {
             if (call_by_reclaim) {
-                if ((result=add_slice_to_wbuffer_chain(record, &slice_tail,
+                if ((result=add_slice_for_reclaim(record, &slice_tail,
                                 add_slice_array.slices[i])) != 0)
                 {
                     return result;
@@ -1249,7 +1258,7 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
                             update_count, &release_slice, record,
                             call_by_reclaim)) == 0)
             {
-                if (STORAGE_ENABLED) {
+                if (STORAGE_ENABLED && !call_by_reclaim) {
                     result = change_notify_push_add_slice(se->sn, slice);
                 }
             }
@@ -1266,7 +1275,7 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
     return result;
 }
 
-static int delete_slices(OBSegment *segment, OBHashtable *htable,
+static int delete_slice(OBSegment *segment, OBHashtable *htable,
         OBEntry *ob, UniqSkiplist *sl, const FSBlockSliceKeyInfo *bs_key,
         int *count, int *dec_alloc, struct fc_queue_info *space_chain)
 {
@@ -1393,7 +1402,7 @@ static int delete_slices(OBSegment *segment, OBHashtable *htable,
     return 0;
 }
 
-int ob_index_delete_slices_ex(OBHashtable *htable,
+int ob_index_delete_slice_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
         int *dec_alloc, struct fc_queue_info *space_chain)
 {
@@ -1411,7 +1420,7 @@ int ob_index_delete_slices_ex(OBHashtable *htable,
     if (ob == NULL) {
         result = ENOENT;
     } else {
-        result = delete_slices(segment, htable, ob, ob->slices,
+        result = delete_slice(segment, htable, ob, ob->slices,
                 bs_key, &count, dec_alloc, space_chain);
         if (result == 0) {
             if (sn != NULL) {
@@ -2561,7 +2570,7 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
-    result = delete_slices(segment, &g_ob_hashtable, ob, ob->
+    result = delete_slice(segment, &g_ob_hashtable, ob, ob->
             db_args->slices, &bs_key, &count, NULL, NULL);
     return (result == ENOENT ? 0 : result);
 }

@@ -294,7 +294,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
             record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
     {
         space_chain.head = space_chain.tail = NULL;
-        if ((r=ob_index_delete_slices(&record->bs_key, &sn,
+        if ((r=ob_index_delete_slice(&record->bs_key, &sn,
                         &dec_alloc, &space_chain)) == 0)
         {
             //TODO

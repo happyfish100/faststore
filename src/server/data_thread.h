@@ -153,7 +153,7 @@ extern "C" {
             case DATA_OPERATION_SLICE_ALLOCATE:
                 return fs_log_slice_allocate(op->ctx);
             case DATA_OPERATION_SLICE_DELETE:
-                return fs_log_delete_slices(op->ctx);
+                return fs_log_delete_slice(op->ctx);
             case DATA_OPERATION_BLOCK_DELETE:
                 return fs_log_delete_block(op->ctx);
             default:

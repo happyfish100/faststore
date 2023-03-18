@@ -145,7 +145,7 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
             case BINLOG_OP_TYPE_DEL_SLICE:
             case BINLOG_OP_TYPE_DEL_BLOCK:
                 if (op_type == BINLOG_OP_TYPE_DEL_SLICE) {
-                    result = ob_index_delete_slices_ex(&dedup_ctx->
+                    result = ob_index_delete_slice_ex(&dedup_ctx->
                             htables.create, &dedup_ctx->record.bs_key,
                             NULL, &dec_alloc, NULL);
                 } else {
@@ -502,7 +502,7 @@ static void htable_reverse_remove(BinlogHashtables *htables)
                 while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
                     bs_key.block = slice->ob->bkey;
                     bs_key.slice = slice->ssize;
-                    ob_index_delete_slices_ex(&htables->remove,
+                    ob_index_delete_slice_ex(&htables->remove,
                             &bs_key, NULL, &dec_alloc, NULL);
                 }
             } while (0);

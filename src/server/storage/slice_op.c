@@ -971,13 +971,13 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
     return result;
 }
 
-int fs_delete_slices(FSSliceOpContext *op_ctx)
+int fs_delete_slice(FSSliceOpContext *op_ctx)
 {
     int result;
 
     op_ctx->info.sn = 0;
     op_ctx->update.space_chain.head = op_ctx->update.space_chain.tail = NULL;
-    if ((result=ob_index_delete_slices(&op_ctx->info.bs_key, &op_ctx->
+    if ((result=ob_index_delete_slice(&op_ctx->info.bs_key, &op_ctx->
                     info.sn, &op_ctx->update.space_changed,
                     &op_ctx->update.space_chain)) == 0)
     {
@@ -988,7 +988,7 @@ int fs_delete_slices(FSSliceOpContext *op_ctx)
     return result;
 }
 
-int fs_log_delete_slices(FSSliceOpContext *op_ctx)
+int fs_log_delete_slice(FSSliceOpContext *op_ctx)
 {
     FSSliceSpaceLogRecord *record;
     int result;

@@ -377,7 +377,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             op->ctx->result = fs_slice_allocate(op->ctx);
             break;
         case DATA_OPERATION_SLICE_DELETE:
-            op->ctx->result = fs_delete_slices(op->ctx);
+            op->ctx->result = fs_delete_slice(op->ctx);
             break;
         case DATA_OPERATION_BLOCK_DELETE:
             op->ctx->result = fs_delete_block(op->ctx);
