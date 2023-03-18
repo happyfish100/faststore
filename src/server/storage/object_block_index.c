@@ -1029,7 +1029,7 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
     int64_t sn;
     int result;
 
-    sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+    sn = ob_index_generate_alone_sn();
     if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail, slice,
                     g_current_time, sn, BINLOG_SOURCE_RECLAIM)) != 0)
     {

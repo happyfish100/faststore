@@ -306,8 +306,8 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         }
     } else {
         r = slice_binlog_log_no_op(&record->bs_key.block, g_current_time,
-                __sync_add_and_fetch(&SLICE_BINLOG_SN, 1), record->
-                data_version, BINLOG_SOURCE_ROLLBACK);
+                ob_index_generate_alone_sn(), record->data_version,
+                BINLOG_SOURCE_ROLLBACK);
     }
     if (r != 0) {
         return r;

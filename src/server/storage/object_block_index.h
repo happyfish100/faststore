@@ -20,7 +20,7 @@
 #include "sf/sf_serializer.h"
 #include "diskallocator/dio/trunk_read_thread.h"
 #include "diskallocator/dio/trunk_write_thread.h"
-#include "../server_types.h"
+#include "../server_global.h"
 
 typedef struct fs_db_fetch_context {
     DASynchronizedReadContext read_ctx;
@@ -149,6 +149,16 @@ extern "C" {
     OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const int init_refer);
 
+    static inline int64_t ob_index_generate_alone_sn()
+    {
+        const int data_group_id = 0;
+        const int64_t data_version = 0;
+        int64_t sn;
+
+        sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        committed_version_add(data_group_id, data_version, sn);
+        return sn;
+    }
 
     static inline void ob_index_free_slice(OBSliceEntry *slice)
     {

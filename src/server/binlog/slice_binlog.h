@@ -148,9 +148,10 @@ extern "C" {
             *slice, const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
-        return slice_binlog_log_add_slice_to_buff_ex(slice, current_time,
-                __sync_add_and_fetch(&SLICE_BINLOG_SN, 1), data_version,
-                source, buff);
+        int64_t sn;
+        sn = ob_index_generate_alone_sn();
+        return slice_binlog_log_add_slice_to_buff_ex(slice,
+                current_time, sn, data_version, source, buff);
     }
 
     static inline int slice_binlog_log_update_block_to_buff(
@@ -176,9 +177,10 @@ extern "C" {
             const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
+        int64_t sn;
+        sn = ob_index_generate_alone_sn();
         return slice_binlog_log_update_block_to_buff(bkey, current_time,
-                BINLOG_OP_TYPE_NO_OP, __sync_add_and_fetch(&SLICE_BINLOG_SN,
-                    1), data_version, source, buff);
+                BINLOG_OP_TYPE_NO_OP, sn, data_version, source, buff);
     }
 
     static inline int slice_binlog_log_del_slice_to_buff(

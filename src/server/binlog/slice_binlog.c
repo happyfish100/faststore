@@ -329,7 +329,7 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
             return ENOMEM;
         }
 
-        sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        sn = ob_index_generate_alone_sn();
         SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
 
         p = wbuffer->bf.buff;
@@ -753,8 +753,8 @@ int slice_binlog_padding_for_check(const int source)
     bkey.offset = 0;
     for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS + 1; i++) {
         if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
-                        __sync_add_and_fetch(&SLICE_BINLOG_SN, 1),
-                        data_version, source)) != 0)
+                        ob_index_generate_alone_sn(), data_version,
+                        source)) != 0)
         {
             return result;
         }
