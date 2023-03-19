@@ -24,6 +24,7 @@
 #include "../server_global.h"
 
 typedef struct slice_binlog_record {
+    time_t timestamp;
     char source;
     unsigned char op_type;
     DASliceType slice_type;   //add slice only

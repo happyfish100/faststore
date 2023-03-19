@@ -188,12 +188,13 @@ typedef struct fs_slice_space_log_record {
     int64_t last_sn;
     SFBinlogWriterBuffer *slice_head;
     struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
-    struct fs_slice_log_record *next;
+    struct fs_slice_space_log_record *next;
 } FSSliceSpaceLogRecord;
 
 typedef struct fs_slice_space_log_context {
-    FSBinlogWriteFileBufferPair field_redo;
+    FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;
+    int record_count;
     struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
     struct sorted_queue queue;
 } FSSliceSpaceLogContext;

@@ -18,7 +18,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replica_handler.o common_handler.o data_update_handler.o \
               server_global.o server_group_info.o server_storage.o \
               storage/object_block_index.o storage/slice_op.o \
-              storage/committed_version.o \
+              storage/committed_version.o storage/slice_space_log.o \
               binlog/binlog_func.o  binlog/binlog_reader.o \
               binlog/binlog_read_thread.o binlog/binlog_loader.o \
               binlog/slice_binlog.o  binlog/slice_loader.o  \

@@ -16,24 +16,21 @@
 #include "fastcommon/logger.h"
 #include "sf/sf_func.h"
 #include "diskallocator/binlog/trunk/trunk_space_log.h"
+#include "../binlog/slice_binlog.h"
 #include "slice_space_log.h"
 
-#define FIELD_TMP_FILENAME  ".field.tmp"
-#define FIELD_REDO_FILENAME  "field.redo"
+#define FIELD_TMP_FILENAME  ".slice.tmp"
+#define FIELD_REDO_FILENAME  "slice.redo"
 #define SPACE_TMP_FILENAME  ".space.tmp"
 #define SPACE_REDO_FILENAME  "space.redo"
 
-typedef struct piece_field_with_version {
-    DAPieceFieldInfo *field;
-    int version;
-} PieceFieldWithVersion;
-
-typedef struct piece_field_with_version_array {
-    PieceFieldWithVersion *records;
+typedef struct {
+    SFBinlogWriterBuffer *head;
     int count;
-} PieceFieldWithVersionArray;
+    int64_t last_sn;
+} SliceBinlogRecordChain;
 
-static inline int buffer_to_file(FDIRBinlogWriteFileBufferPair *pair)
+static inline int buffer_to_file(FSBinlogWriteFileBufferPair *pair)
 {
     int len;
     int result;
@@ -54,28 +51,33 @@ static inline int buffer_to_file(FDIRBinlogWriteFileBufferPair *pair)
     }
 }
 
-static int write_field_redo_log(FSSliceSpaceLogRecord *record)
+static int write_slice_redo_log(FSSliceSpaceLogRecord *record)
 {
     int result;
+    SFBinlogWriterBuffer *wbuffer;
 
-    inode_binlog_pack(&record->inode.field, &record->inode.buffer);
-    if (SLICE_SPACE_LOG_CTX.field_redo.buffer.alloc_size -
-            SLICE_SPACE_LOG_CTX.field_redo.buffer.length <
-            record->inode.buffer.length)
-    {
-        if ((result=buffer_to_file(&SLICE_SPACE_LOG_CTX.
-                        field_redo)) != 0)
+    wbuffer = record->slice_head;
+    while (wbuffer != NULL) {
+        if (SLICE_SPACE_LOG_CTX.slice_redo.buffer.alloc_size -
+                SLICE_SPACE_LOG_CTX.slice_redo.buffer.length <
+                wbuffer->bf.length)
         {
-            return result;
+            if ((result=buffer_to_file(&SLICE_SPACE_LOG_CTX.
+                            slice_redo)) != 0)
+            {
+                return result;
+            }
         }
+
+        memcpy(SLICE_SPACE_LOG_CTX.slice_redo.buffer.data +
+                SLICE_SPACE_LOG_CTX.slice_redo.buffer.length,
+                wbuffer->bf.buff, wbuffer->bf.length);
+        SLICE_SPACE_LOG_CTX.slice_redo.buffer.length += wbuffer->bf.length;
+        SLICE_SPACE_LOG_CTX.slice_redo.record_count++;
+
+        wbuffer = wbuffer->next;
     }
 
-    memcpy(SLICE_SPACE_LOG_CTX.field_redo.buffer.data +
-            SLICE_SPACE_LOG_CTX.field_redo.buffer.length,
-            record->inode.buffer.buff, record->inode.buffer.length);
-    SLICE_SPACE_LOG_CTX.field_redo.buffer.length +=
-        record->inode.buffer.length;
-    SLICE_SPACE_LOG_CTX.field_redo.record_count++;
     return 0;
 }
 
@@ -88,7 +90,7 @@ static int write_space_redo_log(struct fc_queue_info *space_chain)
     while (space_log != NULL) {
         if (SLICE_SPACE_LOG_CTX.space_redo.buffer.alloc_size -
                 SLICE_SPACE_LOG_CTX.space_redo.buffer.length <
-                FDIR_INODE_BINLOG_RECORD_MAX_SIZE)
+                FS_SLICE_BINLOG_MAX_RECORD_SIZE)
         {
             if ((result=buffer_to_file(&SLICE_SPACE_LOG_CTX.
                             space_redo)) != 0)
@@ -113,7 +115,7 @@ static inline int write_record_redo_log(FSSliceSpaceLogRecord *record)
     if ((result=write_space_redo_log(&record->space_chain)) != 0) {
         return result;
     }
-    return write_field_redo_log(record);
+    return write_slice_redo_log(record);
 }
 
 static inline int open_redo_logs()
@@ -126,7 +128,7 @@ static inline int open_redo_logs()
         return result;
     }
 
-    return fc_safe_write_file_open(&SLICE_SPACE_LOG_CTX.field_redo.fi);
+    return fc_safe_write_file_open(&SLICE_SPACE_LOG_CTX.slice_redo.fi);
 }
 
 static inline int close_redo_logs()
@@ -137,7 +139,7 @@ static inline int close_redo_logs()
         return result;
     }
 
-    if ((result=buffer_to_file(&SLICE_SPACE_LOG_CTX.field_redo)) != 0) {
+    if ((result=buffer_to_file(&SLICE_SPACE_LOG_CTX.slice_redo)) != 0) {
         return result;
     }
 
@@ -146,51 +148,8 @@ static inline int close_redo_logs()
     {
         return result;
     }
-    return fc_safe_write_file_close(&SLICE_SPACE_LOG_CTX.field_redo.fi);
+    return fc_safe_write_file_close(&SLICE_SPACE_LOG_CTX.slice_redo.fi);
 }
-
-/*
-static FILE *fp = NULL;
-static void write_debug(FSSliceSpaceLogRecord *record)
-{
-    const char *filename = "/tmp/wqueue.log";
-    const char *bak_filename = "/tmp/wqueue.txt";
-    int result;
-
-    if (fp == NULL) {
-        if (access(filename, F_OK) == 0) {
-            rename(filename, bak_filename);
-        }
-
-        fp = fopen(filename, "w");
-        if (fp == NULL) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "open file to write fail, error info: %s",
-                    __LINE__, STRERROR(result));
-            return;
-        }
-    }
-
-    fprintf(fp, "%"PRId64". %"PRId64" %"PRId64" %c %d\n", record->version,
-            record->inode.field.oid, record->inode.field.fid,
-            record->inode.field.op_type, record->inode.buffer.length);
-}
-
-static void queue_debug(const struct fc_queue_info *qinfo)
-{
-    FSSliceSpaceLogRecord *record;
-
-    record = (FSSliceSpaceLogRecord *)qinfo->head;
-    do {
-        write_debug(record);
-    } while ((record=record->next) != NULL);
-
-    if (fp != NULL) {
-        fflush(fp);
-    }
-}
-*/
 
 static int write_redo_logs(const struct fc_queue_info *qinfo)
 {
@@ -203,6 +162,7 @@ static int write_redo_logs(const struct fc_queue_info *qinfo)
 
     record = (FSSliceSpaceLogRecord *)qinfo->head;
     do {
+        SLICE_SPACE_LOG_CTX.record_count++;
         if ((result=write_record_redo_log(record)) != 0) {
             return result;
         }
@@ -214,42 +174,20 @@ static int write_redo_logs(const struct fc_queue_info *qinfo)
 static inline void push_to_log_queues(struct fc_queue_info *qinfo)
 {
     FSSliceSpaceLogRecord *record;
+    SFBinlogWriterBuffer *wbuffer;
 
     record = (FSSliceSpaceLogRecord *)qinfo->head;
     do {
-        inode_binlog_writer_log(record->inode.segment,
-                &record->inode.buffer);
+        while (record->slice_head != NULL) {
+            wbuffer = record->slice_head;
+            record->slice_head = record->slice_head->next;
+            sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.
+                    writer, wbuffer);
+            FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
+        }
+
         da_trunk_space_log_push_chain(&DA_CTX, &record->space_chain);
     } while ((record=record->next) != NULL);
-}
-
-static void notify_all(struct fc_queue_info *qinfo)
-{
-    FSSliceSpaceLogRecord *record;
-    SFSynchronizeContext *sctx;
-    int count;
-
-    sctx = NULL;
-    count = 0;
-    record = qinfo->head;
-    do {
-        if (record->sctx != NULL) {
-            if (sctx != record->sctx) {
-                if (sctx != NULL) {
-                    sf_synchronize_counter_notify(sctx, count);
-                }
-
-                sctx = record->sctx;
-                count = 1;
-            } else {
-                ++count;
-            }
-        }
-    } while ((record=record->next) != NULL);
-
-    if (sctx != NULL) {
-        sf_synchronize_counter_notify(sctx, count);
-    }
 }
 
 static int deal_records(struct fc_queue_info *qinfo)
@@ -258,31 +196,27 @@ static int deal_records(struct fc_queue_info *qinfo)
 
     //queue_debug(qinfo);
 
-    SLICE_SPACE_LOG_CTX.field_redo.record_count = 0;
+    SLICE_SPACE_LOG_CTX.slice_redo.record_count = 0;
     SLICE_SPACE_LOG_CTX.space_redo.record_count = 0;
     if ((result=write_redo_logs(qinfo)) != 0) {
         return result;
     }
 
-    da_binlog_writer_inc_waiting_count(&INODE_BINLOG_WRITER,
-            SLICE_SPACE_LOG_CTX.field_redo.record_count);
     da_trunk_space_log_inc_waiting_count(&DA_CTX, SLICE_SPACE_LOG_CTX.
             space_redo.record_count);
 
     push_to_log_queues(qinfo);
 
-    da_binlog_writer_wait(&INODE_BINLOG_WRITER);
     da_trunk_space_log_wait(&DA_CTX);
 
-    notify_all(qinfo);
-
-    fc_queue_free_chain(&SLICE_SPACE_LOG_CTX.queue,
-            &UPDATE_RECORD_ALLOCATOR, qinfo);
+    sorted_queue_free_chain(&SLICE_SPACE_LOG_CTX.queue,
+            &SLICE_SPACE_LOG_CTX.allocator, qinfo);
     return 0;
 }
 
 static void *slice_space_log_func(void *arg)
 {
+    FSSliceSpaceLogRecord less_equal;
     struct fc_queue_info qinfo;
 
 #ifdef OS_LINUX
@@ -290,14 +224,28 @@ static void *slice_space_log_func(void *arg)
 #endif
 
     while (SF_G_CONTINUE_FLAG) {
-        fc_queue_pop_to_queue(&SLICE_SPACE_LOG_CTX.queue, &qinfo);
+        less_equal.last_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn) - 1;
+        sorted_queue_try_pop_to_queue(&SLICE_SPACE_LOG_CTX.
+                queue, &less_equal, &qinfo);
+        SLICE_SPACE_LOG_CTX.record_count = 0;
         if (qinfo.head != NULL) {
             if (deal_records(&qinfo) != 0) {
                 logCrit("file: "__FILE__", line: %d, "
                         "deal notify events fail, "
                         "program exit!", __LINE__);
                 sf_terminate_myself();
+                break;
             }
+        }
+
+        if (SLICE_SPACE_LOG_CTX.record_count <= 10) {
+            fc_sleep_ms(1000);
+        } else if (SLICE_SPACE_LOG_CTX.record_count <= 100) {
+            fc_sleep_ms(100);
+        } else if (SLICE_SPACE_LOG_CTX.record_count <= 1000) {
+            fc_sleep_ms(10);
+        } else if (SLICE_SPACE_LOG_CTX.record_count <= 10000) {
+            fc_sleep_ms(1);
         }
     }
 
@@ -305,7 +253,7 @@ static void *slice_space_log_func(void *arg)
 }
 
 
-static int init_file_buffer_pair(FDIRBinlogWriteFileBufferPair *pair,
+static int init_file_buffer_pair(FSBinlogWriteFileBufferPair *pair,
         const char *file_path, const char *redo_filename,
         const char *tmp_filename)
 {
@@ -324,15 +272,193 @@ static int init_file_buffer_pair(FDIRBinlogWriteFileBufferPair *pair,
 static int slice_space_log_compare(const FSSliceSpaceLogRecord *record1,
         const FSSliceSpaceLogRecord *record2)
 {
-    return fc_compare_int64(record1->sn, record2->sn);
+    return fc_compare_int64(record1->last_sn, record2->last_sn);
+}
+
+static int do_load(const char *filename, const string_t *content,
+        SliceBinlogRecordChain *chain)
+{
+    int result;
+    int line_count;
+    string_t line;
+    char *line_start;
+    char *buff_end;
+    char *line_end;
+    SliceBinlogRecord record;
+    SFBinlogWriterBuffer *wbuffer;
+    SFBinlogWriterBuffer *tail;
+    char error_info[256];
+
+    line_count = 0;
+    result = 0;
+    tail = NULL;
+    *error_info = '\0';
+    line_start = content->str;
+    buff_end = content->str + content->len;
+    while (line_start < buff_end) {
+        line_end = (char *)memchr(line_start, '\n', buff_end - line_start);
+        if (line_end == NULL) {
+            break;
+        }
+
+        ++line_count;
+        ++line_end;
+        line.str = line_start;
+        line.len = line_end - line_start;
+        if ((result=slice_binlog_record_unpack(&line,
+                        &record, error_info)) != 0)
+        {
+            logError("file: "__FILE__", line: %d, "
+                    "parse record fail, filename: %s, line no: %d%s%s",
+                    __LINE__, filename, line_count, (*error_info != '\0' ?
+                        ", error info: " : ""), error_info);
+            break;
+        }
+
+        if (record.sn > SLICE_BINLOG_SN) {
+            if (record.sn > chain->last_sn) {
+                chain->last_sn = record.sn;
+            }
+
+            if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                            &SLICE_BINLOG_WRITER.thread)) == NULL)
+            {
+                result = ENOMEM;
+                break;
+            }
+
+            SF_BINLOG_BUFFER_SET_VERSION(wbuffer, record.sn);
+            memcpy(wbuffer->bf.buff, line.str, line.len);
+            wbuffer->bf.length = line.len;
+            wbuffer->next = NULL;
+            if (chain->head == NULL) {
+                chain->head = wbuffer;
+            } else {
+                tail->next = wbuffer;
+            }
+            tail = wbuffer;
+            chain->count++;
+        }
+
+        line_start = line_end;
+    }
+
+    return result;
+}
+
+static int slice_redo_load(const char *filename,
+        SliceBinlogRecordChain *chain)
+{
+    int result;
+    int64_t file_size;
+    string_t content;
+
+    if (access(filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            return 0;
+        } else {
+            logError("file: "__FILE__", line: %d, "
+                    "access file %s fail, errno: %d, error info: %s",
+                    __LINE__, filename, result, STRERROR(result));
+            return result;
+        }
+    }
+
+    if ((result=getFileContent(filename, &content.str, &file_size)) != 0) {
+        return result;
+    }
+    content.len = file_size;
+    result = do_load(filename, &content, chain);
+    free(content.str);
+    return result;
+}
+
+static int slice_log_redo(const char *slice_log_filename)
+{
+    int result;
+    SliceBinlogRecordChain chain;
+    SFBinlogWriterBuffer *wbuffer;
+
+    chain.head = NULL;
+    chain.count = 0;
+    chain.last_sn = 0;
+    if ((result=slice_redo_load(slice_log_filename, &chain)) != 0) {
+        return result;
+    }
+
+    logInfo("slice redo record count: %d", chain.count);
+
+    if (chain.count == 0) {
+        return 0;
+    }
+
+    while (chain.head != NULL) {
+        wbuffer = chain.head;
+        chain.head = chain.head->next;
+        sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
+    }
+
+    while (sf_binlog_writer_get_last_version(
+                &SLICE_BINLOG_WRITER.
+                writer) < chain.last_sn)
+    {
+        fc_sleep_ms(1);
+    }
+    SLICE_BINLOG_SN = chain.last_sn;
+
+    return result;
+}
+
+static int slice_space_log_redo()
+{
+    int result;
+    char space_tmp_filename[PATH_MAX];
+    char field_tmp_filename[PATH_MAX];
+    char space_log_filename[PATH_MAX];
+    char slice_log_filename[PATH_MAX];
+
+    snprintf(space_tmp_filename, sizeof(space_tmp_filename),
+            "%s/%s", STORAGE_PATH_STR, SPACE_TMP_FILENAME);
+    snprintf(field_tmp_filename, sizeof(field_tmp_filename),
+            "%s/%s", STORAGE_PATH_STR, FIELD_TMP_FILENAME);
+    snprintf(space_log_filename, sizeof(space_log_filename),
+            "%s/%s", STORAGE_PATH_STR, SPACE_REDO_FILENAME);
+    snprintf(slice_log_filename, sizeof(slice_log_filename),
+            "%s/%s", STORAGE_PATH_STR, FIELD_REDO_FILENAME);
+    if (access(space_tmp_filename, F_OK) != 0 &&
+            access(field_tmp_filename, F_OK) == 0)
+    {
+        /* compensate for two phases renames */
+        if (rename(field_tmp_filename, slice_log_filename) != 0) {
+            result = errno != 0 ? errno : EIO;
+            logError("file: "__FILE__", line: %d, "
+                    "rename file \"%s\" to \"%s\" fail, "
+                    "errno: %d, error info: %s", __LINE__,
+                    field_tmp_filename, slice_log_filename,
+                    result, STRERROR(result));
+            return result;
+        }
+    }
+
+    if ((result=da_trunk_space_log_redo(&DA_CTX, space_log_filename)) != 0) {
+        return result;
+    }
+
+    if ((result=slice_log_redo(slice_log_filename)) != 0) {
+        return result;
+    }
+
+    return 0;
 }
 
 int slice_space_log_init()
 {
     int result;
+    pthread_t tid;
 
     if ((result=init_file_buffer_pair(&SLICE_SPACE_LOG_CTX.
-                    field_redo, STORAGE_PATH_STR, FIELD_REDO_FILENAME,
+                    slice_redo, STORAGE_PATH_STR, FIELD_REDO_FILENAME,
                     FIELD_TMP_FILENAME)) != 0)
     {
         return result;
@@ -359,214 +485,6 @@ int slice_space_log_init()
     {
         return result;
     }
-
-    return 0;
-}
-
-static void field_log_to_ptr_array(const DAPieceFieldArray *array,
-        PieceFieldWithVersionArray *parray)
-{
-    FDIRStorageInodeIndexInfo index;
-    bool found;
-    bool keep;
-    DAPieceFieldInfo *field;
-    DAPieceFieldInfo *end;
-    PieceFieldWithVersion *dest;
-
-    dest = parray->records;
-    end = array->records + array->count;
-    for (field=array->records; field<end; field++) {
-        index.inode = field->oid;
-        found = (inode_segment_index_get(&index) == 0);
-        switch (field->op_type) {
-            case da_binlog_op_type_create:
-                keep = !found;
-                break;
-            case da_binlog_op_type_remove:
-                keep = found;
-                break;
-            case da_binlog_op_type_update:
-                if (found) {
-                    if (field->source == DA_FIELD_UPDATE_SOURCE_NORMAL) {
-                        keep = (field->storage.version > index.
-                                fields[field->fid].version);
-                    } else {
-                        keep = ((field->storage.version == index.
-                                    fields[field->fid].version) &&
-                                (field->storage.trunk_id != index.
-                                 fields[field->fid].trunk_id));
-                    }
-                } else {
-                    keep = false;
-                }
-                break;
-            default:
-                keep = false;
-                break;
-        }
-
-        if (keep) {
-            dest->field = field;
-            dest->version = dest - parray->records;
-            dest++;
-        }
-    }
-
-    parray->count = dest - parray->records;
-}
-
-static int field_with_version_compare(const PieceFieldWithVersion *record1,
-        const PieceFieldWithVersion *record2)
-{
-    int sub;
-
-    if ((sub=fc_compare_int64(record1->field->oid,
-                    record2->field->oid)) != 0)
-    {
-        return sub;
-    }
-
-    return record1->version - record2->version;
-}
-
-static int redo_by_ptr_array(const PieceFieldWithVersionArray *parray)
-{
-    int result;
-    bool normal_update;
-    PieceFieldWithVersion *record;
-    PieceFieldWithVersion *end;
-    FDIRStorageInodeIndexInfo index;
-    FDIRInodeUpdateResult r;
-    char buff[FDIR_INODE_BINLOG_RECORD_MAX_SIZE];
-    BufferInfo buffer;
-
-    if (parray->count == 0) {
-        return 0;
-    } else if (parray->count > 1) {
-        qsort(parray->records, parray->count,
-                sizeof(PieceFieldWithVersion),
-                (int (*)(const void *, const void *))
-                field_with_version_compare);
-    }
-
-    da_binlog_writer_inc_waiting_count(
-            &INODE_BINLOG_WRITER, parray->count);
-
-    buffer.buff = buff;
-    buffer.alloc_size = sizeof(buff);
-    end = parray->records + parray->count;
-    for (record=parray->records; record<end; record++) {
-        switch (record->field->op_type) {
-            case da_binlog_op_type_create:
-                result = inode_segment_index_add(record->field, &r);
-                break;
-            case da_binlog_op_type_remove:
-                index.inode = record->field->oid;
-                result = inode_segment_index_delete(&index, &r);
-                break;
-            case da_binlog_op_type_update:
-                normal_update = (record->field->source ==
-                        DA_FIELD_UPDATE_SOURCE_NORMAL);
-                result = inode_segment_index_update(record->field,
-                        normal_update, &r);
-                break;
-            default:
-                result = EINVAL;
-                break;
-        }
-
-        if (result != 0) {
-            return result;
-        }
-
-        inode_binlog_pack(record->field, &buffer);
-        inode_binlog_writer_log(r.segment, &buffer);
-    }
-
-    da_binlog_writer_wait(&INODE_BINLOG_WRITER);
-    return 0;
-}
-
-static int inode_field_log_redo(const char *field_log_filename)
-{
-    int result;
-    DAPieceFieldArray array;
-    PieceFieldWithVersionArray parray;
-
-    if ((result=inode_binlog_reader_load(field_log_filename, &array)) != 0) {
-        return result;
-    }
-
-    if (array.count == 0) {
-        return 0;
-    }
-
-    parray.records = (PieceFieldWithVersion *)fc_malloc(
-            sizeof(PieceFieldWithVersion) * array.count);
-    if (parray.records == NULL) {
-        result = ENOMEM;
-    } else {
-        field_log_to_ptr_array(&array, &parray);
-        result = redo_by_ptr_array(&parray);
-
-        /*
-        logInfo("field record count: %d, redo count: %d",
-                array.count, parray.count);
-                */
-
-        free(parray.records);
-    }
-
-    free(array.records);
-    return result;
-}
-
-static int slice_space_log_redo()
-{
-    int result;
-    char space_tmp_filename[PATH_MAX];
-    char field_tmp_filename[PATH_MAX];
-    char space_log_filename[PATH_MAX];
-    char field_log_filename[PATH_MAX];
-
-    snprintf(space_tmp_filename, sizeof(space_tmp_filename),
-            "%s/%s", STORAGE_PATH_STR, SPACE_TMP_FILENAME);
-    snprintf(field_tmp_filename, sizeof(field_tmp_filename),
-            "%s/%s", STORAGE_PATH_STR, FIELD_TMP_FILENAME);
-    snprintf(space_log_filename, sizeof(space_log_filename),
-            "%s/%s", STORAGE_PATH_STR, SPACE_REDO_FILENAME);
-    snprintf(field_log_filename, sizeof(field_log_filename),
-            "%s/%s", STORAGE_PATH_STR, FIELD_REDO_FILENAME);
-    if (access(space_tmp_filename, F_OK) != 0 &&
-            access(field_tmp_filename, F_OK) == 0)
-    {
-        /* compensate for two phases renames */
-        if (rename(field_tmp_filename, field_log_filename) != 0) {
-            result = errno != 0 ? errno : EIO;
-            logError("file: "__FILE__", line: %d, "
-                    "rename file \"%s\" to \"%s\" fail, "
-                    "errno: %d, error info: %s", __LINE__,
-                    field_tmp_filename, field_log_filename,
-                    result, STRERROR(result));
-            return result;
-        }
-    }
-
-    if ((result=da_trunk_space_log_redo(&DA_CTX, space_log_filename)) != 0) {
-        return result;
-    }
-
-    if ((result=inode_field_log_redo(field_log_filename)) != 0) {
-        return result;
-    }
-
-    return 0;
-}
-
-int slice_space_log_start()
-{
-    int result;
-    pthread_t tid;
 
     if ((result=slice_space_log_redo()) != 0) {
         return result;

@@ -18,7 +18,7 @@
 #define _FS_SLICE_SPACE_LOG_H
 
 #include "sf/sf_binlog_writer.h"
-#include "storage_types.h"
+#include "../server_global.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -26,8 +26,6 @@ extern "C" {
 
     int slice_space_log_init();
     void slice_space_log_destroy();
-
-    int slice_space_log_start();
 
     static inline FSSliceSpaceLogRecord *slice_space_log_alloc_record()
     {

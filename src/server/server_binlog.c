@@ -33,6 +33,7 @@
 #include "binlog/binlog_repair.h"
 #include "rebuild/store_path_rebuild.h"
 #include "replication/replication_quorum.h"
+#include "storage/slice_space_log.h"
 
 static int do_binlog_check()
 {
@@ -129,6 +130,10 @@ int server_binlog_init()
     }
 
     if ((result=slice_binlog_get_last_sn_from_file()) != 0) {
+        return result;
+    }
+
+    if ((result=slice_space_log_init()) != 0) {
         return result;
     }
 

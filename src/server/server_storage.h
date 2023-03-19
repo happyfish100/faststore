@@ -20,6 +20,7 @@
 
 #include "storage/object_block_index.h"
 #include "storage/committed_version.h"
+#include "storage/slice_space_log.h"
 #include "storage/slice_op.h"
 #include "db/block_serializer.h"
 #include "db/change_notify.h"

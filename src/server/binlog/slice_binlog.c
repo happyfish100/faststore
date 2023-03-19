@@ -857,6 +857,8 @@ int slice_binlog_record_unpack(const string_t *line,
         return EINVAL;
     }
 
+    BINLOG_PARSE_INT_SILENCE(record->timestamp, "timestamp",
+            SLICE_BINLOG_FIELD_INDEX_TIMESTAMP, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->sn, "sn",
             SLICE_BINLOG_FIELD_INDEX_SN, ' ', 1);
     record->source = cols[SLICE_BINLOG_FIELD_INDEX_SOURCE].str[0];
