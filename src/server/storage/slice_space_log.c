@@ -419,13 +419,13 @@ static int slice_space_log_redo()
     char slice_log_filename[PATH_MAX];
 
     snprintf(space_tmp_filename, sizeof(space_tmp_filename),
-            "%s/%s", STORAGE_PATH_STR, SPACE_TMP_FILENAME);
+            "%s/%s", DATA_PATH_STR, SPACE_TMP_FILENAME);
     snprintf(field_tmp_filename, sizeof(field_tmp_filename),
-            "%s/%s", STORAGE_PATH_STR, FIELD_TMP_FILENAME);
+            "%s/%s", DATA_PATH_STR, FIELD_TMP_FILENAME);
     snprintf(space_log_filename, sizeof(space_log_filename),
-            "%s/%s", STORAGE_PATH_STR, SPACE_REDO_FILENAME);
+            "%s/%s", DATA_PATH_STR, SPACE_REDO_FILENAME);
     snprintf(slice_log_filename, sizeof(slice_log_filename),
-            "%s/%s", STORAGE_PATH_STR, FIELD_REDO_FILENAME);
+            "%s/%s", DATA_PATH_STR, FIELD_REDO_FILENAME);
     if (access(space_tmp_filename, F_OK) != 0 &&
             access(field_tmp_filename, F_OK) == 0)
     {
@@ -458,14 +458,14 @@ int slice_space_log_init()
     pthread_t tid;
 
     if ((result=init_file_buffer_pair(&SLICE_SPACE_LOG_CTX.
-                    slice_redo, STORAGE_PATH_STR, FIELD_REDO_FILENAME,
+                    slice_redo, DATA_PATH_STR, FIELD_REDO_FILENAME,
                     FIELD_TMP_FILENAME)) != 0)
     {
         return result;
     }
 
     if ((result=init_file_buffer_pair(&SLICE_SPACE_LOG_CTX.
-                    space_redo, STORAGE_PATH_STR, SPACE_REDO_FILENAME,
+                    space_redo, DATA_PATH_STR, SPACE_REDO_FILENAME,
                     SPACE_TMP_FILENAME)) != 0)
     {
         return result;
