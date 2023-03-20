@@ -18,11 +18,6 @@
 #define _SLICE_OP_H
 
 #include "../../common/fs_types.h"
-
-#ifdef OS_LINUX
-#include "../dio/read_buffer_pool.h"
-#endif
-
 #include "object_block_index.h"
 
 #ifdef __cplusplus
@@ -84,8 +79,8 @@ extern "C" {
 #ifdef OS_LINUX
     static inline void fs_release_aio_buffers(FSSliceOpContext *op_ctx)
     {
-        AlignedReadBuffer **aligned_buffer;
-        AlignedReadBuffer **aligned_bend;
+        DAAlignedReadBuffer **aligned_buffer;
+        DAAlignedReadBuffer **aligned_bend;
 
         if (op_ctx->aio_buffer_parray.count > 0) {
             aligned_bend = op_ctx->aio_buffer_parray.buffers +
@@ -93,7 +88,7 @@ extern "C" {
             for (aligned_buffer=op_ctx->aio_buffer_parray.buffers;
                     aligned_buffer<aligned_bend; aligned_buffer++)
             {
-                read_buffer_pool_free(*aligned_buffer);
+                da_read_buffer_pool_free(&DA_CTX, *aligned_buffer);
             }
 
             op_ctx->aio_buffer_parray.count = 0;

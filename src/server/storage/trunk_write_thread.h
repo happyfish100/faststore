@@ -33,7 +33,7 @@ extern "C" {
 
         slice->data_version = op_ctx->info.data_version;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block, slice,
-                        &op_ctx->info.sn, &inc_alloc, &op_ctx->update.
+                        &op_ctx->info.last_sn, &inc_alloc, &op_ctx->update.
                         space_chain)) != 0)
         {
             return result;
@@ -45,7 +45,7 @@ extern "C" {
         se.bs_key.block = op_ctx->info.bs_key.block;
         se.bs_key.slice = slice->ssize;
         se.data_version = slice->data_version;
-        se.sn = op_ctx->info.sn;
+        se.sn = op_ctx->info.last_sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX,
                 op_type, version, &slice->space, data, &se,
                 op_ctx->update.space_chain.head,

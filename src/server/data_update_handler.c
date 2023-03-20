@@ -357,8 +357,8 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
 #ifdef OS_LINUX
 static int buffer_to_iovec_array(struct fast_task_info *task)
 {
-    AlignedReadBuffer **aligned_buffer;
-    AlignedReadBuffer **end;
+    DAAlignedReadBuffer **aligned_buffer;
+    DAAlignedReadBuffer **end;
     struct iovec *iov;
     //int total;
     int result;

@@ -329,7 +329,7 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
             return ENOMEM;
         }
 
-        sn = ob_index_generate_alone_sn();
+        sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
         SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
 
         p = wbuffer->bf.buff;

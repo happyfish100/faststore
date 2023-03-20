@@ -104,12 +104,6 @@ typedef struct ob_slice_read_buffer_array {
 } OBSliceReadBufferArray;
 
 #ifdef OS_LINUX
-typedef struct aio_buffer_ptr_array {
-    int alloc;
-    int count;
-    struct aligned_read_buffer **buffers;
-} AIOBufferPtrArray;
-
 typedef enum {
     fs_buffer_type_direct,  /* char *buff */
     fs_buffer_type_array    /* aligned_read_buffer **array */
@@ -138,7 +132,7 @@ typedef struct fs_slice_op_context {
         int data_group_id;
         int body_len;
         uint64_t data_version;  //for replica binlog
-        uint64_t sn;            //for slice binlog
+        uint64_t last_sn;       //for slice binlog
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
 #ifdef OS_LINUX
