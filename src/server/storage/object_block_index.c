@@ -1892,7 +1892,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                 }
 
                 writer.buffer.current += slice_binlog_log_add_slice_to_buff(
-                        slice, current_time, data_version, source,
+                        slice, current_time, slice->data_version, source,
                         writer.buffer.current);
             }
 

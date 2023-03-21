@@ -194,8 +194,6 @@ static int deal_records(struct fc_queue_info *qinfo)
 {
     int result;
 
-    //queue_debug(qinfo);
-
     SLICE_SPACE_LOG_CTX.slice_redo.record_count = 0;
     SLICE_SPACE_LOG_CTX.space_redo.record_count = 0;
     if ((result=write_redo_logs(qinfo)) != 0) {
