@@ -17,11 +17,13 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/fc_atomic.h"
 #include "../../common/fs_func.h"
+#include "trunk_migrate.h"
 #include "slice_binlog.h"
 #include "slice_dedup.h"
 
 #define DEDUP_SUBDIR_NAME    "dedup"
 
+#define DEDUP_REDO_ITEM_CALLER             "caller"
 #define DEDUP_REDO_ITEM_SLICE_COUNT        "slice_count"
 #define DEDUP_REDO_ITEM_BINLOG_START       "binlog_start"
 #define DEDUP_REDO_ITEM_BINLOG_INDEX       "binlog_index"
@@ -33,6 +35,7 @@
 
 typedef struct slice_binlog_dedup_redo_context {
     char mark_filename[PATH_MAX];
+    char caller;
     int binlog_start;
     int binlog_index;
     int current_stage;
@@ -69,10 +72,12 @@ static int write_to_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
     int result;
     int len;
 
-    len = sprintf(buff, "%s=%d\n"
+    len = sprintf(buff, "%s=%c\n"
+            "%s=%d\n"
             "%s=%d\n"
             "%s=%d\n"
             "%s=%"PRId64"\n",
+            DEDUP_REDO_ITEM_CALLER, redo_ctx->caller,
             DEDUP_REDO_ITEM_BINLOG_START, redo_ctx->binlog_start,
             DEDUP_REDO_ITEM_BINLOG_INDEX, redo_ctx->binlog_index,
             DEDUP_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
@@ -100,6 +105,8 @@ static int load_from_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
         return result;
     }
 
+    redo_ctx->caller = iniGetCharValue(NULL,
+            DEDUP_REDO_ITEM_CALLER, &ini_context, '\0');
     redo_ctx->binlog_start = iniGetIntValue(NULL,
             DEDUP_REDO_ITEM_BINLOG_START, &ini_context, 0);
     redo_ctx->binlog_index = iniGetIntValue(NULL,
@@ -207,10 +214,14 @@ static int redo(SliceBinlogDedupRedoContext *redo_ctx)
             return EINVAL;
     }
 
+    if (result == 0 && redo_ctx->caller == FS_SLICE_DEDUP_CALL_BY_MIGRATE) {
+        result = trunk_migrate_slice_dedup_done_callback();
+    }
+
     return result;
 }
 
-static int do_dedup()
+static int do_dedup(const char caller)
 {
     const bool need_padding = false;
     const bool need_lock = true;
@@ -254,6 +265,7 @@ static int do_dedup()
     get_slice_mark_filename(redo_ctx.mark_filename,
             sizeof(redo_ctx.mark_filename));
     redo_ctx.current_stage = DEDUP_REDO_STAGE_RENAME_BINLOG;
+    redo_ctx.caller = caller;
     if ((result=write_to_redo_file(&redo_ctx)) != 0) {
         return result;
     }
@@ -287,7 +299,7 @@ int slice_dedup_redo()
     return redo(&redo_ctx);
 }
 
-int slice_dedup_binlog_ex(const int64_t slice_count)
+int slice_dedup_binlog_ex(const char caller, const int64_t slice_count)
 {
     int result;
     int64_t old_binlog_count;
@@ -298,7 +310,7 @@ int slice_dedup_binlog_ex(const int64_t slice_count)
 
     start_time_ms = get_current_time_ms();
     old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
-    result = do_dedup();
+    result = do_dedup(caller);
     new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
     if (result == 0) {
         int64_t inc_count;
@@ -336,7 +348,7 @@ static int slice_dedup_func(void *args)
                     "slice count: %"PRId64", binlog_count: %"PRId64", "
                     "dedup_ratio: %.2f%%, dedup slice binlog ...", __LINE__,
                     slice_count, SLICE_BINLOG_COUNT, dedup_ratio * 100.00);
-            slice_dedup_binlog_ex(slice_count);
+            slice_dedup_binlog_ex(FS_SLICE_DEDUP_CALL_BY_CRONTAB, slice_count);
         }
 
         SLICE_DEDUP_IN_PROGRESS = false;

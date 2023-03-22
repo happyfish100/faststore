@@ -22,6 +22,9 @@
 #include "../storage/object_block_index.h"
 #include "../server_global.h"
 
+#define FS_SLICE_DEDUP_CALL_BY_CRONTAB  'C'
+#define FS_SLICE_DEDUP_CALL_BY_MIGRATE  'M'
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -30,13 +33,14 @@ extern "C" {
 
     int slice_dedup_add_schedule();
 
-    int slice_dedup_binlog_ex(const int64_t slice_count);
+    int slice_dedup_binlog_ex(const char caller, const int64_t slice_count);
 
     static inline int slice_dedup_binlog()
     {
         int64_t slice_count;
         slice_count = ob_index_get_total_slice_count();
-        return slice_dedup_binlog_ex(slice_count);
+        return slice_dedup_binlog_ex(FS_SLICE_DEDUP_CALL_BY_MIGRATE,
+                slice_count);
     }
 
 #ifdef __cplusplus
