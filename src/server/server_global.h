@@ -169,6 +169,7 @@ typedef struct server_global_vars {
 
             struct {
                 bool enabled;
+                bool in_progress;
                 double target_ratio;
                 TimeInfo time;
             } dedup;
@@ -270,9 +271,10 @@ typedef struct server_global_vars {
 #define SLICE_LOAD_LAST_SN  g_server_global_vars->slice.binlog.data_load.last_sn
 #define SLICE_BINLOG_WRITER g_server_global_vars->slice.binlog.binlog_writer
 
-#define SLICE_DEDUP_ENABLED g_server_global_vars->slice.binlog.dedup.enabled
-#define SLICE_DEDUP_RATIO   g_server_global_vars->slice.binlog.dedup.target_ratio
-#define SLICE_DEDUP_TIME    g_server_global_vars->slice.binlog.dedup.time
+#define SLICE_DEDUP_ENABLED     g_server_global_vars->slice.binlog.dedup.enabled
+#define SLICE_DEDUP_IN_PROGRESS g_server_global_vars->slice.binlog.dedup.in_progress
+#define SLICE_DEDUP_RATIO       g_server_global_vars->slice.binlog.dedup.target_ratio
+#define SLICE_DEDUP_TIME        g_server_global_vars->slice.binlog.dedup.time
 
 #define SLICE_KEEP_DAYS    g_server_global_vars->slice.binlog.cleanup.keep_days
 #define SLICE_DELETE_TIME  g_server_global_vars->slice.binlog.cleanup.time

@@ -23,8 +23,7 @@
 extern "C" {
 #endif
 
-    int trunk_migrate_binlog(const int64_t total_slice_count,
-            const bool dump_slice_index);
+    int trunk_migrate_create();
 
     int trunk_migrate_redo();
 

@@ -30,6 +30,15 @@ extern "C" {
 
     int slice_dedup_add_schedule();
 
+    int slice_dedup_binlog_ex(const int64_t slice_count);
+
+    static inline int slice_dedup_binlog()
+    {
+        int64_t slice_count;
+        slice_count = ob_index_get_total_slice_count();
+        return slice_dedup_binlog_ex(slice_count);
+    }
+
 #ifdef __cplusplus
 }
 #endif

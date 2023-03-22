@@ -31,6 +31,7 @@
 #include "server_binlog.h"
 #include "binlog/binlog_check.h"
 #include "binlog/binlog_repair.h"
+#include "binlog/trunk_migrate.h"
 #include "rebuild/store_path_rebuild.h"
 #include "replication/replication_quorum.h"
 #include "storage/slice_space_log.h"
@@ -130,6 +131,10 @@ int server_binlog_init()
     }
 
     if ((result=slice_binlog_get_last_sn_from_file()) != 0) {
+        return result;
+    }
+
+    if ((result=trunk_migrate_redo()) != 0) {
         return result;
     }
 

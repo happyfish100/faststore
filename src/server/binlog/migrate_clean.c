@@ -439,10 +439,6 @@ int migrate_clean_redo()
     int result;
     BinlogCleanRedoContext redo_ctx;
 
-    if ((result=check_make_subdir()) != 0) {
-        return result;
-    }
-
     get_slice_mark_filename(redo_ctx.redo_filename,
             sizeof(redo_ctx.redo_filename));
     if (access(redo_ctx.redo_filename, F_OK) != 0) {

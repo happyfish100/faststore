@@ -287,20 +287,41 @@ int slice_dedup_redo()
     return redo(&redo_ctx);
 }
 
-static int slice_dedup_func(void *args)
+int slice_dedup_binlog_ex(const int64_t slice_count)
 {
-    static volatile bool dedup_in_progress = false;
     int result;
-    double dedup_ratio;
-    int64_t slice_count;
     int64_t old_binlog_count;
     int64_t new_binlog_count;
     int64_t start_time_ms;
     int64_t time_used;
     char time_buff[32];
 
-    if (!dedup_in_progress) {
-        dedup_in_progress = true;
+    start_time_ms = get_current_time_ms();
+    old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
+    result = do_dedup();
+    new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
+    if (result == 0) {
+        int64_t inc_count;
+        inc_count =  new_binlog_count - old_binlog_count;
+        new_binlog_count = slice_count + inc_count;
+        FC_ATOMIC_SET(SLICE_BINLOG_COUNT, new_binlog_count);
+    }
+    time_used = get_current_time_ms() - start_time_ms;
+    long_to_comma_str(time_used, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "slice dedup %s, new binlog count: %"PRId64", time "
+            "used: %s ms", __LINE__, (result == 0 ? "success" :
+                "fail"), new_binlog_count, time_buff);
+    return result;
+}
+
+static int slice_dedup_func(void *args)
+{
+    double dedup_ratio;
+    int64_t slice_count;
+
+    if (!SLICE_DEDUP_IN_PROGRESS) {
+        SLICE_DEDUP_IN_PROGRESS = true;
 
         slice_count = ob_index_get_total_slice_count();
         if (slice_count > 0) {
@@ -311,30 +332,14 @@ static int slice_dedup_func(void *args)
         }
 
         if (dedup_ratio >= SLICE_DEDUP_RATIO) {
-            start_time_ms = get_current_time_ms();
             logInfo("file: "__FILE__", line: %d, "
                     "slice count: %"PRId64", binlog_count: %"PRId64", "
                     "dedup_ratio: %.2f%%, dedup slice binlog ...", __LINE__,
                     slice_count, SLICE_BINLOG_COUNT, dedup_ratio * 100.00);
-
-            old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
-            result = do_dedup();
-            new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
-            if (result == 0) {
-                int64_t inc_count;
-                inc_count =  new_binlog_count - old_binlog_count;
-                new_binlog_count = slice_count + inc_count;
-                FC_ATOMIC_SET(SLICE_BINLOG_COUNT, new_binlog_count);
-            }
-            time_used = get_current_time_ms() - start_time_ms;
-            long_to_comma_str(time_used, time_buff);
-            logInfo("file: "__FILE__", line: %d, "
-                    "slice dedup %s, new binlog count: %"PRId64", time "
-                    "used: %s ms", __LINE__, (result == 0 ? "success" :
-                        "fail"), new_binlog_count, time_buff);
+            slice_dedup_binlog_ex(slice_count);
         }
 
-        dedup_in_progress = false;
+        SLICE_DEDUP_IN_PROGRESS = false;
     }
 
     return 0;

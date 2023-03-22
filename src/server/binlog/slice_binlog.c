@@ -29,6 +29,7 @@
 #include "binlog_func.h"
 #include "binlog_loader.h"
 #include "slice_loader.h"
+#include "trunk_migrate.h"
 #include "slice_binlog.h"
 
 #define ADD_SLICE_FIELD_INDEX_SPACE_PATH_INDEX 9
@@ -593,6 +594,10 @@ static int get_last_sn(bool *migrate_flag)
 
     if (migrate_flag == NULL) {
         return EINVAL;
+    }
+
+    if ((result=trunk_migrate_create()) != 0) {
+        return result;
     }
 
     *migrate_flag = true;
