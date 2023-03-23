@@ -674,9 +674,9 @@ static int add_to_space_chain(struct fc_queue_info *space_chain,
     record->op_type = op_type;
     record->storage.version = slice->data_version;
     record->storage.trunk_id = slice->space.id_info.id;
-    record->storage.length = slice->ssize.length;  //data length
-    record->storage.offset = slice->space.offset;  //space offset
-    record->storage.size = slice->space.size;      //space size
+    record->storage.length = slice->ssize.length;
+    record->storage.offset = slice->space.offset;
+    record->storage.size = slice->space.size;
     DA_SPACE_LOG_ADD_TO_CHAIN(space_chain, record);
     return 0;
 }

@@ -38,8 +38,7 @@ typedef struct trunk_migrate_context {
     struct fc_queue_info space_chain;
 } TrunkMigrateContext;
 
-#define MIGRATE_SUBDIR_NAME   FS_TRUNK_BINLOG_SUBDIR_NAME"/migrate"
-#define MIGRATE_BUFFER_SIZE   (256 * 1024)
+#define MIGRATE_BUFFER_SIZE   (1024 * 1024)
 
 #define BINLOG_REDO_STAGE_DUMP_SLICE     1
 #define BINLOG_REDO_STAGE_SPACE_LOG      2
@@ -48,19 +47,11 @@ typedef struct trunk_migrate_context {
 #define BINLOG_REDO_ITEM_LAST_SN        "last_sn"
 #define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
 
-static inline int check_make_subdir()
-{
-    char migrate_path[PATH_MAX];
-    snprintf(migrate_path, sizeof(migrate_path), "%s/%s",
-            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
-    return fc_check_mkdir(migrate_path, 0755);
-}
-
 static inline const char *get_trunk_migrate_mark_filename(
         char *filename, const int size)
 {
     snprintf(filename, size, "%s/%s/.migrate.flag",
-            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+            DATA_PATH_STR, FS_TRUNK_BINLOG_SUBDIR_NAME);
     return filename;
 }
 
@@ -130,7 +121,9 @@ static int parse_to_chain(TrunkMigrateContext *ctx, char *error_info)
             return result;
         }
 
-        if (r.slice_type == DA_SLICE_TYPE_FILE) {
+        if (r.op_type == BINLOG_OP_TYPE_WRITE_SLICE ||
+                r.op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
+        {
             if ((record=da_trunk_space_log_alloc_record(&DA_CTX)) == NULL) {
                 sprintf(error_info, "alloc record object fail "
                         "because out of memory");
@@ -140,15 +133,19 @@ static int parse_to_chain(TrunkMigrateContext *ctx, char *error_info)
             record->oid = r.bs_key.block.oid;
             record->fid = r.bs_key.block.offset;
             record->extra = r.bs_key.slice.offset;
-            record->op_type = r.slice_type;
+            record->op_type = da_binlog_op_type_consume_space;
             record->storage.version = r.data_version;
             record->storage.trunk_id = r.space.id_info.id;
-            record->storage.length = r.bs_key.slice.length;  //data length
+            record->storage.length = r.bs_key.slice.length;
             record->storage.offset = r.space.offset;
             record->storage.size = r.space.size;
             DA_SPACE_LOG_ADD_TO_CHAIN(&ctx->space_chain, record);
+
             ctx->record_count++;
             ctx->last_sn = r.sn;
+        } else {
+            sprintf(error_info, "invalid op_type: 0x%02x", r.op_type);
+            return EINVAL;
         }
 
         line_start = line_end;
@@ -225,6 +222,7 @@ static int find_last_sn(TrunkMigrateContext *ctx, char *error_info)
                     return result;
                 }
             }
+
             return 0;
         }
 
@@ -280,8 +278,7 @@ static int open_slice_binlog(TrunkMigrateContext *ctx)
         result = errno != 0 ? errno : EACCES;
         logError("file: "__FILE__", line: %d, "
                 "open file \"%s\" fail, errno: %d, error info: %s",
-                __LINE__, ctx->fpair.filename,
-                result, STRERROR(result));
+                __LINE__, ctx->fpair.filename, result, STRERROR(result));
         return result;
     }
 
@@ -418,10 +415,6 @@ int trunk_migrate_create()
 {
     int result;
     TrunkMigrateContext ctx;
-
-    if ((result=check_make_subdir()) != 0) {
-        return result;
-    }
 
     ctx.last_sn = 0;
     ctx.current_stage = BINLOG_REDO_STAGE_DUMP_SLICE;
