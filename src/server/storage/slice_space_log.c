@@ -439,7 +439,9 @@ static int slice_space_log_redo()
         }
     }
 
-    if ((result=da_trunk_space_log_redo(&DA_CTX, space_log_filename)) != 0) {
+    if ((result=da_trunk_space_log_redo_by_file(&DA_CTX,
+                    space_log_filename)) != 0)
+    {
         return result;
     }
 

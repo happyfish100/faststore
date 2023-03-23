@@ -134,10 +134,6 @@ int server_binlog_init()
         return result;
     }
 
-    if ((result=trunk_migrate_redo()) != 0) {
-        return result;
-    }
-
     if ((result=slice_space_log_init()) != 0) {
         return result;
     }
@@ -163,6 +159,10 @@ int server_binlog_init()
     }
 
     if ((result=slice_binlog_load()) != 0) {
+        return result;
+    }
+
+    if ((result=trunk_migrate_redo()) != 0) {
         return result;
     }
 

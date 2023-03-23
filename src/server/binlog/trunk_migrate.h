@@ -25,6 +25,8 @@ extern "C" {
 
     int trunk_migrate_create();
 
+    int trunk_migrate_slice_dedup_done_callback();
+
     int trunk_migrate_redo();
 
 #ifdef __cplusplus
