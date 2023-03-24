@@ -77,10 +77,11 @@ extern "C" {
     ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.  \
             hashtable_capacity)
 
-#define ob_index_dump_slices_to_file(start_index, \
+#define ob_index_dump_slices_to_file(start_index,  \
         end_index, filename, slice_count) \
-    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, start_index, end_index, \
-            filename, slice_count, end_index == g_ob_hashtable.capacity, false)
+    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, \
+            start_index, end_index, filename, slice_count, \
+            end_index == g_ob_hashtable.capacity, false)
 
 #define ob_index_remove_slices_to_file(start_index, end_index, \
         rebuild_store_index, filename, slice_count) \

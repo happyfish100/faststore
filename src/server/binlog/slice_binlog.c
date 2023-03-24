@@ -97,12 +97,6 @@ void slice_binlog_writer_set_flags(const short flags)
     }
 }
 
-static inline int slice_binlog_set_next_version()
-{
-    return sf_binlog_writer_change_next_version(&SLICE_BINLOG_WRITER.
-            writer, FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
-}
-
 int slice_binlog_get_binlog_start_index()
 {
     return sf_binlog_get_start_index(&SLICE_BINLOG_WRITER.writer);

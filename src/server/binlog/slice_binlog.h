@@ -65,6 +65,18 @@ extern "C" {
 
     void slice_binlog_writer_set_flags(const short flags);
 
+    static inline int slice_binlog_set_next_version_ex(const int64_t next_sn)
+    {
+        return sf_binlog_writer_change_next_version(
+                &SLICE_BINLOG_WRITER.writer, next_sn);
+    }
+
+    static inline int slice_binlog_set_next_version()
+    {
+        return slice_binlog_set_next_version_ex(
+                FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
+    }
+
     int slice_binlog_rotate_file();
 
     int slice_binlog_get_position_by_dv(const int data_group_id,
@@ -174,14 +186,23 @@ extern "C" {
                 BINLOG_OP_TYPE_DEL_BLOCK, sn, data_version, source, buff);
     }
 
+    static inline int slice_binlog_log_no_op_to_buff_ex(
+            const FSBlockKey *bkey, const time_t current_time,
+            const int64_t sn, const uint64_t data_version,
+            const int source, char *buff)
+    {
+        return slice_binlog_log_update_block_to_buff(bkey, current_time,
+                BINLOG_OP_TYPE_NO_OP, sn, data_version, source, buff);
+    }
+
     static inline int slice_binlog_log_no_op_to_buff(const FSBlockKey *bkey,
             const time_t current_time, const uint64_t data_version,
             const int source, char *buff)
     {
         int64_t sn;
         sn = ob_index_generate_alone_sn();
-        return slice_binlog_log_update_block_to_buff(bkey, current_time,
-                BINLOG_OP_TYPE_NO_OP, sn, data_version, source, buff);
+        return slice_binlog_log_no_op_to_buff_ex(bkey, current_time,
+                sn, data_version, source, buff);
     }
 
     static inline int slice_binlog_log_del_slice_to_buff(

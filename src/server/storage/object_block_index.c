@@ -1841,6 +1841,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     const int source = BINLOG_SOURCE_DUMP;
     int result;
     int i;
+    int64_t next_sn;
     SFBufferedWriter writer;
     OBSegment *segment = NULL;
     OBEntry **bucket;
@@ -1850,6 +1851,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
 
+    next_sn = 0;
     *slice_count = 0;
     if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
         return result;
@@ -1891,9 +1893,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                     }
                 }
 
-                writer.buffer.current += slice_binlog_log_add_slice_to_buff(
-                        slice, current_time, slice->data_version, source,
-                        writer.buffer.current);
+                writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                        slice, current_time, ++next_sn, slice->data_version,
+                        source, writer.buffer.current);
             }
 
             ob = ob->next;
@@ -1924,9 +1926,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                 }
             }
 
-            writer.buffer.current += slice_binlog_log_no_op_to_buff(
-                    &bkey, current_time + i, data_version, source,
-                    writer.buffer.current);
+            writer.buffer.current += slice_binlog_log_no_op_to_buff_ex(
+                    &bkey, current_time + i, ++next_sn, data_version,
+                    source, writer.buffer.current);
         }
     }
 
