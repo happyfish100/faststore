@@ -289,7 +289,7 @@ static int open_slice_binlog(TrunkMigrateContext *ctx)
     }
 }
 
-static int do_migrate(TrunkMigrateContext *ctx)
+static int do_migrate(TrunkMigrateContext *ctx, int64_t *total_records)
 {
     int result;
 
@@ -311,6 +311,7 @@ static int do_migrate(TrunkMigrateContext *ctx)
         da_trunk_space_log_inc_waiting_count(&DA_CTX, ctx->record_count);
         da_trunk_space_log_push_chain(&DA_CTX, &ctx->space_chain);
         da_trunk_space_log_wait(&DA_CTX);
+        *total_records += ctx->record_count;
     }
 
     return EINTR;
@@ -319,7 +320,13 @@ static int do_migrate(TrunkMigrateContext *ctx)
 static int migrate_space_log(TrunkMigrateContext *ctx)
 {
     int result;
+    int64_t total_records;
+    int64_t start_time_ms;
+    char time_used[32];
 
+    logInfo("file: "__FILE__", line: %d, "
+            "migrate slice to trunk space index ...", __LINE__);
+    start_time_ms = get_current_time_ms();
     if ((result=fc_init_buffer(&ctx->buffer, MIGRATE_BUFFER_SIZE)) != 0) {
         return result;
     }
@@ -340,10 +347,15 @@ static int migrate_space_log(TrunkMigrateContext *ctx)
             {
                 return result;
             }
+
+            logInfo("file: "__FILE__", line: %d, "
+                    "last_sn: %"PRId64", redo slice count: %d", __LINE__,
+                    ctx->last_sn, ctx->record_count);
         }
     }
 
-    if ((result=do_migrate(ctx)) != 0) {
+    total_records = 0;
+    if ((result=do_migrate(ctx, &total_records)) != 0) {
         return result;
     }
     close(ctx->fpair.fd);
@@ -354,6 +366,11 @@ static int migrate_space_log(TrunkMigrateContext *ctx)
         return result;
     }
 
+    long_to_comma_str(get_current_time_ms() - start_time_ms, time_used);
+    logInfo("file: "__FILE__", line: %d, "
+            "migrate slice to trunk space index, record "
+            "count: %"PRId64", time_used: %s ms",
+            __LINE__, total_records, time_used);
     return 0;
 }
 
