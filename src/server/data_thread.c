@@ -294,9 +294,9 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             data_group_id = 0;
         }
 
-        logInfo("operation: %c, source: %c, updated count: %d, "
-                "data_version: %"PRId64", sn: %"PRId64, op->operation,
-                op->ctx->info.source, op->ctx->update.sarray.count,
+        logInfo("op_ctx: %p, operation: %c, source: %c, data_group_id: %d, "
+                "data_version: %"PRId64", sn: %"PRId64, op->ctx,
+                op->operation, op->ctx->info.source, data_group_id,
                 op->ctx->info.data_version, op->ctx->info.last_sn);
 
         committed_version_add(data_group_id, op->ctx->info.

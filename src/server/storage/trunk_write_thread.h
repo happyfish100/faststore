@@ -32,6 +32,7 @@ extern "C" {
         DASliceEntry se;
 
         slice->data_version = op_ctx->info.data_version;
+        op_ctx->info.last_sn = 0;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block, slice,
                         &op_ctx->info.last_sn, &inc_alloc, &op_ctx->update.
                         space_chain)) != 0)
