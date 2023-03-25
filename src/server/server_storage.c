@@ -69,14 +69,16 @@ static int set_data_rebuild_path_index()
 static int storage_init()
 {
     const bool have_extra_field = true;
+    const bool migrate_path_mark_filename = true;
     int result;
 
     if ((result=da_global_init(CLUSTER_MY_SERVER_ID)) != 0) {
         return result;
     }
 
-    if ((result=da_load_config(&DA_CTX, "[faststore]", FS_FILE_BLOCK_SIZE,
-                    &DATA_CFG, STORAGE_FILENAME, have_extra_field)) != 0)
+    if ((result=da_load_config_ex(&DA_CTX, "[faststore]", FS_FILE_BLOCK_SIZE,
+                    &DATA_CFG, STORAGE_FILENAME, have_extra_field,
+                    migrate_path_mark_filename)) != 0)
     {
         return result;
     }
