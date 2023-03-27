@@ -201,6 +201,7 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
 {
     struct fast_task_info *task;
     int data_group_id;
+    int64_t sn;
 
     if (op->ctx->result != 0) {
         if (op->ctx->info.is_update && op->source ==
@@ -294,13 +295,26 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
             data_group_id = 0;
         }
 
+        if (op->ctx->info.sn.count > 1) {
+            for (sn=op->ctx->info.sn.last - op->ctx->info.sn.count + 1;
+                    sn<op->ctx->info.sn.last; sn++)
+            {
+                logInfo("op_ctx: %p, operation: %c, source: %c, data_group_id: %d, "
+                        "data_version: %"PRId64", sn: %"PRId64, op->ctx,
+                        op->operation, op->ctx->info.source, data_group_id,
+                        op->ctx->info.data_version, sn);
+
+                committed_version_add(0, op->ctx->info.data_version, sn);
+            }
+        }
+
         logInfo("op_ctx: %p, operation: %c, source: %c, data_group_id: %d, "
                 "data_version: %"PRId64", sn: %"PRId64, op->ctx,
                 op->operation, op->ctx->info.source, data_group_id,
-                op->ctx->info.data_version, op->ctx->info.last_sn);
+                op->ctx->info.data_version, op->ctx->info.sn.last);
 
         committed_version_add(data_group_id, op->ctx->info.
-                data_version, op->ctx->info.last_sn);
+                data_version, op->ctx->info.sn.last);
 
         /*
            logInfo("file: "__FILE__", line: %d, op ptr: %p, "

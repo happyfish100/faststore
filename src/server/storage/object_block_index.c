@@ -1472,6 +1472,7 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
         }
 
         if (*dec_alloc > 0) {
+            result = 0;
             if (sn != NULL) {
                 if (*sn == 0) {
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
@@ -1480,7 +1481,6 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
                     result = change_notify_push_del_block(*sn, ob);
                 }
             }
-            result = 0;
         } else {  //no slices deleted
             result = ENOENT;
         }

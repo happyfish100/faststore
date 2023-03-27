@@ -35,8 +35,7 @@ static void deal_entry(FSVersionEntry *entry, const int64_t sn)
     if (data_group_id > 0 && data_version > 0) {
         replica_writer = replica_binlog_get_writer(data_group_id);
         while (1) {
-            last_dv = sf_binlog_writer_get_last_version_ex(
-                    replica_writer, LOG_NOTHING);
+            last_dv = sf_binlog_writer_get_last_version_silence(replica_writer);
             if (last_dv >= data_version || last_dv < 0) {
                 break;
             }

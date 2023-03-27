@@ -163,7 +163,8 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
             op_ctx->update.space_changed += inc_alloc;
         }
 
-        op_ctx->info.last_sn = (slice_sn_end - 1)->sn;
+        op_ctx->info.sn.count = op_ctx->update.sarray.count;
+        op_ctx->info.sn.last = (slice_sn_end - 1)->sn;
     } while (0);
 
     if (op_ctx->result != 0) {
@@ -651,7 +652,8 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         op_ctx->update.space_changed += inc;
     }
 
-    op_ctx->info.last_sn = (slice_sn_end - 1)->sn;
+    op_ctx->info.sn.count = op_ctx->update.sarray.count;
+    op_ctx->info.sn.last = (slice_sn_end - 1)->sn;
     if (result != 0) {
         fs_slice_array_release(&op_ctx->update.sarray);
     }
@@ -980,11 +982,12 @@ int fs_delete_slice(FSSliceOpContext *op_ctx)
 {
     int result;
 
-    op_ctx->info.last_sn = 0;
+    op_ctx->info.sn.count = 1;
+    op_ctx->info.sn.last = 0;
     op_ctx->update.space_chain.head = NULL;
     op_ctx->update.space_chain.tail = NULL;
     if ((result=ob_index_delete_slice(&op_ctx->info.bs_key, &op_ctx->info.
-                    last_sn, &op_ctx->update.space_changed, &op_ctx->
+                    sn.last, &op_ctx->update.space_changed, &op_ctx->
                     update.space_chain)) == 0)
     {
         op_ctx->info.set_dv_done = false;
@@ -999,7 +1002,7 @@ int fs_log_delete_slice(FSSliceOpContext *op_ctx)
     int result;
 
     if ((result=slice_binlog_del_slice_push(&op_ctx->info.bs_key,
-                    op_ctx->update.timestamp, op_ctx->info.last_sn,
+                    op_ctx->update.timestamp, op_ctx->info.sn.last,
                     op_ctx->info.data_version, op_ctx->info.source,
                     &op_ctx->update.space_chain)) != 0)
     {
@@ -1019,11 +1022,12 @@ int fs_delete_block(FSSliceOpContext *op_ctx)
 {
     int result;
 
-    op_ctx->info.last_sn = 0;
+    op_ctx->info.sn.count = 1;
+    op_ctx->info.sn.last = 0;
     op_ctx->update.space_chain.head = NULL;
     op_ctx->update.space_chain.tail = NULL;
     if ((result=ob_index_delete_block(&op_ctx->info.bs_key.block, &op_ctx->
-                    info.last_sn, &op_ctx->update.space_changed,
+                    info.sn.last, &op_ctx->update.space_changed,
                     &op_ctx->update.space_chain)) == 0)
     {
         op_ctx->info.set_dv_done = false;
@@ -1045,7 +1049,7 @@ int fs_log_delete_block(FSSliceOpContext *op_ctx)
     record->space_chain = op_ctx->update.space_chain;
     if ((result=ob_index_del_block_to_wbuffer_chain(record,
                     &op_ctx->info.bs_key.block, op_ctx->update.
-                    timestamp, op_ctx->info.last_sn, op_ctx->
+                    timestamp, op_ctx->info.sn.last, op_ctx->
                     info.data_version, op_ctx->info.source)) != 0)
     {
         return result;
