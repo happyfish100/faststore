@@ -129,10 +129,13 @@ typedef struct fs_slice_op_context {
         } write_binlog;
         bool write_to_cache;
         char source;            //for binlog write
+        struct {
+            unsigned char count;
+            uint64_t last;
+        } sn;  //for slice binlog
         int data_group_id;
         int body_len;
         uint64_t data_version;  //for replica binlog
-        uint64_t last_sn;       //for slice binlog
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
 #ifdef OS_LINUX
@@ -182,6 +185,7 @@ typedef struct fs_slice_space_log_record {
     int64_t last_sn;
     SFBinlogWriterBuffer *slice_head;
     struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
+    SFSynchronizeContext *sctx;
     struct fs_slice_space_log_record *next;
 } FSSliceSpaceLogRecord;
 

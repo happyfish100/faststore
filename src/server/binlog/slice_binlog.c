@@ -68,10 +68,7 @@ static int init_binlog_writer()
     {
         return result;
     }
-    if (STORAGE_ENABLED) {
-        slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
-    }
-
+    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     return sf_binlog_writer_init_thread(&SLICE_BINLOG_WRITER.thread, "slice",
             &SLICE_BINLOG_WRITER.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
@@ -1437,6 +1434,7 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     if ((record=slice_space_log_alloc_init_record()) == NULL) {
         return ENOMEM;
     }
+    record->sctx = sctx;
 
     space.store = trunk->store;
     space.id_info = trunk->id_info;
@@ -1460,15 +1458,12 @@ int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
     da_trunk_space_log_free_chain(&DA_CTX, space_chain);
     if (record->slice_head != NULL) {
         slice_space_log_push(record);
-        while (sf_binlog_writer_get_last_version(&SLICE_BINLOG_WRITER.
-                    writer) < record->last_sn)
-        {
-            fc_sleep_ms(1);
-        }
+    } else {
+        sf_synchronize_counter_notify(sctx, 1);
+        slice_space_log_free_record(record);
     }
 
     *flags = update_count > 0 ? 0 : DA_REDO_QUEUE_PUSH_FLAGS_IGNORE;
-    sf_synchronize_counter_notify(sctx, 1);
     return 0;
 }
 

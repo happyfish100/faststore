@@ -190,6 +190,35 @@ static inline void push_to_log_queues(struct fc_queue_info *qinfo)
     } while ((record=record->next) != NULL);
 }
 
+static void notify_all(struct fc_queue_info *qinfo)
+{
+    FSSliceSpaceLogRecord *record;
+    SFSynchronizeContext *sctx;
+    int count;
+
+    sctx = NULL;
+    count = 0;
+    record = qinfo->head;
+    do {
+        if (record->sctx != NULL) {
+            if (sctx != record->sctx) {
+                if (sctx != NULL) {
+                    sf_synchronize_counter_notify(sctx, count);
+                }
+
+                sctx = record->sctx;
+                count = 1;
+            } else {
+                ++count;
+            }
+        }
+    } while ((record=record->next) != NULL);
+
+    if (sctx != NULL) {
+        sf_synchronize_counter_notify(sctx, count);
+    }
+}
+
 static int deal_records(struct fc_queue_info *qinfo)
 {
     int result;
@@ -202,11 +231,10 @@ static int deal_records(struct fc_queue_info *qinfo)
 
     da_trunk_space_log_inc_waiting_count(&DA_CTX, SLICE_SPACE_LOG_CTX.
             space_redo.record_count);
-
     push_to_log_queues(qinfo);
-
     da_trunk_space_log_wait(&DA_CTX);
 
+    notify_all(qinfo);
     sorted_queue_free_chain(&SLICE_SPACE_LOG_CTX.queue,
             &SLICE_SPACE_LOG_CTX.allocator, qinfo);
     return 0;
@@ -216,6 +244,7 @@ static void *slice_space_log_func(void *arg)
 {
     FSSliceSpaceLogRecord less_equal;
     struct fc_queue_info qinfo;
+    int sleep_ms;
 
 #ifdef OS_LINUX
     prctl(PR_SET_NAME, "SE-binlog-write");
@@ -236,20 +265,24 @@ static void *slice_space_log_func(void *arg)
             }
         }
 
-        if (SLICE_SPACE_LOG_CTX.record_count <= 10) {
-            fc_sleep_ms(1000);
-        } else if (SLICE_SPACE_LOG_CTX.record_count <= 100) {
-            fc_sleep_ms(100);
+        if (SLICE_SPACE_LOG_CTX.record_count <= 100) {
+            sleep_ms = 1000;
         } else if (SLICE_SPACE_LOG_CTX.record_count <= 1000) {
-            fc_sleep_ms(10);
+            sleep_ms = 100;
         } else if (SLICE_SPACE_LOG_CTX.record_count <= 10000) {
-            fc_sleep_ms(1);
+            sleep_ms = 10;
+        } else if (SLICE_SPACE_LOG_CTX.record_count <= 100000) {
+            sleep_ms = 1;
+        } else {
+            sleep_ms = 0;
+        }
+        if (sleep_ms > 0) {
+            lcp_timedwait_ms(&SLICE_SPACE_LOG_CTX.queue.queue.lcp, sleep_ms);
         }
     }
 
     return NULL;
 }
-
 
 static int init_file_buffer_pair(FSBinlogWriteFileBufferPair *pair,
         const char *file_path, const char *redo_filename,
@@ -496,4 +529,9 @@ int slice_space_log_init()
 
 void slice_space_log_destroy()
 {
+}
+
+void trunk_migrate_done_callback(const DATrunkFileInfo *trunk)
+{
+    pthread_cond_signal(&SLICE_SPACE_LOG_CTX.queue.queue.lcp.cond);
 }
