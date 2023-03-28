@@ -43,6 +43,8 @@ extern "C" {
     int committed_version_add(const int data_group_id,
             const int64_t data_version, const int64_t sn);
 
+    int committed_version_add1(const FSSliceOpContext *op_ctx);
+
 #ifdef __cplusplus
 }
 #endif

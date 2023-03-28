@@ -69,6 +69,7 @@ static int set_data_rebuild_path_index()
 static int storage_init()
 {
     const bool have_extra_field = true;
+    const bool destroy_store_path_index = false;
     const bool migrate_path_mark_filename = true;
     int result;
 
@@ -78,7 +79,7 @@ static int storage_init()
 
     if ((result=da_load_config_ex(&DA_CTX, "[faststore]", FS_FILE_BLOCK_SIZE,
                     &DATA_CFG, STORAGE_FILENAME, have_extra_field,
-                    migrate_path_mark_filename)) != 0)
+                    destroy_store_path_index, migrate_path_mark_filename)) != 0)
     {
         return result;
     }
@@ -86,6 +87,7 @@ static int storage_init()
     if ((result=set_data_rebuild_path_index()) != 0) {
         return result;
     }
+    da_store_path_index_destroy(&DA_CTX);
 
     if ((result=da_init_start_ex(&DA_CTX, slice_migrate_done_callback,
                     trunk_migrate_done_callback,

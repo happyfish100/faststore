@@ -896,6 +896,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     if (result == 0) {
         __sync_add_and_fetch(&SLICE_BINLOG_COUNT, ctx.binlog_count);
         if (DATA_REBUILD_PATH_INDEX >= 0) {
+            //TODO: DATA_REBUILD_TRUNK_COUNT =
             DATA_REBUILD_SLICE_COUNT = get_total_rebuild_count(
                     &ctx.data_thread_array);
             if (DATA_REBUILD_TRUNK_COUNT > 0 || DATA_REBUILD_SLICE_COUNT > 0) {

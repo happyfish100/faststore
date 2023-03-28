@@ -364,7 +364,6 @@ static int slice_migrate_do()
     if ((result=slice_binlog_set_binlog_write_index(0)) != 0) {
         return result;
     }
-    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
 
     if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
                     FS_SLICE_MIGRATE_SUBDIR_NAME,
@@ -417,7 +416,6 @@ static int slice_migrate_do()
         ++waiting_count;
         fc_sleep_ms(1);
     }
-    slice_binlog_writer_set_flags(0);
 
     long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
     logInfo("file: "__FILE__", line: %d, "

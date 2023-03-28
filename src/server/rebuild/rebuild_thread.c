@@ -161,6 +161,8 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
         return 0;
     }
 
+    committed_version_add1(&thread->op_ctx);
+
     last_pair = thread->op_ctx.update.sarray.slice_sn_pairs +
         (thread->op_ctx.update.sarray.count - 1);
     thread->max_sn = last_pair->sn;
@@ -324,7 +326,6 @@ int rebuild_thread_do(const int thread_count)
 
     start_time = get_current_time_ms();
 
-    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     ctx.running_threads = thread_count;
     end = ctx.thread_array.threads + thread_count;
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
@@ -347,7 +348,6 @@ int rebuild_thread_do(const int thread_count)
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
-    slice_binlog_writer_set_flags(0);
 
     slice_count = 0;
     skip_count = 0;
