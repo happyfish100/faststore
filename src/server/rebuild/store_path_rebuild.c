@@ -876,8 +876,7 @@ static inline int dump_trunk_binlog()
     return result;
 }
 
-int store_path_rebuild_dump_data(const int64_t total_trunk_count,
-        const int64_t total_slice_count)
+int store_path_rebuild_dump_data(const int64_t total_slice_count)
 {
     int result;
     DataRebuildRedoContext redo_ctx;
@@ -912,10 +911,8 @@ int store_path_rebuild_dump_data(const int64_t total_trunk_count,
     strftime(redo_ctx.backup_subdir, sizeof(redo_ctx.backup_subdir),
             "%Y%m%d%H%M%S", &tm_current);
 
-    if (total_trunk_count > 0) {
-        if ((result=dump_trunk_binlog()) != 0) {
-            return result;
-        }
+    if ((result=dump_trunk_binlog()) != 0) {
+        return result;
     }
 
     if (total_slice_count > 0) {
@@ -928,9 +925,7 @@ int store_path_rebuild_dump_data(const int64_t total_trunk_count,
         redo_ctx.binlog_file_count = 0;
     }
 
-    redo_ctx.current_stage = (total_trunk_count > 0 ?
-            DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK:
-            DATA_REBUILD_REDO_STAGE_BACKUP_SLICE);
+    redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK;
     redo_ctx.rebuild_threads = DATA_REBUILD_THREADS;
     if ((result=write_to_redo_file(&redo_ctx)) != 0) {
         return result;

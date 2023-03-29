@@ -103,7 +103,6 @@ typedef struct server_global_vars {
         } cfg;
         int rebuild_threads;
         struct {
-            int64_t trunk_count;         //trunk count in trunk binlog
             volatile int64_t slice_count;//slice count in slice binlog
             int index;
             const char *str;
@@ -208,8 +207,6 @@ typedef struct server_global_vars {
 
 #define DATA_REBUILD_PATH_STR    g_server_global_vars->storage.rebuild_path.str
 #define DATA_REBUILD_PATH_INDEX  g_server_global_vars->storage.rebuild_path.index
-#define DATA_REBUILD_TRUNK_COUNT g_server_global_vars-> \
-    storage.rebuild_path.trunk_count
 #define DATA_REBUILD_SLICE_COUNT g_server_global_vars-> \
     storage.rebuild_path.slice_count
 #define DATA_REBUILD_THREADS g_server_global_vars->storage.rebuild_threads

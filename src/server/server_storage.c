@@ -91,7 +91,8 @@ static int storage_init()
 
     if ((result=da_init_start_ex(&DA_CTX, slice_migrate_done_callback,
                     trunk_migrate_done_callback,
-                    slice_binlog_cached_slice_write_done)) != 0)
+                    slice_binlog_cached_slice_write_done,
+                    DATA_REBUILD_PATH_INDEX)) != 0)
     {
         return result;
     }

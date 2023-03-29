@@ -418,7 +418,8 @@ static int slice_log_redo(const char *slice_log_filename)
         return result;
     }
 
-    logInfo("slice redo record count: %d", chain.count);
+    logInfo("last slice sn: %"PRId64", slice redo record count: %d",
+            SLICE_BINLOG_SN, chain.count);
 
     if (chain.count == 0) {
         return 0;
@@ -471,6 +472,8 @@ static int slice_space_log_redo()
             return result;
         }
     }
+
+    logInfo("last slice sn: %"PRId64, SLICE_BINLOG_SN);
 
     if ((result=da_trunk_space_log_redo_by_file(&DA_CTX,
                     space_log_filename)) != 0)
