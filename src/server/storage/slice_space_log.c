@@ -473,8 +473,6 @@ static int slice_space_log_redo()
         }
     }
 
-    logInfo("last slice sn: %"PRId64, SLICE_BINLOG_SN);
-
     if ((result=da_trunk_space_log_redo_by_file(&DA_CTX,
                     space_log_filename)) != 0)
     {
@@ -483,6 +481,15 @@ static int slice_space_log_redo()
 
     if ((result=slice_log_redo(slice_log_filename)) != 0) {
         return result;
+    }
+
+    if (DATA_REBUILD_PATH_INDEX >= 0) {
+        if ((result=fc_delete_file(space_log_filename)) != 0) {
+            return result;
+        }
+        if ((result=fc_delete_file(slice_log_filename)) != 0) {
+            return result;
+        }
     }
 
     return 0;
