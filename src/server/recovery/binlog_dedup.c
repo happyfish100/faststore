@@ -493,7 +493,7 @@ static void htable_reverse_remove(BinlogHashtables *htables)
                 }
 
                 if (ob_index_get_ob_entry_ex(&htables->remove,
-                            &ob->bkey) == NULL)
+                            &ob->bkey, false) == NULL)
                 {
                     break;
                 }

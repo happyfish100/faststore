@@ -31,15 +31,17 @@
 #include "binlog_spliter.h"
 #include "binlog_reader.h"
 #include "rebuild_thread.h"
+#include "db_remove.h"
 #include "store_path_rebuild.h"
 
 #define DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK    1
 #define DATA_REBUILD_REDO_STAGE_RENAME_TRUNK    2
 #define DATA_REBUILD_REDO_STAGE_BACKUP_SLICE    3
 #define DATA_REBUILD_REDO_STAGE_RENAME_SLICE    4
-#define DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG    5
-#define DATA_REBUILD_REDO_STAGE_REBUILDING      6
-#define DATA_REBUILD_REDO_STAGE_CLEANUP         7
+#define DATA_REBUILD_REDO_STAGE_REMOVE_DB       5  //for storage engine only
+#define DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG    6
+#define DATA_REBUILD_REDO_STAGE_REBUILDING      7
+#define DATA_REBUILD_REDO_STAGE_CLEANUP         8
 
 #define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE   "current_stage"
 #define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT    "binlog_file_count" //dump output
@@ -675,7 +677,6 @@ static int unlink_dump_subdir(DataRebuildRedoContext *redo_ctx)
     {
         sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
                 binlog_index, filename, sizeof(filename));
-
         if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
             return result;
         }
@@ -761,7 +762,12 @@ int store_path_rebuild_redo_step1()
                         __LINE__, result, STRERROR(result));
                 return result;
             }
-            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
+
+            if (STORAGE_ENABLED) {
+                redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_REMOVE_DB;
+            } else {
+                redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
+            }
             result = write_to_redo_file(&redo_ctx);
             break;
         default:
@@ -775,6 +781,7 @@ int store_path_rebuild_redo_step2()
 {
     const int source = BINLOG_SOURCE_REBUILD;
     DataRebuildRedoContext redo_ctx;
+    char subdir_name[64];
     char filepath[PATH_MAX];
     int result;
 
@@ -795,6 +802,21 @@ int store_path_rebuild_redo_step2()
     }
 
     switch (redo_ctx.current_stage) {
+        case DATA_REBUILD_REDO_STAGE_REMOVE_DB:
+            snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
+                    FS_REBUILD_BINLOG_SUBDIR_NAME,
+                    REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+            if ((result=db_remove_slices(subdir_name, redo_ctx.
+                            binlog_file_count)) != 0)
+            {
+                return result;
+            }
+
+            redo_ctx.current_stage = DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG;
+            if ((result=write_to_redo_file(&redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
         case DATA_REBUILD_REDO_STAGE_SPLIT_BINLOG:
             if ((result=split_binlog(&redo_ctx)) != 0) {
                 return result;

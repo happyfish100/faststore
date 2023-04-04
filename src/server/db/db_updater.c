@@ -282,6 +282,7 @@ static int unpack_header(SFSerializerIterator *it,
                 break;
         }
     }
+
     if (*record_count == 0 || ctx->last_versions.field == 0 ||
             ctx->last_versions.block.prepare == 0)
     {

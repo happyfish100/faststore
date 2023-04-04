@@ -65,7 +65,7 @@ extern "C" {
     ob_index_get_slice_count_ex(&g_ob_hashtable, bs_key)
 
 #define ob_index_get_ob_entry(bkey) \
-    ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey)
+    ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey, false)
 
 #define ob_index_ob_entry_release(ob) \
     ob_index_ob_entry_release_ex(ob, 1)
@@ -145,7 +145,7 @@ extern "C" {
     }
 
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
-            const FSBlockKey *bkey);
+            const FSBlockKey *bkey, const bool create_flag);
 
     OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const int init_refer);

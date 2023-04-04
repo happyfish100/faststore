@@ -325,13 +325,13 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
             (htable)->need_reclaim, NULL)
 
 OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
-        const FSBlockKey *bkey)
+        const FSBlockKey *bkey, const bool create_flag)
 {
     OBEntry *ob;
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
 
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob = get_ob_entry(segment, htable, bucket, bkey, false);
+    ob = get_ob_entry(segment, htable, bucket, bkey, create_flag);
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return ob;

@@ -14,34 +14,16 @@
  */
 
 
-#ifndef _FS_DB_UPDATER_H
-#define _FS_DB_UPDATER_H
+#ifndef _FS_REBUILD_DB_REMOVE_H
+#define _FS_REBUILD_DB_REMOVE_H
 
 #include "../server_types.h"
-
-typedef struct fs_db_updater_context {
-    FSDBUpdateBlockArray array;
-    struct {
-        struct {
-            int64_t prepare;
-            int64_t commit;
-        } block; //for check with slice sn
-
-        int64_t field;   //for check internal storage engine
-    } last_versions;
-    FastBuffer buffer;
-} FSDBUpdaterContext;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int db_updater_init(FSDBUpdaterContext *ctx);
-    void db_updater_destroy();
-
-    int db_updater_realloc_block_array(FSDBUpdateBlockArray *array);
-
-    int db_updater_deal(FSDBUpdaterContext *ctx);
+    int db_remove_slices(const char *subdir_name, const int write_index);
 
 #ifdef __cplusplus
 }
