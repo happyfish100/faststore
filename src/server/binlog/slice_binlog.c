@@ -733,7 +733,7 @@ int slice_binlog_log_no_op(const FSBlockKey *bkey,
             sn, data_version, source);
 }
 
-int slice_binlog_padding_for_check(const int source)
+int slice_binlog_padding(const int row_count, const int source)
 {
     const int64_t data_version = 0;
     int result;
@@ -744,7 +744,7 @@ int slice_binlog_padding_for_check(const int source)
     current_time = g_current_time;
     bkey.oid = 1;
     bkey.offset = 0;
-    for (i=1; i<=LOCAL_BINLOG_CHECK_LAST_SECONDS + 1; i++) {
+    for (i=1; i<=row_count; i++) {
         if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
                         ob_index_generate_alone_sn(), data_version,
                         source)) != 0)

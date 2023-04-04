@@ -29,6 +29,8 @@ typedef struct {
 typedef struct {
     volatile int count;
     volatile int waitings;
+    volatile bool continue_flag;
+    volatile bool running;
     FSVersionEntry *versions;
     volatile int64_t next_sn;
     pthread_lock_cond_pair_t lcp;
@@ -39,6 +41,7 @@ extern "C" {
 #endif
 
     int committed_version_init(const int64_t sn);
+    int committed_version_reinit(const int64_t sn);
 
     int committed_version_add(const int data_group_id,
             const int64_t data_version, const int64_t sn);

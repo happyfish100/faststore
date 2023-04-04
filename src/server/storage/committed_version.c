@@ -52,12 +52,14 @@ static void *committed_version_thread_run(void *arg)
     FSVersionEntry *entry;
     FSVersionEntry *end;
 
+    COMMITTED_VERSION_RING.continue_flag = true;
+    COMMITTED_VERSION_RING.running = true;
     next_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn);
     entry = COMMITTED_VERSION_RING.versions +
         next_sn % COMMITTED_VERSION_RING_SIZE;
     end = COMMITTED_VERSION_RING.versions +
         COMMITTED_VERSION_RING_SIZE;
-    while (SF_G_CONTINUE_FLAG) {
+    while (COMMITTED_VERSION_RING.continue_flag) {
         if (FC_ATOMIC_GET(COMMITTED_VERSION_RING.count) == 0) {
             fc_sleep_ms(10);
             continue;
@@ -83,6 +85,7 @@ static void *committed_version_thread_run(void *arg)
         }
     }
 
+    COMMITTED_VERSION_RING.running = false;
     return NULL;
 }
 
@@ -104,10 +107,31 @@ int committed_version_init(const int64_t sn)
         return ENOMEM;
     }
     memset(COMMITTED_VERSION_RING.versions, 0, bytes);
-    COMMITTED_VERSION_RING.next_sn = sn + 1;
+
     COMMITTED_VERSION_RING.count = 0;
     COMMITTED_VERSION_RING.waitings = 0;
+    FC_ATOMIC_SET(COMMITTED_VERSION_RING.next_sn, sn + 1);
+    return fc_create_thread(&tid, committed_version_thread_run,
+            NULL, SF_G_THREAD_STACK_SIZE);
+}
 
+int committed_version_reinit(const int64_t sn)
+{
+    pthread_t tid;
+
+    if (FC_ATOMIC_GET(COMMITTED_VERSION_RING.count) > 0) {
+        logError("file: "__FILE__", line: %d, "
+                "ring is not empty, element count: %d", __LINE__,
+                FC_ATOMIC_GET(COMMITTED_VERSION_RING.count));
+        return EINVAL;
+    }
+
+    COMMITTED_VERSION_RING.continue_flag = false;
+    while (COMMITTED_VERSION_RING.running) {
+        fc_sleep_ms(1);
+    }
+
+    FC_ATOMIC_SET(COMMITTED_VERSION_RING.next_sn, sn + 1);
     return fc_create_thread(&tid, committed_version_thread_run,
             NULL, SF_G_THREAD_STACK_SIZE);
 }

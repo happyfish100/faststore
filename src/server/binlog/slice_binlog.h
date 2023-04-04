@@ -77,6 +77,21 @@ extern "C" {
                 FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
     }
 
+    static inline int slice_binlog_set_sn(const int64_t sn)
+    {
+        int result;
+
+        if ((result=committed_version_reinit(sn)) != 0) {
+            return result;
+        }
+        if ((result=slice_binlog_set_next_version_ex(sn + 1)) != 0) {
+            return result;
+        }
+
+        FC_ATOMIC_SET(SLICE_BINLOG_SN, sn);
+        return 0;
+    }
+
     int slice_binlog_rotate_file();
 
     int slice_binlog_get_position_by_dv(const int data_group_id,
@@ -233,7 +248,19 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source);
 
-    int slice_binlog_padding_for_check(const int source);
+    int slice_binlog_padding(const int row_count, const int source);
+
+    static inline int slice_binlog_padding_one(const int source)
+    {
+        const int row_count = 1;
+        return slice_binlog_padding(row_count, source);
+    }
+
+    static inline int slice_binlog_padding_for_check(const int source)
+    {
+        const int row_count = LOCAL_BINLOG_CHECK_LAST_SECONDS + 1;
+        return slice_binlog_padding(row_count, source);
+    }
 
     void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
 
