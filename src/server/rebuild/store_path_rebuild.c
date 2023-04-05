@@ -513,13 +513,12 @@ static int padding_slice_binlog(DataRebuildRedoContext *redo_ctx)
 {
     int result;
 
-    if (redo_ctx->last_sn <= FC_ATOMIC_GET(SLICE_BINLOG_SN)) {
-        return 0;
+    if (redo_ctx->last_sn > FC_ATOMIC_GET(SLICE_BINLOG_SN)) {
+        if ((result=slice_binlog_set_sn(redo_ctx->last_sn - 1)) != 0) {
+            return result;
+        }
     }
 
-    if ((result=slice_binlog_set_sn(redo_ctx->last_sn - 1)) != 0) {
-        return result;
-    }
     return slice_binlog_padding_one(BINLOG_SOURCE_REBUILD);
 }
 

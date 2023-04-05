@@ -738,6 +738,7 @@ int slice_binlog_padding(const int row_count, const int source)
     const int64_t data_version = 0;
     int result;
     int i;
+    int64_t sn = 0;
     time_t current_time;
     FSBlockKey bkey;
 
@@ -745,11 +746,19 @@ int slice_binlog_padding(const int row_count, const int source)
     bkey.oid = 1;
     bkey.offset = 0;
     for (i=1; i<=row_count; i++) {
+        sn = ob_index_generate_alone_sn();
         if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
-                        ob_index_generate_alone_sn(), data_version,
-                        source)) != 0)
+                        sn, data_version, source)) != 0)
         {
             return result;
+        }
+    }
+
+    if (sn > 0) {
+        while (sf_binlog_writer_get_last_version(
+                    &SLICE_BINLOG_WRITER.writer) < sn)
+        {
+            fc_sleep_ms(1);
         }
     }
 
