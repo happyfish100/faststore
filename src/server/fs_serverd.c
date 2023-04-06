@@ -416,7 +416,6 @@ int main(int argc, char *argv[])
         pthread_kill(schedule_tid, SIGINT);
     }
 
-    //trunk_write_thread_terminate();
     server_replication_terminate();
     server_recovery_terminate();
 
@@ -434,6 +433,11 @@ int main(int argc, char *argv[])
     server_binlog_destroy();
     server_storage_destroy();
     sf_service_destroy();
+    da_destroy(&DA_CTX);
+
+    if (STORAGE_ENABLED) {
+        STORAGE_ENGINE_TERMINATE_API();
+    }
 
     delete_pid_file(g_pid_filename);
     logInfo("file: "__FILE__", line: %d, "

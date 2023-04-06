@@ -146,8 +146,4 @@ int server_storage_init()
 
 void server_storage_destroy()
 {
-    /*
-    trunk_binlog_destroy();
-    trunk_id_info_destroy();
-    */
 }
