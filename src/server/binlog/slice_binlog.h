@@ -77,19 +77,28 @@ extern "C" {
                 FC_ATOMIC_GET(SLICE_BINLOG_SN) + 1);
     }
 
-    static inline int slice_binlog_set_sn(const int64_t sn)
+    static inline int slice_binlog_set_sn_ex(const int64_t sn,
+            const bool reset_binlog_sn)
     {
         int result;
 
         if ((result=committed_version_reinit(sn)) != 0) {
             return result;
         }
-        if ((result=slice_binlog_set_next_version_ex(sn + 1)) != 0) {
-            return result;
+        if (reset_binlog_sn) {
+            if ((result=slice_binlog_set_next_version_ex(sn + 1)) != 0) {
+                return result;
+            }
         }
 
         FC_ATOMIC_SET(SLICE_BINLOG_SN, sn);
         return 0;
+    }
+
+    static inline int slice_binlog_set_sn(const int64_t sn)
+    {
+        const bool reset_binlog_sn = true;
+        return slice_binlog_set_sn_ex(sn, reset_binlog_sn);
     }
 
     int slice_binlog_rotate_file();

@@ -229,3 +229,8 @@ void change_notify_load_done_signal()
         }
     }
 }
+
+void change_notify_signal_to_deal()
+{
+    pthread_cond_signal(&change_notify_ctx.queue.queue.lcp.cond);
+}

@@ -65,6 +65,8 @@ extern "C" {
 
     void change_notify_load_done_signal();
 
+    void change_notify_signal_to_deal();
+
 #ifdef __cplusplus
 }
 #endif

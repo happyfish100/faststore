@@ -832,6 +832,12 @@ int store_path_rebuild_redo_step2()
 
     switch (redo_ctx.current_stage) {
         case DATA_REBUILD_REDO_STAGE_REMOVE_DB:
+            if (!STORAGE_ENABLED) {
+                logError("file: "__FILE__", line: %d, "
+                        "can't change storage engine enabled to false "
+                        "during data path rebuild!", __LINE__);
+                return EINVAL;
+            }
             snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
                     FS_REBUILD_BINLOG_SUBDIR_NAME,
                     REBUILD_BINLOG_SUBDIR_NAME_DUMP);
