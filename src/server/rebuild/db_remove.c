@@ -27,6 +27,7 @@
 typedef struct {
     BufferInfo buffer;
     int64_t binlog_sn;
+    int64_t current_sn;
     int64_t last_sn;
 } DBRemoveContext;
 
@@ -90,11 +91,9 @@ static int skip_lines(DBRemoveContext *ctx, ServerBinlogReader *reader)
     char *line_end;
     char *buff_end;
     char *p;
-    int64_t sn;
     int remain;
     int result;
 
-    sn = ctx->binlog_sn;
     buff_end = ctx->buffer.buff + ctx->buffer.length;
     p = ctx->buffer.buff;
     while (p < buff_end) {
@@ -104,7 +103,7 @@ static int skip_lines(DBRemoveContext *ctx, ServerBinlogReader *reader)
         }
 
         ++line_end;
-        if (++sn == ctx->last_sn) {
+        if (++ctx->current_sn == ctx->last_sn) {
             remain = buff_end - line_end;
             if (remain > 0) {
                 if (lseek(reader->fd, -1 * remain, SEEK_CUR) < 0) {
@@ -135,6 +134,7 @@ static int find_position(DBRemoveContext *ctx, const char *subdir_name,
     pos->index = 0;
     pos->offset = 0;
     ctx->last_sn = event_dealer_get_last_data_version();
+    ctx->current_sn = ctx->binlog_sn;
     line_count = ctx->last_sn - ctx->binlog_sn;
     if (line_count <= 0) {
         return 0;
@@ -158,7 +158,9 @@ static int find_position(DBRemoveContext *ctx, const char *subdir_name,
         }
     }
 
-    if (result == 0) {
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    } else if (result == 0) {
         result = slice_binlog_set_sn_ex(ctx->last_sn, reset_binlog_sn);
     }
     *pos = reader.position;
@@ -196,7 +198,9 @@ int db_remove_slices(const char *subdir_name, const int write_index)
         }
     }
 
-    if (result == ENOENT) {
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    } else if (result == ENOENT) {
         result = 0;
     }
     fc_free_buffer(&ctx.buffer);
