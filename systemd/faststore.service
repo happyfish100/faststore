@@ -6,6 +6,7 @@ After=network-online.target
 Type=forking
 PIDFile=/opt/fastcfs/fstore/serverd.pid
 ExecStart=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf start
+ExecStartPost=/bin/sleep 0.1
 ExecStop=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf stop
 
 # No artificial start/stop timeout
