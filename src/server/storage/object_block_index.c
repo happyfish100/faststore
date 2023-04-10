@@ -24,6 +24,7 @@
 #include "diskallocator/binlog/trunk/trunk_space_log.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
+#include "../server_group_info.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/replica_binlog.h"
 #include "../rebuild/rebuild_binlog.h"
@@ -2040,6 +2041,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 {
     int result;
     int bytes;
+    bool remove;
     DumpSliceContext ctx;
     OBEntry **bucket;
     OBEntry **end;
@@ -2072,7 +2074,12 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             sp = ctx.slice_parray.slices;
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (slice->space.store->index == rebuild_store_index) {
+                if (rebuild_store_index >= 0) {
+                    remove = slice->space.store->index == rebuild_store_index;
+                } else {
+                    remove = !fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey));
+                }
+                if (remove) {
                     if (sp - ctx.slice_parray.slices == ctx.slice_parray.alloc) {
                         ctx.slice_parray.count = sp - ctx.slice_parray.slices;
                         if ((result=realloc_slice_parray(&ctx.slice_parray)) != 0) {

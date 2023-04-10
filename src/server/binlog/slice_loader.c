@@ -99,7 +99,6 @@ typedef struct slice_loader_context {
     volatile bool data_continue_flag;
     int dealing_threads;
     int64_t binlog_count;
-    int64_t slice_count;
     SliceParseThreadCtxArray parse_thread_array;
     SliceDataThreadCtxArray data_thread_array;
 } SliceLoaderContext;
@@ -288,7 +287,6 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         slice.bs_key.block)))
         {
             thread_ctx->skip_count++;
-            return 0;
         }
     }
 
@@ -910,7 +908,8 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     if (result == 0 && MIGRATE_CLEAN_ENABLED) {
         bool dump_slice_index;
         dump_slice_index = (get_total_skip_count(&ctx.data_thread_array) > 0);
-        result = migrate_clean_binlog(ctx.slice_count, dump_slice_index);
+        result = migrate_clean_binlog(get_total_count(&ctx.
+                    data_thread_array), dump_slice_index);
     }
 
     destroy_loader_context(&ctx);
