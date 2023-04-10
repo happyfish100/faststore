@@ -27,12 +27,12 @@
 #include "../shared_thread_pool.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/slice_dump.h"
+#include "../binlog/db_remove.h"
 #include "../storage/object_block_index.h"
 #include "rebuild_binlog.h"
 #include "binlog_spliter.h"
 #include "binlog_reader.h"
 #include "rebuild_thread.h"
-#include "db_remove.h"
 #include "store_path_rebuild.h"
 
 #define DATA_REBUILD_REDO_STAGE_BACKUP_TRUNK    1
@@ -77,8 +77,8 @@ static const char *get_slice_remove_filename(const int binlog_index,
     snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
             FS_REBUILD_BINLOG_SUBDIR_NAME,
             REBUILD_BINLOG_SUBDIR_NAME_DUMP);
-    return sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
-            binlog_index, filename, sizeof(filename));
+    return sf_binlog_writer_get_filename(DATA_PATH_STR,
+            subdir_name, binlog_index, filename, size);
 }
 
 static const char *get_slice_dump_filename(const int binlog_index,
@@ -791,8 +791,8 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
 
     if (total_slice_count > 0) {
         if ((result=slice_dump_to_files(get_slice_remove_filename,
-                get_slice_dump_filename, total_slice_count,
-                &redo_ctx.binlog_file_count)) != 0)
+                get_slice_dump_filename, BINLOG_SOURCE_REBUILD,
+                total_slice_count, &redo_ctx.binlog_file_count)) != 0)
         {
             return result;
         }

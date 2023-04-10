@@ -1835,11 +1835,10 @@ int64_t ob_index_get_total_slice_count()
 
 int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
-        const char *filename, int64_t *slice_count,
+        const char *filename, int64_t *slice_count, const int source,
         const bool need_padding, const bool need_lock)
 {
     const int64_t data_version = 0;
-    const int source = BINLOG_SOURCE_DUMP;
     int result;
     int i;
     int64_t next_sn;
@@ -2036,8 +2035,7 @@ static int remove_slices_to_file(OBEntry *ob, DumpSliceContext *ctx)
 
 int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
-        const int rebuild_store_index, const char *filename,
-        int64_t *slice_count)
+        const char *filename, int64_t *slice_count, const int source)
 {
     int result;
     int bytes;
@@ -2074,10 +2072,13 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             sp = ctx.slice_parray.slices;
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (rebuild_store_index >= 0) {
-                    remove = slice->space.store->index == rebuild_store_index;
-                } else {
+                if (source == BINLOG_SOURCE_REBUILD) {
+                    remove = (slice->space.store->index ==
+                            DATA_REBUILD_PATH_INDEX);
+                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
                     remove = !fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey));
+                } else {
+                    remove = false;
                 }
                 if (remove) {
                     if (sp - ctx.slice_parray.slices == ctx.slice_parray.alloc) {

@@ -27,7 +27,7 @@ extern "C" {
 #endif
 
 int slice_dump_to_files(slice_dump_get_filename_func get_remove_filename_func,
-        slice_dump_get_filename_func get_keep_filename_func,
+        slice_dump_get_filename_func get_keep_filename_func, const int source,
         const int64_t total_slice_count, int *binlog_file_count);
 
 #ifdef __cplusplus
