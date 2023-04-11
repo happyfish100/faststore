@@ -27,7 +27,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               binlog/replica_clean.o binlog/slice_clean.o   \
               binlog/slice_dedup.o binlog/binlog_rollback.o \
               binlog/slice_dump.o binlog/trunk_migrate.o \
-              binlog/db_remove.o  \
+              binlog/slice_space_migrate.o binlog/db_remove.o  \
               replication/replication_processor.o \
               replication/rpc_result_ring.o replication/replication_common.o    \
               replication/replication_caller.o replication/replication_callee.o \
