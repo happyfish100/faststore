@@ -2039,7 +2039,6 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 {
     int result;
     int bytes;
-    bool remove;
     DumpSliceContext ctx;
     OBEntry **bucket;
     OBEntry **end;
@@ -2073,24 +2072,26 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
                 if (source == BINLOG_SOURCE_REBUILD) {
-                    remove = (slice->space.store->index ==
-                            DATA_REBUILD_PATH_INDEX);
-                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
-                    remove = !fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey));
-                } else {
-                    remove = false;
-                }
-                if (remove) {
-                    if (sp - ctx.slice_parray.slices == ctx.slice_parray.alloc) {
-                        ctx.slice_parray.count = sp - ctx.slice_parray.slices;
-                        if ((result=realloc_slice_parray(&ctx.slice_parray)) != 0) {
-                            ctx.slice_parray.count = 0;
-                            break;
-                        }
-                        sp = ctx.slice_parray.slices + ctx.slice_parray.count;
+                    if (slice->space.store->index != DATA_REBUILD_PATH_INDEX) {
+                        continue;
                     }
-                    *sp++ = slice;
+                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
+                    if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
+                        continue;
+                    }
+                } else {
+                    continue;
                 }
+
+                if (sp - ctx.slice_parray.slices == ctx.slice_parray.alloc) {
+                    ctx.slice_parray.count = sp - ctx.slice_parray.slices;
+                    if ((result=realloc_slice_parray(&ctx.slice_parray)) != 0) {
+                        ctx.slice_parray.count = 0;
+                        break;
+                    }
+                    sp = ctx.slice_parray.slices + ctx.slice_parray.count;
+                }
+                *sp++ = slice;
             }
 
             ctx.slice_parray.count = sp - ctx.slice_parray.slices;
@@ -2116,6 +2117,78 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 
     free(ctx.slice_parray.slices);
     sf_buffered_writer_destroy(&ctx.writer);
+    return result;
+}
+
+int ob_index_remove_slices_to_file_for_reclaim_space(OBHashtable *htable,
+        const int64_t start_index, const int64_t end_index,
+        const char *filename, int64_t *slice_count, const int source)
+{
+    int result;
+    uint64_t sn;
+    SFBufferedWriter writer;
+    OBEntry **bucket;
+    OBEntry **end;
+    OBEntry *ob;
+    OBSliceEntry *slice;
+    UniqSkiplistIterator it;
+
+    *slice_count = 0;
+    if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
+        return result;
+    }
+
+    sn = 0;
+    end = htable->buckets + end_index;
+    for (bucket=htable->buckets+start_index; result == 0 &&
+            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+    {
+        if (*bucket == NULL) {
+            continue;
+        }
+
+        ob = *bucket;
+        do {
+            uniq_skiplist_iterator(ob->slices, &it);
+            while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                if (source == BINLOG_SOURCE_REBUILD) {
+                    if (slice->space.store->index != DATA_REBUILD_PATH_INDEX) {
+                        continue;
+                    }
+                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
+                    if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
+                        continue;
+                    }
+                } else {
+                    continue;
+                }
+
+                if (SF_BUFFERED_WRITER_REMAIN(writer) <
+                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+                {
+                    if ((result=sf_buffered_writer_save(&writer)) != 0) {
+                        return result;
+                    }
+                }
+                writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                        slice, g_current_time, ++sn, slice->data_version,
+                        source, writer.buffer.current);
+                ++(*slice_count);
+            }
+
+            ob = ob->next;
+        } while (ob != NULL && result == 0);
+    }
+
+    if (!SF_G_CONTINUE_FLAG) {
+        result = EINTR;
+    }
+
+    if (result == 0 && SF_BUFFERED_WRITER_LENGTH(writer) > 0) {
+        result = sf_buffered_writer_save(&writer);
+    }
+
+    sf_buffered_writer_destroy(&writer);
     return result;
 }
 

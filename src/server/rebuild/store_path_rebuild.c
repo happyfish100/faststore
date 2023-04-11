@@ -469,7 +469,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
                     thread_index, subdir_name, sizeof(subdir_name));
             rebuild_binlog_reader_unlink_subdir(subdir_name);
         }
-        rebuild_binlog_reader_rmdir(input_path);
+        fs_rmdir(input_path);
 
         logInfo("file: "__FILE__", line: %d, "
                 "re-split slice binlog done, slice count: %"PRId64", "
@@ -500,10 +500,14 @@ static int unlink_dump_subdir(DataRebuildRedoContext *redo_ctx)
     snprintf(filepath, sizeof(filepath), "%s/%s",
             DATA_PATH_STR, subdir_name);
     if (access(filepath, F_OK) != 0) {
-        if (errno == ENOENT) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
             return 0;
         }
-        return errno != 0 ? errno : EPERM;
+        logError("file: "__FILE__", line: %d, access path %s fail, "
+                "errno: %d, error info: %s", __LINE__, filepath,
+                result, STRERROR(result));
+        return result;
     }
 
     for (binlog_index = 0; binlog_index < redo_ctx->
@@ -516,7 +520,7 @@ static int unlink_dump_subdir(DataRebuildRedoContext *redo_ctx)
         }
     }
 
-    return rebuild_binlog_reader_rmdir(filepath);
+    return fs_rmdir(filepath);
 }
 
 
@@ -721,7 +725,7 @@ int store_path_rebuild_redo_step2()
             "%s/%s/%s", DATA_PATH_STR,
             FS_REBUILD_BINLOG_SUBDIR_NAME,
             REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
-    return rebuild_binlog_reader_rmdir(filepath);
+    return fs_rmdir(filepath);
 }
 
 static inline int dump_trunk_binlog()

@@ -47,7 +47,7 @@ typedef struct binlog_clean_redo_context {
 #define MIGRATE_REDO_STAGE_BACKUP_SLICE    1
 #define MIGRATE_REDO_STAGE_RENAME_SLICE    2
 #define MIGRATE_REDO_STAGE_PADDING_SLICE   3
-#define MIGRATE_REDO_STAGE_REMOVE_SPACE    4  //remove slice spaces
+#define MIGRATE_REDO_STAGE_RECLAIM_SPACE   4  //reclaim slice spaces
 #define MIGRATE_REDO_STAGE_REMOVE_DB       5  //for storage engine only
 #define MIGRATE_REDO_STAGE_REMOVE_REPLICA  6
 #define MIGRATE_REDO_STAGE_CLEANUP         7
@@ -324,6 +324,93 @@ static int padding_slice_binlog(BinlogCleanRedoContext *redo_ctx)
     return slice_binlog_padding_one(BINLOG_SOURCE_MIGRATE_CLEAN);
 }
 
+static int reclaim_slice_spaces(BinlogCleanRedoContext *redo_ctx)
+{
+    /*
+    struct fc_queue_info space_chain;
+    DATrunkSpaceLogRecord *record;
+
+    //int result;
+    //TODO
+
+    if ((record=da_trunk_space_log_alloc_record(&DA_CTX)) == NULL) {
+        sprintf(error_info, "alloc record object fail "
+                "because out of memory");
+        return ENOMEM;
+    }
+
+    record->oid = r.bs_key.block.oid;
+    record->fid = r.bs_key.block.offset;
+    record->extra = r.bs_key.slice.offset;
+    record->op_type = da_binlog_op_type_reclaim_space;
+    record->storage.version = r.data_version;
+    record->storage.trunk_id = r.space.id_info.id;
+    record->storage.length = r.bs_key.slice.length;
+    record->storage.offset = r.space.offset;
+    record->storage.size = r.space.size;
+    DA_SPACE_LOG_ADD_TO_CHAIN(&ctx->space_chain, record);
+    ctx->record_count++;
+
+    //da_trunk_space_log_push_chain(&DA_CTX, &space_chain);
+    */
+
+    return 0;
+}
+
+static int unlink_dump_subdir(BinlogCleanRedoContext *redo_ctx)
+{
+    int result;
+    int binlog_index;
+    char filepath[PATH_MAX];
+    char filename[PATH_MAX];
+
+    snprintf(filepath, sizeof(filepath), "%s/%s", DATA_PATH_STR,
+            MIGRATE_DUMP_SUBDIR_FULLNAME);
+    if (access(filepath, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            return 0;
+        }
+        logError("file: "__FILE__", line: %d, access path %s fail, "
+                "errno: %d, error info: %s", __LINE__, filepath,
+                result, STRERROR(result));
+        return result;
+    }
+
+    for (binlog_index = 0; binlog_index < redo_ctx->
+            binlog_file_count; binlog_index++)
+    {
+        sf_binlog_writer_get_filename(DATA_PATH_STR,
+                MIGRATE_DUMP_SUBDIR_FULLNAME, binlog_index,
+                filename, sizeof(filename));
+        if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
+            return result;
+        }
+    }
+
+    return fs_rmdir(filepath);
+}
+
+static int cleanup(BinlogCleanRedoContext *redo_ctx)
+{
+    int result;
+    char path[PATH_MAX];
+
+    if ((result=unlink_dump_subdir(redo_ctx)) != 0) {
+        return result;
+    }
+
+    if ((result=fc_delete_file_ex(redo_ctx->redo_filename,
+                    "redo mark")) != 0)
+    {
+        return result;
+    }
+
+    snprintf(path, sizeof(path), "%s/%s", DATA_PATH_STR,
+            MIGRATE_SUBDIR_NAME);
+    return fs_rmdir(path);
+}
+
 static int redo(BinlogCleanRedoContext *redo_ctx)
 {
     int result;
@@ -355,13 +442,15 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
                         STRERROR(result));
                 return result;
             }
-            redo_ctx->current_stage = MIGRATE_REDO_STAGE_REMOVE_SPACE;
+            redo_ctx->current_stage = MIGRATE_REDO_STAGE_RECLAIM_SPACE;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
             //continue next stage
-        case MIGRATE_REDO_STAGE_REMOVE_SPACE:
-            //TODO
+        case MIGRATE_REDO_STAGE_RECLAIM_SPACE:
+            if ((result=reclaim_slice_spaces(redo_ctx)) != 0) {
+                return result;
+            }
             if (STORAGE_ENABLED) {
                 redo_ctx->current_stage = MIGRATE_REDO_STAGE_REMOVE_DB;
             } else {
@@ -409,10 +498,13 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
             }
             //continue next stage
         case MIGRATE_REDO_STAGE_CLEANUP:
+            if ((result=cleanup(redo_ctx)) != 0) {
+                return result;
+            }
             break;
     }
 
-    return fc_delete_file_ex(redo_ctx->redo_filename, "redo mark");
+    return 0;
 }
 
 int migrate_clean_redo()

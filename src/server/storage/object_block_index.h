@@ -291,6 +291,10 @@ extern "C" {
             const int64_t start_index, const int64_t end_index,
             const char *filename, int64_t *slice_count, const int source);
 
+    int ob_index_remove_slices_to_file_for_reclaim_space(OBHashtable *htable,
+            const int64_t start_index, const int64_t end_index,
+            const char *filename, int64_t *slice_count, const int source);
+
     int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
             const int data_group_id, const int64_t padding_data_version,
             const char *filename, int64_t *total_slice_count,

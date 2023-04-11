@@ -163,5 +163,5 @@ int rebuild_binlog_reader_unlink_subdir(const char *subdir_name)
         return result;
     }
 
-    return rebuild_binlog_reader_rmdir(filepath);
+    return fs_rmdir(filepath);
 }
