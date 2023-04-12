@@ -24,9 +24,10 @@
 #include "../shared_thread_pool.h"
 #include "../storage/object_block_index.h"
 #include "slice_binlog.h"
+#include "replica_binlog.h"
 #include "slice_dump.h"
 #include "db_remove.h"
-#include "replica_binlog.h"
+#include "slice_space_migrate.h"
 #include "migrate_clean.h"
 
 typedef struct binlog_clean_redo_context {
@@ -37,20 +38,24 @@ typedef struct binlog_clean_redo_context {
     int64_t last_sn;
 } BinlogCleanRedoContext;
 
-#define MIGRATE_SUBDIR_NAME             "migrate"
-#define MIGRATE_BINLOG_SUBDIR_NAME_DUMP "dump"
-#define MIGRATE_DUMP_SUBDIR_FULLNAME    MIGRATE_SUBDIR_NAME"/" \
+#define MIGRATE_SUBDIR_NAME              "migrate"
+#define MIGRATE_BINLOG_SUBDIR_NAME_DUMP  "dbremove"
+#define MIGRATE_BINLOG_SUBDIR_NAME_SPACE "space"
+#define MIGRATE_DUMP_SUBDIR_FULLNAME     MIGRATE_SUBDIR_NAME"/" \
     MIGRATE_BINLOG_SUBDIR_NAME_DUMP
+#define MIGRATE_SPACE_SUBDIR_FULLNAME    MIGRATE_SUBDIR_NAME"/" \
+    MIGRATE_BINLOG_SUBDIR_NAME_SPACE
 #define BACKUP_SUBDIR_NAME_STR          "bak"
 #define BACKUP_SUBDIR_NAME_LEN  (sizeof(BACKUP_SUBDIR_NAME_STR) - 1)
 
-#define MIGRATE_REDO_STAGE_BACKUP_SLICE    1
-#define MIGRATE_REDO_STAGE_RENAME_SLICE    2
-#define MIGRATE_REDO_STAGE_PADDING_SLICE   3
-#define MIGRATE_REDO_STAGE_RECLAIM_SPACE   4  //reclaim slice spaces
-#define MIGRATE_REDO_STAGE_REMOVE_DB       5  //for storage engine only
-#define MIGRATE_REDO_STAGE_REMOVE_REPLICA  6
-#define MIGRATE_REDO_STAGE_CLEANUP         7
+#define MIGRATE_REDO_STAGE_BACKUP_SLICE            1
+#define MIGRATE_REDO_STAGE_RENAME_SLICE            2
+#define MIGRATE_REDO_STAGE_PADDING_SLICE           3
+#define MIGRATE_REDO_STAGE_RECLAIM_SPACE_PREPARE   4  //reclaim slice spaces
+#define MIGRATE_REDO_STAGE_RECLAIM_SPACE_REDO      5  //reclaim slice spaces
+#define MIGRATE_REDO_STAGE_REMOVE_DB               6  //for storage engine only
+#define MIGRATE_REDO_STAGE_REMOVE_REPLICA          7
+#define MIGRATE_REDO_STAGE_CLEANUP                 8
 
 #define MIGRATE_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
 #define MIGRATE_REDO_ITEM_CURRENT_STAGE  "current_stage"
@@ -76,18 +81,26 @@ static const char *get_slice_dump_filename(const
 static inline int check_make_subdirs()
 {
     int result;
-    int len;
-    char path[PATH_MAX];
+    char migrage_path[PATH_MAX];
+    char subdir_path[PATH_MAX];
 
-    len = snprintf(path, sizeof(path), "%s/%s",
+    snprintf(migrage_path, sizeof(migrage_path), "%s/%s",
             DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
-    if ((result=fc_check_mkdir(path, 0755)) != 0) {
+    if ((result=fc_check_mkdir(migrage_path, 0755)) != 0) {
         return result;
     }
 
-    snprintf(path + len, sizeof(path) - len, "/%s",
-            MIGRATE_BINLOG_SUBDIR_NAME_DUMP);
-    return fc_check_mkdir(path, 0755);
+    if (STORAGE_ENABLED) {
+        snprintf(subdir_path, sizeof(subdir_path), "%s/%s", migrage_path,
+                MIGRATE_BINLOG_SUBDIR_NAME_DUMP);
+        if ((result=fc_check_mkdir(subdir_path, 0755)) != 0) {
+            return result;
+        }
+    }
+
+    snprintf(subdir_path, sizeof(subdir_path), "%s/%s", migrage_path,
+            MIGRATE_BINLOG_SUBDIR_NAME_SPACE);
+    return fc_check_mkdir(subdir_path, 0755);
 }
 
 static inline const char *get_slice_mark_filename(
@@ -324,48 +337,16 @@ static int padding_slice_binlog(BinlogCleanRedoContext *redo_ctx)
     return slice_binlog_padding_one(BINLOG_SOURCE_MIGRATE_CLEAN);
 }
 
-static int reclaim_slice_spaces(BinlogCleanRedoContext *redo_ctx)
-{
-    /*
-    struct fc_queue_info space_chain;
-    DATrunkSpaceLogRecord *record;
-
-    //int result;
-    //TODO
-
-    if ((record=da_trunk_space_log_alloc_record(&DA_CTX)) == NULL) {
-        sprintf(error_info, "alloc record object fail "
-                "because out of memory");
-        return ENOMEM;
-    }
-
-    record->oid = r.bs_key.block.oid;
-    record->fid = r.bs_key.block.offset;
-    record->extra = r.bs_key.slice.offset;
-    record->op_type = da_binlog_op_type_reclaim_space;
-    record->storage.version = r.data_version;
-    record->storage.trunk_id = r.space.id_info.id;
-    record->storage.length = r.bs_key.slice.length;
-    record->storage.offset = r.space.offset;
-    record->storage.size = r.space.size;
-    DA_SPACE_LOG_ADD_TO_CHAIN(&ctx->space_chain, record);
-    ctx->record_count++;
-
-    //da_trunk_space_log_push_chain(&DA_CTX, &space_chain);
-    */
-
-    return 0;
-}
-
-static int unlink_dump_subdir(BinlogCleanRedoContext *redo_ctx)
+static int unlink_migrate_subdir(BinlogCleanRedoContext *redo_ctx,
+        const char *subdir_name, const int binlog_file_count)
 {
     int result;
     int binlog_index;
     char filepath[PATH_MAX];
     char filename[PATH_MAX];
 
-    snprintf(filepath, sizeof(filepath), "%s/%s", DATA_PATH_STR,
-            MIGRATE_DUMP_SUBDIR_FULLNAME);
+    snprintf(filepath, sizeof(filepath), "%s/%s",
+            DATA_PATH_STR, subdir_name);
     if (access(filepath, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
@@ -377,12 +358,9 @@ static int unlink_dump_subdir(BinlogCleanRedoContext *redo_ctx)
         return result;
     }
 
-    for (binlog_index = 0; binlog_index < redo_ctx->
-            binlog_file_count; binlog_index++)
-    {
-        sf_binlog_writer_get_filename(DATA_PATH_STR,
-                MIGRATE_DUMP_SUBDIR_FULLNAME, binlog_index,
-                filename, sizeof(filename));
+    for (binlog_index=0; binlog_index<binlog_file_count; binlog_index++) {
+        sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
+                binlog_index, filename, sizeof(filename));
         if ((result=fc_delete_file_ex(filename, "binlog")) != 0) {
             return result;
         }
@@ -394,9 +372,20 @@ static int unlink_dump_subdir(BinlogCleanRedoContext *redo_ctx)
 static int cleanup(BinlogCleanRedoContext *redo_ctx)
 {
     int result;
-    char path[PATH_MAX];
+    char migrate_path[PATH_MAX];
 
-    if ((result=unlink_dump_subdir(redo_ctx)) != 0) {
+    if (STORAGE_ENABLED) {
+        if ((result=unlink_migrate_subdir(redo_ctx,
+                        MIGRATE_DUMP_SUBDIR_FULLNAME,
+                        redo_ctx->binlog_file_count)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if ((result=unlink_migrate_subdir(redo_ctx,
+                    MIGRATE_SPACE_SUBDIR_FULLNAME, 1)) != 0)
+    {
         return result;
     }
 
@@ -406,9 +395,41 @@ static int cleanup(BinlogCleanRedoContext *redo_ctx)
         return result;
     }
 
-    snprintf(path, sizeof(path), "%s/%s", DATA_PATH_STR,
-            MIGRATE_SUBDIR_NAME);
-    return fs_rmdir(path);
+    snprintf(migrate_path, sizeof(migrate_path), "%s/%s",
+            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+    return fs_rmdir(migrate_path);
+}
+
+static int reclaim_space_prepare(BinlogCleanRedoContext *redo_ctx)
+{
+    const int binlog_index = 0;
+    const bool dump_slice = false;
+    int result;
+    char filename[PATH_MAX];
+    int64_t slice_count;
+    int64_t start_time_ms;
+    char time_used[32];
+
+    logInfo("file: "__FILE__", line: %d, "
+            "dump migrated slices to file ...", __LINE__);
+    start_time_ms = get_current_time_ms();
+    sf_binlog_writer_get_filename(DATA_PATH_STR,
+            MIGRATE_SPACE_SUBDIR_FULLNAME, binlog_index,
+            filename, sizeof(filename));
+    if ((result=ob_index_remove_slices_to_file_for_reclaim(0,
+                    g_ob_hashtable.capacity, filename, &slice_count,
+                    BINLOG_SOURCE_MIGRATE_CLEAN)) != 0)
+    {
+        return result;
+    }
+
+    long_to_comma_str(get_current_time_ms() - start_time_ms, time_used);
+    logInfo("file: "__FILE__", line: %d, "
+            "dump migrated slices to file done, slice count: %"PRId64", "
+            "time_used: %s ms", __LINE__, slice_count, time_used);
+
+    return slice_space_migrate_create(MIGRATE_SPACE_SUBDIR_FULLNAME,
+            binlog_index, dump_slice, da_binlog_op_type_reclaim_space);
 }
 
 static int redo(BinlogCleanRedoContext *redo_ctx)
@@ -442,13 +463,23 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
                         STRERROR(result));
                 return result;
             }
-            redo_ctx->current_stage = MIGRATE_REDO_STAGE_RECLAIM_SPACE;
+            redo_ctx->current_stage = MIGRATE_REDO_STAGE_RECLAIM_SPACE_PREPARE;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
             //continue next stage
-        case MIGRATE_REDO_STAGE_RECLAIM_SPACE:
-            if ((result=reclaim_slice_spaces(redo_ctx)) != 0) {
+        case MIGRATE_REDO_STAGE_RECLAIM_SPACE_PREPARE:
+            if ((result=reclaim_space_prepare(redo_ctx)) != 0) {
+                return result;
+            }
+            redo_ctx->current_stage = MIGRATE_REDO_STAGE_RECLAIM_SPACE_REDO;
+            if ((result=write_to_redo_file(redo_ctx)) != 0) {
+                return result;
+            }
+            //continue next stage
+        case MIGRATE_REDO_STAGE_RECLAIM_SPACE_REDO:
+            result = slice_space_migrate_redo(MIGRATE_SPACE_SUBDIR_FULLNAME);
+            if (result != 0) {
                 return result;
             }
             if (STORAGE_ENABLED) {

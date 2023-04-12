@@ -88,6 +88,11 @@ extern "C" {
     ob_index_remove_slices_to_file_ex(&g_ob_hashtable, start_index, \
             end_index, filename, slice_count, source)
 
+#define ob_index_remove_slices_to_file_for_reclaim(start_index, \
+        end_index, filename, slice_count, source)   \
+    ob_index_remove_slices_to_file_for_reclaim_ex(&g_ob_hashtable, \
+            start_index, end_index, filename, slice_count, source)
+
 #define ob_index_dump_replica_binlog_to_file(data_group_id, \
         padding_data_version, filename, \
         total_slice_count, total_replica_count) \
@@ -291,7 +296,7 @@ extern "C" {
             const int64_t start_index, const int64_t end_index,
             const char *filename, int64_t *slice_count, const int source);
 
-    int ob_index_remove_slices_to_file_for_reclaim_space(OBHashtable *htable,
+    int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,
             const char *filename, int64_t *slice_count, const int source);
 

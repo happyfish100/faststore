@@ -29,7 +29,7 @@
 #include "slice_space_migrate.h"
 
 typedef struct slice_space_migrate_context {
-    char subdir_name[64];
+    char subdir_name[128];
     char mark_filename[PATH_MAX];
     int64_t last_sn;
     DABinlogOpType op_type;
@@ -148,7 +148,7 @@ static int parse_to_chain(TrunkMigrateContext *ctx, char *error_info)
             record->oid = r.bs_key.block.oid;
             record->fid = r.bs_key.block.offset;
             record->extra = r.bs_key.slice.offset;
-            record->op_type = da_binlog_op_type_consume_space;
+            record->op_type = ctx->op_type;
             record->storage.version = r.data_version;
             record->storage.trunk_id = r.space.id_info.id;
             record->storage.length = r.bs_key.slice.length;
