@@ -196,27 +196,27 @@ int slice_dump_to_files(slice_dump_get_filename_func get_remove_filename_func,
     }
     *binlog_file_count = thread_count;
 
-    logInfo("file: "__FILE__", line: %d, "
-            "begin remove slice binlog ...", __LINE__);
-    start_time = get_current_time_ms();
+    if (get_remove_filename_func != NULL) {
+        logInfo("file: "__FILE__", line: %d, "
+                "begin remove slice binlog ...", __LINE__);
+        start_time = get_current_time_ms();
+        result = dump_slices(thread_count, remove_slices_to_file,
+                get_remove_filename_func, source, (fc_thread_pool_callback)
+                slice_remove_thread_run, &remove_slice_count);
+        if (result != 0) {
+            return result;
+        }
 
-    result = dump_slices(thread_count, remove_slices_to_file,
-            get_remove_filename_func, source, (fc_thread_pool_callback)
-            slice_remove_thread_run, &remove_slice_count);
-    if (result != 0) {
-        return result;
+        logInfo("file: "__FILE__", line: %d, "
+                "remove slice binlog, slice count: %"PRId64", "
+                "time used: %s ms", __LINE__, remove_slice_count,
+                long_to_comma_str(get_current_time_ms() -
+                    start_time, time_used));
     }
-
-    logInfo("file: "__FILE__", line: %d, "
-            "remove slice binlog, slice count: %"PRId64", "
-            "time used: %s ms", __LINE__, remove_slice_count,
-            long_to_comma_str(get_current_time_ms() -
-                start_time, time_used));
 
     logInfo("file: "__FILE__", line: %d, "
             "begin dump slice binlog ...", __LINE__);
     start_time = get_current_time_ms();
-
     result = dump_slices(thread_count, dump_slices_to_file,
             get_keep_filename_func, source, (fc_thread_pool_callback)
             slice_dump_thread_run, &keep_slice_count);

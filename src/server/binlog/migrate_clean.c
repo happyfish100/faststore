@@ -578,16 +578,16 @@ int migrate_clean_binlog(const int64_t total_slice_count,
     }
 
     if (dump_slice_index) {
-        if ((result=slice_dump_to_files(get_slice_remove_filename,
-                get_slice_dump_filename, BINLOG_SOURCE_MIGRATE_CLEAN,
-                total_slice_count, &redo_ctx.binlog_file_count)) != 0)
+        if ((result=slice_dump_to_files((STORAGE_ENABLED ?
+                            get_slice_remove_filename : NULL),
+                        get_slice_dump_filename, BINLOG_SOURCE_MIGRATE_CLEAN,
+                        total_slice_count, &redo_ctx.binlog_file_count)) != 0)
         {
             return result;
         }
         redo_ctx.current_stage = MIGRATE_REDO_STAGE_BACKUP_SLICE;
     } else {
-        redo_ctx.binlog_file_count =
-            slice_binlog_get_current_write_index() + 1;
+        redo_ctx.binlog_file_count = 0;
         redo_ctx.current_stage = MIGRATE_REDO_STAGE_REMOVE_REPLICA;
     }
 
