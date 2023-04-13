@@ -18,10 +18,10 @@
 #include "fastcommon/sched_thread.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
-#include "../binlog/binlog_reader.h"
-#include "../binlog/slice_binlog.h"
+#include "../rebuild/rebuild_binlog.h"
 #include "../db/event_dealer.h"
-#include "rebuild_binlog.h"
+#include "binlog_reader.h"
+#include "slice_binlog.h"
 #include "db_remove.h"
 
 typedef struct {

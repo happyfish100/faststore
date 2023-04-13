@@ -2043,6 +2043,9 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
+    OBEntry *current;
+    OBEntry *previous;
+    OBSegment *segment;
     OBSliceEntry *slice;
     OBSliceEntry **sp;
     UniqSkiplistIterator it;
@@ -2058,6 +2061,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
         return result;
     }
 
+    previous = NULL;
     end = htable->buckets + end_index;
     for (bucket=htable->buckets+start_index; result == 0 &&
             bucket<end && SF_G_CONTINUE_FLAG; bucket++)
@@ -2066,8 +2070,18 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             continue;
         }
 
+        segment = ob_shared_ctx.segment_array.segments + (bucket - htable->
+                buckets) % ob_shared_ctx.segment_array.count;
         ob = *bucket;
-        do {
+        while (ob != NULL) {
+            if ((source == BINLOG_SOURCE_MIGRATE_CLEAN) &&
+                    fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey)))
+            {
+                previous = ob;
+                ob = ob->next;
+                continue;
+            }
+
             sp = ctx.slice_parray.slices;
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
@@ -2075,19 +2089,14 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
                     if (slice->space.store->index != DATA_REBUILD_PATH_INDEX) {
                         continue;
                     }
-                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
-                    if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
-                        continue;
-                    }
-                } else {
+                } else if (source != BINLOG_SOURCE_MIGRATE_CLEAN) {
                     continue;
                 }
 
                 if (sp - ctx.slice_parray.slices == ctx.slice_parray.alloc) {
                     ctx.slice_parray.count = sp - ctx.slice_parray.slices;
                     if ((result=realloc_slice_parray(&ctx.slice_parray)) != 0) {
-                        ctx.slice_parray.count = 0;
-                        break;
+                        return result;
                     }
                     sp = ctx.slice_parray.slices + ctx.slice_parray.count;
                 }
@@ -2096,15 +2105,24 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 
             ctx.slice_parray.count = sp - ctx.slice_parray.slices;
             if (ctx.slice_parray.count > 0) {
-                result = remove_slices_to_file(ob, &ctx);
-                if (result != 0) {
-                    break;
+                if ((result=remove_slices_to_file(ob, &ctx)) != 0) {
+                    return result;
                 }
                 *slice_count += ctx.slice_parray.count;
-            }
 
-            ob = ob->next;
-        } while (ob != NULL && result == 0);
+                if (uniq_skiplist_empty(ob->slices)) {
+                    current = ob;
+                    ob = ob->next;
+                    ob_entry_remove(segment, htable, bucket, current, previous);
+                } else {
+                    previous = ob;
+                    ob = ob->next;
+                }
+            } else {
+                previous = ob;
+                ob = ob->next;
+            }
+        }
     }
 
     if (!SF_G_CONTINUE_FLAG) {
@@ -2122,14 +2140,18 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 
 int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
-        const char *filename, int64_t *slice_count, const int source)
+        const char *filename, int64_t *slice_count)
 {
+    const int source = BINLOG_SOURCE_MIGRATE_CLEAN;
     int result;
     uint64_t sn;
     SFBufferedWriter writer;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
+    OBEntry *current;
+    OBEntry *previous;
+    OBSegment *segment;
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
 
@@ -2147,22 +2169,19 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
             continue;
         }
 
+        segment = ob_shared_ctx.segment_array.segments + (bucket - htable->
+                buckets) % ob_shared_ctx.segment_array.count;
+        previous = NULL;
         ob = *bucket;
-        do {
+        while (ob != NULL) {
+            if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
+                previous = ob;
+                ob = ob->next;
+                continue;
+            }
+
             uniq_skiplist_iterator(ob->slices, &it);
             while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (source == BINLOG_SOURCE_REBUILD) {
-                    if (slice->space.store->index != DATA_REBUILD_PATH_INDEX) {
-                        continue;
-                    }
-                } else if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
-                    if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
-                        continue;
-                    }
-                } else {
-                    continue;
-                }
-
                 if (SF_BUFFERED_WRITER_REMAIN(writer) <
                         FS_SLICE_BINLOG_MAX_RECORD_SIZE)
                 {
@@ -2176,8 +2195,10 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
                 ++(*slice_count);
             }
 
+            current = ob;
             ob = ob->next;
-        } while (ob != NULL && result == 0);
+            ob_entry_remove(segment, htable, bucket, current, previous);
+        }
     }
 
     if (!SF_G_CONTINUE_FLAG) {

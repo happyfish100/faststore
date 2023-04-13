@@ -417,8 +417,8 @@ static int reclaim_space_prepare(BinlogCleanRedoContext *redo_ctx)
             MIGRATE_SPACE_SUBDIR_FULLNAME, binlog_index,
             filename, sizeof(filename));
     if ((result=ob_index_remove_slices_to_file_for_reclaim(0,
-                    g_ob_hashtable.capacity, filename, &slice_count,
-                    BINLOG_SOURCE_MIGRATE_CLEAN)) != 0)
+                    g_ob_hashtable.capacity, filename,
+                    &slice_count)) != 0)
     {
         return result;
     }
