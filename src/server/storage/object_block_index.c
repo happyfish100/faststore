@@ -1832,7 +1832,9 @@ int64_t ob_index_get_total_slice_count()
 
 typedef struct {
     SFBufferedWriter *writer;
+    int is_my_data_group;
     int source;
+    time_t current_time;
     int64_t current_sn;
     int64_t total_slice_count;
 } DumpSlicesContext;
@@ -1846,11 +1848,17 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
     string_t *s;
     string_t *end;
     int64_t data_version;
+    int is_my_data_group;
     DASliceType slice_type;
     FSSliceSize ssize;
     DATrunkSpaceInfo space;
 
     dump_ctx = arg;
+    is_my_data_group = fs_is_my_data_group(FS_DATA_GROUP_ID(*bkey)) ? 1 : 0;
+    if (is_my_data_group != dump_ctx->is_my_data_group) {
+        return 0;
+    }
+
     segment = ob_shared_ctx.segment_array.segments;
     if ((result=block_serializer_fetch_and_unpack(
                     segment, bkey, &fv)) != 0)
@@ -1877,7 +1885,7 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
             }
         }
         dump_ctx->writer->buffer.current += slice_binlog_log_add_slice_to_buff1(
-                slice_type, bkey, &ssize, &space, g_current_time,
+                slice_type, bkey, &ssize, &space, dump_ctx->current_time,
                 ++(dump_ctx->current_sn), data_version, dump_ctx->source,
                 dump_ctx->writer->buffer.current);
     }
@@ -1894,7 +1902,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     const int64_t data_version = 0;
     int result;
     int i;
-    int64_t next_sn;
+    int64_t current_sn;
     SFBufferedWriter writer;
     OBSegment *segment = NULL;
     OBEntry **bucket;
@@ -1904,7 +1912,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     OBSliceEntry *slice;
     UniqSkiplistIterator it;
 
-    next_sn = 0;
+    current_sn = 0;
     *slice_count = 0;
     if ((result=sf_buffered_writer_init(&writer, filename)) != 0) {
         return result;
@@ -1912,16 +1920,20 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
 
     current_time = g_current_time;
     if (STORAGE_ENABLED) {
-        DumpSlicesContext dump_ctx;
+        if (end_index == htable->capacity) {
+            DumpSlicesContext dump_ctx;
 
-        dump_ctx.writer = &writer;
-        dump_ctx.source = source;
-        dump_ctx.current_sn = 0;
-        dump_ctx.total_slice_count = 0;
-        if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
-                        &dump_ctx)) == 0)
-        {
-            *slice_count = dump_ctx.total_slice_count;
+            dump_ctx.writer = &writer;
+            dump_ctx.is_my_data_group = 1;
+            dump_ctx.source = source;
+            dump_ctx.current_time = current_time;
+            dump_ctx.current_sn = 0;
+            dump_ctx.total_slice_count = 0;
+            if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
+                            &dump_ctx)) == 0)
+            {
+                *slice_count = dump_ctx.total_slice_count;
+            }
         }
     } else {
         end = htable->buckets + end_index;
@@ -1960,7 +1972,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                     }
 
                     writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
-                            slice, current_time, ++next_sn, slice->data_version,
+                            slice, current_time, ++current_sn, slice->data_version,
                             source, writer.buffer.current);
                 }
 
@@ -1994,7 +2006,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             }
 
             writer.buffer.current += slice_binlog_log_no_op_to_buff_ex(
-                    &bkey, current_time + i, ++next_sn, data_version,
+                    &bkey, current_time + i, ++current_sn, data_version,
                     source, writer.buffer.current);
         }
     }
@@ -2206,7 +2218,6 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 }
 
 int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
-        const int64_t start_index, const int64_t end_index,
         const char *filename, int64_t *slice_count)
 {
     const int source = BINLOG_SOURCE_MIGRATE_CLEAN;
@@ -2220,6 +2231,7 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
     OBEntry *previous;
     OBSegment *segment;
     OBSliceEntry *slice;
+    time_t current_time;
     UniqSkiplistIterator it;
 
     *slice_count = 0;
@@ -2227,44 +2239,61 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
         return result;
     }
 
-    sn = 0;
-    end = htable->buckets + end_index;
-    for (bucket=htable->buckets+start_index; result == 0 &&
-            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
-    {
-        if (*bucket == NULL) {
-            continue;
-        }
+    current_time = g_current_time;
+    if (STORAGE_ENABLED) {
+        DumpSlicesContext dump_ctx;
 
-        segment = ob_shared_ctx.segment_array.segments + (bucket - htable->
-                buckets) % ob_shared_ctx.segment_array.count;
-        previous = NULL;
-        ob = *bucket;
-        while (ob != NULL) {
-            if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
-                previous = ob;
-                ob = ob->next;
+        dump_ctx.writer = &writer;
+        dump_ctx.is_my_data_group = 0;
+        dump_ctx.source = source;
+        dump_ctx.current_time = current_time;
+        dump_ctx.current_sn = 0;
+        dump_ctx.total_slice_count = 0;
+        if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
+                        &dump_ctx)) == 0)
+        {
+            *slice_count = dump_ctx.total_slice_count;
+        }
+    } else {
+        sn = 0;
+        end = htable->buckets + htable->capacity;
+        for (bucket=htable->buckets; result == 0 && bucket<end &&
+                SF_G_CONTINUE_FLAG; bucket++)
+        {
+            if (*bucket == NULL) {
                 continue;
             }
 
-            uniq_skiplist_iterator(ob->slices, &it);
-            while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (SF_BUFFERED_WRITER_REMAIN(writer) <
-                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)
-                {
-                    if ((result=sf_buffered_writer_save(&writer)) != 0) {
-                        return result;
-                    }
+            segment = ob_shared_ctx.segment_array.segments + (bucket - htable->
+                    buckets) % ob_shared_ctx.segment_array.count;
+            previous = NULL;
+            ob = *bucket;
+            while (ob != NULL) {
+                if (fs_is_my_data_group(FS_DATA_GROUP_ID(ob->bkey))) {
+                    previous = ob;
+                    ob = ob->next;
+                    continue;
                 }
-                writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
-                        slice, g_current_time, ++sn, slice->data_version,
-                        source, writer.buffer.current);
-                ++(*slice_count);
-            }
 
-            current = ob;
-            ob = ob->next;
-            ob_entry_remove(segment, htable, bucket, current, previous);
+                uniq_skiplist_iterator(ob->slices, &it);
+                while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                    if (SF_BUFFERED_WRITER_REMAIN(writer) <
+                            FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+                    {
+                        if ((result=sf_buffered_writer_save(&writer)) != 0) {
+                            return result;
+                        }
+                    }
+                    writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                            slice, g_current_time, ++sn, slice->data_version,
+                            source, writer.buffer.current);
+                    ++(*slice_count);
+                }
+
+                current = ob;
+                ob = ob->next;
+                ob_entry_remove(segment, htable, bucket, current, previous);
+            }
         }
     }
 

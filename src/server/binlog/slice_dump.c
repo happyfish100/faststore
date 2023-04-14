@@ -187,12 +187,16 @@ int slice_dump_to_files(slice_dump_get_filename_func get_remove_filename_func,
     char time_used[32];
     int result;
 
-    thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
-        MIN_SLICES_PER_THREAD;
-    if (thread_count == 0) {
+    if (STORAGE_ENABLED) {
         thread_count = 1;
-    } else if (thread_count > SYSTEM_CPU_COUNT) {
-        thread_count = SYSTEM_CPU_COUNT;
+    } else {
+        thread_count = (total_slice_count + MIN_SLICES_PER_THREAD - 1) /
+            MIN_SLICES_PER_THREAD;
+        if (thread_count == 0) {
+            thread_count = 1;
+        } else if (thread_count > SYSTEM_CPU_COUNT) {
+            thread_count = SYSTEM_CPU_COUNT;
+        }
     }
     *binlog_file_count = thread_count;
 
