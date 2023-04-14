@@ -204,15 +204,17 @@ int block_serializer_pack(BlockSerializerPacker *packer,
         } \
     } while (0)
 
-int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
+int block_serializer_parse_slice_ex(const string_t *line,
+        int64_t *data_version, DASliceType *slice_type,
+        FSSliceSize *ssize, DATrunkSpaceInfo *space)
 {
     char *p;
     int path_index;
 
     if (line->str[0] == BINLOG_OP_TYPE_ALLOC_SLICE) {
-        slice->type = DA_SLICE_TYPE_ALLOC;
+        *slice_type = DA_SLICE_TYPE_ALLOC;
     } else if (line->str[0] == BINLOG_OP_TYPE_WRITE_SLICE) {
-        slice->type = DA_SLICE_TYPE_FILE;
+        *slice_type = DA_SLICE_TYPE_FILE;
     } else {
         logError("file: "__FILE__", line: %d, "
                 "unkown op_type: 0x%02X, slice content: %.*s",
@@ -229,9 +231,9 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
         return EINVAL;
     }
 
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->data_version, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.offset, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->ssize.length, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(*data_version, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(ssize->offset, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(ssize->length, ' ');
     BLOCK_SERIALIZER_PARSE_INTEGER(path_index, ' ');
     if (path_index < 0 || path_index > STORAGE_CFG.max_store_path_index) {
         logError("file: "__FILE__", line: %d, "
@@ -245,54 +247,80 @@ int block_serializer_parse_slice(const string_t *line, OBSliceEntry *slice)
                 __LINE__, path_index);
         return ENOENT;
     }
-    slice->space.store = &PATHS_BY_INDEX_PPTR[path_index]->store;
+    space->store = &PATHS_BY_INDEX_PPTR[path_index]->store;
 
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.id, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.id_info.subdir, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.offset, ' ');
-    BLOCK_SERIALIZER_PARSE_INTEGER(slice->space.size, '\n');
+    BLOCK_SERIALIZER_PARSE_INTEGER(space->id_info.id, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(space->id_info.subdir, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(space->offset, ' ');
+    BLOCK_SERIALIZER_PARSE_INTEGER(space->size, '\n');
     return 0;
 }
 
-int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
-        UniqSkiplist *sl, const string_t *content)
+int block_serializer_unpack(OBSegment *segment, const FSBlockKey *bkey,
+        const string_t *content, const SFSerializerFieldValue **fv)
 {
     int result;
-    const SFSerializerFieldValue *fv;
 
     if ((result=sf_serializer_unpack(&segment->
                     db_fetch_ctx.it, content)) != 0)
     {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, unpack fail, "
-                "error info: %s", __LINE__, ob->bkey.oid, ob->bkey.offset,
+                "error info: %s", __LINE__, bkey->oid, bkey->offset,
                 segment->db_fetch_ctx.it.error_info);
         return result;
     }
 
-    if ((fv=sf_serializer_next(&segment->db_fetch_ctx.it)) == NULL) {
+    if ((*fv=sf_serializer_next(&segment->db_fetch_ctx.it)) == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, no entry",
-                __LINE__, ob->bkey.oid, ob->bkey.offset);
+                __LINE__, bkey->oid, bkey->offset);
         return EINVAL;
     }
 
-    if (fv->fid != BLOCK_FIELD_ID) {
+    if ((*fv)->fid != BLOCK_FIELD_ID) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, invalid "
-                "fid: %d != expect: %d", __LINE__, ob->bkey.oid,
-                ob->bkey.offset, fv->fid, BLOCK_FIELD_ID);
+                "fid: %d != expect: %d", __LINE__, bkey->oid,
+                bkey->offset, (*fv)->fid, BLOCK_FIELD_ID);
         return EINVAL;
     }
 
-    if (fv->type != sf_serializer_value_type_string_array) {
+    if ((*fv)->type != sf_serializer_value_type_string_array) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, "
                 "invalid type: %d != expect: %d", __LINE__,
-                ob->bkey.oid, ob->bkey.offset, fv->type,
+                bkey->oid, bkey->offset, (*fv)->type,
                 sf_serializer_value_type_string_array);
         return EINVAL;
     }
 
-    return ob_index_unpack_ob_entry(segment, ob, sl, fv);
+    return 0;
+}
+
+int block_serializer_fetch_and_unpack(OBSegment *segment,
+        const FSBlockKey *bkey, const SFSerializerFieldValue **fv)
+{
+    int result;
+    string_t content;
+
+    if ((result=STORAGE_ENGINE_FETCH_API(bkey, &segment->
+                    db_fetch_ctx.read_ctx)) != 0)
+    {
+        if (result == ENOENT) {
+            *fv = NULL;
+            return 0;
+        }
+
+        logError("file: "__FILE__", line: %d, "
+                "block {oid: %"PRId64", offset: %"PRId64"}, "
+                "load slices from db fail, result: %d", __LINE__,
+                bkey->oid, bkey->offset, result);
+        return result;
+    }
+
+    FC_SET_STRING_EX(content, DA_OP_CTX_BUFFER_PTR(segment->
+                db_fetch_ctx.read_ctx.op_ctx), DA_OP_CTX_BUFFER_LEN(
+                    segment->db_fetch_ctx.read_ctx.op_ctx));
+    return block_serializer_unpack(segment, bkey, &content, fv);
 }

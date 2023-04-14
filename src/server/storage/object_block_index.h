@@ -310,9 +310,6 @@ extern "C" {
             int64_t *total_slice_count);
 #endif
 
-    int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
-            UniqSkiplist *sl, const SFSerializerFieldValue *fv);
-
     OBSegment *ob_index_get_segment(const FSBlockKey *bkey);
 
     static inline void ob_index_segment_lock(OBSegment *segment)

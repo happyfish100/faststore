@@ -88,11 +88,22 @@ extern "C" {
     int block_serializer_pack(BlockSerializerPacker *packer,
             const OBEntry *ob, FastBuffer **buffer);
 
-    int block_serializer_unpack(OBSegment *segment, OBEntry *ob,
-            UniqSkiplist *sl, const string_t *content);
+    int block_serializer_unpack(OBSegment *segment, const FSBlockKey *bkey,
+            const string_t *content, const SFSerializerFieldValue **fv);
 
-    int block_serializer_parse_slice(const string_t *line,
-            OBSliceEntry *slice);
+    int block_serializer_fetch_and_unpack(OBSegment *segment,
+            const FSBlockKey *bkey, const SFSerializerFieldValue **fv);
+
+    int block_serializer_parse_slice_ex(const string_t *line,
+            int64_t *data_version, DASliceType *slice_type,
+            FSSliceSize *ssize, DATrunkSpaceInfo *space);
+
+    static inline int block_serializer_parse_slice(
+            const string_t *line, OBSliceEntry *slice)
+    {
+        return block_serializer_parse_slice_ex(line, &slice->data_version,
+                &slice->type, &slice->ssize, &slice->space);
+    }
 
 #ifdef __cplusplus
 }

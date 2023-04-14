@@ -81,6 +81,9 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, const FSBlockKey *bkey, const bool create_flag,
         const bool need_reclaim, OBEntry **pprev);
 
+static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
+        UniqSkiplist *sl, const SFSerializerFieldValue *fv);
+
 #define OB_INDEX_SET_HASHTABLE_SEGMENT(htable, bkey) \
     int64_t bucket_index;  \
     OBSegment *segment; \
@@ -229,29 +232,23 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
     return ob;
 }
 
-static int ob_load_slices(OBSegment *segment, OBEntry *ob, UniqSkiplist *sl)
+static inline int ob_load_slices(OBSegment *segment,
+        OBEntry *ob, UniqSkiplist *sl)
 {
     int result;
-    string_t content;
+    const SFSerializerFieldValue *fv;
 
-    if ((result=STORAGE_ENGINE_FETCH_API(&ob->bkey, &segment->
-                    db_fetch_ctx.read_ctx)) != 0)
+    if ((result=block_serializer_fetch_and_unpack(segment,
+                    &ob->bkey, &fv)) != 0)
     {
-        if (result == ENOENT) {
-            return 0;
-        }
-
-        logError("file: "__FILE__", line: %d, "
-                "block {oid: %"PRId64", offset: %"PRId64"}, "
-                "load slices from db fail, result: %d", __LINE__,
-                ob->bkey.oid, ob->bkey.offset, result);
         return result;
     }
 
-    FC_SET_STRING_EX(content, DA_OP_CTX_BUFFER_PTR(segment->
-                db_fetch_ctx.read_ctx.op_ctx), DA_OP_CTX_BUFFER_LEN(
-                    segment->db_fetch_ctx.read_ctx.op_ctx));
-    return block_serializer_unpack(segment, ob, sl, &content);
+    if (fv != NULL) {
+        return unpack_ob_entry(segment, ob, sl, fv);
+    } else {
+        return 0;
+    }
 }
 
 static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
@@ -1833,6 +1830,62 @@ int64_t ob_index_get_total_slice_count()
     return slice_count;
 }
 
+typedef struct {
+    SFBufferedWriter *writer;
+    int source;
+    int64_t current_sn;
+    int64_t total_slice_count;
+} DumpSlicesContext;
+
+static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
+{
+    DumpSlicesContext *dump_ctx;
+    int result;
+    OBSegment *segment;
+    const SFSerializerFieldValue *fv;
+    string_t *s;
+    string_t *end;
+    int64_t data_version;
+    DASliceType slice_type;
+    FSSliceSize ssize;
+    DATrunkSpaceInfo space;
+
+    dump_ctx = arg;
+    segment = ob_shared_ctx.segment_array.segments;
+    if ((result=block_serializer_fetch_and_unpack(
+                    segment, bkey, &fv)) != 0)
+    {
+        return result;
+    }
+    if (fv == NULL) {
+        return 0;
+    }
+
+    end = fv->value.str_array.strings + fv->value.str_array.count;
+    for (s=fv->value.str_array.strings; s<end; s++) {
+        if ((result=block_serializer_parse_slice_ex(s, &data_version,
+                        &slice_type, &ssize, &space)) != 0)
+        {
+            return result;
+        }
+
+        if (SF_BUFFERED_WRITER_REMAIN(*dump_ctx->writer) <
+                FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+        {
+            if ((result=sf_buffered_writer_save(dump_ctx->writer)) != 0) {
+                return result;
+            }
+        }
+        dump_ctx->writer->buffer.current += slice_binlog_log_add_slice_to_buff1(
+                slice_type, bkey, &ssize, &space, g_current_time,
+                ++(dump_ctx->current_sn), data_version, dump_ctx->source,
+                dump_ctx->writer->buffer.current);
+    }
+
+    dump_ctx->total_slice_count += fv->value.str_array.count;
+    return 0;
+}
+
 int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         const int64_t start_index, const int64_t end_index,
         const char *filename, int64_t *slice_count, const int source,
@@ -1858,51 +1911,65 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
     }
 
     current_time = g_current_time;
-    end = htable->buckets + end_index;
-    for (bucket=htable->buckets+start_index; result == 0 &&
-            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
-    {
-        if (need_lock) {
-            segment = ob_shared_ctx.segment_array.segments +
-                (bucket - htable->buckets) %
-                ob_shared_ctx.segment_array.count;
-            PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-        }
+    if (STORAGE_ENABLED) {
+        DumpSlicesContext dump_ctx;
 
-        if (*bucket == NULL) {
+        dump_ctx.writer = &writer;
+        dump_ctx.source = source;
+        dump_ctx.current_sn = 0;
+        dump_ctx.total_slice_count = 0;
+        if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
+                        &dump_ctx)) == 0)
+        {
+            *slice_count = dump_ctx.total_slice_count;
+        }
+    } else {
+        end = htable->buckets + end_index;
+        for (bucket=htable->buckets+start_index; result == 0 &&
+                bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+        {
+            if (need_lock) {
+                segment = ob_shared_ctx.segment_array.segments +
+                    (bucket - htable->buckets) %
+                    ob_shared_ctx.segment_array.count;
+                PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+            }
+
+            if (*bucket == NULL) {
+                if (need_lock) {
+                    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+                }
+                continue;
+            }
+
+            ob = *bucket;
+            do {
+                uniq_skiplist_iterator(ob->slices, &it);
+                while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
+                    if (slice->type == DA_SLICE_TYPE_CACHE) {
+                        continue;
+                    }
+
+                    ++(*slice_count);
+                    if (SF_BUFFERED_WRITER_REMAIN(writer) <
+                            FS_SLICE_BINLOG_MAX_RECORD_SIZE)
+                    {
+                        if ((result=sf_buffered_writer_save(&writer)) != 0) {
+                            break;
+                        }
+                    }
+
+                    writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                            slice, current_time, ++next_sn, slice->data_version,
+                            source, writer.buffer.current);
+                }
+
+                ob = ob->next;
+            } while (ob != NULL && result == 0);
+
             if (need_lock) {
                 PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
             }
-            continue;
-        }
-
-        ob = *bucket;
-        do {
-            uniq_skiplist_iterator(ob->slices, &it);
-            while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
-                if (slice->type == DA_SLICE_TYPE_CACHE) {
-                    continue;
-                }
-
-                ++(*slice_count);
-                if (SF_BUFFERED_WRITER_REMAIN(writer) <
-                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)
-                {
-                    if ((result=sf_buffered_writer_save(&writer)) != 0) {
-                        break;
-                    }
-                }
-
-                writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
-                        slice, current_time, ++next_sn, slice->data_version,
-                        source, writer.buffer.current);
-            }
-
-            ob = ob->next;
-        } while (ob != NULL && result == 0);
-
-        if (need_lock) {
-            PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
         }
     }
 
@@ -2580,7 +2647,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 }
 #endif
 
-int ob_index_unpack_ob_entry(OBSegment *segment, OBEntry *ob,
+static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
         UniqSkiplist *sl, const SFSerializerFieldValue *fv)
 {
     const int init_refer = 1;
