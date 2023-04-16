@@ -69,8 +69,14 @@ static int parse_buffer(DBRemoveContext *ctx)
         }
 
         sn = ob_index_generate_alone_sn();
-        if ((result=change_notify_push_del_slice(sn, ob,
-                        &record.bs_key.slice)) != 0)
+        if (record.bs_key.slice.offset == 0 && record.bs_key.
+                slice.length == FS_FILE_BLOCK_SIZE)
+        {
+            if ((result=change_notify_push_del_block(sn, ob)) != 0) {
+                return result;
+            }
+        } else if ((result=change_notify_push_del_slice(sn,
+                        ob, &record.bs_key.slice)) != 0)
         {
             return result;
         }
