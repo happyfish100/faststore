@@ -163,7 +163,6 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
             op_ctx->update.space_changed += inc_alloc;
         }
 
-        op_ctx->info.sn.count = op_ctx->update.sarray.count;
         op_ctx->info.sn.last = (slice_sn_end - 1)->sn;
     } while (0);
 
@@ -442,6 +441,7 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
     }
 
     op_ctx->result = 0;
+    op_ctx->info.sn.count = op_ctx->update.sarray.count;
     if (slice_type == DA_SLICE_TYPE_CACHE) {
         fs_set_data_version(op_ctx);
     } else {

@@ -33,6 +33,8 @@ extern "C" {
 
         slice->data_version = op_ctx->info.data_version;
         op_ctx->info.sn.last = 0;
+        op_ctx->update.space_chain.head = NULL;
+        op_ctx->update.space_chain.tail = NULL;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block, slice,
                         &op_ctx->info.sn.last, &inc_alloc, &op_ctx->update.
                         space_chain)) != 0)

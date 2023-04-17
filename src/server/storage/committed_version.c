@@ -188,9 +188,9 @@ int committed_version_add1(const FSSliceOpContext *op_ctx)
         for (sn=op_ctx->info.sn.last - op_ctx->info.sn.count + 1;
                 sn<op_ctx->info.sn.last; sn++)
         {
-            logInfo("op_ctx: %p, source: %c, data_group_id: %d, "
-                    "data_version: %"PRId64", sn: %"PRId64, op_ctx,
-                    op_ctx->info.source, data_group_id,
+            logInfo("line: %d, op_ctx: %p, source: %c, data_group_id: %d, "
+                    "data_version: %"PRId64", sn: %"PRId64, __LINE__,
+                    op_ctx, op_ctx->info.source, data_group_id,
                     op_ctx->info.data_version, sn);
 
             if ((result=committed_version_add(0, op_ctx->
@@ -201,9 +201,9 @@ int committed_version_add1(const FSSliceOpContext *op_ctx)
         }
     }
 
-    logInfo("op_ctx: %p, source: %c, data_group_id: %d, "
-            "data_version: %"PRId64", sn: %"PRId64, op_ctx,
-            op_ctx->info.source, data_group_id,
+    logInfo("line: %d, op_ctx: %p, source: %c, data_group_id: %d, "
+            "data_version: %"PRId64", sn: %"PRId64, __LINE__,
+            op_ctx, op_ctx->info.source, data_group_id,
             op_ctx->info.data_version, op_ctx->info.sn.last);
 
     return committed_version_add(data_group_id, op_ctx->
