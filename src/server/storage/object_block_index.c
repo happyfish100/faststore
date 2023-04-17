@@ -2291,7 +2291,6 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             return ENOMEM;
         }
 
-        previous = NULL;
         end = htable->buckets + end_index;
         for (bucket=htable->buckets+start_index; result == 0 &&
                 bucket<end && SF_G_CONTINUE_FLAG; bucket++)
@@ -2302,6 +2301,7 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
 
             segment = ob_shared_ctx.segment_array.segments + (bucket -
                     htable->buckets) % ob_shared_ctx.segment_array.count;
+            previous = NULL;
             ob = *bucket;
             while (ob != NULL) {
                 if (source == BINLOG_SOURCE_MIGRATE_CLEAN) {
