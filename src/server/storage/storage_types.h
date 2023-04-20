@@ -42,6 +42,7 @@ typedef struct {
     struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
     int64_t version; //for write in order
+    DATrunkFileInfo *trunk;
 } FSSliceSNPair;
 
 typedef struct {

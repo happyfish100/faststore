@@ -154,8 +154,9 @@ void fs_write_finish(FSSliceOpContext *op_ctx)
             slice_sn_pair->sn = 0;
             slice_sn_pair->slice->data_version = op_ctx->info.data_version;
             if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
-                            slice_sn_pair->slice, &slice_sn_pair->sn,
-                            &inc_alloc, &op_ctx->update.space_chain)) != 0)
+                            slice_sn_pair->slice, slice_sn_pair->trunk,
+                            &slice_sn_pair->sn, &inc_alloc, &op_ctx->
+                            update.space_chain)) != 0)
             {
                 op_ctx->result = result;
                 break;
@@ -257,16 +258,17 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
 
     if (*slice_count == 1) {
         slice_sn_pairs[0].slice = alloc_init_slice(op_ctx,
-                bs_key, &spaces[0].space, slice_type,
+                bs_key, &spaces[0].ts.space, slice_type,
                 bs_key->slice.offset, bs_key->slice.length);
         if (slice_sn_pairs[0].slice == NULL) {
             return ENOMEM;
         }
         slice_sn_pairs[0].version = spaces[0].version;
+        slice_sn_pairs[0].trunk = spaces[0].ts.trunk;
 
         /*
         logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
-                0, spaces[0].space.offset, spaces[0].space.size);
+                0, spaces[0].ts.space.offset, spaces[0].ts.space.size);
                 */
     } else {
         int offset;
@@ -277,13 +279,14 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
         remain = bs_key->slice.length;
         for (i=0; i<*slice_count; i++) {
             slice_sn_pairs[i].slice = alloc_init_slice(op_ctx, bs_key,
-                    &spaces[i].space, slice_type, offset,
-                    (spaces[i].space.size < remain ?
-                     spaces[i].space.size : remain));
+                    &spaces[i].ts.space, slice_type, offset,
+                    (spaces[i].ts.space.size < remain ?
+                     spaces[i].ts.space.size : remain));
             if (slice_sn_pairs[i].slice == NULL) {
                 return ENOMEM;
             }
             slice_sn_pairs[i].version = spaces[i].version;
+            slice_sn_pairs[i].trunk = spaces[i].ts.trunk;
 
             /*
             logInfo("slice %d. offset: %"PRId64", length: %"PRId64,
@@ -337,9 +340,8 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
         op_ctx->iovec_array.count = op_ctx->aio_buffer_parray.count;
 
         result = trunk_write_thread_push_slice_by_iovec(op_ctx,
-                op_ctx->update.sarray.slice_sn_pairs[0].version,
-                op_ctx->update.sarray.slice_sn_pairs[0].slice,
-                &op_ctx->iovec_array, slice_write_done, op_ctx);
+                op_ctx->update.sarray.slice_sn_pairs, &op_ctx->
+                iovec_array, slice_write_done, op_ctx);
     } else {
         iovec_array_t iov_arr;
         int slice_total_length;
@@ -395,8 +397,8 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
 
             iov_arr.count = iovc - iov_arr.iovs;
             if ((result=trunk_write_thread_push_slice_by_iovec(op_ctx,
-                            slice_sn_pair->version, slice_sn_pair->slice,
-                            &iov_arr, slice_write_done, op_ctx)) != 0)
+                            slice_sn_pair, &iov_arr, slice_write_done,
+                            op_ctx)) != 0)
             {
                 break;
             }
@@ -456,9 +458,8 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
 
     if (op_ctx->update.sarray.count == 1) {
         result = trunk_write_thread_push_slice_by_buff(op_ctx,
-                op_ctx->update.sarray.slice_sn_pairs[0].version,
-                op_ctx->update.sarray.slice_sn_pairs[0].slice,
-                op_ctx->info.buff, slice_write_done, op_ctx);
+                op_ctx->update.sarray.slice_sn_pairs, op_ctx->
+                info.buff, slice_write_done, op_ctx);
     } else {
         int length;
         char *ps;
@@ -471,8 +472,8 @@ int fs_slice_write(FSSliceOpContext *op_ctx)
         {
             length = slice_sn_pair->slice->ssize.length;
             if ((result=trunk_write_thread_push_slice_by_buff(op_ctx,
-                            slice_sn_pair->version, slice_sn_pair->slice,
-                            ps, slice_write_done, op_ctx)) != 0)
+                            slice_sn_pair, ps, slice_write_done,
+                            op_ctx)) != 0)
             {
                 break;
             }
@@ -644,8 +645,9 @@ int fs_slice_allocate(FSSliceOpContext *op_ctx)
         slice_sn_pair->sn = 0;
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
-                        slice_sn_pair->slice, &slice_sn_pair->sn,
-                        &inc, &op_ctx->update.space_chain)) != 0)
+                        slice_sn_pair->slice, slice_sn_pair->trunk,
+                        &slice_sn_pair->sn, &inc, &op_ctx->
+                        update.space_chain)) != 0)
         {
             break;
         }

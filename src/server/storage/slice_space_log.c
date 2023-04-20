@@ -418,8 +418,9 @@ static int slice_log_redo(const char *slice_log_filename)
         return result;
     }
 
-    logInfo("last slice sn: %"PRId64", slice redo record count: %d",
-            SLICE_BINLOG_SN, chain.count);
+    logInfo("last binlog sn: %"PRId64", chain last sn: %"PRId64", "
+            "slice redo record count: %d", SLICE_BINLOG_SN,
+            chain.last_sn, chain.count);
 
     if (chain.count == 0) {
         return 0;

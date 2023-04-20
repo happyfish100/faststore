@@ -276,12 +276,12 @@ extern "C" {
     int slice_binlog_record_unpack(const string_t *line,
             SliceBinlogRecord *record, char *error_info);
 
-    int slice_migrate_done_callback(const DAFullTrunkIdInfo *trunk,
+    int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
             const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
             SFSynchronizeContext *sctx, int *flags);
 
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-            const DATrunkSpaceInfo *space, void *arg1, void *arg2);
+            const DAFullTrunkSpace *ts, void *arg1, void *arg2);
 
     int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,

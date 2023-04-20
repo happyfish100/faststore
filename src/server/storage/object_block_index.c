@@ -67,7 +67,7 @@ typedef struct {
 } OBSharedContext;
 
 static inline int do_add_slice(OBHashtable *htable, OBEntry *ob,
-        UniqSkiplist *sl, OBSliceEntry *slice,
+        UniqSkiplist *sl, OBSliceEntry *slice, DATrunkFileInfo *trunk,
         struct fc_queue_info *space_chain);
 static inline int do_delete_slice(OBHashtable *htable, OBEntry *ob,
         UniqSkiplist *sl, OBSliceEntry *slice,
@@ -680,7 +680,7 @@ static int add_to_space_chain(struct fc_queue_info *space_chain,
 }
 
 static inline int do_add_slice(OBHashtable *htable, OBEntry *ob,
-        UniqSkiplist *sl, OBSliceEntry *slice,
+        UniqSkiplist *sl, OBSliceEntry *slice, DATrunkFileInfo *trunk,
         struct fc_queue_info *space_chain)
 {
     int result;
@@ -701,6 +701,10 @@ static inline int do_add_slice(OBHashtable *htable, OBEntry *ob,
                         da_binlog_op_type_consume_space)) != 0)
         {
             return result;
+        }
+
+        if (trunk != NULL) {
+            ((DATrunkSpaceLogRecord *)space_chain->tail)->trunk = trunk;
         }
     }
 
@@ -829,8 +833,8 @@ static inline int dup_slice_to_smart_array_ex(OBSegment *segment,
 
 
 static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
-        UniqSkiplist *sl, OBSliceEntry *slice, int *inc_alloc,
-        struct fc_queue_info *space_chain)
+        UniqSkiplist *sl, OBSliceEntry *slice, DATrunkFileInfo *trunk,
+        int *inc_alloc, struct fc_queue_info *space_chain)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -850,7 +854,7 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
             if (inc_alloc != NULL) {
                 *inc_alloc += slice->ssize.length;
             }
-            return do_add_slice(htable, ob, sl, slice, space_chain);
+            return do_add_slice(htable, ob, sl, slice, trunk, space_chain);
         }
     } else {
         previous = UNIQ_SKIPLIST_LEVEL0_PREV_NODE(node);
@@ -943,12 +947,12 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
     if (add_slice_array.count > 0) {
         for (i=0; i<add_slice_array.count; i++) {
             do_add_slice(htable, ob, sl, add_slice_array.
-                    slices[i], space_chain);
+                    slices[i], NULL, space_chain);
         }
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
 
-    return do_add_slice(htable, ob, sl, slice, space_chain);
+    return do_add_slice(htable, ob, sl, slice, trunk, space_chain);
 }
 
 int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
@@ -1041,8 +1045,9 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
 }
 
 static int update_slice(OBSegment *segment, OBHashtable *htable,
-        OBEntry *ob, OBSliceEntry *slice, int *update_count,
-        bool *release_slice, FSSliceSpaceLogRecord *record,
+        OBEntry *ob, OBSliceEntry *slice, DATrunkFileInfo *trunk,
+        int *update_count, bool *release_slice,
+        FSSliceSpaceLogRecord *record,
         const bool call_by_reclaim)
 {
     UniqSkiplistNode *node;
@@ -1079,7 +1084,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
         }
         return do_add_slice(htable, ob, ob->slices,
-                slice, &record->space_chain);
+                slice, trunk, &record->space_chain);
     }
 
     *release_slice = true;
@@ -1150,8 +1155,9 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
                 }
             }
 
-            do_add_slice(htable, ob, ob->slices, add_slice_array.
-                    slices[i], &record->space_chain);
+            do_add_slice(htable, ob, ob->slices, add_slice_array.slices[i],
+                    (i == add_slice_array.count - 1 ? trunk : NULL),
+                    &record->space_chain);
         }
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
@@ -1160,8 +1166,8 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
 }
 
 int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
-        OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
-        struct fc_queue_info *space_chain)
+        OBSliceEntry *slice, DATrunkFileInfo *trunk, uint64_t *sn,
+        int *inc_alloc, struct fc_queue_info *space_chain)
 {
     OBEntry *ob;
     int result;
@@ -1184,7 +1190,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
             slice->ob = ob;
         }
         result = add_slice(segment, htable, ob, ob->slices,
-                slice, inc_alloc, space_chain);
+                slice, trunk, inc_alloc, space_chain);
         if (result == 0) {
             __sync_add_and_fetch(&slice->ref_count, 1);
             if (sn != NULL) {
@@ -1211,8 +1217,8 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 
     OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    if ((result=add_slice(segment, &g_ob_hashtable, slice->ob,
-                    slice->ob->slices, slice, NULL, NULL)) == 0)
+    if ((result=add_slice(segment, &g_ob_hashtable, slice->ob, slice->
+                    ob->slices, slice, NULL, NULL, NULL)) == 0)
     {
         if (STORAGE_ENABLED) {
             result = change_notify_push_add_slice(sn, slice);
@@ -1224,7 +1230,7 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 }
 
 int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
-        const DATrunkSpaceInfo *space, int *update_count,
+        const DAFullTrunkSpace *ts, int *update_count,
         FSSliceSpaceLogRecord *record, const bool call_by_reclaim)
 {
     const int init_refer = 1;
@@ -1233,11 +1239,13 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
     OBEntry *ob;
     OBSliceEntry *slice;
 
+    /*
     logInfo("####### ob_index_update_slice: %p, "
             "block {oid: %"PRId64", offset: %"PRId64"}, "
             "slice: {offset: %d, length: %d}",
             se, se->bs_key.block.oid, se->bs_key.block.offset,
             se->bs_key.slice.offset, se->bs_key.slice.length);
+            */
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, se->bs_key.block);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
@@ -1250,8 +1258,8 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             slice->data_version = se->data_version;
             slice->type = DA_SLICE_TYPE_FILE;
             slice->ssize = se->bs_key.slice;
-            slice->space = *space;
-            if ((result=update_slice(segment, htable, ob, slice,
+            slice->space = ts->space;
+            if ((result=update_slice(segment, htable, ob, slice, ts->trunk,
                             update_count, &release_slice, record,
                             call_by_reclaim)) == 0)
             {
@@ -1391,7 +1399,7 @@ static int delete_slice(OBSegment *segment, OBHashtable *htable,
     if (add_slice_array.count > 0) {
         for (i=0; i<add_slice_array.count; i++) {
             do_add_slice(htable, ob, sl, add_slice_array.
-                    slices[i], space_chain);
+                    slices[i], NULL, space_chain);
         }
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
@@ -2916,8 +2924,8 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
     slice->type = type;
     slice->ssize = *ssize;
     slice->space = *space;
-    return add_slice(segment, &g_ob_hashtable, ob,
-            ob->db_args->slices, slice, NULL, NULL);
+    return add_slice(segment, &g_ob_hashtable, ob, ob->
+            db_args->slices, slice, NULL, NULL, NULL);
 }
 
 int ob_index_delete_slice_by_db(OBSegment *segment,

@@ -42,12 +42,12 @@ extern "C" {
 
     extern OBHashtable g_ob_hashtable;
 
-#define ob_index_add_slice(bkey, slice, sn, inc_alloc, space_chain) \
+#define ob_index_add_slice(bkey, slice, trunk, sn, inc_alloc, space_chain) \
     ob_index_add_slice_ex(&g_ob_hashtable, bkey, slice, \
-            sn, inc_alloc, space_chain)
+            trunk, sn, inc_alloc, space_chain)
 
-#define ob_index_update_slice(se, space, update_count, record, call_by_reclaim)\
-    ob_index_update_slice_ex(&g_ob_hashtable, se, space, \
+#define ob_index_update_slice(se, ts, update_count, record, call_by_reclaim)\
+    ob_index_update_slice_ex(&g_ob_hashtable, se, ts, \
             update_count, record, call_by_reclaim)
 
 #define ob_index_delete_slice(bs_key, sn, dec_alloc, space_chain) \
@@ -106,11 +106,11 @@ extern "C" {
     void ob_index_destroy_htable(OBHashtable *htable);
 
     int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
-            OBSliceEntry *slice, uint64_t *sn, int *inc_alloc,
-            struct fc_queue_info *space_chain);
+            OBSliceEntry *slice, DATrunkFileInfo *trunk, uint64_t *sn,
+            int *inc_alloc, struct fc_queue_info *space_chain);
 
     int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
-            const DATrunkSpaceInfo *space, int *update_count,
+            const DAFullTrunkSpace *ts, int *update_count,
             FSSliceSpaceLogRecord *record, const bool call_by_reclaim);
 
     int ob_index_delete_slice_ex(OBHashtable *htable,
