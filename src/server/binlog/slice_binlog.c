@@ -1434,7 +1434,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     const bool call_by_reclaim = true;
     int result;
     int update_count;
-    DAFullTrunkSpace ts;
+    DATrunkSpaceInfo space;
     DASliceEntry se;
     FSSliceSpaceLogRecord *record;
 
@@ -1443,11 +1443,10 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     }
     record->sctx = sctx;
 
-    ts.trunk = NULL;
-    ts.space.store = &trunk->allocator->path_info->store;
-    ts.space.id_info = trunk->id_info;
-    ts.space.offset = field->storage.offset;
-    ts.space.size = field->storage.size;
+    space.store = &trunk->allocator->path_info->store;
+    space.id_info = trunk->id_info;
+    space.offset = field->storage.offset;
+    space.size = field->storage.size;
     se.timestamp = g_current_time;
     se.source = BINLOG_SOURCE_RECLAIM;
     se.data_version = field->storage.version;
@@ -1457,7 +1456,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
     fs_calc_block_hashcode(&se.bs_key.block);
-    if ((result=ob_index_update_slice(&se, &ts, &update_count,
+    if ((result=ob_index_update_slice(&se, &space, &update_count,
                     record, call_by_reclaim)) != 0)
     {
         return result;
@@ -1476,7 +1475,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
 }
 
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-        const DAFullTrunkSpace *ts, void *arg1, void *arg2)
+        const DATrunkSpaceInfo *space, void *arg1, void *arg2)
 {
     const bool call_by_reclaim = false;
     int result;
@@ -1491,7 +1490,7 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     record->slice_head = NULL;
     record->space_chain.head = arg1;
     record->space_chain.tail = arg2;
-    if ((result=ob_index_update_slice(se, ts, &update_count,
+    if ((result=ob_index_update_slice(se, space, &update_count,
                     record, call_by_reclaim)) != 0)
     {
         return result;
@@ -1506,7 +1505,7 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, se->sn);
     wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(
             DA_SLICE_TYPE_FILE, &se->bs_key.block, &se->bs_key.slice,
-            &ts->space, se->timestamp, se->sn, se->data_version,
+            space, se->timestamp, se->sn, se->data_version,
             se->source, wbuffer->bf.buff);
     wbuffer->next = NULL;
     record->slice_head = wbuffer;

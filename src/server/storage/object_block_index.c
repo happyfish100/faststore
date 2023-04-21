@@ -1045,9 +1045,8 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
 }
 
 static int update_slice(OBSegment *segment, OBHashtable *htable,
-        OBEntry *ob, OBSliceEntry *slice, DATrunkFileInfo *trunk,
-        int *update_count, bool *release_slice,
-        FSSliceSpaceLogRecord *record,
+        OBEntry *ob, OBSliceEntry *slice, int *update_count,
+        bool *release_slice, FSSliceSpaceLogRecord *record,
         const bool call_by_reclaim)
 {
     UniqSkiplistNode *node;
@@ -1084,7 +1083,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
         }
         return do_add_slice(htable, ob, ob->slices,
-                slice, trunk, &record->space_chain);
+                slice, NULL, &record->space_chain);
     }
 
     *release_slice = true;
@@ -1156,8 +1155,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
 
             do_add_slice(htable, ob, ob->slices, add_slice_array.slices[i],
-                    (i == add_slice_array.count - 1 ? trunk : NULL),
-                    &record->space_chain);
+                    NULL, &record->space_chain);
         }
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
@@ -1230,7 +1228,7 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 }
 
 int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
-        const DAFullTrunkSpace *ts, int *update_count,
+        const DATrunkSpaceInfo *space, int *update_count,
         FSSliceSpaceLogRecord *record, const bool call_by_reclaim)
 {
     const int init_refer = 1;
@@ -1258,8 +1256,8 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             slice->data_version = se->data_version;
             slice->type = DA_SLICE_TYPE_FILE;
             slice->ssize = se->bs_key.slice;
-            slice->space = ts->space;
-            if ((result=update_slice(segment, htable, ob, slice, ts->trunk,
+            slice->space = *space;
+            if ((result=update_slice(segment, htable, ob, slice,
                             update_count, &release_slice, record,
                             call_by_reclaim)) == 0)
             {

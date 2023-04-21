@@ -32,28 +32,28 @@ extern "C" {
         DASliceEntry se;
 
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
-        op_ctx->info.sn.last = 0;
+        slice_sn_pair->sn = 0;
         op_ctx->update.space_chain.head = NULL;
         op_ctx->update.space_chain.tail = NULL;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
                         slice_sn_pair->slice, slice_sn_pair->trunk,
-                        &op_ctx->info.sn.last, &inc_alloc, &op_ctx->
+                        &slice_sn_pair->sn, &inc_alloc, &op_ctx->
                         update.space_chain)) != 0)
         {
             return result;
         }
         op_ctx->update.space_changed += inc_alloc;
+        op_ctx->info.sn.last = slice_sn_pair->sn;
 
         se.timestamp = op_ctx->update.timestamp;
         se.source = op_ctx->info.source;
         se.bs_key.block = op_ctx->info.bs_key.block;
         se.bs_key.slice = slice_sn_pair->slice->ssize;
         se.data_version = slice_sn_pair->slice->data_version;
-        se.sn = op_ctx->info.sn.last;
+        se.sn = slice_sn_pair->sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX, op_type,
                 slice_sn_pair->version, &slice_sn_pair->slice->space,
-                slice_sn_pair->trunk, data, &se,
-                op_ctx->update.space_chain.head,
+                data, &se, op_ctx->update.space_chain.head,
                 op_ctx->update.space_chain.tail);
     }
 
@@ -67,8 +67,7 @@ extern "C" {
         } else {
             return da_trunk_write_thread_push_slice_by_buff(&DA_CTX,
                     slice_sn_pair->version, &slice_sn_pair->slice->space,
-                    slice_sn_pair->trunk, buff, notify_func, notify_arg,
-                    slice_sn_pair->slice);
+                    buff, notify_func, notify_arg, slice_sn_pair->slice);
         }
     }
 
@@ -83,8 +82,8 @@ extern "C" {
         } else {
             return da_trunk_write_thread_push_slice_by_iovec(&DA_CTX,
                     slice_sn_pair->version, &slice_sn_pair->slice->space,
-                    slice_sn_pair->trunk, iovec_array, notify_func,
-                    notify_arg, slice_sn_pair->slice);
+                    iovec_array, notify_func, notify_arg,
+                    slice_sn_pair->slice);
         }
     }
 

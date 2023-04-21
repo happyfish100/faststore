@@ -176,6 +176,7 @@ int committed_version_add1(const FSSliceOpContext *op_ctx)
 {
     int result;
     int data_group_id;
+    int i;
     int64_t sn;
 
     if (FS_IS_BINLOG_SOURCE_RPC(op_ctx->info.source)) {
@@ -185,27 +186,29 @@ int committed_version_add1(const FSSliceOpContext *op_ctx)
     }
 
     if (op_ctx->info.sn.count > 1) {
-        for (sn=op_ctx->info.sn.last - op_ctx->info.sn.count + 1;
-                sn<op_ctx->info.sn.last; sn++)
-        {
-            logInfo("line: %d, op_ctx: %p, source: %c, data_group_id: %d, "
-                    "data_version: %"PRId64", sn: %"PRId64, __LINE__,
+        for (i=0; i<op_ctx->info.sn.count; i++) {
+            sn = op_ctx->update.sarray.slice_sn_pairs[i].sn;
+            logInfo("%d. op_ctx: %p, source: %c, data_group_id: %d, "
+                    "data_version: %"PRId64", sn: %"PRId64, i + 1,
                     op_ctx, op_ctx->info.source, data_group_id,
                     op_ctx->info.data_version, sn);
-
-            if ((result=committed_version_add(0, op_ctx->
+            if ((result=committed_version_add(data_group_id, op_ctx->
                             info.data_version, sn)) != 0)
             {
                 return result;
             }
         }
+    } else if (op_ctx->info.sn.count == 1) {
+        /*
+           logInfo("line: %d, op_ctx: %p, source: %c, data_group_id: %d, "
+           "data_version: %"PRId64", sn: %"PRId64, __LINE__,
+           op_ctx, op_ctx->info.source, data_group_id,
+           op_ctx->info.data_version, op_ctx->info.sn.last);
+         */
+
+        return committed_version_add(data_group_id, op_ctx->
+                info.data_version, op_ctx->info.sn.last);
     }
 
-    logInfo("line: %d, op_ctx: %p, source: %c, data_group_id: %d, "
-            "data_version: %"PRId64", sn: %"PRId64, __LINE__,
-            op_ctx, op_ctx->info.source, data_group_id,
-            op_ctx->info.data_version, op_ctx->info.sn.last);
-
-    return committed_version_add(data_group_id, op_ctx->
-            info.data_version, op_ctx->info.sn.last);
+    return 0;
 }

@@ -281,7 +281,7 @@ extern "C" {
             SFSynchronizeContext *sctx, int *flags);
 
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-            const DAFullTrunkSpace *ts, void *arg1, void *arg2);
+            const DATrunkSpaceInfo *space, void *arg1, void *arg2);
 
     int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,
