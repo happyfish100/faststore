@@ -36,9 +36,8 @@ extern "C" {
         op_ctx->update.space_chain.head = NULL;
         op_ctx->update.space_chain.tail = NULL;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
-                        slice_sn_pair->slice, slice_sn_pair->trunk,
-                        &slice_sn_pair->sn, &inc_alloc, &op_ctx->
-                        update.space_chain)) != 0)
+                        slice_sn_pair->slice, NULL, &slice_sn_pair->sn,
+                        &inc_alloc, &op_ctx->update.space_chain)) != 0)
         {
             return result;
         }
@@ -53,8 +52,8 @@ extern "C" {
         se.sn = slice_sn_pair->sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX, op_type,
                 slice_sn_pair->version, &slice_sn_pair->slice->space,
-                data, &se, op_ctx->update.space_chain.head,
-                op_ctx->update.space_chain.tail);
+                slice_sn_pair->trunk, data, &se, op_ctx->update.
+                space_chain.head, op_ctx->update.space_chain.tail);
     }
 
     static inline int trunk_write_thread_push_slice_by_buff(

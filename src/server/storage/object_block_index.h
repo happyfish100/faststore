@@ -46,9 +46,9 @@ extern "C" {
     ob_index_add_slice_ex(&g_ob_hashtable, bkey, slice, \
             trunk, sn, inc_alloc, space_chain)
 
-#define ob_index_update_slice(se, space, update_count, \
+#define ob_index_update_slice(se, slice, trunk, update_count,   \
         record, slice_type, call_by_reclaim)  \
-    ob_index_update_slice_ex(&g_ob_hashtable, se, space, \
+    ob_index_update_slice_ex(&g_ob_hashtable, se, slice, trunk, \
             update_count, record, slice_type, call_by_reclaim)
 
 #define ob_index_delete_slice(bs_key, sn, dec_alloc, space_chain) \
@@ -111,9 +111,9 @@ extern "C" {
             int *inc_alloc, struct fc_queue_info *space_chain);
 
     int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
-            const DATrunkSpaceInfo *space, int *update_count,
-            FSSliceSpaceLogRecord *record, const DASliceType slice_type,
-            const bool call_by_reclaim);
+            const DATrunkSpaceInfo *space, DATrunkFileInfo *trunk,
+            int *update_count, FSSliceSpaceLogRecord *record,
+            const DASliceType slice_type, const bool call_by_reclaim);
 
     int ob_index_delete_slice_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,

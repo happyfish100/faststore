@@ -1045,8 +1045,8 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
     }
 }
 
-static int update_slice(OBSegment *segment, OBHashtable *htable,
-        OBEntry *ob, OBSliceEntry *slice, int *update_count,
+static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
+        OBSliceEntry *slice, DATrunkFileInfo *trunk, int *update_count,
         bool *release_slice, FSSliceSpaceLogRecord *record,
         const bool call_by_reclaim)
 {
@@ -1057,6 +1057,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     OBSlicePtrSmartArray del_slice_array;
     int result;
     int slice_end;
+    DASliceType expect_slice_type;
     int i;
 
     node = uniq_skiplist_find_ge_node(ob->slices, slice);
@@ -1066,8 +1067,9 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         return 0;
     }
 
+    expect_slice_type = call_by_reclaim ? slice->type : DA_SLICE_TYPE_CACHE;
     current = (OBSliceEntry *)node->data;
-    if ((call_by_reclaim || current->type == DA_SLICE_TYPE_CACHE) &&
+    if ((current->type == expect_slice_type) &&
             (current->data_version == slice->data_version) &&
             (current->ssize.offset == slice->ssize.offset &&
              current->ssize.length == slice->ssize.length))
@@ -1084,7 +1086,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
         }
         return do_add_slice(htable, ob, ob->slices,
-                slice, NULL, &record->space_chain);
+                slice, trunk, &record->space_chain);
     }
 
     *release_slice = true;
@@ -1103,7 +1105,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
         }
 
         if (current->data_version == slice->data_version) {
-            if (!(call_by_reclaim || current->type == DA_SLICE_TYPE_CACHE) ||
+            if ((current->type != expect_slice_type) ||
                     current->ssize.offset + current->ssize.length > slice_end)
             {
                 logCrit("file: "__FILE__", line: %d, "
@@ -1137,15 +1139,13 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
     } while (node != ob->slices->factory->tail);
 
     *update_count = add_slice_array.count;
-    if (del_slice_array.count > 0) {
+    if (*update_count > 0) {
         for (i=0; i<del_slice_array.count; i++) {
             do_delete_slice(htable, ob, ob->slices, del_slice_array.
                     slices[i], &record->space_chain);
         }
         FREE_SLICE_PTR_ARRAY(del_slice_array);
-    }
 
-    if (add_slice_array.count > 0) {
         for (i=0; i<add_slice_array.count; i++) {
             if (call_by_reclaim) {
                 if ((result=add_slice_for_reclaim(record, &slice_tail,
@@ -1156,7 +1156,8 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
             }
 
             do_add_slice(htable, ob, ob->slices, add_slice_array.slices[i],
-                    NULL, &record->space_chain);
+                    (i == add_slice_array.count - 1 ? trunk : NULL),
+                    &record->space_chain);
         }
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
@@ -1229,9 +1230,9 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 }
 
 int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
-        const DATrunkSpaceInfo *space, int *update_count,
-        FSSliceSpaceLogRecord *record, const DASliceType slice_type,
-        const bool call_by_reclaim)
+        const DATrunkSpaceInfo *space, DATrunkFileInfo *trunk,
+        int *update_count, FSSliceSpaceLogRecord *record,
+        const DASliceType slice_type, const bool call_by_reclaim)
 {
     const int init_refer = 1;
     int result;
@@ -1259,7 +1260,7 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             slice->type = slice_type;
             slice->ssize = se->bs_key.slice;
             slice->space = *space;
-            if ((result=update_slice(segment, htable, ob, slice,
+            if ((result=update_slice(segment, htable, ob, slice, trunk,
                             update_count, &release_slice, record,
                             call_by_reclaim)) == 0)
             {
