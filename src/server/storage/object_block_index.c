@@ -670,6 +670,7 @@ static int add_to_space_chain(struct fc_queue_info *space_chain,
     record->fid = slice->ob->bkey.offset;
     record->extra = slice->ssize.offset;
     record->op_type = op_type;
+    record->slice_type = slice->type;
     record->storage.version = slice->data_version;
     record->storage.trunk_id = slice->space.id_info.id;
     record->storage.length = slice->ssize.length;
@@ -696,7 +697,7 @@ static inline int do_add_slice(OBHashtable *htable, OBEntry *ob,
         return result;
     }
 
-    if (space_chain != NULL) {
+    if (space_chain != NULL && slice->type != DA_SLICE_TYPE_CACHE) {
         if ((result=add_to_space_chain(space_chain, slice,
                         da_binlog_op_type_consume_space)) != 0)
         {
@@ -717,7 +718,7 @@ static inline int do_delete_slice(OBHashtable *htable, OBEntry *ob,
 {
     int result;
 
-    if (space_chain != NULL) {
+    if (space_chain != NULL && slice->type != DA_SLICE_TYPE_CACHE) {
         if ((result=add_to_space_chain(space_chain, slice,
                         da_binlog_op_type_reclaim_space)) != 0)
         {
@@ -1124,9 +1125,9 @@ static int update_slice(OBSegment *segment, OBHashtable *htable,
                 return result;
             }
 
-            if ((result=dup_slice_to_smart_array_ex(segment, slice,
-                            DA_SLICE_TYPE_FILE, current->ssize.offset,
-                            current->ssize.length, &add_slice_array)) != 0)
+            if ((result=dup_slice_to_smart_array(segment, slice,
+                            current->ssize.offset, current->ssize.length,
+                            &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -1229,7 +1230,8 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 
 int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
         const DATrunkSpaceInfo *space, int *update_count,
-        FSSliceSpaceLogRecord *record, const bool call_by_reclaim)
+        FSSliceSpaceLogRecord *record, const DASliceType slice_type,
+        const bool call_by_reclaim)
 {
     const int init_refer = 1;
     int result;
@@ -1254,7 +1256,7 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             result = ENOMEM;
         } else {
             slice->data_version = se->data_version;
-            slice->type = DA_SLICE_TYPE_FILE;
+            slice->type = slice_type;
             slice->ssize = se->bs_key.slice;
             slice->space = *space;
             if ((result=update_slice(segment, htable, ob, slice,
@@ -1466,7 +1468,7 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
         uniq_skiplist_iterator(ob->slices, &it);
         while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
             *dec_alloc += slice->ssize.length;
-            if (space_chain != NULL) {
+            if (space_chain != NULL && slice->type != DA_SLICE_TYPE_CACHE) {
                 if ((result=add_to_space_chain(space_chain, slice,
                                 da_binlog_op_type_reclaim_space)) != 0)
                 {

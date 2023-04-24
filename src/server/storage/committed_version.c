@@ -188,10 +188,12 @@ int committed_version_add1(const FSSliceOpContext *op_ctx)
     if (op_ctx->info.sn.count > 1) {
         for (i=0; i<op_ctx->info.sn.count; i++) {
             sn = op_ctx->update.sarray.slice_sn_pairs[i].sn;
+            /*
             logInfo("%d. op_ctx: %p, source: %c, data_group_id: %d, "
                     "data_version: %"PRId64", sn: %"PRId64, i + 1,
                     op_ctx, op_ctx->info.source, data_group_id,
                     op_ctx->info.data_version, sn);
+                    */
             if ((result=committed_version_add(data_group_id, op_ctx->
                             info.data_version, sn)) != 0)
             {

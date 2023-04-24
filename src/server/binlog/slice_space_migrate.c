@@ -149,6 +149,8 @@ static int parse_to_chain(TrunkMigrateContext *ctx, char *error_info)
             record->fid = r.bs_key.block.offset;
             record->extra = r.bs_key.slice.offset;
             record->op_type = ctx->op_type;
+            record->slice_type = (r.op_type == BINLOG_OP_TYPE_WRITE_SLICE ?
+                    DA_SLICE_TYPE_FILE : DA_SLICE_TYPE_ALLOC);
             record->storage.version = r.data_version;
             record->storage.trunk_id = r.space.id_info.id;
             record->storage.length = r.bs_key.slice.length;

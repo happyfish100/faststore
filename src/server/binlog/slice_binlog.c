@@ -1434,6 +1434,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     const bool call_by_reclaim = true;
     int result;
     int update_count;
+    DASliceType slice_type;
     DATrunkSpaceInfo space;
     DASliceEntry se;
     FSSliceSpaceLogRecord *record;
@@ -1456,8 +1457,9 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
     fs_calc_block_hashcode(&se.bs_key.block);
+    slice_type = ((DATrunkSpaceLogRecord *)space_chain->tail)->slice_type;
     if ((result=ob_index_update_slice(&se, &space, &update_count,
-                    record, call_by_reclaim)) != 0)
+                    record, slice_type, call_by_reclaim)) != 0)
     {
         return result;
     }
@@ -1490,8 +1492,8 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     record->slice_head = NULL;
     record->space_chain.head = arg1;
     record->space_chain.tail = arg2;
-    if ((result=ob_index_update_slice(se, space, &update_count,
-                    record, call_by_reclaim)) != 0)
+    if ((result=ob_index_update_slice(se, space, &update_count, record,
+                    DA_SLICE_TYPE_FILE, call_by_reclaim)) != 0)
     {
         return result;
     }
