@@ -642,11 +642,16 @@ static int init_thread_ctx_array(SliceLoaderContext *ctx)
     int data_threads;
     int result;
 
-    parse_threads = SYSTEM_CPU_COUNT / 4;
-    if (parse_threads == 0) {
+    if (STORAGE_ENABLED) {
         parse_threads = 1;
+        data_threads = 1;
+    } else {
+        parse_threads = SYSTEM_CPU_COUNT / 4;
+        if (parse_threads == 0) {
+            parse_threads = 1;
+        }
+        data_threads = parse_threads * 3;
     }
-    data_threads = parse_threads * 3;
 
     result = init_parse_thread_ctx_array(ctx, &ctx->
             parse_thread_array, parse_threads);
