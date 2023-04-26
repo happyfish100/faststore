@@ -79,6 +79,7 @@ static int do_binlog_check()
 static int dump_slice_index()
 {
     int result;
+    int64_t total_block_count;
     int64_t total_slice_count;
     int64_t start_time_ms;
     int64_t end_time_ms;
@@ -97,13 +98,14 @@ static int dump_slice_index()
 
     snprintf(filename, sizeof(filename), "%s/slice.index", filepath);
     if ((result=ob_index_dump_slice_index_to_file(filename,
-                    &total_slice_count)) == 0)
+                    &total_block_count, &total_slice_count)) == 0)
     {
         end_time_ms = get_current_time_ms();
         long_to_comma_str(end_time_ms - start_time_ms, time_buff);
         logInfo("file: "__FILE__", line: %d, "
-                "dump %"PRId64" slices to file %s, time used: %s ms",
-                __LINE__, total_slice_count, filename, time_buff);
+                "dump %"PRId64" slices to file %s, block count: %"PRId64", "
+                "time used: %s ms", __LINE__, total_block_count,
+                filename, total_slice_count, time_buff);
     }
 
     return result;

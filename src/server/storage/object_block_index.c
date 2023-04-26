@@ -2631,6 +2631,7 @@ typedef struct {
     FSSliceBlockedOpContext bctx;
 #endif
     SFBufferedWriter writer;
+    int64_t total_block_count;
     int64_t total_slice_count;
 } DumpSliceIndexContext;
 
@@ -2708,7 +2709,7 @@ static int do_write_slice_index(OBEntry *ob, const int slice_type,
 }
 
 static int dump_slice_index_to_file(OBEntry *ob,
-        DumpSliceIndexContext *dump_ctx, int *slice_count)
+        DumpSliceIndexContext *dump_ctx)
 {
     int result;
     int slice_type;
@@ -2718,11 +2719,11 @@ static int dump_slice_index_to_file(OBEntry *ob,
 
     uniq_skiplist_iterator(ob->slices, &it);
     if ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) == NULL) {
-        *slice_count = 0;
         return 0;
     }
 
-    *slice_count = 1;
+    dump_ctx->total_block_count++;
+    dump_ctx->total_slice_count++;
     SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
     while ((slice=(OBSliceEntry *)uniq_skiplist_next(&it)) != NULL) {
         if (slice->ssize.offset == (ssize.offset + ssize.length)
@@ -2738,7 +2739,7 @@ static int dump_slice_index_to_file(OBEntry *ob,
             return result;
         }
 
-        ++(*slice_count);
+        dump_ctx->total_slice_count++;
         SET_SLICE_TYPE_SSIZE(slice_type, ssize, slice);
     }
 
@@ -2754,7 +2755,6 @@ static int dump_slice_index_to_file(OBEntry *ob,
 static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
 {
     int result;
-    int slice_count;
     DumpSliceIndexContext *dump_ctx;
     OBEntry *ob;
 
@@ -2764,11 +2764,7 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
     ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, true);
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     if (ob != NULL) {
-        if ((result=dump_slice_index_to_file(ob, dump_ctx,
-                                &slice_count)) == 0)
-        {
-            dump_ctx->total_slice_count += slice_count;
-        }
+        result = dump_slice_index_to_file(ob, dump_ctx);
     } else {
         result = ENOMEM;
     }
@@ -2777,15 +2773,18 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
 }
 
 int ob_index_dump_slice_index_to_file(const char *filename,
-        int64_t *total_slice_count)
+        int64_t *total_block_count, int64_t *total_slice_count)
 {
     int result;
-    int slice_count;
+    char tmp_filename[PATH_MAX];
+    char cmd[2 * PATH_MAX];
+    char output[1024];
     DumpSliceIndexContext dump_ctx;
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
 
+    *total_block_count = 0;
     *total_slice_count = 0;
     memset(&dump_ctx, 0, sizeof(dump_ctx));
 #if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
@@ -2794,7 +2793,8 @@ int ob_index_dump_slice_index_to_file(const char *filename,
     }
 #endif
 
-    if ((result=sf_buffered_writer_init(&dump_ctx.writer, filename)) != 0) {
+    snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);
+    if ((result=sf_buffered_writer_init(&dump_ctx.writer, tmp_filename)) != 0) {
         return result;
     }
 
@@ -2815,18 +2815,16 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 
             ob = *bucket;
             do {
-                if ((result=dump_slice_index_to_file(ob, &dump_ctx,
-                                &slice_count)) != 0)
-                {
+                if ((result=dump_slice_index_to_file(ob, &dump_ctx)) != 0) {
                     break;
                 }
 
-                dump_ctx.total_slice_count += slice_count;
                 ob = ob->next;
             } while (ob != NULL && result == 0);
         }
     }
 
+    *total_block_count = dump_ctx.total_block_count;
     *total_slice_count = dump_ctx.total_slice_count;
     if (!SF_G_CONTINUE_FLAG) {
         result = EINTR;
@@ -2841,6 +2839,23 @@ int ob_index_dump_slice_index_to_file(const char *filename,
 #endif
 
     sf_buffered_writer_destroy(&dump_ctx.writer);
+    if (result != 0) {
+        return result;
+    }
+
+    snprintf(cmd, sizeof(cmd), "/usr/bin/sort -k2,5 -o %s %s 2>&1",
+            filename, tmp_filename);
+    if ((result=getExecResult(cmd, output, sizeof(output))) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "execute command \"%s\" fail, errno: %d, error info: %s",
+                __LINE__, cmd, result, STRERROR(result));
+    }
+    if (*output != '\0') {
+        logWarning("file: "__FILE__", line: %d, "
+                "execute command \"%s\" output: %s",
+                __LINE__, cmd, output);
+    }
+
     return result;
 }
 #endif

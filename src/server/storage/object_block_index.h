@@ -307,7 +307,7 @@ extern "C" {
 
 #ifdef FS_DUMP_SLICE_FOR_DEBUG
     int ob_index_dump_slice_index_to_file(const char *filename,
-            int64_t *total_slice_count);
+            int64_t *total_block_count, int64_t *total_slice_count);
 #endif
 
     OBSegment *ob_index_get_segment(const FSBlockKey *bkey);
