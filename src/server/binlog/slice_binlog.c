@@ -1476,6 +1476,18 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     return 0;
 }
 
+int slice_migrate_done_callback_with_check(const DATrunkFileInfo *trunk,
+        const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
+        SFSynchronizeContext *sctx, int *flags)
+{
+    while (!SLICE_SPACE_LOG_CTX.inited) {
+        fc_sleep_ms(1);
+    }
+
+    return slice_migrate_done_callback(trunk,
+            field, space_chain, sctx, flags);
+}
+
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
         const DAFullTrunkSpace *ts, void *arg1, void *arg2)
 {

@@ -191,9 +191,10 @@ typedef struct fs_slice_space_log_record {
 } FSSliceSpaceLogRecord;
 
 typedef struct fs_slice_space_log_context {
+    bool inited;
+    int record_count;
     FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;
-    int record_count;
     struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
     struct sorted_queue queue;
 } FSSliceSpaceLogContext;

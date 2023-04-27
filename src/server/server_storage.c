@@ -89,7 +89,8 @@ static int storage_init()
     }
     da_store_path_index_destroy(&DA_CTX);
 
-    if ((result=da_init_start_ex(&DA_CTX, slice_migrate_done_callback,
+    if ((result=da_init_start_ex(&DA_CTX,
+                    slice_migrate_done_callback_with_check,
                     trunk_migrate_done_callback,
                     slice_binlog_cached_slice_write_done,
                     DATA_REBUILD_PATH_INDEX)) != 0)
