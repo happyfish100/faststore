@@ -18,6 +18,7 @@
 
 #include "diskallocator/dio/trunk_write_thread.h"
 #include "../binlog/binlog_types.h"
+#include "slice_space_log.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -30,14 +31,19 @@ extern "C" {
         int result;
         int inc_alloc;
         DASliceEntry se;
+        FSSliceSpaceLogRecord *record;
+
+        if ((record=slice_space_log_alloc_init_record()) == NULL) {
+            return ENOMEM;
+        }
 
         slice_sn_pair->slice->data_version = op_ctx->info.data_version;
         slice_sn_pair->sn = 0;
-        op_ctx->update.space_chain.head = NULL;
-        op_ctx->update.space_chain.tail = NULL;
+        slice_sn_pair->slice->space_chain = &record->space_chain;
         if ((result=ob_index_add_slice(&op_ctx->info.bs_key.block,
-                        slice_sn_pair->slice, NULL, &slice_sn_pair->sn,
-                        &inc_alloc, &op_ctx->update.space_chain)) != 0)
+                        slice_sn_pair->slice, slice_sn_pair->trunk,
+                        &slice_sn_pair->sn, &inc_alloc,
+                        &record->space_chain)) != 0)
         {
             return result;
         }
@@ -52,8 +58,7 @@ extern "C" {
         se.sn = slice_sn_pair->sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX, op_type,
                 slice_sn_pair->version, &slice_sn_pair->slice->space,
-                slice_sn_pair->trunk, data, &se, op_ctx->update.
-                space_chain.head, op_ctx->update.space_chain.tail);
+                slice_sn_pair->trunk, data, &se, record);
     }
 
     static inline int trunk_write_thread_push_slice_by_buff(

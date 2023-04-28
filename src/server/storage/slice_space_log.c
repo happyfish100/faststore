@@ -211,6 +211,8 @@ static void notify_all(struct fc_queue_info *qinfo)
             } else {
                 ++count;
             }
+
+            record->sctx = NULL;
         }
     } while ((record=record->next) != NULL);
 

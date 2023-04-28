@@ -29,13 +29,7 @@ extern "C" {
 
     static inline FSSliceSpaceLogRecord *slice_space_log_alloc_record()
     {
-        FSSliceSpaceLogRecord *record;
-
-        record = fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
-        if (record != NULL) {
-            record->sctx = NULL;
-        }
-        return record;
+        return fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
     }
 
     static inline FSSliceSpaceLogRecord *slice_space_log_alloc_init_record()

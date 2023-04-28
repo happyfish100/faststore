@@ -1442,7 +1442,6 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     if ((record=slice_space_log_alloc_init_record()) == NULL) {
         return ENOMEM;
     }
-    record->sctx = sctx;
 
     space.store = &trunk->allocator->path_info->store;
     space.id_info = trunk->id_info;
@@ -1458,7 +1457,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     se.sn = 0;
     fs_calc_block_hashcode(&se.bs_key.block);
     slice_type = ((DATrunkSpaceLogRecord *)space_chain->tail)->slice_type;
-    if ((result=ob_index_update_slice(&se, &space, NULL, &update_count,
+    if ((result=ob_index_update_slice(&se, &space, &update_count,
                     record, slice_type, call_by_reclaim)) != 0)
     {
         return result;
@@ -1466,6 +1465,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
 
     da_trunk_space_log_free_chain(&DA_CTX, space_chain);
     if (record->slice_head != NULL) {
+        record->sctx = sctx;
         slice_space_log_push(record);
     } else {
         sf_synchronize_counter_notify(sctx, 1);
@@ -1489,7 +1489,7 @@ int slice_migrate_done_callback_with_check(const DATrunkFileInfo *trunk,
 }
 
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-        const DAFullTrunkSpace *ts, void *arg1, void *arg2)
+        const DAFullTrunkSpace *ts, void *arg)
 {
     const bool call_by_reclaim = false;
     int result;
@@ -1497,21 +1497,11 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     FSSliceSpaceLogRecord *record;
     SFBinlogWriterBuffer *wbuffer;
 
-    if ((record=slice_space_log_alloc_record()) == NULL) {
-        return ENOMEM;
-    }
-
-    record->slice_head = NULL;
-    record->space_chain.head = arg1;
-    record->space_chain.tail = arg2;
-    if ((result=ob_index_update_slice(se, &ts->space, ts->trunk, &update_count,
+    record = arg;
+    if ((result=ob_index_update_slice(se, &ts->space, &update_count,
                     record, DA_SLICE_TYPE_FILE, call_by_reclaim)) != 0)
     {
         return result;
-    }
-
-    if (update_count == 0) {
-        da_trunk_freelist_decrease_writing_count(ts->trunk);
     }
 
     if ((wbuffer=sf_binlog_writer_alloc_buffer(

@@ -84,6 +84,7 @@ typedef struct ob_slice_entry {
         SFSharedMBuffer *mbuffer;
         char *buff;
     } cache; //for write cache only
+    struct fc_queue_info *space_chain;
     struct fast_mblock_man *allocator; //for free
 } OBSliceEntry;
 
