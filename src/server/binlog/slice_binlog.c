@@ -1488,6 +1488,58 @@ int slice_migrate_done_callback_with_check(const DATrunkFileInfo *trunk,
             field, space_chain, sctx, flags);
 }
 
+static void dedup_space_chain(struct fc_queue_info *space_chain)
+{
+    int i;
+    DATrunkSpaceLogRecord *current;
+    DATrunkSpaceLogRecord *next;
+    DATrunkSpaceLogRecord *deleted_records[2];
+
+    current = space_chain->head;
+    space_chain->head = space_chain->tail = NULL;
+    while (1) {
+        while (current != NULL && current->op_type !=
+                da_binlog_op_type_consume_space)
+        {
+            next = current->next;
+            DA_SPACE_LOG_ADD_TO_CHAIN(space_chain, current);
+            current = next;
+        }
+        if (current == NULL) {
+            break;
+        }
+
+        if ((next=current->next) == NULL) {
+            DA_SPACE_LOG_ADD_TO_CHAIN(space_chain, current);
+            break;
+        }
+
+        if (next->op_type == da_binlog_op_type_reclaim_space &&
+                next->storage.trunk_id == current->storage.trunk_id &&
+                next->storage.offset == current->storage.offset)
+        {
+            deleted_records[0] = current;
+            deleted_records[1] = next;
+            current = next->next;
+
+            for (i=0; i<2; i++) {
+                if (deleted_records[i]->trunk != NULL) {
+                    da_trunk_freelist_decrease_writing_count(
+                            deleted_records[i]->trunk);
+                    deleted_records[i]->trunk = NULL;
+                }
+            }
+            da_trunk_space_log_free_records(&DA_CTX, deleted_records, 2);
+            if (current == NULL) {
+                break;
+            }
+        } else {
+            DA_SPACE_LOG_ADD_TO_CHAIN(space_chain, current);
+            current = next;
+        }
+    }
+}
+
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
         const DAFullTrunkSpace *ts, void *arg)
 {
@@ -1518,6 +1570,7 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     wbuffer->next = NULL;
     record->slice_head = wbuffer;
     record->last_sn = se->sn;
+    dedup_space_chain(&record->space_chain);
     slice_space_log_push(record);
     return 0;
 }
