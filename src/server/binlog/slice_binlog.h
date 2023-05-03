@@ -280,12 +280,8 @@ extern "C" {
             const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
             SFSynchronizeContext *sctx, int *flags);
 
-    int slice_migrate_done_callback_with_check(const DATrunkFileInfo *trunk,
-            const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
-            SFSynchronizeContext *sctx, int *flags);
-
     int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-            const DAFullTrunkSpace *ts, void *arg);
+            const DATrunkSpaceInfo *space, void *arg);
 
     int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
             const time_t current_time, const uint64_t sn,

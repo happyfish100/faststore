@@ -192,7 +192,6 @@ typedef struct fs_slice_space_log_record {
 } FSSliceSpaceLogRecord;
 
 typedef struct fs_slice_space_log_context {
-    bool inited;
     int record_count;
     FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;

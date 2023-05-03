@@ -536,10 +536,6 @@ int slice_space_log_init()
         return result;
     }
 
-    SLICE_SPACE_LOG_CTX.inited = true;
-    da_set_slice_migrate_done_callback(&DA_CTX,
-            slice_migrate_done_callback);
-
     return fc_create_thread(&tid, slice_space_log_func,
             NULL, SF_G_THREAD_STACK_SIZE);
 }

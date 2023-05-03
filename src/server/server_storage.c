@@ -66,6 +66,11 @@ static int set_data_rebuild_path_index()
     return 0;
 }
 
+static bool fs_slice_load_done()
+{
+    return SLICE_LOAD_DONE;
+}
+
 static int storage_init()
 {
     const bool have_extra_field = true;
@@ -89,8 +94,8 @@ static int storage_init()
     }
     da_store_path_index_destroy(&DA_CTX);
 
-    if ((result=da_init_start_ex(&DA_CTX,
-                    slice_migrate_done_callback_with_check,
+    if ((result=da_init_start_ex(&DA_CTX, fs_slice_load_done,
+                    slice_migrate_done_callback,
                     trunk_migrate_done_callback,
                     slice_binlog_cached_slice_write_done,
                     DATA_REBUILD_PATH_INDEX)) != 0)

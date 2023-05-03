@@ -1112,8 +1112,8 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
         }
 
         if (current->data_version == slice->data_version) {
-            if ((current->type != expect_slice_type) ||
-                    current->ssize.offset + current->ssize.length > slice_end)
+            if (current->type != expect_slice_type || (current->ssize.
+                        offset + current->ssize.length) > slice_end)
             {
                 logCrit("file: "__FILE__", line: %d, "
                         "some mistake happen! call_by_reclaim: %d, "

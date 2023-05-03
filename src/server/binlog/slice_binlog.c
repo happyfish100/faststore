@@ -1476,18 +1476,6 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     return 0;
 }
 
-int slice_migrate_done_callback_with_check(const DATrunkFileInfo *trunk,
-        const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
-        SFSynchronizeContext *sctx, int *flags)
-{
-    while (!SLICE_SPACE_LOG_CTX.inited) {
-        fc_sleep_ms(1);
-    }
-
-    return slice_migrate_done_callback(trunk,
-            field, space_chain, sctx, flags);
-}
-
 static void dedup_space_chain(struct fc_queue_info *space_chain)
 {
     int i;
@@ -1541,7 +1529,7 @@ static void dedup_space_chain(struct fc_queue_info *space_chain)
 }
 
 int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
-        const DAFullTrunkSpace *ts, void *arg)
+        const DATrunkSpaceInfo *space, void *arg)
 {
     const bool call_by_reclaim = false;
     int result;
@@ -1550,8 +1538,8 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     SFBinlogWriterBuffer *wbuffer;
 
     record = arg;
-    if ((result=ob_index_update_slice(se, &ts->space, &update_count,
-                    record, DA_SLICE_TYPE_FILE, call_by_reclaim)) != 0)
+    if ((result=ob_index_update_slice(se, space, &update_count, record,
+                    DA_SLICE_TYPE_FILE, call_by_reclaim)) != 0)
     {
         return result;
     }
@@ -1565,8 +1553,8 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, se->sn);
     wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(
             DA_SLICE_TYPE_FILE, &se->bs_key.block, &se->bs_key.slice,
-            &ts->space, se->timestamp, se->sn, se->data_version,
-            se->source, wbuffer->bf.buff);
+            space, se->timestamp, se->sn, se->data_version, se->source,
+            wbuffer->bf.buff);
     wbuffer->next = NULL;
     record->slice_head = wbuffer;
     record->last_sn = se->sn;

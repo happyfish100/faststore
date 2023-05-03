@@ -58,7 +58,7 @@ extern "C" {
         se.sn = slice_sn_pair->sn;
         return da_trunk_write_thread_push_cached_slice(&DA_CTX, op_type,
                 slice_sn_pair->version, &slice_sn_pair->slice->space,
-                slice_sn_pair->trunk, data, &se, record);
+                data, &se, record);
     }
 
     static inline int trunk_write_thread_push_slice_by_buff(
