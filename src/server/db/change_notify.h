@@ -40,7 +40,7 @@ typedef struct fs_change_notify_event {
 
         FSSliceSize ssize;    //for slice delete
     };
-    struct fs_change_notify_event *next; //for queue
+    struct fc_list_head dlink; //for queue
 } FSChangeNotifyEvent;
 
 typedef struct fs_change_notify_event_ptr_array {

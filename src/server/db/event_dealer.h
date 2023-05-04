@@ -28,7 +28,7 @@ extern "C" {
 
     int64_t event_dealer_get_last_data_version();
 
-    int event_dealer_do(FSChangeNotifyEvent *head, int *count);
+    int event_dealer_do(struct fc_list_head *head, int *count);
 
     void event_dealer_free_buffers(FSDBUpdateBlockArray *array);
 

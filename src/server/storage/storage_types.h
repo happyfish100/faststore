@@ -188,7 +188,7 @@ typedef struct fs_slice_space_log_record {
     SFBinlogWriterBuffer *slice_head;
     struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
     SFSynchronizeContext *sctx;
-    struct fs_slice_space_log_record *next;
+    struct fc_list_head dlink;
 } FSSliceSpaceLogRecord;
 
 typedef struct fs_slice_space_log_context {

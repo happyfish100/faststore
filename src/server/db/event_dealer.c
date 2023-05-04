@@ -266,7 +266,7 @@ static int deal_sorted_events()
     return result;
 }
 
-int event_dealer_do(FSChangeNotifyEvent *head, int *count)
+int event_dealer_do(struct fc_list_head *head, int *count)
 {
     int result;
     FSChangeNotifyEvent *event;
@@ -274,18 +274,15 @@ int event_dealer_do(FSChangeNotifyEvent *head, int *count)
 
     EVENT_PTR_ARRAY.count = 0;
     *count = 0;
-    event = head;
-    do {
+    fc_list_for_each_entry (event, head, dlink) {
         ++(*count);
 
         if ((result=add_to_event_ptr_array(event)) != 0) {
             return result;
         }
+    }
 
-        last = event;
-        event = event->next;
-    } while (event != NULL);
-
+    last = fc_list_entry(head->prev, FSChangeNotifyEvent, dlink);
     if (EVENT_PTR_ARRAY.count > 1) {
         qsort(EVENT_PTR_ARRAY.events, EVENT_PTR_ARRAY.count,
                 sizeof(FSChangeNotifyEvent *),

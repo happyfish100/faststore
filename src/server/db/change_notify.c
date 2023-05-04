@@ -32,17 +32,17 @@ typedef struct fs_change_notify_context {
 
 static FSchangeNotifyContext change_notify_ctx;
 
-static inline int deal_events(struct fc_queue_info *qinfo)
+static inline int deal_events(struct fc_list_head *head)
 {
     int result;
     int count;
 
-    if ((result=event_dealer_do(qinfo->head, &count)) != 0) {
+    if ((result=event_dealer_do(head, &count)) != 0) {
         return result;
     }
 
     sorted_queue_free_chain(&change_notify_ctx.queue,
-            &change_notify_ctx.allocator, qinfo);
+            &change_notify_ctx.allocator, head);
     __sync_sub_and_fetch(&change_notify_ctx.
             waiting_count, count);
     return 0;
@@ -51,7 +51,7 @@ static inline int deal_events(struct fc_queue_info *qinfo)
 static void *change_notify_func(void *arg)
 {
     FSChangeNotifyEvent less_equal;
-    struct fc_queue_info qinfo;
+    struct fc_list_head head;
     time_t last_time;
     int wait_seconds;
     int waiting_count;
@@ -67,8 +67,7 @@ static void *change_notify_func(void *arg)
         wait_seconds = (last_time + BATCH_STORE_INTERVAL + 1) - g_current_time;
         waiting_count = FC_ATOMIC_GET(change_notify_ctx.waiting_count);
         if (wait_seconds > 0 && waiting_count < BATCH_STORE_ON_MODIFIES) {
-            lcp_timedwait_sec(&change_notify_ctx.queue.
-                    queue.lcp, wait_seconds);
+            lcp_timedwait_sec(&change_notify_ctx.queue.lcp, wait_seconds);
         }
 
         last_time = g_current_time;
@@ -90,10 +89,10 @@ static void *change_notify_func(void *arg)
                 "SLICE_LOAD_DONE: %d, less than version: %"PRId64,
                 __LINE__, SLICE_LOAD_DONE, less_equal.sn);
 
-        sorted_queue_try_pop_to_queue(&change_notify_ctx.
-                queue, &less_equal, &qinfo);
-        if (qinfo.head != NULL) {
-            if ((result=deal_events(&qinfo)) != 0) {
+        sorted_queue_try_pop_all(&change_notify_ctx.
+                queue, &less_equal, &head);
+        if (!fc_list_empty(&head)) {
+            if ((result=deal_events(&head)) != 0) {
                 logCrit("file: "__FILE__", line: %d, "
                         "deal notify events fail, error code: %d, "
                         "program exit!", __LINE__, result);
@@ -124,7 +123,7 @@ int change_notify_init()
     }
 
     if ((result=sorted_queue_init(&change_notify_ctx.queue, (long)
-                    (&((FSChangeNotifyEvent *)NULL)->next),
+                    (&((FSChangeNotifyEvent *)NULL)->dlink),
                     (int (*)(const void *, const void *))
                     notify_event_compare)) != 0)
     {
@@ -147,7 +146,7 @@ static inline void change_notify_push_to_queue(FSChangeNotifyEvent *event)
             waiting_count, 1) == BATCH_STORE_ON_MODIFIES;
     sorted_queue_push_silence(&change_notify_ctx.queue, event);
     if (notify) {
-        pthread_cond_signal(&change_notify_ctx.queue.queue.lcp.cond);
+        pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
     }
 }
 
@@ -223,7 +222,7 @@ void change_notify_load_done_signal()
     while (FC_ATOMIC_GET(change_notify_ctx.waiting_count) > 0 &&
             SF_G_CONTINUE_FLAG)
     {
-        pthread_cond_signal(&change_notify_ctx.queue.queue.lcp.cond);
+        pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
         fc_sleep_us(sleep_us);
         if (sleep_us < 10 * 1000) {
             sleep_us *= 2;
@@ -233,5 +232,5 @@ void change_notify_load_done_signal()
 
 void change_notify_signal_to_deal()
 {
-    pthread_cond_signal(&change_notify_ctx.queue.queue.lcp.cond);
+    pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
 }
