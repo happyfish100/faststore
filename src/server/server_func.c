@@ -606,6 +606,8 @@ static int server_init_client(const char *config_filename)
     {
         return result;
     }
+    sf_connection_manager_set_exclude_server_id(&g_fs_client_vars.
+            client_ctx.cm, CLUSTER_MYSELF_PTR->server->id);
     g_fs_client_vars.client_ctx.auth = AUTH_CTX;
     g_fs_client_vars.client_ctx.inited = true;
     g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;

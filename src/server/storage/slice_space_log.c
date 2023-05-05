@@ -251,7 +251,7 @@ static void *slice_space_log_func(void *arg)
 
     while (SF_G_CONTINUE_FLAG) {
         less_equal.last_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn) - 1;
-        sorted_queue_try_pop_all(&SLICE_SPACE_LOG_CTX.
+        sorted_queue_try_pop_to_chain(&SLICE_SPACE_LOG_CTX.
                 queue, &less_equal, &head);
         SLICE_SPACE_LOG_CTX.record_count = 0;
         if (!fc_list_empty(&head)) {

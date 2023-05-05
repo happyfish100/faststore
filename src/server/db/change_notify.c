@@ -89,7 +89,7 @@ static void *change_notify_func(void *arg)
                 "SLICE_LOAD_DONE: %d, less than version: %"PRId64,
                 __LINE__, SLICE_LOAD_DONE, less_equal.sn);
 
-        sorted_queue_try_pop_all(&change_notify_ctx.
+        sorted_queue_try_pop_to_chain(&change_notify_ctx.
                 queue, &less_equal, &head);
         if (!fc_list_empty(&head)) {
             if ((result=deal_events(&head)) != 0) {
