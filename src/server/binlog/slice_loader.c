@@ -894,7 +894,6 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
             change_notify_load_done_signal();
         }
     }
-    SLICE_LOAD_DONE = true;
 
     if (result == 0) {
         __sync_add_and_fetch(&SLICE_BINLOG_COUNT, ctx.binlog_count);
@@ -909,6 +908,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                     DATA_REBUILD_SLICE_COUNT);
         }
     }
+    SLICE_LOAD_DONE = true;
 
     if (result == 0 && MIGRATE_CLEAN_ENABLED) {
         bool dump_slice_index;
