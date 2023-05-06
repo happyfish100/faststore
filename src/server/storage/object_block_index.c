@@ -293,7 +293,7 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         }
     }
 
-    if (!create_flag) {
+    if (!(create_flag || need_reclaim)) {
         return NULL;
     }
 
