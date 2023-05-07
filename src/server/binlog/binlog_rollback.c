@@ -270,7 +270,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     int result;
     int r;
     int dec_alloc;
-    uint64_t sn = 0;
+    uint64_t sn;
     struct fc_queue_info space_chain;
 
     fs_calc_block_hashcode(&record->bs_key.block);
@@ -294,9 +294,14 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
             record->op_type == BINLOG_OP_TYPE_ALLOC_SLICE)
     {
         space_chain.head = space_chain.tail = NULL;
+        sn = 0;
         if ((r=ob_index_delete_slice(&record->bs_key, &sn,
                         &dec_alloc, &space_chain)) == 0)
         {
+            const int data_group_id = 0;
+            const int64_t data_version = 0;
+
+            committed_version_add(data_group_id, data_version, sn);
             r = slice_binlog_del_slice_push(&record->bs_key,
                     g_current_time, sn, record->data_version,
                     BINLOG_SOURCE_ROLLBACK, &space_chain);
@@ -304,9 +309,9 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
             r = 0;
         }
     } else {
+        sn = ob_index_generate_alone_sn();
         r = slice_binlog_log_no_op(&record->bs_key.block, g_current_time,
-                ob_index_generate_alone_sn(), record->data_version,
-                BINLOG_SOURCE_ROLLBACK);
+                sn, record->data_version, BINLOG_SOURCE_ROLLBACK);
     }
     if (r != 0) {
         return r;
