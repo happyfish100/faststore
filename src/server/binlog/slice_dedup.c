@@ -241,8 +241,8 @@ static int do_dedup(const char caller)
     }
 
     get_slice_dedup_filename(dedup_filename, sizeof(dedup_filename));
-    if ((result=ob_index_dump_slices_to_file_ex(&g_ob_hashtable,
-                    0, g_ob_hashtable.capacity, dedup_filename,
+    if ((result=ob_index_dump_slices_to_file_ex(&G_OB_HASHTABLE,
+                    0, G_OB_HASHTABLE.capacity, dedup_filename,
                     &redo_ctx.slice_count, BINLOG_SOURCE_DUMP,
                     need_padding, need_lock)) != 0)
     {

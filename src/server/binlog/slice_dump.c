@@ -66,7 +66,7 @@ static inline int dump_slices_to_file(slice_dump_get_filename_func
     if (get_filename_func(binlog_index, filename, sizeof(filename)) == NULL) {
         return ENAMETOOLONG;
     }
-    return ob_index_dump_slices_to_file_ex(&g_ob_hashtable,
+    return ob_index_dump_slices_to_file_ex(&G_OB_HASHTABLE,
             start_index, end_index, filename, slice_count,
             source, need_padding, need_lock);
 }
@@ -127,7 +127,7 @@ static int dump_slices(const int thread_count,
 
     if (thread_count == 1) {
         return dump_callback(get_filename_func, source, 0, 0,
-                g_ob_hashtable.capacity, total_slice_count);
+                G_OB_HASHTABLE.capacity, total_slice_count);
     }
 
     bytes = sizeof(DataDumpThreadContext) * thread_count;
@@ -139,7 +139,7 @@ static int dump_slices(const int thread_count,
     dump_ctx.get_filename_func = get_filename_func;
     dump_ctx.source = source;
     dump_ctx.running_threads = thread_count;
-    buckets_per_thread = (g_ob_hashtable.capacity +
+    buckets_per_thread = (G_OB_HASHTABLE.capacity +
             thread_count - 1) / thread_count;
     end = dump_ctx.thread_array.contexts + thread_count;
     for (ctx=dump_ctx.thread_array.contexts,
@@ -148,8 +148,8 @@ static int dump_slices(const int thread_count,
         ctx->thread_index = ctx - dump_ctx.thread_array.contexts;
         ctx->start_index = start_index;
         ctx->end_index = start_index + buckets_per_thread;
-        if (ctx->end_index > g_ob_hashtable.capacity) {
-            ctx->end_index = g_ob_hashtable.capacity;
+        if (ctx->end_index > G_OB_HASHTABLE.capacity) {
+            ctx->end_index = G_OB_HASHTABLE.capacity;
         }
         ctx->dump_ctx = &dump_ctx;
         if ((result=shared_thread_pool_run(thread_run, ctx)) != 0) {

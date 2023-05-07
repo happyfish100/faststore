@@ -62,7 +62,7 @@ static int parse_buffer(DBRemoveContext *ctx)
             return result;
         }
 
-        if ((ob=ob_index_get_ob_entry_ex(&g_ob_hashtable, &record.
+        if ((ob=ob_index_get_ob_entry_ex(&G_OB_HASHTABLE, &record.
                         bs_key.block, create_flag)) == NULL)
         {
             return ENOMEM;

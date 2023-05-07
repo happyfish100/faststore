@@ -158,8 +158,8 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                 }
 
                 if (dec_alloc != dedup_ctx->record.bs_key.slice.length ||
-                        ob_index_get_slice_count_ex(&g_ob_hashtable,
-                            &dedup_ctx->record.bs_key) > 0)
+                        ob_index_get_slice_count(&dedup_ctx->
+                            record.bs_key) > 0)
                 {
                     if ((r=add_slice(&dedup_ctx->htables.remove,
                                     &dedup_ctx->record,

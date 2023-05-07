@@ -185,6 +185,8 @@ typedef struct server_global_vars {
 
     } slice;
 
+    OBHashtable ob_hashtable;
+
     SFSlowLogContext slow_log;
 
     FCThreadPool thread_pool;
@@ -410,6 +412,8 @@ typedef struct server_global_vars {
     cluster.config.ctx.md5_digests
 #define SERVERS_CONFIG_SIGN_BUF  CLUSTER_CONFIG_MD5_SIGNS.servers
 #define CLUSTER_CONFIG_SIGN_BUF  CLUSTER_CONFIG_MD5_SIGNS.cluster
+
+#define G_OB_HASHTABLE  g_server_global_vars->ob_hashtable
 
 #ifdef __cplusplus
 extern "C" {

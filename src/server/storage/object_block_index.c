@@ -75,8 +75,6 @@ static inline int do_delete_slice_ex(OBHashtable *htable, OBEntry *ob,
 
 static OBSharedContext ob_shared_ctx = {0, 0, {0, 0, NULL}, {0, NULL}};
 
-OBHashtable g_ob_hashtable = {0, 0, NULL};
-
 static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, const FSBlockKey *bkey, const bool create_flag,
         const bool need_reclaim, OBEntry **pprev);
@@ -110,7 +108,7 @@ static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
     } while (0)
 
 
-static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
+static inline void ob_remove(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, OBEntry *ob, OBEntry *previous)
 {
     if (previous == NULL) {
@@ -124,7 +122,91 @@ static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
         FC_ATOMIC_DEC(segment->count);
         fc_list_del_init(&ob->db_args->dlink);
     }
+}
+
+static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
+        OBEntry **bucket, OBEntry *ob, OBEntry *previous)
+{
+    if (!htable->need_reclaim || FC_ATOMIC_GET(
+                ob->db_args->ref_count) == 1)
+    {
+        ob_remove(segment, htable, bucket, ob, previous);
+    }
     ob_index_ob_entry_release(ob);
+}
+
+void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
+{
+    bool need_free;
+
+    if (G_OB_HASHTABLE.need_reclaim) {
+        if (__sync_sub_and_fetch(&ob->db_args->
+                    ref_count, dec_count) == 0)
+        {
+            need_free = true;
+            if (ob->db_args->slices != NULL) {
+                uniq_skiplist_free(ob->db_args->slices);
+                ob->db_args->slices = NULL;
+            }
+
+            if (!fc_list_empty(&ob->db_args->dlink)) {
+                OBEntry *previous;
+                int cmpr;
+                bool found;
+
+                OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, ob->bkey);
+                if (*bucket == NULL) {
+                    found = false;
+                } else {
+                    cmpr = ob_index_compare_block_key(
+                            &ob->bkey, &(*bucket)->bkey);
+                    if (cmpr == 0) {
+                        previous = NULL;
+                        found = true;
+                    } else if (cmpr < 0) {
+                        found = false;
+                    } else {
+                        found = false;
+                        previous = *bucket;
+                        while (previous->next != NULL) {
+                            cmpr = ob_index_compare_block_key(&ob->bkey,
+                                    &previous->next->bkey);
+                            if (cmpr == 0) {
+                                found = true;
+                                break;
+                            } else if (cmpr < 0) {
+                                break;
+                            }
+                            previous = previous->next;
+                        }
+                    }
+                }
+
+                if (found) {
+                    ob_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
+                } else {
+                    logWarning("file: "__FILE__", line: %d, "
+                            "can't found ob entry {oid: %"PRId64", "
+                            "offset: %"PRId64"}", __LINE__,
+                            ob->bkey.oid, ob->bkey.offset);
+                }
+            } else {
+                logInfo("file: "__FILE__", line: %d, "
+                        "ob entry {oid: %"PRId64", offset: %"PRId64"} already "
+                        "removed!", __LINE__, ob->bkey.oid, ob->bkey.offset);
+            }
+        } else {
+            need_free = false;
+        }
+    } else {
+        need_free = true;
+    }
+
+    if (need_free) {
+        uniq_skiplist_free(ob->slices);
+        ob->slices = NULL;
+        fast_mblock_free_object(ob->allocator, ob);
+    }
 }
 
 static void block_reclaim(OBSegment *segment, const int64_t target_count)
@@ -138,13 +220,15 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
     count = target_count;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
-        if (ob->db_args->locked || FC_ATOMIC_GET(ob->db_args->ref_count) > 1) {
+        if (ob->db_args->locked || FC_ATOMIC_GET(
+                    ob->db_args->ref_count) > 1)
+        {
             continue;
         }
 
-        bucket = g_ob_hashtable.buckets + FS_BLOCK_HASH_CODE(ob->bkey) %
-            g_ob_hashtable.capacity;
-        if (get_ob_entry_ex(segment, &g_ob_hashtable, bucket,
+        bucket = G_OB_HASHTABLE.buckets + FS_BLOCK_HASH_CODE(ob->bkey) %
+            G_OB_HASHTABLE.capacity;
+        if (get_ob_entry_ex(segment, &G_OB_HASHTABLE, bucket,
                     &ob->bkey, false, false, &previous) != ob)
         {
             logWarning("file: "__FILE__", line: %d, "
@@ -152,7 +236,7 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
                     "fail!", __LINE__, ob->bkey.oid, ob->bkey.offset);
             continue;
         }
-        ob_entry_remove(segment, &g_ob_hashtable, bucket, ob, previous);
+        ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
 
         if (--count == 0) {
             break;
@@ -169,7 +253,7 @@ static void *reclaim_and_alloc(struct fast_mblock_man *allocator)
     int64_t current_count;
     int64_t target_count;
 
-    avg_count = FC_ATOMIC_GET(g_ob_hashtable.count) /
+    avg_count = FC_ATOMIC_GET(G_OB_HASHTABLE.count) /
         ob_shared_ctx.segment_array.count;
     while (1) {
         segment = ob_shared_ctx.segment_array.segments + __sync_fetch_and_add(
@@ -204,7 +288,7 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
     OB_INDEX_SET_HASHTABLE_ALLOCATOR(*bkey);
     ob = fast_mblock_alloc_object(&allocator->ob);
     if (ob == NULL) {
-        if (!g_ob_hashtable.need_reclaim) {
+        if (!G_OB_HASHTABLE.need_reclaim) {
             return NULL;
         }
 
@@ -376,7 +460,7 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
         return slice;
     }
 
-    if (!g_ob_hashtable.need_reclaim) {
+    if (!G_OB_HASHTABLE.need_reclaim) {
         return NULL;
     }
 
@@ -641,14 +725,14 @@ int ob_index_init()
         return result;
     }
 
-    if ((result=ob_index_init_htable_ex(&g_ob_hashtable,
+    if ((result=ob_index_init_htable_ex(&G_OB_HASHTABLE,
                     OB_HASHTABLE_CAPACITY)) != 0)
     {
         return result;
     }
 
     if (STORAGE_ENABLED) {
-        g_ob_hashtable.need_reclaim = true;
+        G_OB_HASHTABLE.need_reclaim = true;
     }
     return 0;
 }
@@ -1224,9 +1308,9 @@ int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
 {
     int result;
 
-    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, slice->ob->bkey);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(&G_OB_HASHTABLE, slice->ob->bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    if ((result=add_slice(segment, &g_ob_hashtable, slice->ob, slice->
+    if ((result=add_slice(segment, &G_OB_HASHTABLE, slice->ob, slice->
                     ob->slices, slice, NULL, NULL, NULL)) == 0)
     {
         if (STORAGE_ENABLED) {
@@ -2771,9 +2855,9 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
     OBEntry *ob;
 
     dump_ctx = arg;
-    OB_INDEX_SET_BUCKET_AND_SEGMENT(&g_ob_hashtable, *bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, *bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob = get_ob_entry(segment, &g_ob_hashtable, bucket, bkey, true);
+    ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, bkey, true);
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     if (ob != NULL) {
         result = dump_slice_index_to_file(ob, dump_ctx);
@@ -2817,8 +2901,8 @@ int ob_index_dump_slice_index_to_file(const char *filename,
             return result;
         }
     } else {
-        end = g_ob_hashtable.buckets + g_ob_hashtable.capacity;
-        for (bucket=g_ob_hashtable.buckets; result == 0 &&
+        end = G_OB_HASHTABLE.buckets + G_OB_HASHTABLE.capacity;
+        for (bucket=G_OB_HASHTABLE.buckets; result == 0 &&
                 bucket<end && SF_G_CONTINUE_FLAG; bucket++)
         {
             if (*bucket == NULL) {
@@ -2910,7 +2994,7 @@ static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
 
 OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
 {
-    OB_INDEX_SET_HASHTABLE_SEGMENT(&g_ob_hashtable, *bkey);
+    OB_INDEX_SET_HASHTABLE_SEGMENT(&G_OB_HASHTABLE, *bkey);
     return segment;
 }
 
@@ -2952,7 +3036,7 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
     slice->type = type;
     slice->ssize = *ssize;
     slice->space = *space;
-    return add_slice(segment, &g_ob_hashtable, ob, ob->
+    return add_slice(segment, &G_OB_HASHTABLE, ob, ob->
             db_args->slices, slice, NULL, NULL, NULL);
 }
 
@@ -2965,7 +3049,7 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
-    result = delete_slice(segment, &g_ob_hashtable, ob, ob->
+    result = delete_slice(segment, &G_OB_HASHTABLE, ob, ob->
             db_args->slices, &bs_key, &count, NULL, NULL);
     return (result == ENOENT ? 0 : result);
 }

@@ -40,39 +40,37 @@ typedef struct {
 extern "C" {
 #endif
 
-    extern OBHashtable g_ob_hashtable;
-
 #define ob_index_add_slice(bkey, slice, trunk, sn, inc_alloc, space_chain) \
-    ob_index_add_slice_ex(&g_ob_hashtable, bkey, slice, \
+    ob_index_add_slice_ex(&G_OB_HASHTABLE, bkey, slice, \
             trunk, sn, inc_alloc, space_chain)
 
 #define ob_index_update_slice(se, slice, update_count,   \
         record, slice_type, call_by_reclaim)  \
-    ob_index_update_slice_ex(&g_ob_hashtable, se, slice, update_count, \
+    ob_index_update_slice_ex(&G_OB_HASHTABLE, se, slice, update_count, \
             record, slice_type, call_by_reclaim)
 
 #define ob_index_delete_slice(bs_key, sn, dec_alloc, space_chain) \
-    ob_index_delete_slice_ex(&g_ob_hashtable, \
+    ob_index_delete_slice_ex(&G_OB_HASHTABLE, \
             bs_key, sn, dec_alloc, space_chain)
 
 #define ob_index_delete_block(bkey, sn, dec_alloc, space_chain) \
-    ob_index_delete_block_ex(&g_ob_hashtable, \
+    ob_index_delete_block_ex(&G_OB_HASHTABLE, \
             bkey, sn, dec_alloc, space_chain)
 
 #define ob_index_get_slices(bs_key, sarray) \
-    ob_index_get_slices_ex(&g_ob_hashtable, bs_key, sarray)
+    ob_index_get_slices_ex(&G_OB_HASHTABLE, bs_key, sarray)
 
 #define ob_index_get_slice_count(bs_key) \
-    ob_index_get_slice_count_ex(&g_ob_hashtable, bs_key)
+    ob_index_get_slice_count_ex(&G_OB_HASHTABLE, bs_key)
 
 #define ob_index_get_ob_entry(bkey) \
-    ob_index_get_ob_entry_ex(&g_ob_hashtable, bkey, false)
+    ob_index_get_ob_entry_ex(&G_OB_HASHTABLE, bkey, false)
 
 #define ob_index_ob_entry_release(ob) \
     ob_index_ob_entry_release_ex(ob, 1)
 
 #define ob_index_alloc_slice(bkey) \
-    ob_index_alloc_slice_ex(&g_ob_hashtable, bkey, 1)
+    ob_index_alloc_slice_ex(&G_OB_HASHTABLE, bkey, 1)
 
 #define ob_index_init_htable(ht) \
     ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.  \
@@ -80,23 +78,23 @@ extern "C" {
 
 #define ob_index_dump_slices_to_file(start_index,  \
         end_index, filename, slice_count, source)  \
-    ob_index_dump_slices_to_file_ex(&g_ob_hashtable, \
+    ob_index_dump_slices_to_file_ex(&G_OB_HASHTABLE, \
             start_index, end_index, filename, slice_count, source, \
-            end_index == g_ob_hashtable.capacity, false)
+            end_index == G_OB_HASHTABLE.capacity, false)
 
 #define ob_index_remove_slices_to_file(start_index, \
         end_index, filename, slice_count, source)   \
-    ob_index_remove_slices_to_file_ex(&g_ob_hashtable, start_index, \
+    ob_index_remove_slices_to_file_ex(&G_OB_HASHTABLE, start_index, \
             end_index, filename, slice_count, source)
 
 #define ob_index_remove_slices_to_file_for_reclaim(filename, slice_count) \
-    ob_index_remove_slices_to_file_for_reclaim_ex(&g_ob_hashtable, \
+    ob_index_remove_slices_to_file_for_reclaim_ex(&G_OB_HASHTABLE, \
             filename, slice_count)
 
 #define ob_index_dump_replica_binlog_to_file(data_group_id, \
         padding_data_version, filename, \
         total_slice_count, total_replica_count) \
-    ob_index_dump_replica_binlog_to_file_ex(&g_ob_hashtable, \
+    ob_index_dump_replica_binlog_to_file_ex(&G_OB_HASHTABLE, \
             data_group_id, padding_data_version, filename, \
             total_slice_count, total_replica_count)
 
@@ -122,33 +120,7 @@ extern "C" {
     int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
             uint64_t *sn, int *dec_alloc, struct fc_queue_info *space_chain);
 
-    static inline void ob_index_ob_entry_release_ex(
-            OBEntry *ob, const int dec_count)
-    {
-        bool need_free;
-
-        if (g_ob_hashtable.need_reclaim) {
-            if (__sync_sub_and_fetch(&ob->db_args->
-                        ref_count, dec_count) == 0)
-            {
-                need_free = true;
-                if (ob->db_args->slices != NULL) {
-                    uniq_skiplist_free(ob->db_args->slices);
-                    ob->db_args->slices = NULL;
-                }
-            } else {
-                need_free = false;
-            }
-        } else {
-            need_free = true;
-        }
-
-        if (need_free) {
-            uniq_skiplist_free(ob->slices);
-            ob->slices = NULL;
-            fast_mblock_free_object(ob->allocator, ob);
-        }
-    }
+    void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count);
 
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const bool create_flag);

@@ -68,6 +68,7 @@ int64_t event_dealer_get_last_data_version()
 static int realloc_event_ptr_array(FSChangeNotifyEventPtrArray *array)
 {
     FSChangeNotifyEvent **events;
+    uint32_t bytes;
 
     if (array->alloc == 0) {
         array->alloc = 8 * 1024;
@@ -82,8 +83,8 @@ static int realloc_event_ptr_array(FSChangeNotifyEventPtrArray *array)
     }
 
     if (array->events != NULL) {
-        memcpy(events, array->events,
-                sizeof(FSChangeNotifyEvent *) * array->count);
+        bytes = sizeof(FSChangeNotifyEvent *) * array->count;
+        memcpy(events, array->events, bytes);
         free(array->events);
     }
 
