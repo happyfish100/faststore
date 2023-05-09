@@ -29,6 +29,9 @@
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
 #define FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT  4
 
+#define FS_OB_STATUS_NORMAL     0
+#define FS_OB_STATUS_DELETING   1
+
 struct ob_slice_entry;
 struct fs_data_operation;
 struct fs_slice_op_context;
@@ -53,6 +56,7 @@ typedef struct {
 
 typedef struct ob_db_args {
     bool locked;
+    char status;
     volatile short ref_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct fc_list_head dlink; //for storage engine LRU

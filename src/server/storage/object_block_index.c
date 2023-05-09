@@ -69,8 +69,8 @@ typedef struct {
 static inline int do_add_slice_ex(OBHashtable *htable, OBEntry *ob,
         UniqSkiplist *sl, OBSliceEntry *slice, DATrunkFileInfo *trunk,
         struct fc_queue_info *space_chain);
-static inline int do_delete_slice_ex(OBHashtable *htable, OBEntry *ob,
-        UniqSkiplist *sl, OBSliceEntry *slice,
+static inline int do_delete_slice_ex(OBHashtable *htable,
+        OBEntry *ob, UniqSkiplist *sl, OBSliceEntry *slice,
         struct fc_queue_info *space_chain);
 
 static OBSharedContext ob_shared_ctx = {0, 0, {0, 0, NULL}, {0, NULL}};
@@ -127,10 +127,15 @@ static inline void ob_remove(OBSegment *segment, OBHashtable *htable,
 static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, OBEntry *ob, OBEntry *previous)
 {
-    if (!htable->need_reclaim || FC_ATOMIC_GET(
-                ob->db_args->ref_count) == 1)
-    {
+    if (!htable->need_reclaim) {
         ob_remove(segment, htable, bucket, ob, previous);
+    } else if (FC_ATOMIC_GET(ob->db_args->ref_count) == 1) {
+        if (ob->db_args->status == FS_OB_STATUS_DELETING) {
+            ob->db_args->status = FS_OB_STATUS_NORMAL;
+        }
+        ob_remove(segment, htable, bucket, ob, previous);
+    } else {
+        ob->db_args->status = FS_OB_STATUS_DELETING;
     }
     ob_index_ob_entry_release(ob);
 }
@@ -181,6 +186,7 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
                         }
                     }
                 }
+                ob->db_args->status = FS_OB_STATUS_NORMAL;
 
                 if (found) {
                     ob_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
@@ -220,8 +226,8 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
     count = target_count;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
-        if (ob->db_args->locked || FC_ATOMIC_GET(
-                    ob->db_args->ref_count) > 1)
+        if (ob->db_args->locked || FC_ATOMIC_GET(ob->db_args->ref_count) > 1
+                || ob->db_args->status == FS_OB_STATUS_DELETING)
         {
             continue;
         }
@@ -236,13 +242,18 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
                     "fail!", __LINE__, ob->bkey.oid, ob->bkey.offset);
             continue;
         }
-        ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
 
+        uniq_skiplist_clear(ob->slices);
+        ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
         if (--count == 0) {
             break;
         }
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+
+    logInfo("file: "__FILE__", line: %d, func: %s, "
+            "reclaim count: %"PRId64, __LINE__,
+            __FUNCTION__, target_count - count);
 }
 
 static void *reclaim_and_alloc(struct fast_mblock_man *allocator)
@@ -348,26 +359,23 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
     }
     if (*bucket == NULL) {
         *pprev = NULL;
+        ob = NULL;
     } else {
         cmpr = ob_index_compare_block_key(bkey, &(*bucket)->bkey);
         if (cmpr == 0) {
             *pprev = NULL;
-            if (need_reclaim) {
-                fc_list_move_tail(&(*bucket)->db_args->dlink, &segment->lru);
-            }
-            return *bucket;
+            ob = *bucket;
         } else if (cmpr < 0) {
             *pprev = NULL;
+            ob = NULL;
         } else {
+            ob = NULL;
             *pprev = *bucket;
             while ((*pprev)->next != NULL) {
                 cmpr = ob_index_compare_block_key(bkey, &(*pprev)->next->bkey);
                 if (cmpr == 0) {
-                    if (need_reclaim) {
-                        fc_list_move_tail(&(*pprev)->next->
-                                db_args->dlink, &segment->lru);
-                    }
-                    return (*pprev)->next;
+                    ob = (*pprev)->next;
+                    break;
                 } else if (cmpr < 0) {
                     break;
                 }
@@ -375,6 +383,23 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
                 *pprev = (*pprev)->next;
             }
         }
+    }
+
+    if (ob != NULL) {
+        if (need_reclaim) {
+            if (ob->db_args->status == FS_OB_STATUS_DELETING) {
+                if (create_flag) {
+                    ob->db_args->status = FS_OB_STATUS_NORMAL;
+                    FC_ATOMIC_INC(ob->db_args->ref_count);
+                } else {
+                    return NULL;
+                }
+            }
+
+            fc_list_move_tail(&ob->db_args->dlink, &segment->lru);
+        }
+
+        return ob;
     }
 
     if (!(create_flag || need_reclaim)) {
@@ -796,8 +821,8 @@ static inline int do_add_slice_ex(OBHashtable *htable, OBEntry *ob,
     return 0;
 }
 
-static inline int do_delete_slice_ex(OBHashtable *htable, OBEntry *ob,
-        UniqSkiplist *sl, OBSliceEntry *slice,
+static inline int do_delete_slice_ex(OBHashtable *htable,
+        OBEntry *ob, UniqSkiplist *sl, OBSliceEntry *slice,
         struct fc_queue_info *space_chain)
 {
     int result;
@@ -1169,6 +1194,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
         *release_slice = false;
         do_delete_slice(htable, ob, ob->slices,
                 current, &record->space_chain);
+
         if (call_by_reclaim) {
             if ((result=add_slice_for_reclaim(record,
                             &slice_tail, slice)) != 0)
@@ -1581,6 +1607,7 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
                     *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
                 }
                 if (STORAGE_ENABLED) {
+                    uniq_skiplist_clear(ob->slices);
                     result = change_notify_push_del_block(*sn, ob);
                 }
             }
@@ -2557,6 +2584,7 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
 
                 current = ob;
                 ob = ob->next;
+                uniq_skiplist_clear(current->slices);
                 ob_entry_remove(segment, htable, bucket, current, previous);
             }
         }
