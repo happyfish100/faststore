@@ -397,12 +397,12 @@ static int redo(TrunkMigrateContext *ctx)
     switch (ctx->current_stage) {
         case BINLOG_REDO_STAGE_DUMP_SLICE:
             if ((result=slice_dedup_binlog()) != 0) {
-                break;
+                return result;
             }
             //continue next stage
         case BINLOG_REDO_STAGE_SPACE_LOG:
             if ((result=migrate_space_log(ctx)) != 0) {
-                break;
+                return result;
             }
             //continue next stage
         case BINLOG_REDO_STAGE_CLEANUP:
