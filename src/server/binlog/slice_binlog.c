@@ -514,18 +514,64 @@ static int slice_binlog_do_migrate()
     return slice_migrate_redo(&redo_ctx);
 }
 
+static int parse_sn(string_t *line, volatile uint64_t *sn, bool *need_migrate)
+{
+    string_t cols[BINLOG_MAX_FIELD_COUNT];
+    int col_count;
+
+    if (!(line->len > 0 && line->str[line->len - 1] == '\n')) {
+        logError("file: "__FILE__", line: %d, "
+                "the last line of slice binlog is invalid, "
+                "line length: %d, last line: %.*s", __LINE__,
+                line->len, line->len, line->str);
+        return EINVAL;
+    }
+
+    col_count = split_string_ex(line, ' ', cols,
+            BINLOG_MAX_FIELD_COUNT, false);
+    if (col_count == ADD_SLICE_EXPECT_FIELD_COUNT ||
+            col_count == DEL_SLICE_EXPECT_FIELD_COUNT ||
+            col_count == DEL_BLOCK_EXPECT_FIELD_COUNT)
+    {
+        string_t *s;
+        char tmp[32];
+
+        s = cols + SLICE_BINLOG_FIELD_INDEX_SN;
+        snprintf(tmp, sizeof(tmp), "%.*s", s->len, s->str);
+        *sn = strtoll(tmp, NULL, 10);
+        *need_migrate = false;
+        return 0;
+    }
+
+    if (!(col_count == ADD_SLICE_EXPECT_FIELD_COUNT - 1 ||
+                col_count == DEL_SLICE_EXPECT_FIELD_COUNT - 1 ||
+                col_count == DEL_BLOCK_EXPECT_FIELD_COUNT - 1))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "the last line of slice binlog is invalid, "
+                "field count: %d, last line: %.*s", __LINE__,
+                col_count, line->len, line->str);
+        return EINVAL;
+    }
+
+    *need_migrate = true;
+    return 0;
+}
+
 static int get_last_sn(bool *migrate_flag)
 {
+    char filename[PATH_MAX];
     char buff[FS_SLICE_BINLOG_MAX_RECORD_SIZE];
     string_t line;
-    string_t cols[BINLOG_MAX_FIELD_COUNT];
+    int start_index;
     int last_index;
     int line_count;
-    int col_count;
+    bool need_migrate;
     int result;
 
-    if ((result=sf_binlog_writer_get_binlog_last_index(DATA_PATH_STR,
-                    FS_SLICE_BINLOG_SUBDIR_NAME, &last_index)) != 0)
+    if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
+                    FS_SLICE_BINLOG_SUBDIR_NAME, &start_index,
+                    &last_index)) != 0)
     {
         return result;
     }
@@ -544,45 +590,36 @@ static int get_last_sn(bool *migrate_flag)
     }
 
     line.str = buff;
-    if (!(line.len > 0 && line.str[line.len - 1] == '\n')) {
-        logError("file: "__FILE__", line: %d, "
-                "the last line of slice binlog is invalid, "
-                "line length: %d, last line: %.*s", __LINE__,
-                line.len, line.len, line.str);
-        return EINVAL;
+    if ((result=parse_sn(&line, &SLICE_BINLOG_SN, &need_migrate)) != 0) {
+        return result;
     }
 
-    col_count = split_string_ex(&line, ' ', cols,
-            BINLOG_MAX_FIELD_COUNT, false);
-    if (col_count == ADD_SLICE_EXPECT_FIELD_COUNT ||
-            col_count == DEL_SLICE_EXPECT_FIELD_COUNT ||
-            col_count == DEL_BLOCK_EXPECT_FIELD_COUNT)
-    {
-        string_t *sn;
-        char tmp[32];
-
-        sn = cols + SLICE_BINLOG_FIELD_INDEX_SN;
-        snprintf(tmp, sizeof(tmp), "%.*s", sn->len, sn->str);
-        SLICE_BINLOG_SN = strtoll(tmp, NULL, 10);
+    if (!need_migrate) {
         if (SLICE_BINLOG_SN > 0) {
             slice_binlog_set_next_version();
         }
         return 0;
-    }
-
-    if (!(col_count == ADD_SLICE_EXPECT_FIELD_COUNT - 1 ||
-                col_count == DEL_SLICE_EXPECT_FIELD_COUNT - 1 ||
-                col_count == DEL_BLOCK_EXPECT_FIELD_COUNT - 1))
-    {
-        logError("file: "__FILE__", line: %d, "
-                "the last line of slice binlog is invalid, "
-                "field count: %d, last line: %.*s", __LINE__,
-                col_count, line.len, line.str);
+    } else if (migrate_flag == NULL) {
         return EINVAL;
     }
 
-    if (migrate_flag == NULL) {
-        return EINVAL;
+
+    //check the first line also
+    sf_binlog_writer_get_filename(DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
+            start_index, filename, sizeof(filename));
+    if ((result=fc_get_first_line(filename, buff, sizeof(buff), &line)) != 0) {
+        return result;
+    }
+    if (line.len > 0) {
+        if ((result=parse_sn(&line, &SLICE_BINLOG_SN, &need_migrate)) != 0) {
+            return result;
+        }
+
+        if (!need_migrate) {
+            logError("file: "__FILE__", line: %d, "
+                    "slice binlog formats not consistent!", __LINE__);
+            return EINVAL;
+        }
     }
 
     if ((result=trunk_migrate_create()) != 0) {
