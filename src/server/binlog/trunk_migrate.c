@@ -14,13 +14,28 @@
  */
 
 #include "../server_global.h"
+#include "../server_func.h"
 #include "slice_binlog.h"
 #include "slice_space_migrate.h"
 #include "trunk_migrate.h"
 
 int trunk_migrate_redo()
 {
-    return slice_space_migrate_redo(FS_TRUNK_BINLOG_SUBDIR_NAME);
+    int result;
+    bool need_restart;
+
+    if ((result=slice_space_migrate_redo(FS_TRUNK_BINLOG_SUBDIR_NAME,
+                    &need_restart)) != 0)
+    {
+        return result;
+    }
+
+    if (need_restart) {
+        fs_server_restart("slice space migrate done for trunk migrate");
+        return EINTR;
+    } else {
+        return 0;
+    }
 }
 
 static inline int migrate_create(const bool dump_slice)

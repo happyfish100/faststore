@@ -30,7 +30,7 @@ extern "C" {
             const int binlog_index, const bool dump_slice,
             const DABinlogOpType op_type, const char which_subdir);
 
-    int slice_space_migrate_redo(const char *subdir_name);
+    int slice_space_migrate_redo(const char *subdir_name, bool *need_restart);
 
 #ifdef __cplusplus
 }

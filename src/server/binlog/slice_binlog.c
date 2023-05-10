@@ -622,6 +622,14 @@ static int get_last_sn(bool *migrate_flag)
         }
     }
 
+    if (STORAGE_ENABLED) {
+        logError("file: "__FILE__", line: %d, "
+                "can't enable storage engine plugin before trunk "
+                "migrate! you should enable storage engine when "
+                "trunk migrate done.", __LINE__);
+        return EINVAL;
+    }
+
     if ((result=trunk_migrate_create()) != 0) {
         return result;
     }

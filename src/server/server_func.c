@@ -26,6 +26,7 @@
 #include "fastcommon/system_info.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "sf/sf_func.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "fastcfs/vote/fcfs_vote_client.h"
 #include "common/fs_proto.h"
@@ -1029,4 +1030,42 @@ int server_load_config(const char *filename)
     server_log_configs();
 
     return server_init_client(filename);
+}
+
+void fs_server_restart(const char *reason)
+{
+    int result;
+    pid_t pid;
+
+    pid = fork();
+    if (pid < 0) {
+        result = (errno != 0 ? errno : EBUSY);
+        logError("file: "__FILE__", line: %d, "
+                "call fork fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        sf_terminate_myself();
+        return;
+    } else if (pid > 0) {  //parent process
+        logInfo("file: "__FILE__", line: %d, "
+                "restart because %s", __LINE__, reason);
+        return;
+    }
+
+    //child process, close server sockets
+    sf_socket_close_ex(&CLUSTER_SF_CTX);
+    sf_socket_close_ex(&REPLICA_SF_CTX);
+    sf_socket_close();
+    if (execlp(CMDLINE_PROGRAM_FILENAME, CMDLINE_PROGRAM_FILENAME,
+                CMDLINE_CONFIG_FILENAME, "restart", NULL) < 0)
+    {
+        result = errno != 0 ? errno : EBUSY;
+        logError("file: "__FILE__", line: %d, "
+                "exec \"%s %s restart\" fail, errno: %d, error info: %s",
+                __LINE__, CMDLINE_PROGRAM_FILENAME, CMDLINE_CONFIG_FILENAME,
+                result, STRERROR(result));
+
+        log_sync_func(&g_log_context);
+        kill(getppid(), SIGQUIT);
+        exit(result);
+    }
 }

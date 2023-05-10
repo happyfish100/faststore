@@ -36,6 +36,11 @@ typedef struct server_global_vars {
     } system;
 
     struct {
+        const char *program_filename;
+        const char *config_filename;
+    } cmdline;
+
+    struct {
         struct {
             int64_t value;
             double ratio;
@@ -197,6 +202,9 @@ typedef struct server_global_vars {
 
 #define SYSTEM_CPU_COUNT      g_server_global_vars->system.cpu_count
 #define SYSTEM_TOTAL_MEMORY   g_server_global_vars->system.total_memory
+
+#define CMDLINE_PROGRAM_FILENAME g_server_global_vars->cmdline.program_filename
+#define CMDLINE_CONFIG_FILENAME  g_server_global_vars->cmdline.config_filename
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars->cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars->cluster.config.ctx.server_cfg

@@ -433,11 +433,12 @@ static int redo(TrunkMigrateContext *ctx)
     return fc_delete_file_ex(ctx->mark_filename, "redo mark");
 }
 
-int slice_space_migrate_redo(const char *subdir_name)
+int slice_space_migrate_redo(const char *subdir_name, bool *need_restart)
 {
     int result;
     TrunkMigrateContext ctx;
 
+    *need_restart = false;
     snprintf(ctx.subdir_name, sizeof(ctx.subdir_name), "%s", subdir_name);
     get_slice_space_migrate_mark_filename(&ctx);
     if (access(ctx.mark_filename, F_OK) != 0) {
@@ -457,6 +458,7 @@ int slice_space_migrate_redo(const char *subdir_name)
         return result;
     }
 
+    *need_restart = true;
     return redo(&ctx);
 }
 

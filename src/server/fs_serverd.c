@@ -64,7 +64,6 @@ static int setup_server_env(const char *config_filename);
 static int setup_mblock_stat_task();
 
 static bool daemon_mode = true;
-static const char *config_filename;
 static char g_pid_filename[MAX_PATH_SIZE];
 
 static int init_nio_task(struct fast_task_info *task)
@@ -173,17 +172,18 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
         return 1;
     }
 
-    config_filename = sf_parse_daemon_mode_and_action_ex(
+    CMDLINE_PROGRAM_FILENAME = argv[0];
+    CMDLINE_CONFIG_FILENAME = sf_parse_daemon_mode_and_action_ex(
             argc, argv, &g_fs_global_vars.version,
             &daemon_mode, &action, "start", other_options);
-    if (config_filename == NULL) {
+    if (CMDLINE_CONFIG_FILENAME == NULL) {
         return 0;
     }
 
     log_init2();
     //log_set_time_precision(&g_log_context, LOG_TIME_PRECISION_USECOND);
 
-    result = sf_get_base_path_from_conf_file(config_filename);
+    result = sf_get_base_path_from_conf_file(CMDLINE_CONFIG_FILENAME);
     if (result != 0) {
         log_destroy();
         return result;
@@ -239,7 +239,7 @@ int main(int argc, char *argv[])
 
     //sched_set_delay_params(300, 1024);
     do {
-        if ((result=setup_server_env(config_filename)) != 0) {
+        if ((result=setup_server_env(CMDLINE_CONFIG_FILENAME)) != 0) {
             break;
         }
 
@@ -260,6 +260,7 @@ int main(int argc, char *argv[])
         //sched_print_all_entries();
 
         if ((result=sf_socket_server_ex(&CLUSTER_SF_CTX)) != 0) {
+            sleep(120);
             break;
         }
         if ((result=sf_socket_server_ex(&REPLICA_SF_CTX)) != 0) {
@@ -326,7 +327,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        if ((result=server_recovery_init(config_filename)) != 0) {
+        if ((result=server_recovery_init(CMDLINE_CONFIG_FILENAME)) != 0) {
             break;
         }
 

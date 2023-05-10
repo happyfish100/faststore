@@ -20,6 +20,7 @@
 #include "sf/sf_func.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
+#include "../server_func.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
 #include "../storage/object_block_index.h"
@@ -435,6 +436,7 @@ static int reclaim_space_prepare(BinlogCleanRedoContext *redo_ctx)
 static int redo(BinlogCleanRedoContext *redo_ctx)
 {
     int result;
+    bool need_restart;
 
     switch (redo_ctx->current_stage) {
         case MIGRATE_REDO_STAGE_BACKUP_SLICE:
@@ -478,7 +480,8 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
             }
             //continue next stage
         case MIGRATE_REDO_STAGE_RECLAIM_SPACE_REDO:
-            result = slice_space_migrate_redo(MIGRATE_SPACE_SUBDIR_FULLNAME);
+            result = slice_space_migrate_redo(MIGRATE_SPACE_SUBDIR_FULLNAME,
+                    &need_restart);
             if (result != 0) {
                 return result;
             }
@@ -490,7 +493,11 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
             if ((result=write_to_redo_file(redo_ctx)) != 0) {
                 return result;
             }
-            break;
+
+            if (need_restart) {
+                fs_server_restart("slice space migrate done for migrate clean");
+                return EINTR;
+            }
         case MIGRATE_REDO_STAGE_REMOVE_REPLICA:
             break;
         default:
