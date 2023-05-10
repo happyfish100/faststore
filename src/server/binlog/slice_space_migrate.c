@@ -44,9 +44,6 @@ typedef struct slice_space_migrate_context {
     struct fc_queue_info space_chain;
 } TrunkMigrateContext;
 
-#define SLICE_BINLOG_IN_CURRENT_SUBDIR  'c'
-#define SLICE_BINLOG_IN_SYSTEM_SUBDIR   's'
-
 #define MIGRATE_BUFFER_SIZE   (1024 * 1024)
 
 #define BINLOG_REDO_STAGE_DUMP_SLICE     1
@@ -297,7 +294,7 @@ static int open_slice_binlog(TrunkMigrateContext *ctx)
     int result;
     char *subdir_name;
 
-    if (ctx->slice_binlog.which_subdir == SLICE_BINLOG_IN_SYSTEM_SUBDIR) {
+    if (ctx->slice_binlog.which_subdir == FS_SLICE_BINLOG_IN_SYSTEM_SUBDIR) {
         subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
     } else {
         subdir_name = ctx->subdir_name;
@@ -416,6 +413,8 @@ static int redo(TrunkMigrateContext *ctx)
             if ((result=slice_dedup_binlog()) != 0) {
                 return result;
             }
+
+            ctx->slice_binlog.index = slice_binlog_get_binlog_start_index();
             //continue next stage
         case BINLOG_REDO_STAGE_SPACE_LOG:
             if ((result=migrate_space_log(ctx)) != 0) {
@@ -463,18 +462,17 @@ int slice_space_migrate_redo(const char *subdir_name)
 
 int slice_space_migrate_create(const char *subdir_name,
         const int binlog_index, const bool dump_slice,
-        const DABinlogOpType op_type)
+        const DABinlogOpType op_type, const char which_subdir)
 {
     int result;
     TrunkMigrateContext ctx;
 
     if (dump_slice) {
-        ctx.slice_binlog.which_subdir = SLICE_BINLOG_IN_SYSTEM_SUBDIR;
         ctx.current_stage = BINLOG_REDO_STAGE_DUMP_SLICE;
     } else {
-        ctx.slice_binlog.which_subdir = SLICE_BINLOG_IN_CURRENT_SUBDIR;
         ctx.current_stage = BINLOG_REDO_STAGE_SPACE_LOG;
     }
+    ctx.slice_binlog.which_subdir = which_subdir;
     ctx.slice_binlog.index = binlog_index;
     ctx.op_type = op_type;
     ctx.last_sn = 0;

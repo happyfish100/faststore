@@ -29,7 +29,8 @@ static inline int migrate_create(const bool dump_slice)
 
     binlog_index = slice_binlog_get_binlog_start_index();
     return slice_space_migrate_create(FS_TRUNK_BINLOG_SUBDIR_NAME,
-            binlog_index, dump_slice, da_binlog_op_type_consume_space);
+            binlog_index, dump_slice, da_binlog_op_type_consume_space,
+            FS_SLICE_BINLOG_IN_SYSTEM_SUBDIR);
 }
 
 int trunk_migrate_create()

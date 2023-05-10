@@ -428,7 +428,8 @@ static int reclaim_space_prepare(BinlogCleanRedoContext *redo_ctx)
             "time_used: %s ms", __LINE__, slice_count, time_used);
 
     return slice_space_migrate_create(MIGRATE_SPACE_SUBDIR_FULLNAME,
-            binlog_index, dump_slice, da_binlog_op_type_reclaim_space);
+            binlog_index, dump_slice, da_binlog_op_type_reclaim_space,
+            FS_SLICE_BINLOG_IN_CURRENT_SUBDIR);
 }
 
 static int redo(BinlogCleanRedoContext *redo_ctx)
