@@ -261,6 +261,9 @@ static int rename_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
         }
     }
 
+    if ((result=slice_binlog_set_binlog_start_index(0)) != 0) {
+        return result;
+    }
     return slice_binlog_set_binlog_write_index(last_index);
 }
 
