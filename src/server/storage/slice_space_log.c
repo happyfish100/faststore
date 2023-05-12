@@ -483,7 +483,7 @@ static int slice_space_log_redo()
         return result;
     }
 
-    if (DATA_REBUILD_PATH_INDEX >= 0) {
+    if (DATA_REBUILD_PATH_INDEX >= 0 || MIGRATE_CLEAN_ENABLED) {
         if ((result=fc_delete_file(space_log_filename)) != 0) {
             return result;
         }
