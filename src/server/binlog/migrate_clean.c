@@ -284,7 +284,7 @@ static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)
                 backup_subdir) >= sizeof(binlog_basepath))
     {
         logError("file: "__FILE__", line: %d, "
-                "slice backup path is too long", __LINE__);
+                "replica backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
@@ -441,6 +441,7 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
     int result;
     bool need_restart;
     FSStorageSNType old_sn_type;
+    int write_index;
 
     switch (redo_ctx->current_stage) {
         case MIGRATE_REDO_STAGE_BACKUP_SLICE:
@@ -524,8 +525,9 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
 
             old_sn_type = STORAGE_SN_TYPE;
             STORAGE_SN_TYPE = fs_sn_type_block_removing;
+            write_index = redo_ctx->binlog_file_count - 1;
             if ((result=db_remove_slices(MIGRATE_DUMP_SUBDIR_FULLNAME,
-                            redo_ctx->binlog_file_count)) != 0)
+                            write_index)) != 0)
             {
                 return result;
             }

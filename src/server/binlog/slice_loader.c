@@ -287,6 +287,7 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
                         slice.bs_key.block)))
         {
             thread_ctx->skip_count++;
+            return 0;
         }
     }
 
