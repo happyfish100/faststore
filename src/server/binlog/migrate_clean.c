@@ -440,6 +440,7 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
 {
     int result;
     bool need_restart;
+    FSStorageSNType old_sn_type;
 
     switch (redo_ctx->current_stage) {
         case MIGRATE_REDO_STAGE_BACKUP_SLICE:
@@ -501,7 +502,9 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
                 fs_server_restart("slice space migrate done for migrate clean");
                 return EINTR;
             }
+        case MIGRATE_REDO_STAGE_REMOVE_DB:
         case MIGRATE_REDO_STAGE_REMOVE_REPLICA:
+        case MIGRATE_REDO_STAGE_CLEANUP:
             break;
         default:
             logError("file: "__FILE__", line: %d, "
@@ -518,11 +521,15 @@ static int redo(BinlogCleanRedoContext *redo_ctx)
                         "during migrate clean!", __LINE__);
                 return EINVAL;
             }
+
+            old_sn_type = STORAGE_SN_TYPE;
+            STORAGE_SN_TYPE = fs_sn_type_block_removing;
             if ((result=db_remove_slices(MIGRATE_DUMP_SUBDIR_FULLNAME,
                             redo_ctx->binlog_file_count)) != 0)
             {
                 return result;
             }
+            STORAGE_SN_TYPE = old_sn_type;
 
             redo_ctx->current_stage = MIGRATE_REDO_STAGE_REMOVE_REPLICA;
             if ((result=write_to_redo_file(redo_ctx)) != 0) {

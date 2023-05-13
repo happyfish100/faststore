@@ -78,16 +78,22 @@ static void *change_notify_func(void *arg)
             }
         }
 
-        if (SLICE_LOAD_DONE) {
-            less_equal.sn = sf_binlog_writer_get_last_version_silence(
-                    &SLICE_BINLOG_WRITER.writer);
-        } else {
-            less_equal.sn = SLICE_LOAD_LAST_SN;
+        switch (STORAGE_SN_TYPE) {
+            case fs_sn_type_slice_loading:
+                less_equal.sn = SLICE_LOAD_LAST_SN;
+                break;
+            case fs_sn_type_block_removing:
+                less_equal.sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+                break;
+            case fs_sn_type_slice_binlog:
+                less_equal.sn = sf_binlog_writer_get_last_version_silence(
+                        &SLICE_BINLOG_WRITER.writer);
+                break;
         }
 
         logInfo("file: "__FILE__", line: %d, "
-                "SLICE_LOAD_DONE: %d, less than version: %"PRId64,
-                __LINE__, SLICE_LOAD_DONE, less_equal.sn);
+                "sn type: %d, less than version: %"PRId64,
+                __LINE__, STORAGE_SN_TYPE, less_equal.sn);
 
         sorted_queue_try_pop_to_chain(&change_notify_ctx.
                 queue, &less_equal, &head);

@@ -843,6 +843,29 @@ static int64_t get_total_rebuild_count(SliceDataThreadCtxArray *ctx_array)
     return total;
 }
 
+
+static inline int slice_load_done(SliceLoaderContext *ctx)
+{
+    bool dump_slice_index;
+    int64_t total_slice_count;
+
+    STORAGE_SN_TYPE = fs_sn_type_slice_binlog;
+    SLICE_LOAD_DONE = true;
+    if (MIGRATE_CLEAN_ENABLED) {
+        if (STORAGE_ENABLED) {
+            dump_slice_index = true;
+            total_slice_count = 0;
+        } else {
+            dump_slice_index = (get_total_skip_count(
+                        &ctx->data_thread_array) > 0);
+            total_slice_count = get_total_count(&ctx->data_thread_array);
+        }
+        return migrate_clean_binlog(total_slice_count, dump_slice_index);
+    } else {
+        return 0;
+    }
+}
+
 int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
 {
     int result;
@@ -855,8 +878,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                 event_dealer_get_last_data_version());
         if (event_dealer_get_last_data_version() >= SLICE_BINLOG_SN) {
             SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;
-            SLICE_LOAD_DONE = true;
-            return 0;
+            return slice_load_done(&ctx);
         }
     }
 
@@ -908,13 +930,9 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
                     DATA_REBUILD_SLICE_COUNT);
         }
     }
-    SLICE_LOAD_DONE = true;
 
-    if (result == 0 && MIGRATE_CLEAN_ENABLED) {
-        bool dump_slice_index;
-        dump_slice_index = (get_total_skip_count(&ctx.data_thread_array) > 0);
-        result = migrate_clean_binlog(get_total_count(&ctx.
-                    data_thread_array), dump_slice_index);
+    if (result == 0) {
+        result = slice_load_done(&ctx);
     }
 
     destroy_loader_context(&ctx);

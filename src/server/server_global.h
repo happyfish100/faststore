@@ -29,6 +29,12 @@
 #include "server_types.h"
 #include "storage/committed_version.h"
 
+typedef enum {
+    fs_sn_type_slice_loading = 0,  /* slice load */
+    fs_sn_type_block_removing,     /* migrate clean */
+    fs_sn_type_slice_binlog        /* normal running */
+} FSStorageSNType;
+
 typedef struct server_global_vars {
     struct {
         int cpu_count;
@@ -122,6 +128,7 @@ typedef struct server_global_vars {
         int batch_store_on_modifies;
         int batch_store_interval;
         int eliminate_interval;
+        FSStorageSNType sn_type;
         FSStorageEngineConfig cfg;
         double memory_limit;   //ratio
         struct {
@@ -342,6 +349,8 @@ typedef struct server_global_vars {
 #define STORAGE_PATH            g_server_global_vars->slice_storage.cfg.path
 #define STORAGE_PATH_STR        STORAGE_PATH.str
 #define STORAGE_PATH_LEN        STORAGE_PATH.len
+
+#define STORAGE_SN_TYPE         g_server_global_vars->slice_storage.sn_type
 
 #define STORAGE_ENGINE_LIBRARY  g_server_global_vars->slice_storage.library
 #define BATCH_STORE_INTERVAL    g_server_global_vars->slice_storage.batch_store_interval

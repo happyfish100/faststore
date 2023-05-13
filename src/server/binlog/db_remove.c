@@ -85,11 +85,11 @@ static int parse_buffer(DBRemoveContext *ctx)
     }
 
     change_notify_signal_to_deal();
-    while (event_dealer_get_last_data_version() < sn) {
+    while (event_dealer_get_last_data_version() < sn && SF_G_CONTINUE_FLAG) {
         fc_sleep_ms(1);
     }
 
-    return 0;
+    return SF_G_CONTINUE_FLAG ? 0 : EINTR;
 }
 
 static int skip_lines(DBRemoveContext *ctx, ServerBinlogReader *reader)
