@@ -2979,6 +2979,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
                 "execute command \"%s\" output: %s",
                 __LINE__, cmd, output);
     }
+    unlink(tmp_filename);
 
     return result;
 }
