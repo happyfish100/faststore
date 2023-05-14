@@ -130,7 +130,13 @@ typedef struct server_global_vars {
         int eliminate_interval;
         FSStorageSNType sn_type;
         FSStorageEngineConfig cfg;
-        double memory_limit;   //ratio
+        struct {
+            double total;  //server + plugin
+            struct {
+                double block;   //block / (block + slice)
+                char ratio[8];  //such as 3 : 7
+            } block_slice;
+        } memory_limit;  //ratio
         struct {
             int64_t ob_count;
             int64_t slice_count;
@@ -359,7 +365,9 @@ typedef struct server_global_vars {
 #define TRUNK_INDEX_DUMP_INTERVAL   g_server_global_vars->slice_storage.cfg.trunk.index_dump_interval
 #define TRUNK_INDEX_DUMP_BASE_TIME  g_server_global_vars->slice_storage.cfg.trunk.index_dump_base_time
 #define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars->slice_storage.eliminate_interval
-#define STORAGE_MEMORY_LIMIT      g_server_global_vars->slice_storage.memory_limit
+#define STORAGE_MEMORY_TOTAL_LIMIT  g_server_global_vars->slice_storage.memory_limit.total
+#define STORAGE_MEMORY_BLOCK_RATIO  g_server_global_vars->slice_storage.memory_limit.block_slice.block
+#define STORAGE_MEMORY_BLOCK_SLICE  g_server_global_vars->slice_storage.memory_limit.block_slice.ratio
 #define STORAGE_ENGINE_OB_COUNT     g_server_global_vars->slice_storage.stats.ob_count
 #define STORAGE_ENGINE_SLICE_COUNT  g_server_global_vars->slice_storage.stats.slice_count
 

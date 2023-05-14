@@ -35,6 +35,11 @@
 
 #define SLICE_ARRAY_FIXED_COUNT  64
 
+typedef enum {
+    fs_allocate_type_block,
+    fs_allocate_type_slice
+} OBAllocateType;
+
 typedef struct {
     UniqSkiplistFactory factory;
     struct fast_mblock_man ob;     //for ob_entry
@@ -62,6 +67,14 @@ typedef struct {
 typedef struct {
     int64_t memory_limit;
     volatile int64_t malloc_bytes;
+    volatile int64_t free_count;
+} OBMemoryLimit;
+
+typedef struct {
+    struct {
+        OBMemoryLimit block;
+        OBMemoryLimit slice;
+    } limits;
     OBSharedSegmentArray segment_array;
     OBSharedAllocatorArray allocator_array;
 } OBSharedContext;
@@ -73,7 +86,10 @@ static inline int do_delete_slice_ex(OBHashtable *htable,
         OBEntry *ob, UniqSkiplist *sl, OBSliceEntry *slice,
         struct fc_queue_info *space_chain);
 
-static OBSharedContext ob_shared_ctx = {0, 0, {0, 0, NULL}, {0, NULL}};
+static OBSharedContext ob_shared_ctx = {
+    {{0, 0, 0}, {0, 0, 0}},
+    {0, 0, NULL}, {0, NULL}
+};
 
 static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
         OBEntry **bucket, const FSBlockKey *bkey, const bool create_flag,
@@ -196,10 +212,6 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
                             "offset: %"PRId64"}", __LINE__,
                             ob->bkey.oid, ob->bkey.offset);
                 }
-            } else {
-                logInfo("file: "__FILE__", line: %d, "
-                        "ob entry {oid: %"PRId64", offset: %"PRId64"} already "
-                        "removed!", __LINE__, ob->bkey.oid, ob->bkey.offset);
             }
         } else {
             need_free = false;
@@ -215,20 +227,25 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
     }
 }
 
-static void block_reclaim(OBSegment *segment, const int64_t target_count)
+static int block_reclaim(OBSegment *segment, const int64_t target_count,
+        int64_t *slice_count)
 {
     OBEntry *ob;
     OBEntry *tmp;
     OBEntry **bucket;
     OBEntry *previous;
-    int64_t count;
+    int64_t skip;
+    int64_t remain;
 
-    count = target_count;
+    skip = 0;
+    *slice_count = 0;
+    remain = target_count;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
         if (ob->db_args->locked || FC_ATOMIC_GET(ob->db_args->ref_count) > 1
                 || ob->db_args->status == FS_OB_STATUS_DELETING)
         {
+            ++skip;
             continue;
         }
 
@@ -243,30 +260,38 @@ static void block_reclaim(OBSegment *segment, const int64_t target_count)
             continue;
         }
 
+        *slice_count += uniq_skiplist_count(ob->slices);
         uniq_skiplist_clear(ob->slices);
         ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
-        if (--count == 0) {
+        if (--remain == 0) {
             break;
         }
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     logInfo("file: "__FILE__", line: %d, func: %s, "
-            "reclaim count: %"PRId64, __LINE__,
-            __FUNCTION__, target_count - count);
+            "reclaim count: %"PRId64", skip count: %"PRId64, __LINE__,
+            __FUNCTION__, target_count - remain, skip);
+    return target_count - remain > 0 ? 0 : EAGAIN;
 }
 
-static void *reclaim_and_alloc(struct fast_mblock_man *allocator)
+static void *reclaim_and_alloc(OBSharedAllocator *allocator,
+        const OBAllocateType type)
 {
     void *obj;
     OBSegment *segment;
     int64_t avg_count;
     int64_t current_count;
     int64_t target_count;
+    int64_t slice_count;
+    int start, end;
+    int i, k;
 
     avg_count = FC_ATOMIC_GET(G_OB_HASHTABLE.count) /
         ob_shared_ctx.segment_array.count;
-    while (1) {
+    logInfo("htable count: %"PRId64", avg count: %"PRId64", type: %d",
+            FC_ATOMIC_GET(G_OB_HASHTABLE.count), avg_count, type);
+    for (i=0; i<ob_shared_ctx.segment_array.count; i++) {
         segment = ob_shared_ctx.segment_array.segments + __sync_fetch_and_add(
                 &ob_shared_ctx.segment_array.reclaim_index, 1) %
             ob_shared_ctx.segment_array.count;
@@ -279,16 +304,45 @@ static void *reclaim_and_alloc(struct fast_mblock_man *allocator)
         if (target_count <= 0) {
             target_count = 1;
         }
-        block_reclaim(segment, target_count);
+        if (block_reclaim(segment, target_count, &slice_count) != 0) {
+            continue;
+        } else if (type == fs_allocate_type_slice && slice_count == 0) {
+            continue;
+        }
 
-        obj = fast_mblock_alloc_object(allocator);
+        if (type == fs_allocate_type_block) {
+            obj = fast_mblock_alloc_object(&allocator->ob);
+        } else {
+            obj = fast_mblock_alloc_object(&allocator->slice);
+        }
         if (obj != NULL) {
             return obj;
         }
     }
 
+    start = allocator - ob_shared_ctx.allocator_array.allocators;
+    end = start + ob_shared_ctx.allocator_array.count;
+
+    for (k=start+1; k<end; k++) {
+        allocator = ob_shared_ctx.allocator_array.allocators +
+            k % ob_shared_ctx.allocator_array.count;
+        if (type == fs_allocate_type_block) {
+            obj = fast_mblock_alloc_object(&allocator->ob);
+        } else {
+            obj = fast_mblock_alloc_object(&allocator->slice);
+        }
+        if (obj != NULL) {
+            return obj;
+        }
+    }
     return NULL;
 }
+
+#define reclaim_and_alloc_block(allocator) \
+    reclaim_and_alloc(allocator, fs_allocate_type_block)
+
+#define reclaim_and_alloc_slice(allocator) \
+    reclaim_and_alloc(allocator, fs_allocate_type_slice)
 
 static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
         const FSBlockKey *bkey)
@@ -304,7 +358,7 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
         }
 
         PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-        ob = reclaim_and_alloc(&allocator->ob);
+        ob = reclaim_and_alloc_block(allocator);
         PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
         if (ob == NULL) {
             return NULL;
@@ -313,7 +367,7 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
 
     ob->slices = uniq_skiplist_new(&allocator->factory, init_level_count);
     if (ob->slices == NULL) {
-        fast_mblock_free_object(&allocator->ob, ob);
+        fast_mblock_free_object(ob->allocator, ob);
         return NULL;
     }
 
@@ -464,7 +518,7 @@ static inline OBSliceEntry *ob_alloc_slice_for_load(OBSegment *segment,
     ob->db_args->locked = true;
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
-    if ((slice=reclaim_and_alloc(&allocator->slice)) != NULL) {
+    if ((slice=reclaim_and_alloc_slice(allocator)) != NULL) {
         OB_INDEX_INIT_SLICE(slice, ob, init_refer);
     }
 
@@ -492,7 +546,7 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
     ob->db_args->locked = true;
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
-    if ((slice=reclaim_and_alloc(&allocator->slice)) != NULL) {
+    if ((slice=reclaim_and_alloc_slice(allocator)) != NULL) {
         OB_INDEX_INIT_SLICE(slice, ob, init_refer);
     }
 
@@ -546,16 +600,24 @@ static int slice_alloc_init(OBSliceEntry *slice,
 
 static int block_malloc_trunk_check(const int alloc_bytes, void *args)
 {
-    return __sync_add_and_fetch(&ob_shared_ctx.malloc_bytes, 0) +
-        alloc_bytes <= ob_shared_ctx.memory_limit ? 0 : EOVERFLOW;
+    OBMemoryLimit *limit;
+    limit = args;
+    return __sync_add_and_fetch(&limit->malloc_bytes, 0) +
+        alloc_bytes <= limit->memory_limit ? 0 : EOVERFLOW;
 }
 
-static void block_malloc_trunk_notify_func(const int alloc_bytes, void *args)
+static void block_malloc_trunk_notify_func(
+        const enum fast_mblock_notify_type type,
+        const struct fast_mblock_malloc *node, void *args)
 {
-    if (alloc_bytes > 0) {
-        __sync_add_and_fetch(&ob_shared_ctx.malloc_bytes, alloc_bytes);
+    OBMemoryLimit *limit;
+    limit = args;
+    if (type == fast_mblock_notify_type_alloc) {
+        __sync_add_and_fetch(&limit->malloc_bytes, node->trunk_size);
+        __sync_add_and_fetch(&limit->free_count, node->alloc_count);
     } else {
-        __sync_sub_and_fetch(&ob_shared_ctx.malloc_bytes, -1 * alloc_bytes);
+        __sync_sub_and_fetch(&limit->malloc_bytes, node->trunk_size);
+        __sync_sub_and_fetch(&limit->free_count, node->alloc_count);
     }
 }
 
@@ -570,7 +632,8 @@ static int init_ob_shared_allocator_array(
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link
     const bool allocator_use_lock = true;
-    int element_size;
+    int ob_element_size;
+    int64_t total_memory_limit;
     OBSharedAllocator *allocator;
     OBSharedAllocator *end;
     struct {
@@ -588,21 +651,33 @@ static int init_ob_shared_allocator_array(
     }
 
     if (STORAGE_ENABLED) {
-        element_size = sizeof(OBEntry) + sizeof(OBDBArgs);
-        ob_shared_ctx.memory_limit = (int64_t)
-            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
-             MEMORY_LIMIT_LEVEL0_RATIO);
-        if (ob_shared_ctx.memory_limit < 128 * 1024 * 1024)
+        ob_element_size = sizeof(OBEntry) + sizeof(OBDBArgs);
+        total_memory_limit = (int64_t)(SYSTEM_TOTAL_MEMORY *
+                STORAGE_MEMORY_TOTAL_LIMIT * MEMORY_LIMIT_LEVEL0_RATIO);
+        ob_shared_ctx.limits.block.memory_limit = total_memory_limit *
+            STORAGE_MEMORY_BLOCK_RATIO;
+        if (ob_shared_ctx.limits.block.memory_limit < 32 * 1024 * 1024)
         {
-            ob_shared_ctx.memory_limit = 128 * 1024 * 1024;
+            ob_shared_ctx.limits.block.memory_limit = 32 * 1024 * 1024;
         }
+
+        ob_shared_ctx.limits.slice.memory_limit = total_memory_limit *
+            (1.00 - STORAGE_MEMORY_BLOCK_RATIO);
+        if (ob_shared_ctx.limits.slice.memory_limit < 64 * 1024 * 1024)
+        {
+            ob_shared_ctx.limits.slice.memory_limit = 64 * 1024 * 1024;
+        }
+
+        logInfo("memory_limit {block: %"PRId64" MB, slice: %"PRId64" MB}",
+                ob_shared_ctx.limits.block.memory_limit / (1024 * 1024),
+                ob_shared_ctx.limits.slice.memory_limit / (1024 * 1024));
 
         trunk_callbacks.holder.check_func = block_malloc_trunk_check;
         trunk_callbacks.holder.notify_func = block_malloc_trunk_notify_func;
         trunk_callbacks.holder.args = NULL;
         trunk_callbacks.ptr = &trunk_callbacks.holder;
     } else {
-        element_size = sizeof(OBEntry);
+        ob_element_size = sizeof(OBEntry);
         trunk_callbacks.ptr = NULL;
     }
 
@@ -624,14 +699,20 @@ static int init_ob_shared_allocator_array(
         }
 
         obj_callbacks_obentry.args = &allocator->ob;
+        if (trunk_callbacks.ptr != NULL) {
+            trunk_callbacks.ptr->args = &ob_shared_ctx.limits.block;
+        }
         if ((result=fast_mblock_init_ex2(&allocator->ob, "ob_entry",
-                        element_size, 16 * 1024, 0, &obj_callbacks_obentry,
+                        ob_element_size, 64 * 1024, 0, &obj_callbacks_obentry,
                         true, trunk_callbacks.ptr)) != 0)
         {
             return result;
         }
 
         obj_callbacks_slice.args = &allocator->slice;
+        if (trunk_callbacks.ptr != NULL) {
+            trunk_callbacks.ptr->args = &ob_shared_ctx.limits.slice;
+        }
         if ((result=fast_mblock_init_ex2(&allocator->slice,
                         "slice_entry", sizeof(OBSliceEntry),
                         64 * 1024, 0, &obj_callbacks_slice,

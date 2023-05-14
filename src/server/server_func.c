@@ -407,7 +407,7 @@ static void replica_binlog_config_to_string(char *buff, const int size)
 
 static void server_log_configs()
 {
-    char sz_server_config[1024];
+    char sz_server_config[2048];
     char sz_global_config[512];
     char sz_slowlog_config[256];
     char sz_service_config[128];
@@ -499,7 +499,8 @@ static void server_log_configs()
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
                 ", trunk_index_dump_base_time: %02d:%02d"
                 ", trunk_index_dump_interval: %d s"
-                ", eliminate_interval: %d s, memory_limit: %.2f%%}",
+                ", eliminate_interval: %d s, memory_limit: %.2f%%, "
+                "block_slice_memory_ratio => %s}",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
                 BLOCK_BINLOG_SUBDIRS, g_server_global_vars->
                 slice_storage.cfg.block_segment.htable_capacity,
@@ -510,7 +511,8 @@ static void server_log_configs()
                 TRUNK_INDEX_DUMP_BASE_TIME.minute,
                 TRUNK_INDEX_DUMP_INTERVAL,
                 BLOCK_ELIMINATE_INTERVAL,
-                STORAGE_MEMORY_LIMIT * 100);
+                STORAGE_MEMORY_TOTAL_LIMIT * 100,
+                STORAGE_MEMORY_BLOCK_SLICE);
     } else {
         snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
     }
@@ -654,7 +656,11 @@ static int load_storage_engine_apis()
 static int load_storage_engine_parames(IniFullContext *ini_ctx)
 {
     int result;
+    int num1, num2;
+    char *block_slice_memory_ratio;
     char *library;
+    char *p;
+    char *endptr;
 
     ini_ctx->section_name = "storage-engine";
     STORAGE_ENABLED = iniGetBoolValue(ini_ctx->section_name,
@@ -722,22 +728,74 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
             "eliminate_interval", ini_ctx->context,
             FS_DEFAULT_ELIMINATE_INTERVAL);
     if ((result=iniGetPercentValue(ini_ctx, "memory_limit",
-                    &STORAGE_MEMORY_LIMIT, 0.60)) != 0)
+                    &STORAGE_MEMORY_TOTAL_LIMIT, 0.60)) != 0)
     {
         return result;
     }
 
-    if (STORAGE_MEMORY_LIMIT < 0.01) {
+    if (STORAGE_MEMORY_TOTAL_LIMIT < 0.01) {
         logWarning("file: "__FILE__", line: %d, "
                 "memory_limit: %%%.2f is too small, set to 1%%",
-                __LINE__, STORAGE_MEMORY_LIMIT);
-        STORAGE_MEMORY_LIMIT = 0.01;
+                __LINE__, STORAGE_MEMORY_TOTAL_LIMIT);
+        STORAGE_MEMORY_TOTAL_LIMIT = 0.01;
     }
-    if (STORAGE_MEMORY_LIMIT > 0.99) {
+    if (STORAGE_MEMORY_TOTAL_LIMIT > 0.99) {
         logWarning("file: "__FILE__", line: %d, "
                 "memory_limit: %%%.2f is too large, set to 99%%",
-                __LINE__, STORAGE_MEMORY_LIMIT);
-        STORAGE_MEMORY_LIMIT = 0.99;
+                __LINE__, STORAGE_MEMORY_TOTAL_LIMIT);
+        STORAGE_MEMORY_TOTAL_LIMIT = 0.99;
+    }
+
+    block_slice_memory_ratio = iniGetStrValue(ini_ctx->section_name,
+            "block_slice_memory_ratio", ini_ctx->context);
+    if (block_slice_memory_ratio == NULL) {
+        strcpy(STORAGE_MEMORY_BLOCK_SLICE, "3 : 7");
+        STORAGE_MEMORY_BLOCK_RATIO = 0.30;
+    } else {
+        num1 = strtol(block_slice_memory_ratio, &endptr, 10);
+        p = endptr;
+        while (*p == ' ') {
+            ++p;
+        }
+
+        do {
+            if (*p != ':') {
+                result = EINVAL;
+                break;
+            }
+
+            do {
+                ++p;
+            } while (*p == ' ');
+
+            num2 = strtol(p, &endptr, 10);
+            if (*endptr != '\0') {
+                result = EINVAL;
+                break;
+            }
+
+            if (num1 <= 0 || num2 <= 0) {
+                result = EINVAL;
+                break;
+            }
+
+            result = 0;
+        } while (0);
+
+        if (result != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "invalid block_slice_memory_ratio: %s, required "
+                    "format M : N, such as 3 : 7", __LINE__,
+                    block_slice_memory_ratio);
+            return result;
+        }
+
+        snprintf(STORAGE_MEMORY_BLOCK_SLICE,
+                sizeof(STORAGE_MEMORY_BLOCK_SLICE),
+                "%s", block_slice_memory_ratio);
+        STORAGE_MEMORY_BLOCK_RATIO = (double)num1 / (double)(num1 + num2);
+
+        logInfo("STORAGE_MEMORY_BLOCK_RATIO: %.2f%%", STORAGE_MEMORY_BLOCK_RATIO * 100);
     }
 
     g_server_global_vars->slice_storage.cfg.block_segment.htable_capacity =
@@ -803,13 +861,13 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
 
     OB_SHARED_ALLOCATOR_COUNT = iniGetIntValue(NULL,
             "object_block_shared_allocator_count",
-            ini_context, 79);
+            ini_context, 17);
     if (OB_SHARED_ALLOCATOR_COUNT <= 0) {
         logWarning("file: "__FILE__", line: %d, config file: %s, "
                 "item \"object_block_shared_allocator_count\": %d "
                 "is invalid, set to default: %d", __LINE__,
-                filename, OB_SHARED_ALLOCATOR_COUNT, 79);
-        OB_SHARED_ALLOCATOR_COUNT = 79;
+                filename, OB_SHARED_ALLOCATOR_COUNT, 17);
+        OB_SHARED_ALLOCATOR_COUNT = 17;
     }
 
     OB_SHARED_LOCK_COUNT = iniGetIntValue(NULL,
@@ -994,7 +1052,7 @@ int server_load_config(const char *filename)
 
     if (BLOCK_ELIMINATE_INTERVAL > 0) {
         g_server_global_vars->slice_storage.cfg.memory_limit = (int64_t)
-            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_LIMIT *
+            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_TOTAL_LIMIT *
              MEMORY_LIMIT_LEVEL1_RATIO);
         if (g_server_global_vars->slice_storage.cfg.
                 memory_limit < 64 * 1024 * 1024)
