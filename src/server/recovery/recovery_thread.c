@@ -137,7 +137,7 @@ static void recovery_thread_run_task(void *arg, void *thread_data)
             return;
         }
 
-        if (storage_allocator_avail_count() > 0) {
+        if (da_storage_allocator_avail_count(&DA_CTX) > 0) {
             break;
         }
         fc_sleep_ms(500);

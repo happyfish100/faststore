@@ -17,11 +17,13 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/fc_atomic.h"
 #include "../../common/fs_func.h"
+#include "trunk_migrate.h"
 #include "slice_binlog.h"
 #include "slice_dedup.h"
 
 #define DEDUP_SUBDIR_NAME    "dedup"
 
+#define DEDUP_REDO_ITEM_CALLER             "caller"
 #define DEDUP_REDO_ITEM_SLICE_COUNT        "slice_count"
 #define DEDUP_REDO_ITEM_BINLOG_START       "binlog_start"
 #define DEDUP_REDO_ITEM_BINLOG_INDEX       "binlog_index"
@@ -33,6 +35,7 @@
 
 typedef struct slice_binlog_dedup_redo_context {
     char mark_filename[PATH_MAX];
+    char caller;
     int binlog_start;
     int binlog_index;
     int current_stage;
@@ -42,24 +45,24 @@ typedef struct slice_binlog_dedup_redo_context {
 static inline const char *get_slice_dedup_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/slice/%s/slice.dat",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/%s/slice.dat", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return filename;
 }
 
 static inline int check_make_subdir()
 {
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/slice/%s",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(path, sizeof(path), "%s/%s/%s", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return fc_check_mkdir(path, 0755);
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/slice/%s/.dedup.flag",
-            DATA_PATH_STR, DEDUP_SUBDIR_NAME);
+    snprintf(filename, size, "%s/%s/%s/.dedup.flag", DATA_PATH_STR,
+            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
     return filename;
 }
 
@@ -69,10 +72,12 @@ static int write_to_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
     int result;
     int len;
 
-    len = sprintf(buff, "%s=%d\n"
+    len = sprintf(buff, "%s=%c\n"
+            "%s=%d\n"
             "%s=%d\n"
             "%s=%d\n"
             "%s=%"PRId64"\n",
+            DEDUP_REDO_ITEM_CALLER, redo_ctx->caller,
             DEDUP_REDO_ITEM_BINLOG_START, redo_ctx->binlog_start,
             DEDUP_REDO_ITEM_BINLOG_INDEX, redo_ctx->binlog_index,
             DEDUP_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
@@ -100,6 +105,8 @@ static int load_from_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
         return result;
     }
 
+    redo_ctx->caller = iniGetCharValue(NULL,
+            DEDUP_REDO_ITEM_CALLER, &ini_context, '\0');
     redo_ctx->binlog_start = iniGetIntValue(NULL,
             DEDUP_REDO_ITEM_BINLOG_START, &ini_context, 0);
     redo_ctx->binlog_index = iniGetIntValue(NULL,
@@ -207,10 +214,14 @@ static int redo(SliceBinlogDedupRedoContext *redo_ctx)
             return EINVAL;
     }
 
+    if (result == 0 && redo_ctx->caller == FS_SLICE_DEDUP_CALL_BY_MIGRATE) {
+        result = trunk_migrate_slice_dedup_done_callback();
+    }
+
     return result;
 }
 
-static int do_dedup()
+static int do_dedup(const char caller)
 {
     const bool need_padding = false;
     const bool need_lock = true;
@@ -230,9 +241,10 @@ static int do_dedup()
     }
 
     get_slice_dedup_filename(dedup_filename, sizeof(dedup_filename));
-    if ((result=ob_index_dump_slices_to_file_ex(&g_ob_hashtable,
-                    0, g_ob_hashtable.capacity, dedup_filename,
-                    &redo_ctx.slice_count, need_padding, need_lock)) != 0)
+    if ((result=ob_index_dump_slices_to_file_ex(&G_OB_HASHTABLE,
+                    0, G_OB_HASHTABLE.capacity, dedup_filename,
+                    &redo_ctx.slice_count, BINLOG_SOURCE_DUMP,
+                    need_padding, need_lock)) != 0)
     {
         return result;
     }
@@ -254,6 +266,7 @@ static int do_dedup()
     get_slice_mark_filename(redo_ctx.mark_filename,
             sizeof(redo_ctx.mark_filename));
     redo_ctx.current_stage = DEDUP_REDO_STAGE_RENAME_BINLOG;
+    redo_ctx.caller = caller;
     if ((result=write_to_redo_file(&redo_ctx)) != 0) {
         return result;
     }
@@ -265,10 +278,6 @@ int slice_dedup_redo()
 {
     int result;
     SliceBinlogDedupRedoContext redo_ctx;
-
-    if ((result=check_make_subdir()) != 0) {
-        return result;
-    }
 
     get_slice_mark_filename(redo_ctx.mark_filename,
             sizeof(redo_ctx.mark_filename));
@@ -291,20 +300,41 @@ int slice_dedup_redo()
     return redo(&redo_ctx);
 }
 
-static int slice_dedup_func(void *args)
+int slice_dedup_binlog_ex(const char caller, const int64_t slice_count)
 {
-    static volatile bool dedup_in_progress = false;
     int result;
-    double dedup_ratio;
-    int64_t slice_count;
     int64_t old_binlog_count;
     int64_t new_binlog_count;
     int64_t start_time_ms;
     int64_t time_used;
     char time_buff[32];
 
-    if (!dedup_in_progress) {
-        dedup_in_progress = true;
+    start_time_ms = get_current_time_ms();
+    old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
+    result = do_dedup(caller);
+    new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
+    if (result == 0) {
+        int64_t inc_count;
+        inc_count =  new_binlog_count - old_binlog_count;
+        new_binlog_count = slice_count + inc_count;
+        FC_ATOMIC_SET(SLICE_BINLOG_COUNT, new_binlog_count);
+    }
+    time_used = get_current_time_ms() - start_time_ms;
+    long_to_comma_str(time_used, time_buff);
+    logInfo("file: "__FILE__", line: %d, "
+            "slice dedup %s, new binlog count: %"PRId64", time "
+            "used: %s ms", __LINE__, (result == 0 ? "success" :
+                "fail"), new_binlog_count, time_buff);
+    return result;
+}
+
+static int slice_dedup_func(void *args)
+{
+    double dedup_ratio;
+    int64_t slice_count;
+
+    if (!SLICE_DEDUP_IN_PROGRESS) {
+        SLICE_DEDUP_IN_PROGRESS = true;
 
         slice_count = ob_index_get_total_slice_count();
         if (slice_count > 0) {
@@ -315,30 +345,14 @@ static int slice_dedup_func(void *args)
         }
 
         if (dedup_ratio >= SLICE_DEDUP_RATIO) {
-            start_time_ms = get_current_time_ms();
             logInfo("file: "__FILE__", line: %d, "
                     "slice count: %"PRId64", binlog_count: %"PRId64", "
                     "dedup_ratio: %.2f%%, dedup slice binlog ...", __LINE__,
                     slice_count, SLICE_BINLOG_COUNT, dedup_ratio * 100.00);
-
-            old_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
-            result = do_dedup();
-            new_binlog_count = FC_ATOMIC_GET(SLICE_BINLOG_COUNT);
-            if (result == 0) {
-                int64_t inc_count;
-                inc_count =  new_binlog_count - old_binlog_count;
-                new_binlog_count = slice_count + inc_count;
-                FC_ATOMIC_SET(SLICE_BINLOG_COUNT, new_binlog_count);
-            }
-            time_used = get_current_time_ms() - start_time_ms;
-            long_to_comma_str(time_used, time_buff);
-            logInfo("file: "__FILE__", line: %d, "
-                    "slice dedup %s, new binlog count: %"PRId64", time "
-                    "used: %s ms", __LINE__, (result == 0 ? "success" :
-                        "fail"), new_binlog_count, time_buff);
+            slice_dedup_binlog_ex(FS_SLICE_DEDUP_CALL_BY_CRONTAB, slice_count);
         }
 
-        dedup_in_progress = false;
+        SLICE_DEDUP_IN_PROGRESS = false;
     }
 
     return 0;

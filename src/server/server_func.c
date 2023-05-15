@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <math.h>
+#include <dlfcn.h>
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
@@ -25,6 +26,7 @@
 #include "fastcommon/system_info.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "sf/sf_func.h"
 #include "fastcfs/auth/fcfs_auth_for_server.h"
 #include "fastcfs/vote/fcfs_vote_client.h"
 #include "common/fs_proto.h"
@@ -290,6 +292,15 @@ static int load_slice_binlog_config(IniContext *ini_context,
         return result;
     }
 
+    SLICE_KEEP_DAYS = iniGetIntValue(section_name,
+            "keep_days", ini_context, 30);
+
+    if ((result=get_time_item_from_conf_ex(&ini_ctx, "delete_time",
+                    &SLICE_DELETE_TIME, 5, 0, false)) != 0)
+    {
+        return result;
+    }
+
     return 0;
 }
 
@@ -313,65 +324,11 @@ static int load_replica_binlog_config(IniContext *ini_context,
     return 0;
 }
 
-static int load_data_path_config(IniContext *ini_context, const char *filename)
-{
-    char *data_path;
-
-    data_path = iniGetStrValue(NULL, "data_path", ini_context);
-    if (data_path == NULL) {
-        data_path = "data";
-    } else if (*data_path == '\0') {
-        logError("file: "__FILE__", line: %d, "
-                "config file: %s, empty data_path! "
-                "please set data_path correctly.",
-                __LINE__, filename);
-        return EINVAL;
-    }
-
-    if (*data_path == '/') {
-        DATA_PATH_LEN = strlen(data_path);
-        DATA_PATH_STR = fc_strdup1(data_path, DATA_PATH_LEN);
-        if (DATA_PATH_STR == NULL) {
-            return ENOMEM;
-        }
-    } else {
-        DATA_PATH_LEN = strlen(SF_G_BASE_PATH_STR) + strlen(data_path) + 1;
-        DATA_PATH_STR = (char *)fc_malloc(DATA_PATH_LEN + 1);
-        if (DATA_PATH_STR == NULL) {
-            return ENOMEM;
-        }
-        DATA_PATH_LEN = sprintf(DATA_PATH_STR, "%s/%s",
-                SF_G_BASE_PATH_STR, data_path);
-    }
-    chopPath(DATA_PATH_STR);
-
-    if (access(DATA_PATH_STR, F_OK) != 0) {
-        if (errno != ENOENT) {
-            logError("file: "__FILE__", line: %d, "
-                    "access %s fail, errno: %d, error info: %s",
-                    __LINE__, DATA_PATH_STR, errno, STRERROR(errno));
-            return errno != 0 ? errno : EPERM;
-        }
-
-        if (mkdir(DATA_PATH_STR, 0775) != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "mkdir %s fail, errno: %d, error info: %s",
-                    __LINE__, DATA_PATH_STR, errno, STRERROR(errno));
-            return errno != 0 ? errno : EPERM;
-        }
-        
-        SF_CHOWN_TO_RUNBY_RETURN_ON_ERROR(DATA_PATH_STR);
-    }
-
-    return 0;
-}
-
 static int load_net_buffer_memory_limit(IniContext *ini_context,
         const char *filename)
 {
     int result;
     IniFullContext ini_ctx;
-    int64_t total_memory;
 
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, NULL, ini_context);
     if ((result=iniGetPercentCorrectValue(&ini_ctx,
@@ -382,15 +339,12 @@ static int load_net_buffer_memory_limit(IniContext *ini_context,
         return result;
     }
 
-    if ((result=get_sys_total_mem_size(&total_memory)) != 0) {
-        return result;
-    }
-    NET_BUFFER_MEMORY_LIMIT.value = total_memory *
+    NET_BUFFER_MEMORY_LIMIT.value = SYSTEM_TOTAL_MEMORY *
         NET_BUFFER_MEMORY_LIMIT.ratio;
     if (NET_BUFFER_MEMORY_LIMIT.value < 64 * 1024 * 1024) {
         NET_BUFFER_MEMORY_LIMIT.value = 64 * 1024 * 1024;
         NET_BUFFER_MEMORY_LIMIT.ratio = (double)NET_BUFFER_MEMORY_LIMIT.
-            value / (double)total_memory;
+            value / (double)SYSTEM_TOTAL_MEMORY;
     }
     return 0;
 }
@@ -417,16 +371,23 @@ static void master_election_config_to_string(char *buff, const int size)
 
 static void slice_binlog_config_to_string(char *buff, const int size)
 {
-    int len;
-
-    len = snprintf(buff, size, "slice-binlog {dedup_enabled: %d",
-            SLICE_DEDUP_ENABLED);
-    if (SLICE_DEDUP_ENABLED) {
-        len += snprintf(buff + len, size - len, ", target_dedup_ratio=%.2f%%, "
-                "dedup_time=%02d:%02d}", SLICE_DEDUP_RATIO * 100.00,
+    if (STORAGE_ENABLED) {
+        if (SLICE_KEEP_DAYS > 0) {
+            snprintf(buff, size, "slice-binlog {keep_days: %d, "
+                    "delete_time=%02d:%02d}", SLICE_KEEP_DAYS,
+                    SLICE_DELETE_TIME.hour, SLICE_DELETE_TIME.minute);
+        } else {
+            snprintf(buff, size, "slice-binlog {keep_days: %d}",
+                    SLICE_KEEP_DAYS);
+        }
+    } else if (SLICE_DEDUP_ENABLED) {
+        snprintf(buff, size, "slice-binlog {dedup_enabled: %d, "
+                "target_dedup_ratio=%.2f%%, dedup_time=%02d:%02d}",
+                SLICE_DEDUP_ENABLED, SLICE_DEDUP_RATIO * 100.00,
                 SLICE_DEDUP_TIME.hour, SLICE_DEDUP_TIME.minute);
     } else {
-        len += snprintf(buff + len, size - len, "}");
+        snprintf(buff, size, "slice-binlog {dedup_enabled: %d}",
+                SLICE_DEDUP_ENABLED);
     }
 }
 
@@ -446,7 +407,7 @@ static void replica_binlog_config_to_string(char *buff, const int size)
 
 static void server_log_configs()
 {
-    char sz_server_config[1024];
+    char sz_server_config[2048];
     char sz_global_config[512];
     char sz_slowlog_config[256];
     char sz_service_config[128];
@@ -456,6 +417,7 @@ static void server_log_configs()
     char sz_replica_binlog_config[128];
     char sz_slice_binlog_config[128];
     char sz_auth_config[1024];
+    int len;
 
     sf_global_config_to_string(sz_global_config, sizeof(sz_global_config));
 
@@ -480,7 +442,7 @@ static void server_log_configs()
     replica_binlog_config_to_string(sz_replica_binlog_config,
             sizeof(sz_replica_binlog_config));
 
-    snprintf(sz_server_config, sizeof(sz_server_config),
+    len = snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, cluster server group id = %d, "
             "data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
@@ -493,11 +455,18 @@ static void server_log_configs()
             "slave_binlog_check_last_rows = %d, "
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
+            "write_to_cache: %d, "
+            "object_block_hashtable_capacity: %"PRId64", "
+            "object_block_shared_allocator_count: %d, "
+            "object_block_shared_lock_count: %d, "
+            "trunk_index_dump_base_time: %02d:%02d, "
+            "trunk_index_dump_interval: %d s, "
             "leader-election {quorum: %s, "
             "vote_node_enabled: %d, "
             "leader_lost_timeout: %ds, "
             "max_wait_time: %ds, "
-            "max_shutdown_duration: %ds}",
+            "max_shutdown_duration: %ds}, "
+            "storage-engine { enabled: %d",
             CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
@@ -510,11 +479,43 @@ static void server_log_configs()
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
+            WRITE_TO_CACHE, OB_HASHTABLE_CAPACITY,
+            OB_SHARED_ALLOCATOR_COUNT, OB_SHARED_LOCK_COUNT,
+            DATA_CFG.trunk_index_dump_base_time.hour,
+            DATA_CFG.trunk_index_dump_base_time.minute,
+            DATA_CFG.trunk_index_dump_interval,
             sf_get_election_quorum_caption(LEADER_ELECTION_QUORUM),
             VOTE_NODE_ENABLED,
             LEADER_ELECTION_LOST_TIMEOUT,
             LEADER_ELECTION_MAX_WAIT_TIME,
-            LEADER_ELECTION_MAX_SHUTDOWN_DURATION);
+            LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
+            STORAGE_ENABLED);
+
+    if (STORAGE_ENABLED) {
+        len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
+                ", library: %s, data_path: %s, block_binlog_subdirs: %d"
+                ", block_segment_hashtable_capacity: %d"
+                ", block_segment_shared_lock_count: %d"
+                ", batch_store_on_modifies: %d, batch_store_interval: %d s"
+                ", trunk_index_dump_base_time: %02d:%02d"
+                ", trunk_index_dump_interval: %d s"
+                ", eliminate_interval: %d s, memory_limit: %.2f%%, "
+                "block_slice_memory_ratio => %s}",
+                STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
+                BLOCK_BINLOG_SUBDIRS, g_server_global_vars->
+                slice_storage.cfg.block_segment.htable_capacity,
+                g_server_global_vars->slice_storage.cfg.
+                block_segment.shared_lock_count,
+                BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
+                TRUNK_INDEX_DUMP_BASE_TIME.hour,
+                TRUNK_INDEX_DUMP_BASE_TIME.minute,
+                TRUNK_INDEX_DUMP_INTERVAL,
+                BLOCK_ELIMINATE_INTERVAL,
+                STORAGE_MEMORY_TOTAL_LIMIT * 100,
+                STORAGE_MEMORY_BLOCK_SLICE);
+    } else {
+        snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
+    }
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
             "replica: {%s}, %s, %s, data-replication {quorum: %s, "
@@ -555,25 +556,6 @@ static int load_binlog_buffer_size(IniContext *ini_context,
     }
 
     return 0;
-}
-
-static int load_storage_cfg(IniContext *ini_context, const char *filename)
-{
-    char *storage_config_filename;
-    char full_filename[PATH_MAX];
-
-    storage_config_filename = iniGetStrValue(NULL,
-            "storage_config_filename", ini_context);
-    if (storage_config_filename == NULL || *storage_config_filename == '\0') {
-        logError("file: "__FILE__", line: %d, "
-                "item \"storage_config_filename\" not exist or empty",
-                __LINE__);
-        return ENOENT;
-    }
-
-    resolve_path(filename, storage_config_filename,
-            full_filename, sizeof(full_filename));
-    return storage_config_load(&STORAGE_CFG, full_filename);
 }
 
 static int init_net_retry_config(const char *config_filename)
@@ -627,9 +609,275 @@ static int server_init_client(const char *config_filename)
     {
         return result;
     }
+    sf_connection_manager_set_exclude_server_id(&g_fs_client_vars.
+            client_ctx.cm, CLUSTER_MYSELF_PTR->server->id);
     g_fs_client_vars.client_ctx.auth = AUTH_CTX;
     g_fs_client_vars.client_ctx.inited = true;
     g_fs_client_vars.client_ctx.is_simple_conn_mananger = true;
+
+    return 0;
+}
+
+#define LOAD_API(var, fname) \
+    do { \
+        var = (fname##_func)dlsym(dlhandle, #fname); \
+        if (var == NULL) {  \
+            logError("file: "__FILE__", line: %d, "  \
+                    "dlsym api %s fail, error info: %s", \
+                    __LINE__, #fname, dlerror()); \
+            return ENOENT; \
+        } \
+    } while (0)
+
+
+static int load_storage_engine_apis()
+{
+    void *dlhandle;
+
+    dlhandle = dlopen(STORAGE_ENGINE_LIBRARY, RTLD_LAZY);
+    if (dlhandle == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "dlopen %s fail, error info: %s", __LINE__,
+                STORAGE_ENGINE_LIBRARY, dlerror());
+        return EFAULT;
+    }
+
+    LOAD_API(STORAGE_ENGINE_INIT_API, fs_storage_engine_init);
+    LOAD_API(STORAGE_ENGINE_START_API, fs_storage_engine_start);
+    LOAD_API(STORAGE_ENGINE_TERMINATE_API, fs_storage_engine_terminate);
+    LOAD_API(STORAGE_ENGINE_STORE_API, fs_storage_engine_store);
+    LOAD_API(STORAGE_ENGINE_REDO_API, fs_storage_engine_redo);
+    LOAD_API(STORAGE_ENGINE_FETCH_API, fs_storage_engine_fetch);
+    LOAD_API(STORAGE_ENGINE_WALK_API, fs_storage_engine_walk);
+
+    return 0;
+}
+
+static int load_storage_engine_parames(IniFullContext *ini_ctx)
+{
+    int result;
+    int num1, num2;
+    char *block_slice_memory_ratio;
+    char *library;
+    char *p;
+    char *endptr;
+
+    ini_ctx->section_name = "storage-engine";
+    STORAGE_ENABLED = iniGetBoolValue(ini_ctx->section_name,
+            "enabled", ini_ctx->context, false);
+    if (!STORAGE_ENABLED) {
+        return 0;
+    }
+
+    library = iniGetStrValue(ini_ctx->section_name,
+            "library", ini_ctx->context);
+    if (library == NULL) {
+        library = "libfsstorage.so";
+    } else if (*library == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, empty library!",
+                __LINE__, ini_ctx->filename, ini_ctx->section_name);
+        return EINVAL;
+    }
+    if ((STORAGE_ENGINE_LIBRARY=fc_strdup(library)) == NULL) {
+        return ENOMEM;
+    }
+    if ((result=load_storage_engine_apis()) != 0) {
+        return result;
+    }
+
+    if ((result=sf_load_data_path_config_ex(ini_ctx, "data_path",
+                    "db", &STORAGE_PATH)) != 0)
+    {
+        return result;
+    }
+
+    if (fc_string_equals(&STORAGE_PATH, &DATA_PATH)) {
+        logError("file: "__FILE__", line: %d, "
+                "config file: %s, section: %s, storage path MUST be "
+                "different from the global data path", __LINE__,
+                ini_ctx->filename, ini_ctx->section_name);
+        return EINVAL;
+    }
+
+    BLOCK_BINLOG_SUBDIRS = iniGetIntCorrectValue(ini_ctx,
+            "block_binlog_subdirs", FS_BLOCK_BINLOG_DEFAULT_SUBDIRS,
+            FS_BLOCK_BINLOG_MIN_SUBDIRS, FS_BLOCK_BINLOG_MAX_SUBDIRS);
+
+    BATCH_STORE_ON_MODIFIES = iniGetIntValue(ini_ctx->section_name,
+            "batch_store_on_modifies", ini_ctx->context,
+            FS_DEFAULT_BATCH_STORE_ON_MODIFIES);
+
+    BATCH_STORE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "batch_store_interval", ini_ctx->context,
+            FS_DEFAULT_BATCH_STORE_INTERVAL);
+
+    TRUNK_INDEX_DUMP_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "trunk_index_dump_interval", ini_ctx->context,
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+
+    if ((result=get_time_item_from_conf_ex(ini_ctx,
+                    "trunk_index_dump_base_time",
+                    &TRUNK_INDEX_DUMP_BASE_TIME,
+                    0, 0, false)) != 0)
+    {
+        return result;
+    }
+
+    BLOCK_ELIMINATE_INTERVAL = iniGetIntValue(ini_ctx->section_name,
+            "eliminate_interval", ini_ctx->context,
+            FS_DEFAULT_ELIMINATE_INTERVAL);
+    if ((result=iniGetPercentValue(ini_ctx, "memory_limit",
+                    &STORAGE_MEMORY_TOTAL_LIMIT, 0.60)) != 0)
+    {
+        return result;
+    }
+
+    if (STORAGE_MEMORY_TOTAL_LIMIT < 0.01) {
+        logWarning("file: "__FILE__", line: %d, "
+                "memory_limit: %%%.2f is too small, set to 1%%",
+                __LINE__, STORAGE_MEMORY_TOTAL_LIMIT);
+        STORAGE_MEMORY_TOTAL_LIMIT = 0.01;
+    }
+    if (STORAGE_MEMORY_TOTAL_LIMIT > 0.99) {
+        logWarning("file: "__FILE__", line: %d, "
+                "memory_limit: %%%.2f is too large, set to 99%%",
+                __LINE__, STORAGE_MEMORY_TOTAL_LIMIT);
+        STORAGE_MEMORY_TOTAL_LIMIT = 0.99;
+    }
+
+    block_slice_memory_ratio = iniGetStrValue(ini_ctx->section_name,
+            "block_slice_memory_ratio", ini_ctx->context);
+    if (block_slice_memory_ratio == NULL) {
+        strcpy(STORAGE_MEMORY_BLOCK_SLICE, "3 : 7");
+        STORAGE_MEMORY_BLOCK_RATIO = 0.30;
+    } else {
+        num1 = strtol(block_slice_memory_ratio, &endptr, 10);
+        p = endptr;
+        while (*p == ' ') {
+            ++p;
+        }
+
+        do {
+            if (*p != ':') {
+                result = EINVAL;
+                break;
+            }
+
+            do {
+                ++p;
+            } while (*p == ' ');
+
+            num2 = strtol(p, &endptr, 10);
+            if (*endptr != '\0') {
+                result = EINVAL;
+                break;
+            }
+
+            if (num1 <= 0 || num2 <= 0) {
+                result = EINVAL;
+                break;
+            }
+
+            result = 0;
+        } while (0);
+
+        if (result != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "invalid block_slice_memory_ratio: %s, required "
+                    "format M : N, such as 3 : 7", __LINE__,
+                    block_slice_memory_ratio);
+            return result;
+        }
+
+        snprintf(STORAGE_MEMORY_BLOCK_SLICE,
+                sizeof(STORAGE_MEMORY_BLOCK_SLICE),
+                "%s", block_slice_memory_ratio);
+        STORAGE_MEMORY_BLOCK_RATIO = (double)num1 / (double)(num1 + num2);
+    }
+
+    g_server_global_vars->slice_storage.cfg.block_segment.htable_capacity =
+        iniGetIntCorrectValue(ini_ctx, "block_segment_hashtable_capacity",
+                1361, 163, 1403641);
+    g_server_global_vars->slice_storage.cfg.block_segment.shared_lock_count =
+        iniGetIntCorrectValue(ini_ctx, "block_segment_shared_lock_count",
+                163, 1, 1361);
+
+    return 0;
+}
+
+static int load_storage_cfg(IniContext *ini_context, const char *filename)
+{
+    int result;
+    char *storage_config_filename;
+    char full_filename[PATH_MAX];
+    IniFullContext ini_ctx;
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, filename, NULL, ini_context);
+    DATA_CFG.path = DATA_PATH;
+    DATA_CFG.binlog_buffer_size = BINLOG_BUFFER_SIZE;
+    DATA_CFG.binlog_subdirs = 0;
+    DATA_CFG.trunk_index_dump_interval = iniGetIntValue(NULL,
+            "trunk_index_dump_interval", ini_ctx.context,
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+    if ((result=get_time_item_from_conf_ex(&ini_ctx,
+                    "trunk_index_dump_base_time",
+                    &DATA_CFG.trunk_index_dump_base_time,
+                    0, 0, false)) != 0)
+    {
+        return result;
+    }
+
+    storage_config_filename = iniGetStrValue(NULL,
+            "storage_config_filename", ini_context);
+    if (storage_config_filename == NULL || *storage_config_filename == '\0') {
+        logError("file: "__FILE__", line: %d, "
+                "item \"storage_config_filename\" not exist or empty",
+                __LINE__);
+        return ENOENT;
+    }
+    resolve_path(filename, storage_config_filename,
+            full_filename, sizeof(full_filename));
+    STORAGE_FILENAME = fc_strdup(full_filename);
+    if (STORAGE_FILENAME == NULL) {
+        return ENOMEM;
+    }
+
+    WRITE_TO_CACHE = iniGetBoolValue(NULL,
+            "write_to_cache", ini_context, true);
+
+    OB_HASHTABLE_CAPACITY = iniGetInt64Value(NULL,
+            "object_block_hashtable_capacity",
+            ini_context, 11229331);
+    if (OB_HASHTABLE_CAPACITY <= 0) {
+        logWarning("file: "__FILE__", line: %d, "
+                "config file: %s, item \"object_block_hashtable_capacity\": "
+                "%"PRId64" is invalid, set to default: %d", __LINE__,
+                filename, OB_HASHTABLE_CAPACITY, 11229331);
+        OB_HASHTABLE_CAPACITY = 11229331;
+    }
+
+    OB_SHARED_ALLOCATOR_COUNT = iniGetIntValue(NULL,
+            "object_block_shared_allocator_count",
+            ini_context, 17);
+    if (OB_SHARED_ALLOCATOR_COUNT <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_allocator_count\": %d "
+                "is invalid, set to default: %d", __LINE__,
+                filename, OB_SHARED_ALLOCATOR_COUNT, 17);
+        OB_SHARED_ALLOCATOR_COUNT = 17;
+    }
+
+    OB_SHARED_LOCK_COUNT = iniGetIntValue(NULL,
+            "object_block_shared_lock_count",
+            ini_context, 1361);
+    if (OB_SHARED_LOCK_COUNT <= 0) {
+        logWarning("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_lock_count\": %d "
+                "is invalid, set to default: %d", __LINE__,
+                filename, OB_SHARED_LOCK_COUNT, 1361);
+        OB_SHARED_LOCK_COUNT = 1361;
+    }
 
     return 0;
 }
@@ -639,6 +887,7 @@ int server_load_config(const char *filename)
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
+    DADataConfig data_cfg;
     char *rebuild_threads;
     int result;
 
@@ -673,11 +922,10 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if ((result=load_data_path_config(&ini_context, filename)) != 0) {
+    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
+    if ((result=sf_load_data_path_config(&full_ini_ctx, &DATA_PATH)) != 0) {
         return result;
     }
-
-    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
 
     DATA_THREAD_COUNT = iniGetIntCorrectValue(&full_ini_ctx,
             "data_threads", FS_DEFAULT_DATA_THREAD_COUNT,
@@ -724,6 +972,10 @@ int server_load_config(const char *filename)
             FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS,
             FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS);
+
+    if ((result=get_sys_total_mem_size(&SYSTEM_TOTAL_MEMORY)) != 0) {
+        return result;
+    }
 
     if ((result=load_net_buffer_memory_limit(&ini_context, filename)) != 0) {
         return result;
@@ -776,7 +1028,19 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    iniFreeContext(&ini_context);
+    if ((result=load_storage_engine_parames(&full_ini_ctx)) != 0) {
+        return result;
+    }
+
+    if (STORAGE_ENABLED) {
+        if (SLICE_DEDUP_ENABLED) {
+            SLICE_DEDUP_ENABLED = false;
+        }
+    } else {
+        if (SLICE_KEEP_DAYS > 0) {
+            SLICE_KEEP_DAYS = 0;
+        }
+    }
     
     if ((SYSTEM_CPU_COUNT=get_sys_cpu_count()) <= 0) {
         logCrit("file: "__FILE__", line: %d, "
@@ -784,15 +1048,80 @@ int server_load_config(const char *filename)
         return EINVAL;
     }
 
-    g_server_global_vars.replica.active_test_interval = (int)
-        ceil(SF_G_NETWORK_TIMEOUT / 2.00);
-    if (g_server_global_vars.replica.active_test_interval == 0) {
-        g_server_global_vars.replica.active_test_interval = 1;
+    if (BLOCK_ELIMINATE_INTERVAL > 0) {
+        g_server_global_vars->slice_storage.cfg.memory_limit = (int64_t)
+            (SYSTEM_TOTAL_MEMORY * STORAGE_MEMORY_TOTAL_LIMIT *
+             MEMORY_LIMIT_LEVEL1_RATIO);
+        if (g_server_global_vars->slice_storage.cfg.
+                memory_limit < 64 * 1024 * 1024)
+        {
+            g_server_global_vars->slice_storage.cfg.
+                memory_limit = 64 * 1024 * 1024;
+        }
+    } else {
+        g_server_global_vars->slice_storage.cfg.memory_limit = 0;  //no limit
     }
 
+    data_cfg.path = STORAGE_PATH;
+    data_cfg.binlog_buffer_size = BINLOG_BUFFER_SIZE;
+    data_cfg.binlog_subdirs = BLOCK_BINLOG_SUBDIRS;
+    data_cfg.trunk_index_dump_interval = TRUNK_INDEX_DUMP_INTERVAL;
+    data_cfg.trunk_index_dump_base_time = TRUNK_INDEX_DUMP_BASE_TIME;
+    if (STORAGE_ENABLED) {
+        if ((result=STORAGE_ENGINE_INIT_API(&full_ini_ctx, CLUSTER_MY_SERVER_ID,
+                        &g_server_global_vars->slice_storage.cfg, &data_cfg)) != 0)
+        {
+            return result;
+        }
+    }
+
+    g_server_global_vars->replica.active_test_interval = (int)
+        ceil(SF_G_NETWORK_TIMEOUT / 2.00);
+    if (g_server_global_vars->replica.active_test_interval == 0) {
+        g_server_global_vars->replica.active_test_interval = 1;
+    }
+
+    iniFreeContext(&ini_context);
     load_local_host_ip_addrs();
     server_log_configs();
-    storage_config_to_log(&STORAGE_CFG);
 
     return server_init_client(filename);
+}
+
+void fs_server_restart(const char *reason)
+{
+    int result;
+    pid_t pid;
+
+    pid = fork();
+    if (pid < 0) {
+        result = (errno != 0 ? errno : EBUSY);
+        logError("file: "__FILE__", line: %d, "
+                "call fork fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        sf_terminate_myself();
+        return;
+    } else if (pid > 0) {  //parent process
+        logInfo("file: "__FILE__", line: %d, "
+                "restart because %s", __LINE__, reason);
+        return;
+    }
+
+    //child process, close server sockets
+    sf_socket_close_ex(&CLUSTER_SF_CTX);
+    sf_socket_close_ex(&REPLICA_SF_CTX);
+    sf_socket_close();
+    if (execlp(CMDLINE_PROGRAM_FILENAME, CMDLINE_PROGRAM_FILENAME,
+                CMDLINE_CONFIG_FILENAME, "restart", NULL) < 0)
+    {
+        result = errno != 0 ? errno : EBUSY;
+        logError("file: "__FILE__", line: %d, "
+                "exec \"%s %s restart\" fail, errno: %d, error info: %s",
+                __LINE__, CMDLINE_PROGRAM_FILENAME, CMDLINE_CONFIG_FILENAME,
+                result, STRERROR(result));
+
+        log_sync_func(&g_log_context);
+        kill(getppid(), SIGQUIT);
+        exit(result);
+    }
 }

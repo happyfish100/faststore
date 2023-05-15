@@ -28,23 +28,6 @@ extern "C" {
 
     int rebuild_binlog_reader_save_position(ServerBinlogReader *reader);
 
-    static inline int rebuild_binlog_reader_rmdir(const char *filepath)
-    {
-        int result;
-
-        if (rmdir(filepath) < 0) {
-            result = errno != 0 ? errno : EPERM;
-            if (result != ENOTEMPTY) {
-                logError("file: "__FILE__", line: %d, "
-                        "rmdir %s fail, errno: %d, error info: %s",
-                        __LINE__, filepath, result, STRERROR(result));
-                return result;
-            }
-        }
-
-        return 0;
-    }
-
     int rebuild_binlog_reader_unlink_subdir(const char *subdir_name);
 
 #ifdef __cplusplus

@@ -631,7 +631,7 @@ static int deal_replication_connected(FSServerContext *server_ctx)
 
         if (replication->is_client) {
             send_hb = g_current_time - replication->last_net_comm_time >=
-                g_server_global_vars.replica.active_test_interval;
+                g_server_global_vars->replica.active_test_interval;
         } else {
             send_hb = __sync_add_and_fetch(&replication->reverse_hb, 0) == 1;
             if (send_hb) {

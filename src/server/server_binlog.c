@@ -31,8 +31,10 @@
 #include "server_binlog.h"
 #include "binlog/binlog_check.h"
 #include "binlog/binlog_repair.h"
+#include "binlog/trunk_migrate.h"
 #include "rebuild/store_path_rebuild.h"
 #include "replication/replication_quorum.h"
+#include "storage/slice_space_log.h"
 
 static int do_binlog_check()
 {
@@ -77,6 +79,7 @@ static int do_binlog_check()
 static int dump_slice_index()
 {
     int result;
+    int64_t total_block_count;
     int64_t total_slice_count;
     int64_t start_time_ms;
     int64_t end_time_ms;
@@ -95,13 +98,14 @@ static int dump_slice_index()
 
     snprintf(filename, sizeof(filename), "%s/slice.index", filepath);
     if ((result=ob_index_dump_slice_index_to_file(filename,
-                    &total_slice_count)) == 0)
+                    &total_block_count, &total_slice_count)) == 0)
     {
         end_time_ms = get_current_time_ms();
         long_to_comma_str(end_time_ms - start_time_ms, time_buff);
         logInfo("file: "__FILE__", line: %d, "
-                "dump %"PRId64" slices to file %s, time used: %s ms",
-                __LINE__, total_slice_count, filename, time_buff);
+                "dump %"PRId64" slices to file %s, block count: %"PRId64", "
+                "time used: %s ms", __LINE__, total_block_count,
+                filename, total_slice_count, time_buff);
     }
 
     return result;
@@ -124,6 +128,22 @@ int server_binlog_init()
         return result;
     }
 
+    if ((result=slice_binlog_migrate_redo()) != 0) {
+        return result;
+    }
+
+    if ((result=slice_binlog_get_last_sn_from_file()) != 0) {
+        return result;
+    }
+
+    if ((result=slice_space_log_init()) != 0) {
+        return result;
+    }
+
+    if ((result=committed_version_init(SLICE_BINLOG_SN)) != 0) {
+        return result;
+    }
+
     if ((result=store_path_rebuild_redo_step1()) != 0) {
         return result;
     }
@@ -141,6 +161,10 @@ int server_binlog_init()
     }
 
     if ((result=slice_binlog_load()) != 0) {
+        return result;
+    }
+
+    if ((result=trunk_migrate_redo()) != 0) {
         return result;
     }
 

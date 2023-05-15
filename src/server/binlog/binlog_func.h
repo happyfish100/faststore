@@ -23,6 +23,9 @@
 #include "binlog_types.h"
 #include "../server_global.h"
 
+typedef int (*binlog_unpack_common_fields_func)(const string_t *line,
+        BinlogCommonFields *fields, char *error_info);
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -31,7 +34,10 @@ int binlog_get_first_timestamp(const char *filename, time_t *timestamp);
 
 int binlog_get_last_timestamp(const char *filename, time_t *timestamp);
 
-int binlog_unpack_common_fields(const string_t *line,
+int binlog_unpack_replica_common_fields(const string_t *line,
+        BinlogCommonFields *fields, char *error_info);
+
+int binlog_unpack_slice_common_fields(const string_t *line,
         BinlogCommonFields *fields, char *error_info);
 
 int binlog_get_position_by_timestamp(const char *subdir_name,

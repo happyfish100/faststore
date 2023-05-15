@@ -24,8 +24,6 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
-#include "../storage/storage_allocator.h"
-#include "../storage/trunk_id_info.h"
 #include "binlog_func.h"
 #include "binlog_loader.h"
 #include "replica_binlog.h"
@@ -34,17 +32,6 @@
 #define BLOCK_EXPECT_FIELD_COUNT           6
 
 #define MAX_BINLOG_FIELD_COUNT  8
-#define MIN_EXPECT_FIELD_COUNT  BLOCK_EXPECT_FIELD_COUNT
-
-typedef struct {
-    SFBinlogWriterInfo **writers;
-    SFBinlogWriterInfo *holders;
-    int count;
-    int base_id;
-} BinlogWriterArray;
-
-static BinlogWriterArray binlog_writer_array = {NULL, 0};
-static SFBinlogWriterThread binlog_writer_thread;   //only one write thread
 
 int replica_binlog_get_first_record(const char *filename,
         ReplicaBinlogRecord *record)
@@ -124,8 +111,8 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
 
     *data_version = 0;
     *record_len = 0;
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
+    writer = REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     position->index = sf_binlog_get_current_write_index(writer);
     while (position->index >= 0) {
         sf_binlog_writer_get_filename(writer->fw.cfg.data_path,
@@ -168,20 +155,20 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     int bytes;
 
     bytes = sizeof(SFBinlogWriterInfo) * my_data_group_count;
-    binlog_writer_array.holders = (SFBinlogWriterInfo *)fc_malloc(bytes);
-    if (binlog_writer_array.holders == NULL) {
+    REPLICA_BINLOG_WRITER_ARRAY.holders = (SFBinlogWriterInfo *)fc_malloc(bytes);
+    if (REPLICA_BINLOG_WRITER_ARRAY.holders == NULL) {
         return ENOMEM;
     }
-    memset(binlog_writer_array.holders, 0, bytes);
+    memset(REPLICA_BINLOG_WRITER_ARRAY.holders, 0, bytes);
 
     bytes = sizeof(SFBinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
-    binlog_writer_array.writers = (SFBinlogWriterInfo **)fc_malloc(bytes);
-    if (binlog_writer_array.writers == NULL) {
+    REPLICA_BINLOG_WRITER_ARRAY.writers = (SFBinlogWriterInfo **)fc_malloc(bytes);
+    if (REPLICA_BINLOG_WRITER_ARRAY.writers == NULL) {
         return ENOMEM;
     }
-    memset(binlog_writer_array.writers, 0, bytes);
+    memset(REPLICA_BINLOG_WRITER_ARRAY.writers, 0, bytes);
 
-    binlog_writer_array.count = CLUSTER_DATA_RGOUP_ARRAY.count;
+    REPLICA_BINLOG_WRITER_ARRAY.count = CLUSTER_DATA_RGOUP_ARRAY.count;
     return 0;
 }
 
@@ -191,8 +178,8 @@ int replica_binlog_set_data_version(FSClusterDataServerInfo *myself,
     SFBinlogWriterInfo *writer;
     uint64_t old_version;
 
-    writer = binlog_writer_array.writers[myself->dg->id -
-        binlog_writer_array.base_id];
+    writer = REPLICA_BINLOG_WRITER_ARRAY.writers[myself->dg->id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     FC_ATOMIC_SET(myself->data.current_version, new_version);
 
     old_version = FC_ATOMIC_GET(myself->data.confirmed_version);
@@ -254,8 +241,8 @@ int replica_binlog_writer_change_order_by(FSClusterDataServerInfo
 {
     SFBinlogWriterInfo *writer;
 
-    writer = binlog_writer_array.writers[myself->dg->id -
-        binlog_writer_array.base_id];
+    writer = REPLICA_BINLOG_WRITER_ARRAY.writers[myself->dg->id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     return sf_binlog_writer_change_order_by(writer, order_by);
 }
 
@@ -264,8 +251,8 @@ int replica_binlog_writer_change_write_index(const int data_group_id,
 {
     SFBinlogWriterInfo *writer;
 
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
+    writer = REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     return sf_binlog_writer_change_write_index(writer, write_index);
 }
 
@@ -347,11 +334,11 @@ int replica_binlog_init()
         return result;
     }
 
-    binlog_writer_array.base_id = min_id;
-    writer = binlog_writer_array.holders;
-    if ((result=sf_binlog_writer_init_thread_ex(&binlog_writer_thread,
+    REPLICA_BINLOG_WRITER_ARRAY.base_id = min_id;
+    writer = REPLICA_BINLOG_WRITER_ARRAY.holders;
+    if ((result=sf_binlog_writer_init_thread_ex(&REPLICA_BINLOG_WRITER_THREAD,
                     "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
-                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE, id_array->count,
+                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
                     use_fixed_buffer_size, passive_write)) != 0)
     {
         return result;
@@ -366,8 +353,8 @@ int replica_binlog_init()
             return ENOENT;
         }
 
-        writer->thread = &binlog_writer_thread;
-        binlog_writer_array.writers[data_group_id - min_id] = writer;
+        writer->thread = &REPLICA_BINLOG_WRITER_THREAD;
+        REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id - min_id] = writer;
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
         if ((result=sf_binlog_writer_init_by_version(writer, DATA_PATH_STR,
                         subdir_name, myself->data.current_version + 1,
@@ -394,15 +381,9 @@ int replica_binlog_init()
 
 void replica_binlog_destroy()
 {
-    if (binlog_writer_array.count > 0) {
-        sf_binlog_writer_finish(binlog_writer_array.writers[0]);
+    if (REPLICA_BINLOG_WRITER_ARRAY.count > 0) {
+        sf_binlog_writer_finish(REPLICA_BINLOG_WRITER_ARRAY.writers[0]);
     }
-}
-
-SFBinlogWriterInfo *replica_binlog_get_writer(const int data_group_id)
-{
-    return binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
 }
 
 int replica_binlog_get_current_write_index(const int data_group_id)
@@ -448,13 +429,13 @@ static inline int unpack_slice_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.offset, "slice offset",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
+            REPLICA_BINLOG_FIELD_INDEX_SLICE_OFFSET, ' ', 0);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
-            BINLOG_COMMON_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
+            REPLICA_BINLOG_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
     return 0;
 }
 
@@ -470,9 +451,9 @@ static inline int unpack_block_record(string_t *cols, const int count,
     }
 
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID, ' ', 1);
     BINLOG_PARSE_INT_SILENCE(record->bs_key.block.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
+            REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET, '\n', 0);
     return 0;
 }
 
@@ -486,18 +467,18 @@ int replica_binlog_record_unpack(const string_t *line,
 
     count = split_string_ex(line, ' ', cols,
             MAX_BINLOG_FIELD_COUNT, false);
-    if (count < MIN_EXPECT_FIELD_COUNT) {
+    if (count < REPLICA_MIN_FIELD_COUNT) {
         sprintf(error_info, "field count: %d < %d",
-                count, MIN_EXPECT_FIELD_COUNT);
+                count, REPLICA_MIN_FIELD_COUNT);
         return EINVAL;
     }
 
     BINLOG_PARSE_INT_SILENCE(record->timestamp, "timestamp",
-            BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
-    record->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
-    record->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
+            REPLICA_BINLOG_FIELD_INDEX_TIMESTAMP, ' ', 0);
+    record->source = cols[REPLICA_BINLOG_FIELD_INDEX_SOURCE].str[0];
+    record->op_type = cols[REPLICA_BINLOG_FIELD_INDEX_OP_TYPE].str[0];
     BINLOG_PARSE_INT_SILENCE(record->data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 1);
+            REPLICA_BINLOG_FIELD_INDEX_DATA_VERSION, ' ', 1);
     switch (record->op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
         case BINLOG_OP_TYPE_ALLOC_SLICE:
@@ -521,8 +502,8 @@ int replica_binlog_record_unpack(const string_t *line,
 static SFBinlogWriterBuffer *alloc_binlog_buffer(const int data_group_id,
         const int64_t data_version, SFBinlogWriterInfo **writer)
 {
-    *writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
+    *writer = REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     return sf_binlog_writer_alloc_one_version_buffer(*writer, data_version);
 }
 
@@ -540,7 +521,6 @@ int replica_binlog_log_slice(const time_t current_time,
         return ENOMEM;
     }
 
-    wbuffer->tag = source;
     wbuffer->bf.length = replica_binlog_log_slice_to_buff(current_time,
             data_version, bs_key, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
@@ -560,7 +540,6 @@ int replica_binlog_log_block(const time_t current_time,
         return ENOMEM;
     }
 
-    wbuffer->tag = source;
     wbuffer->bf.length = replica_binlog_log_block_to_buff(current_time,
             data_version, bkey, source, op_type, wbuffer->bf.buff);
     sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
@@ -1063,8 +1042,8 @@ void replica_binlog_writer_stat(const int data_group_id,
 {
     SFBinlogWriterInfo *writer;
 
-    writer = binlog_writer_array.writers[data_group_id -
-        binlog_writer_array.base_id];
+    writer = REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id -
+        REPLICA_BINLOG_WRITER_ARRAY.base_id];
     stat->total_count = writer->fw.total_count;
     stat->next_version = writer->version_ctx.next;
     stat->waiting_count = writer->version_ctx.ring.waiting_count;

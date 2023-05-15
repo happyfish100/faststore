@@ -20,11 +20,17 @@
 #include "fastcommon/fc_list.h"
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/uniq_skiplist.h"
+#include "fastcommon/fast_mblock.h"
+#include "fastcommon/sorted_queue.h"
 #include "sf/sf_shared_mbuffer.h"
+#include "diskallocator/storage_types.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
 #define FS_SLICE_SN_PARRAY_INIT_ALLOC_COUNT  4
+
+#define FS_OB_STATUS_NORMAL     0
+#define FS_OB_STATUS_DELETING   1
 
 struct ob_slice_entry;
 struct fs_data_operation;
@@ -36,31 +42,10 @@ typedef void (*fs_rw_done_callback_func)(
         struct fs_slice_op_context *op_ctx, void *arg);
 
 typedef struct {
-    int index;   //the inner index is important!
-    string_t path;
-} FSStorePath;
-
-typedef struct {
-    int64_t id;
-    int64_t subdir;     //in which subdir
-} FSTrunkIdInfo;
-
-typedef struct {
-    FSStorePath *store;
-    FSTrunkIdInfo id_info;
-    int64_t offset;  //offset of the trunk file
-    int64_t size;    //alloced space size
-} FSTrunkSpaceInfo;
-
-typedef struct {
-    FSTrunkSpaceInfo space;
-    int64_t version; //for write in order
-} FSTrunkSpaceWithVersion;
-
-typedef struct {
     struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
     int64_t version; //for write in order
+    DATrunkFileInfo *trunk;
 } FSSliceSNPair;
 
 typedef struct {
@@ -69,40 +54,41 @@ typedef struct {
     FSSliceSNPair *slice_sn_pairs;
 } FSSliceSNPairArray;
 
-typedef enum ob_slice_type {
-    OB_SLICE_TYPE_FILE  = 'F', /* in file slice */
-    OB_SLICE_TYPE_CACHE = 'C', /* in memory cache */
-    OB_SLICE_TYPE_ALLOC = 'A'  /* allocate slice (index and space allocate only) */
-} OBSliceType;
+typedef struct ob_db_args {
+    bool locked;
+    char status;
+    volatile short ref_count;
+    UniqSkiplist *slices;  //the element is OBSliceEntry
+    struct fc_list_head dlink; //for storage engine LRU
+} OBDBArgs;
 
 typedef struct ob_entry {
     FSBlockKey bkey;
-    int reclaiming_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct ob_entry *next; //for hashtable
     struct fast_mblock_man *allocator; //for free
+    OBDBArgs db_args[0];    //for storage engine, since V3.8
 } OBEntry;
 
 typedef struct {
-    int64_t count;
+    volatile int64_t count;
     int64_t capacity;
     OBEntry **buckets;
-    bool modify_sallocator; //if modify storage allocator
-    bool modify_used_space; //if modify used space
+    bool need_reclaim;
 } OBHashtable;
 
 typedef struct ob_slice_entry {
     int64_t data_version;
     OBEntry *ob;
-    OBSliceType type;    //in file, write cache or memory as fallocate
+    DASliceType type;    //in file, write cache or memory as fallocate
     volatile int ref_count;
     FSSliceSize ssize;
-    FSTrunkSpaceInfo space;
-    struct fc_list_head dlink;  //used in trunk entry for trunk reclaiming
+    DATrunkSpaceInfo space;
     struct {
         SFSharedMBuffer *mbuffer;
         char *buff;
     } cache; //for write cache only
+    struct fc_queue_info *space_chain;
     struct fast_mblock_man *allocator; //for free
 } OBSliceEntry;
 
@@ -112,13 +98,18 @@ typedef struct ob_slice_ptr_array {
     OBSliceEntry **slices;
 } OBSlicePtrArray;
 
-#ifdef OS_LINUX
-typedef struct aio_buffer_ptr_array {
-    int alloc;
-    int count;
-    struct aligned_read_buffer **buffers;
-} AIOBufferPtrArray;
+typedef struct ob_slice_read_buffer_pair {
+    OBSliceEntry *slice;
+    DATrunkReadBuffer rb;
+} OBSliceReadBufferPair;
 
+typedef struct ob_slice_read_buffer_array {
+    int64_t alloc;
+    int64_t count;
+    OBSliceReadBufferPair *pairs;
+} OBSliceReadBufferArray;
+
+#ifdef OS_LINUX
 typedef enum {
     fs_buffer_type_direct,  /* char *buff */
     fs_buffer_type_array    /* aligned_read_buffer **array */
@@ -144,10 +135,13 @@ typedef struct fs_slice_op_context {
         } write_binlog;
         bool write_to_cache;
         char source;            //for binlog write
+        struct {
+            unsigned char count;
+            uint64_t last;
+        } sn;  //for slice binlog
         int data_group_id;
         int body_len;
         uint64_t data_version;  //for replica binlog
-        uint64_t sn;            //for slice binlog
         FSBlockSliceKeyInfo bs_key;
         struct fs_cluster_data_server_info *myself;
 #ifdef OS_LINUX
@@ -161,10 +155,11 @@ typedef struct fs_slice_op_context {
         int timestamp;      //for log to binlog
         int space_changed;  //increase /decrease space in bytes for slice operate
         FSSliceSNPairArray sarray;
+        struct fc_queue_info space_chain;
     } update;  //for slice update
 
     SFSharedMBuffer *mbuffer;  //for slice write
-    struct ob_slice_ptr_array slice_ptr_array;  //for slice read
+    OBSliceReadBufferArray slice_rbuffer_array;  //for slice read
     iovec_array_t iovec_array;
 
 #ifdef OS_LINUX
@@ -186,28 +181,26 @@ typedef struct fs_slice_blocked_op_context {
     } notify;
 } FSSliceBlockedOpContext;
 
-typedef struct fs_trunk_file_info {
-    struct fs_trunk_allocator *allocator;
-    FSTrunkIdInfo id_info;
-    volatile int status;
-    struct {
-        int count;  //slice count
-        volatile int64_t bytes;
-        struct fc_list_head slice_head; //OBSliceEntry double link
-    } used;
-    int64_t size;        //file size
-    int64_t free_start;  //free space offset
+typedef struct fs_binlog_write_file_buffer_pair {
+    SafeWriteFileInfo fi;
+    FastBuffer buffer;
+    int record_count;
+} FSBinlogWriteFileBufferPair;
 
-    struct {
-        struct fs_trunk_file_info *next;
-    } alloc;  //for space allocate
+typedef struct fs_slice_space_log_record {
+    int64_t last_sn;
+    SFBinlogWriterBuffer *slice_head;
+    struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
+    SFSynchronizeContext *sctx;
+    struct fc_list_head dlink;
+} FSSliceSpaceLogRecord;
 
-    volatile int reffer_count;  //for waiting slice write done
-    struct {
-        volatile char event;
-        int64_t last_used_bytes;
-        struct fs_trunk_file_info *next;
-    } util;  //for util manager queue
-} FSTrunkFileInfo;
+typedef struct fs_slice_space_log_context {
+    int record_count;
+    FSBinlogWriteFileBufferPair slice_redo;
+    FSBinlogWriteFileBufferPair space_redo;
+    struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
+    struct sorted_queue queue;
+} FSSliceSpaceLogContext;
 
 #endif

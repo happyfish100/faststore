@@ -27,8 +27,10 @@
 #include "fastcommon/shared_buffer.h"
 #include "fastcommon/fc_atomic.h"
 #include "sf/idempotency/server/request_metadata.h"
+#include "diskallocator/binlog/common/binlog_types.h"
 #include "common/fs_types.h"
 #include "common/fs_proto.h"
+#include "common/fs_server_types.h"
 #include "storage/storage_types.h"
 
 #define FS_SPACE_ALIGN_SIZE  8
@@ -86,18 +88,26 @@
 #define FS_MIN_DATA_REBUILD_THREADS                      1
 #define FS_MAX_DATA_REBUILD_THREADS                   1024
 
-#define FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS       3
+#define FS_DEFAULT_LOCAL_BINLOG_CHECK_LAST_SECONDS       5
 #define FS_DEFAULT_SLAVE_BINLOG_CHECK_LAST_ROWS          5
 #define FS_MIN_SLAVE_BINLOG_CHECK_LAST_ROWS              0
 #define FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS            128
 
-#define FS_DEFAULT_TRUNK_FILE_SIZE  (256 * 1024 * 1024LL)
-#define FS_TRUNK_FILE_MIN_SIZE      ( 64 * 1024 * 1024LL)
-#define FS_TRUNK_FILE_MAX_SIZE      (  4 * 1024 * 1024 * 1024LL)
+#define FS_DEFAULT_TRUNK_FILE_SIZE  (256 * 1024 * 1024)
+#define FS_TRUNK_FILE_MIN_SIZE      ( 64 * 1024 * 1024)
+#define FS_TRUNK_FILE_MAX_SIZE      (  2 * 1024 * 1024 * 1024)
 
 #define FS_DEFAULT_DISCARD_REMAIN_SPACE_SIZE  4096
 #define FS_DISCARD_REMAIN_SPACE_MIN_SIZE       256
 #define FS_DISCARD_REMAIN_SPACE_MAX_SIZE      (256 * 1024)
+
+#define FS_BLOCK_BINLOG_DEFAULT_SUBDIRS          128
+#define FS_BLOCK_BINLOG_MIN_SUBDIRS               32
+#define FS_BLOCK_BINLOG_MAX_SUBDIRS              256
+#define FS_DEFAULT_BATCH_STORE_ON_MODIFIES    102400
+#define FS_DEFAULT_BATCH_STORE_INTERVAL           60
+#define FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL     600
+#define FS_DEFAULT_ELIMINATE_INTERVAL              1
 
 #define TASK_STATUS_CONTINUE   12345
 
@@ -479,7 +489,6 @@ typedef struct server_task_arg {
 } FSServerTaskArg;
 
 
-struct ob_slice_ptr_array;
 typedef struct fs_server_context {
     union {
         struct {

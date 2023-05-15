@@ -14,30 +14,16 @@
  */
 
 
-#ifndef _TRUNK_MAKER_H
-#define _TRUNK_MAKER_H
+#ifndef _FS_REBUILD_DB_REMOVE_H
+#define _FS_REBUILD_DB_REMOVE_H
 
-#include "fastcommon/uniq_skiplist.h"
-#include "fastcommon/multi_skiplist.h"
-#include "../../common/fs_types.h"
-#include "storage_config.h"
-#include "trunk_allocator.h"
-
-typedef void (*trunk_allocate_done_callback)(FSTrunkAllocator *allocator,
-        const int result, const bool is_new_trunk, void *arg);
+#include "../server_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int trunk_maker_init();
-
-    int trunk_maker_allocate_ex(FSTrunkAllocator *allocator,
-            const bool urgent, const bool need_lock,
-            trunk_allocate_done_callback callback, void *arg);
-
-#define trunk_maker_allocate(allocator) \
-    trunk_maker_allocate_ex(allocator, false, true, NULL, NULL)
+    int db_remove_slices(const char *subdir_name, const int write_index);
 
 #ifdef __cplusplus
 }

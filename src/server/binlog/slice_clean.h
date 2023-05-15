@@ -14,25 +14,18 @@
  */
 
 
-#ifndef _TRUNK_ID_INFO_H
-#define _TRUNK_ID_INFO_H
+#ifndef _SLICE_CLEAN_H
+#define _SLICE_CLEAN_H
 
-#include "../../common/fs_types.h"
-#include "storage_config.h"
+#include "fastcommon/sched_thread.h"
+#include "binlog_types.h"
+#include "../server_global.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int trunk_id_info_init();
-
-    void trunk_id_info_destroy();
-
-    int trunk_id_info_add(const int path_index, const FSTrunkIdInfo *id_info);
-
-    int trunk_id_info_delete(const int path_index, const FSTrunkIdInfo *id_info);
-
-    int trunk_id_info_generate(const int path_index, FSTrunkIdInfo *id_info);
+    int slice_clean_add_schedule();
 
 #ifdef __cplusplus
 }

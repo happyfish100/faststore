@@ -2,7 +2,8 @@
 
 COMPILE = $(CC) $(CFLAGS)
 INC_PATH = -I/usr/local/include -I.. -I../common
-LIB_PATH = $(LIBS) -lm -lfastcommon -lserverframe -lfcfsauthclient -lfcfsvoteclient
+LIB_PATH = $(LIBS) -lm -ldl -lfastcommon -lserverframe -lfcfsauthclient \
+           -lfcfsvoteclient -ldiskallocator
 TARGET_PATH = $(TARGET_PREFIX)/bin
 CONFIG_PATH = $(TARGET_CONF_PATH)
 
@@ -16,21 +17,17 @@ CLIENT_OBJS = ../client/fs_client.o ../client/client_func.o \
 SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               replica_handler.o common_handler.o data_update_handler.o \
               server_global.o server_group_info.o server_storage.o \
-              storage/storage_config.o storage/store_path_index.o  \
-              storage/trunk_allocator.o storage/storage_allocator.o \
-              storage/trunk_maker.o storage/trunk_prealloc.o  \
-              storage/trunk_reclaim.o storage/trunk_id_info.o \
-              storage/object_block_index.o storage/trunk_freelist.o \
-              storage/slice_op.o dio/trunk_write_thread.o  \
-              dio/trunk_read_thread.o dio/trunk_fd_cache.o \
-			  dio/read_buffer_pool.o binlog/binlog_func.o  \
-              binlog/binlog_reader.o binlog/binlog_read_thread.o \
-              binlog/binlog_loader.o binlog/trunk_binlog.o  \
+              storage/object_block_index.o storage/slice_op.o \
+              storage/committed_version.o storage/slice_space_log.o \
+              binlog/binlog_func.o  binlog/binlog_reader.o \
+              binlog/binlog_read_thread.o binlog/binlog_loader.o \
               binlog/slice_binlog.o  binlog/slice_loader.o  \
               binlog/replica_binlog.o binlog/binlog_check.o \
               binlog/binlog_repair.o binlog/migrate_clean.o \
-              binlog/replica_clean.o binlog/slice_dedup.o \
-              binlog/binlog_rollback.o  \
+              binlog/replica_clean.o binlog/slice_clean.o   \
+              binlog/slice_dedup.o binlog/binlog_rollback.o \
+              binlog/slice_dump.o binlog/trunk_migrate.o \
+              binlog/slice_space_migrate.o binlog/db_remove.o  \
               replication/replication_processor.o \
               replication/rpc_result_ring.o replication/replication_common.o    \
               replication/replication_caller.o replication/replication_callee.o \
@@ -42,7 +39,9 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               recovery/data_recovery.o recovery/recovery_thread.o \
               rebuild/store_path_rebuild.o rebuild/rebuild_binlog.o \
               rebuild/binlog_spliter.o rebuild/rebuild_thread.o \
-              rebuild/binlog_reader.o
+              rebuild/binlog_reader.o  \
+              db/change_notify.o db/block_serializer.o db/event_dealer.o \
+              db/db_updater.o
 
 
 ALL_OBJS = $(COMMON_OBJS) $(CLIENT_OBJS) $(SERVER_OBJS)

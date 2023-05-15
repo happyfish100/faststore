@@ -14,18 +14,20 @@
  */
 
 
-#ifndef _TRUNK_RPEALLOC_H
-#define _TRUNK_RPEALLOC_H
+#ifndef _FS_TRUNK_MIGRATE_H
+#define _FS_TRUNK_MIGRATE_H
 
-#include "../../common/fs_types.h"
-#include "storage_config.h"
-#include "trunk_allocator.h"
+#include "binlog_types.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int trunk_prealloc_init();
+    int trunk_migrate_create();
+
+    int trunk_migrate_slice_dedup_done_callback();
+
+    int trunk_migrate_redo();
 
 #ifdef __cplusplus
 }

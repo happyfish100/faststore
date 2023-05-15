@@ -180,6 +180,7 @@ static int check_alloc_version_array(BinlogDataGroupVersionArray *array)
 
 static int binlog_parse_buffer(ServerBinlogReader *reader,
         const int length, const time_t from_timestamp,
+        binlog_unpack_common_fields_func unpack_common_fields,
         BinlogDataGroupVersionArray *varray)
 {
     int result;
@@ -207,9 +208,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
 
         line.str = line_start;
         line.len = ++line_end - line_start;
-        if ((result=binlog_unpack_common_fields(&line,
-                        &fields, error_info)) != 0)
-        {
+        if ((result=unpack_common_fields(&line, &fields, error_info)) != 0) {
             break;
         }
 
@@ -248,7 +247,8 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
 
 static int do_load_data_versions(const char *subdir_name,
         SFBinlogWriterInfo *writer, const time_t from_timestamp,
-        SFBinlogFilePosition *pos, BinlogDataGroupVersionArray *varray)
+        SFBinlogFilePosition *pos, binlog_unpack_common_fields_func
+        unpack_common_fields, BinlogDataGroupVersionArray *varray)
 {
     int result;
     int read_bytes;
@@ -269,8 +269,8 @@ static int do_load_data_versions(const char *subdir_name,
                     reader.binlog_buffer.size,
                     &read_bytes)) == 0)
     {
-        if ((result=binlog_parse_buffer(&reader, read_bytes,
-                        from_timestamp, varray)) != 0)
+        if ((result=binlog_parse_buffer(&reader, read_bytes, from_timestamp,
+                        unpack_common_fields, varray)) != 0)
         {
             break;
         }
@@ -327,6 +327,7 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
         if ((result=do_load_data_versions(subdir_name,
                         replica_binlog_get_writer(data_group_id),
                         ctx->from_timestamp, replica,
+                        binlog_unpack_replica_common_fields,
                         &ctx->version_arrays.replica)) != 0)
         {
             return result;
@@ -335,7 +336,9 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
 
     if ((result=do_load_data_versions(FS_SLICE_BINLOG_SUBDIR_NAME,
                     slice_binlog_get_writer(), ctx->from_timestamp,
-                    &ctx->positions.slice, &ctx->version_arrays.slice)) != 0)
+                    &ctx->positions.slice,
+                    binlog_unpack_slice_common_fields,
+                    &ctx->version_arrays.slice)) != 0)
     {
         return result;
     }

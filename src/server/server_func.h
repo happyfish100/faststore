@@ -25,6 +25,8 @@ extern "C" {
 
 int server_load_config(const char *filename);
 
+void fs_server_restart(const char *reason);
+
 #ifdef __cplusplus
 }
 #endif

@@ -20,6 +20,8 @@
 #include "fastcommon/pthread_func.h"
 #include "sf/sf_global.h"
 #include "sf/sf_func.h"
+#include "binlog/binlog_types.h"
+#include "storage/committed_version.h"
 #include "server_global.h"
 #include "server_replication.h"
 #include "data_thread.h"
@@ -285,6 +287,8 @@ static void deal_operation_finish(FSDataThreadContext *thread_ctx,
                     op->ctx->info.data_version);
         }
 
+        committed_version_add1(op->ctx);
+
         /*
            logInfo("file: "__FILE__", line: %d, op ptr: %p, "
            "operation: %d, log_replica: %d, source: %c, "
@@ -350,7 +354,7 @@ static void deal_one_operation(FSDataThreadContext *thread_ctx,
             op->ctx->result = fs_slice_allocate(op->ctx);
             break;
         case DATA_OPERATION_SLICE_DELETE:
-            op->ctx->result = fs_delete_slices(op->ctx);
+            op->ctx->result = fs_delete_slice(op->ctx);
             break;
         case DATA_OPERATION_BLOCK_DELETE:
             op->ctx->result = fs_delete_block(op->ctx);

@@ -161,6 +161,8 @@ static int deal_line(DataRebuildThreadInfo *thread, const string_t *line)
         return 0;
     }
 
+    committed_version_add1(&thread->op_ctx);
+
     last_pair = thread->op_ctx.update.sarray.slice_sn_pairs +
         (thread->op_ctx.update.sarray.count - 1);
     thread->max_sn = last_pair->sn;
@@ -285,7 +287,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.rw_done_callback = (fs_rw_done_callback_func)
         rebuild_write_done_callback;
     thread->op_ctx.arg = thread;
-    ob_index_init_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
+    ob_index_init_slice_rbuffer_array(&thread->op_ctx.slice_rbuffer_array);
     return fs_slice_array_init(&thread->op_ctx.update.sarray);
 }
 
@@ -295,7 +297,7 @@ static void destroy_thread(DataRebuildThreadInfo *thread)
     fc_free_buffer(&thread->rbuffer);
     free(thread->op_ctx.info.buff);
     destroy_pthread_lock_cond_pair(&thread->notify.lcp);
-    ob_index_free_slice_ptr_array(&thread->op_ctx.slice_ptr_array);
+    ob_index_free_slice_rbuffer_array(&thread->op_ctx.slice_rbuffer_array);
     fs_slice_array_destroy(&thread->op_ctx.update.sarray);
 }
 
@@ -324,7 +326,6 @@ int rebuild_thread_do(const int thread_count)
 
     start_time = get_current_time_ms();
 
-    slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     ctx.running_threads = thread_count;
     end = ctx.thread_array.threads + thread_count;
     for (thread=ctx.thread_array.threads; thread<end; thread++) {
@@ -347,7 +348,6 @@ int rebuild_thread_do(const int thread_count)
             break;
         }
     } while (SF_G_CONTINUE_FLAG);
-    slice_binlog_writer_set_flags(0);
 
     slice_count = 0;
     skip_count = 0;

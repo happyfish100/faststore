@@ -32,8 +32,35 @@
 #include "binlog_loader.h"
 #include "binlog_func.h"
 
-int binlog_unpack_common_fields(const string_t *line,
-        BinlogCommonFields *fields, char *error_info)
+static struct {
+    BinlogCommonFieldIndexs replica;
+    BinlogCommonFieldIndexs slice;
+} common_indexes = {
+    {
+        REPLICA_BINLOG_FIELD_INDEX_TIMESTAMP,
+        REPLICA_BINLOG_FIELD_INDEX_DATA_VERSION,
+        REPLICA_BINLOG_FIELD_INDEX_SOURCE,
+        REPLICA_BINLOG_FIELD_INDEX_OP_TYPE,
+        REPLICA_BINLOG_FIELD_INDEX_BLOCK_OID,
+        REPLICA_BINLOG_FIELD_INDEX_BLOCK_OFFSET,
+        REPLICA_BINLOG_FIELD_INDEX_SLICE_OFFSET,
+        REPLICA_BINLOG_FIELD_INDEX_SLICE_LENGTH
+    },
+    {
+        SLICE_BINLOG_FIELD_INDEX_TIMESTAMP,
+        SLICE_BINLOG_FIELD_INDEX_DATA_VERSION,
+        SLICE_BINLOG_FIELD_INDEX_SOURCE,
+        SLICE_BINLOG_FIELD_INDEX_OP_TYPE,
+        SLICE_BINLOG_FIELD_INDEX_BLOCK_OID,
+        SLICE_BINLOG_FIELD_INDEX_BLOCK_OFFSET,
+        SLICE_BINLOG_FIELD_INDEX_SLICE_OFFSET,
+        SLICE_BINLOG_FIELD_INDEX_SLICE_LENGTH
+    }
+};
+
+static inline int binlog_unpack_common_fields(const string_t *line,
+        BinlogCommonFields *fields, char *error_info,
+        const int min_field_count, const BinlogCommonFieldIndexs *fi)
 {
     int count;
     char *endptr;
@@ -41,23 +68,37 @@ int binlog_unpack_common_fields(const string_t *line,
 
     count = split_string_ex(line, ' ', cols,
             BINLOG_MAX_FIELD_COUNT, false);
-    if (count < BINLOG_MIN_FIELD_COUNT) {
+    if (count < min_field_count) {
         sprintf(error_info, "field count: %d < %d",
-                count, BINLOG_MIN_FIELD_COUNT);
+                count, min_field_count);
         return EINVAL;
     }
 
-    BINLOG_PARSE_INT_SILENCE(fields->timestamp, "timestamp",
-            BINLOG_COMMON_FIELD_INDEX_TIMESTAMP, ' ', 0);
-    BINLOG_PARSE_INT_SILENCE(fields->data_version, "data version",
-            BINLOG_COMMON_FIELD_INDEX_DATA_VERSION, ' ', 0);
-    fields->source = cols[BINLOG_COMMON_FIELD_INDEX_SOURCE].str[0];
-    fields->op_type = cols[BINLOG_COMMON_FIELD_INDEX_OP_TYPE].str[0];
-    BINLOG_PARSE_INT_SILENCE(fields->bkey.oid, "object ID",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OID, ' ', 1);
-    BINLOG_PARSE_INT_SILENCE2(fields->bkey.offset, "block offset",
-            BINLOG_COMMON_FIELD_INDEX_BLOCK_OFFSET, ' ', '\n', 0);
+    BINLOG_PARSE_INT_SILENCE(fields->timestamp,
+            "timestamp", fi->timestamp, ' ', 0);
+    BINLOG_PARSE_INT_SILENCE(fields->data_version,
+            "data version", fi->data_version, ' ', 0);
+    fields->source = cols[fi->source].str[0];
+    fields->op_type = cols[fi->op_type].str[0];
+    BINLOG_PARSE_INT_SILENCE(fields->bkey.oid,
+            "object ID", fi->block_oid, ' ', 1);
+    BINLOG_PARSE_INT_SILENCE2(fields->bkey.offset,
+            "block offset", fi->block_offset, ' ', '\n', 0);
     return 0;
+}
+
+int binlog_unpack_replica_common_fields(const string_t *line,
+        BinlogCommonFields *fields, char *error_info)
+{
+    return binlog_unpack_common_fields(line, fields, error_info,
+            REPLICA_MIN_FIELD_COUNT, &common_indexes.replica);
+}
+
+int binlog_unpack_slice_common_fields(const string_t *line,
+        BinlogCommonFields *fields, char *error_info)
+{
+    return binlog_unpack_common_fields(line, fields, error_info,
+            SLICE_MIN_FIELD_COUNT, &common_indexes.slice);
 }
 
 static int binlog_unpack_timestamp(const string_t *line,

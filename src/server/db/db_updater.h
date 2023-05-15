@@ -14,38 +14,34 @@
  */
 
 
-#ifndef _STORE_PATH_INDEX_H
-#define _STORE_PATH_INDEX_H
+#ifndef _FS_DB_UPDATER_H
+#define _FS_DB_UPDATER_H
 
-#include <limits.h>
-#include "../../common/fs_types.h"
-#include "storage_config.h"
+#include "../server_types.h"
 
-typedef struct {
-    int index;
-    char path[PATH_MAX];
-    char mark[64];
-} StorePathEntry;
+typedef struct fs_db_updater_context {
+    FSDBUpdateBlockArray array;
+    struct {
+        struct {
+            int64_t prepare;
+            int64_t commit;
+        } block; //for check with slice sn
+
+        int64_t field;   //for check internal storage engine
+    } last_versions;
+    FastBuffer buffer;
+} FSDBUpdaterContext;
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int store_path_index_init();
+    int db_updater_init(FSDBUpdaterContext *ctx);
+    void db_updater_destroy();
 
-    void store_path_index_destroy();
+    int db_updater_realloc_block_array(FSDBUpdateBlockArray *array);
 
-    int store_path_index_count();
-
-    int store_path_index_max();
-
-    int store_path_check_mark(StorePathEntry *pentry, bool *regenerated);
-
-    StorePathEntry *store_path_index_get(const char *path);
-
-    int store_path_index_add(const char *path, int *index);
-
-    int store_path_index_save();
+    int db_updater_deal(FSDBUpdaterContext *ctx);
 
 #ifdef __cplusplus
 }

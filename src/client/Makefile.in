@@ -16,8 +16,9 @@ FAST_STATIC_OBJS = ../common/fs_global.o ../common/fs_proto.o \
 				   client_proto.o simple_connection_manager.o
 
 HEADER_FILES = ../common/fs_types.h ../common/fs_global.h ../common/fs_proto.h \
-               ../common/fs_func.h ../common/fs_cluster_cfg.h fs_client.h  \
-               client_types.h client_func.h client_global.h client_proto.h \
+               ../common/fs_func.h ../common/fs_cluster_cfg.h \
+               ../common/fs_server_types.h fs_client.h client_types.h \
+               client_func.h client_global.h client_proto.h \
                simple_connection_manager.h
 
 ALL_OBJS = $(FAST_STATIC_OBJS) $(FAST_SHARED_OBJS)
