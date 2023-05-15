@@ -91,9 +91,11 @@ static void *change_notify_func(void *arg)
                 break;
         }
 
+        /*
         logInfo("file: "__FILE__", line: %d, "
                 "sn type: %d, less than version: %"PRId64,
                 __LINE__, STORAGE_SN_TYPE, less_equal.sn);
+                */
 
         sorted_queue_try_pop_to_chain(&change_notify_ctx.
                 queue, &less_equal, &head);

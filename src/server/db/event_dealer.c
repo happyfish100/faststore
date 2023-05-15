@@ -298,8 +298,10 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
 
+    /*
     logInfo("count: %d, last sn: %"PRId64, EVENT_PTR_ARRAY.count,
             event_dealer_ctx.updater_ctx.last_versions.block.commit);
+            */
 
     return result;
 }

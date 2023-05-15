@@ -794,8 +794,6 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
                 sizeof(STORAGE_MEMORY_BLOCK_SLICE),
                 "%s", block_slice_memory_ratio);
         STORAGE_MEMORY_BLOCK_RATIO = (double)num1 / (double)(num1 + num2);
-
-        logInfo("STORAGE_MEMORY_BLOCK_RATIO: %.2f%%", STORAGE_MEMORY_BLOCK_RATIO * 100);
     }
 
     g_server_global_vars->slice_storage.cfg.block_segment.htable_capacity =

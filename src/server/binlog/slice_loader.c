@@ -875,8 +875,6 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
     SFBinlogFilePosition position;
 
     if (STORAGE_ENABLED) {
-        logInfo("event_dealer_get_last_data_version: %"PRId64,
-                event_dealer_get_last_data_version());
         if (event_dealer_get_last_data_version() >= SLICE_BINLOG_SN) {
             SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;
             return slice_load_done(&ctx);
