@@ -269,10 +269,33 @@ static int block_reclaim(OBSegment *segment, const int64_t target_count,
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "reclaim count: %"PRId64", skip count: %"PRId64, __LINE__,
-            __FUNCTION__, target_count - remain, skip);
+    logInfo("file: "__FILE__", line: %d, "
+            "reclaimed block count: %"PRId64", skip count: %"PRId64,
+            __LINE__, target_count - remain, skip);
     return target_count - remain > 0 ? 0 : EAGAIN;
+}
+
+static inline void *try_alloc(const OBAllocateType type,
+        const int start, const int end)
+{
+    OBSharedAllocator *allocator;
+    void *obj;
+    int k;
+
+    for (k=start; k<end; k++) {
+        allocator = ob_shared_ctx.allocator_array.allocators +
+            k % ob_shared_ctx.allocator_array.count;
+        if (type == fs_allocate_type_block) {
+            obj = fast_mblock_alloc_object(&allocator->ob);
+        } else {
+            obj = fast_mblock_alloc_object(&allocator->slice);
+        }
+        if (obj != NULL) {
+            return obj;
+        }
+    }
+
+    return NULL;
 }
 
 static void *reclaim_and_alloc(OBSharedAllocator *allocator,
@@ -285,12 +308,12 @@ static void *reclaim_and_alloc(OBSharedAllocator *allocator,
     int64_t target_count;
     int64_t slice_count;
     int start, end;
-    int i, k;
+    int i;
 
     avg_count = FC_ATOMIC_GET(G_OB_HASHTABLE.count) /
         ob_shared_ctx.segment_array.count;
-    logInfo("htable count: %"PRId64", avg count: %"PRId64", type: %d",
-            FC_ATOMIC_GET(G_OB_HASHTABLE.count), avg_count, type);
+    start = allocator - ob_shared_ctx.allocator_array.allocators;
+    end = start + ob_shared_ctx.allocator_array.count;
     for (i=0; i<ob_shared_ctx.segment_array.count; i++) {
         segment = ob_shared_ctx.segment_array.segments + __sync_fetch_and_add(
                 &ob_shared_ctx.segment_array.reclaim_index, 1) %
@@ -310,32 +333,12 @@ static void *reclaim_and_alloc(OBSharedAllocator *allocator,
             continue;
         }
 
-        if (type == fs_allocate_type_block) {
-            obj = fast_mblock_alloc_object(&allocator->ob);
-        } else {
-            obj = fast_mblock_alloc_object(&allocator->slice);
-        }
-        if (obj != NULL) {
+        if ((obj=try_alloc(type, start, end)) != NULL) {
             return obj;
         }
     }
 
-    start = allocator - ob_shared_ctx.allocator_array.allocators;
-    end = start + ob_shared_ctx.allocator_array.count;
-
-    for (k=start+1; k<end; k++) {
-        allocator = ob_shared_ctx.allocator_array.allocators +
-            k % ob_shared_ctx.allocator_array.count;
-        if (type == fs_allocate_type_block) {
-            obj = fast_mblock_alloc_object(&allocator->ob);
-        } else {
-            obj = fast_mblock_alloc_object(&allocator->slice);
-        }
-        if (obj != NULL) {
-            return obj;
-        }
-    }
-    return NULL;
+    return try_alloc(type, start, end);
 }
 
 #define reclaim_and_alloc_block(allocator) \
@@ -656,19 +659,20 @@ static int init_ob_shared_allocator_array(
                 STORAGE_MEMORY_TOTAL_LIMIT * MEMORY_LIMIT_LEVEL0_RATIO);
         ob_shared_ctx.limits.block.memory_limit = total_memory_limit *
             STORAGE_MEMORY_BLOCK_RATIO;
-        if (ob_shared_ctx.limits.block.memory_limit < 32 * 1024 * 1024)
+        if (ob_shared_ctx.limits.block.memory_limit < 128 * 1024 * 1024)
         {
-            ob_shared_ctx.limits.block.memory_limit = 32 * 1024 * 1024;
+            ob_shared_ctx.limits.block.memory_limit = 128 * 1024 * 1024;
         }
 
         ob_shared_ctx.limits.slice.memory_limit = total_memory_limit *
             (1.00 - STORAGE_MEMORY_BLOCK_RATIO);
-        if (ob_shared_ctx.limits.slice.memory_limit < 64 * 1024 * 1024)
+        if (ob_shared_ctx.limits.slice.memory_limit < 256 * 1024 * 1024)
         {
-            ob_shared_ctx.limits.slice.memory_limit = 64 * 1024 * 1024;
+            ob_shared_ctx.limits.slice.memory_limit = 256 * 1024 * 1024;
         }
 
-        logInfo("memory_limit {block: %"PRId64" MB, slice: %"PRId64" MB}",
+        logInfo("file: "__FILE__", line: %d, memory limit "
+                "{block: %"PRId64" MB, slice: %"PRId64" MB}", __LINE__,
                 ob_shared_ctx.limits.block.memory_limit / (1024 * 1024),
                 ob_shared_ctx.limits.slice.memory_limit / (1024 * 1024));
 
@@ -703,7 +707,7 @@ static int init_ob_shared_allocator_array(
             trunk_callbacks.ptr->args = &ob_shared_ctx.limits.block;
         }
         if ((result=fast_mblock_init_ex2(&allocator->ob, "ob_entry",
-                        ob_element_size, 64 * 1024, 0, &obj_callbacks_obentry,
+                        ob_element_size, 16 * 1024, 0, &obj_callbacks_obentry,
                         true, trunk_callbacks.ptr)) != 0)
         {
             return result;
@@ -715,7 +719,7 @@ static int init_ob_shared_allocator_array(
         }
         if ((result=fast_mblock_init_ex2(&allocator->slice,
                         "slice_entry", sizeof(OBSliceEntry),
-                        64 * 1024, 0, &obj_callbacks_slice,
+                        16 * 1024, 0, &obj_callbacks_slice,
                         true, trunk_callbacks.ptr)) != 0)
         {
             return result;
