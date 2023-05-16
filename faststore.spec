@@ -5,7 +5,7 @@
 %define CommitVersion %(echo $COMMIT_VERSION)
 
 Name: faststore
-Version: 3.7.2
+Version: 4.0.0
 Release: 1%{?dist}
 Summary: a high performance distributed file storage service
 License: AGPL v3.0
@@ -16,7 +16,7 @@ Source: http://github.com/happyfish100/faststore/%{name}-%{version}.tar.gz
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n) 
 
 BuildRequires: libaio-devel
-BuildRequires: libserverframe-devel >= 1.1.25
+BuildRequires: libserverframe-devel >= 1.1.26
 BuildRequires: FastCFS-auth-devel >= 3.7.2
 BuildRequires: FastCFS-vote-devel >= 3.7.2
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
@@ -29,7 +29,8 @@ commit version: %{CommitVersion}
 
 %package -n %{FastStoreServer}
 Requires: libaio
-Requires: libserverframe >= 1.1.25
+Requires: libserverframe >= 1.1.26
+Requires: libfsstorage >= 1.1.0
 Requires: FastCFS-auth-client >= 3.7.2
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: FastCFS-vote-client >= 3.7.2
@@ -38,7 +39,7 @@ Requires: %{FastStoreConfig} >= 1.0.0
 Summary: FastStore server
 
 %package -n %{FastStoreClient}
-Requires: libserverframe >= 1.1.25
+Requires: libserverframe >= 1.1.26
 Requires: FastCFS-auth-client >= 3.7.2
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0

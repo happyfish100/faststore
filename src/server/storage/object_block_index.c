@@ -67,7 +67,7 @@ typedef struct {
 typedef struct {
     int64_t memory_limit;
     volatile int64_t malloc_bytes;
-    volatile int64_t free_count;
+    //volatile int64_t free_count;
 } OBMemoryLimit;
 
 typedef struct {
@@ -87,7 +87,7 @@ static inline int do_delete_slice_ex(OBHashtable *htable,
         struct fc_queue_info *space_chain);
 
 static OBSharedContext ob_shared_ctx = {
-    {{0, 0, 0}, {0, 0, 0}},
+    {{0, 0}, {0, 0}},
     {0, 0, NULL}, {0, NULL}
 };
 
@@ -617,10 +617,10 @@ static void block_malloc_trunk_notify_func(
     limit = args;
     if (type == fast_mblock_notify_type_alloc) {
         __sync_add_and_fetch(&limit->malloc_bytes, node->trunk_size);
-        __sync_add_and_fetch(&limit->free_count, node->alloc_count);
+        //__sync_add_and_fetch(&limit->free_count, node->alloc_count);
     } else {
         __sync_sub_and_fetch(&limit->malloc_bytes, node->trunk_size);
-        __sync_sub_and_fetch(&limit->free_count, node->alloc_count);
+        //__sync_sub_and_fetch(&limit->free_count, node->alloc_count);
     }
 }
 
