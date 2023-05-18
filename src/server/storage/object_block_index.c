@@ -770,7 +770,8 @@ static int init_ob_shared_segment_array(
     return 0;
 }
 
-int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity)
+int ob_index_init_htable(OBHashtable *htable, const int64_t capacity,
+        const bool need_reclaim)
 {
     int64_t bytes;
 
@@ -782,7 +783,7 @@ int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity)
     }
     memset(htable->buckets, 0, bytes);
 
-    htable->need_reclaim = false;
+    htable->need_reclaim = need_reclaim;
     return 0;
 }
 
@@ -835,15 +836,12 @@ int ob_index_init()
         return result;
     }
 
-    if ((result=ob_index_init_htable_ex(&G_OB_HASHTABLE,
-                    OB_HASHTABLE_CAPACITY)) != 0)
+    if ((result=ob_index_init_htable(&G_OB_HASHTABLE,
+                    OB_HASHTABLE_CAPACITY, STORAGE_ENABLED)) != 0)
     {
         return result;
     }
 
-    if (STORAGE_ENABLED) {
-        G_OB_HASHTABLE.need_reclaim = true;
-    }
     return 0;
 }
 

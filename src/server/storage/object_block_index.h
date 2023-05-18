@@ -72,10 +72,6 @@ extern "C" {
 #define ob_index_alloc_slice(bkey) \
     ob_index_alloc_slice_ex(&G_OB_HASHTABLE, bkey, 1)
 
-#define ob_index_init_htable(ht) \
-    ob_index_init_htable_ex(ht, STORAGE_CFG.object_block.  \
-            hashtable_capacity)
-
 #define ob_index_dump_slices_to_file(start_index,  \
         end_index, filename, slice_count, source)  \
     ob_index_dump_slices_to_file_ex(&G_OB_HASHTABLE, \
@@ -101,7 +97,8 @@ extern "C" {
     int ob_index_init();
     void ob_index_destroy();
 
-    int ob_index_init_htable_ex(OBHashtable *htable, const int64_t capacity);
+    int ob_index_init_htable(OBHashtable *htable, const int64_t capacity,
+            const bool need_reclaim);
     void ob_index_destroy_htable(OBHashtable *htable);
 
     int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,

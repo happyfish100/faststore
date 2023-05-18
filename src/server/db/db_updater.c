@@ -46,15 +46,11 @@ static DBUpdaterCtx db_updater_ctx;
 int db_updater_realloc_block_array(FSDBUpdateBlockArray *array)
 {
     FSDBUpdateBlockInfo *entries;
+    int new_alloc;
 
-    if (array->alloc == 0) {
-        array->alloc = 8 * 1024;
-    } else {
-        array->alloc *= 2;
-    }
-
+    new_alloc = (array->alloc == 0) ? 8 * 1024 : array->alloc * 2;
     entries = (FSDBUpdateBlockInfo *)fc_malloc(
-            sizeof(FSDBUpdateBlockInfo) * array->alloc);
+            sizeof(FSDBUpdateBlockInfo) * new_alloc);
     if (entries == NULL) {
         return ENOMEM;
     }
@@ -66,6 +62,7 @@ int db_updater_realloc_block_array(FSDBUpdateBlockArray *array)
     }
 
     array->entries = entries;
+    array->alloc = new_alloc;
     return 0;
 }
 

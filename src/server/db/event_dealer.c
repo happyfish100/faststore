@@ -261,8 +261,9 @@ static int deal_sorted_events()
     }
 
     if (MERGED_BLOCK_ARRAY.count > 0) {
-        result = db_updater_deal(&event_dealer_ctx.updater_ctx);
-        event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
+        if ((result=db_updater_deal(&event_dealer_ctx.updater_ctx)) == 0) {
+            event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
+        }
     }
     return result;
 }
