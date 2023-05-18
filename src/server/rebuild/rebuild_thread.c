@@ -234,6 +234,14 @@ static inline int do_rebuild(DataRebuildThreadInfo *thread)
 
 static void *data_rebuild_thread_run(DataRebuildThreadInfo *thread)
 {
+
+#ifdef OS_LINUX
+    char thread_name[16];
+    snprintf(thread_name, sizeof(thread_name), "data-rebuild[%d]",
+            thread->thread_index);
+    prctl(PR_SET_NAME, thread_name);
+#endif
+
     if (do_rebuild(thread) != 0) {
         sf_terminate_myself();
     }

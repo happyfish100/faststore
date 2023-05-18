@@ -26,6 +26,7 @@
 typedef struct data_read_thread_info {
     ServerBinlogReaderArray rda;
     BufferInfo buffer;
+    int thread_index;
     int64_t slice_count;
     struct binlog_spliter_context *ctx;
 } DataReadThreadInfo;
@@ -137,6 +138,13 @@ static void *data_read_thread_run(DataReadThreadInfo *thread)
 {
     ServerBinlogReader *reader;
     ServerBinlogReader *end;
+
+#ifdef OS_LINUX
+    char thread_name[16];
+    snprintf(thread_name, sizeof(thread_name), "log-spliter[%d]",
+            thread->thread_index);
+    prctl(PR_SET_NAME, thread_name);
+#endif
 
     end = thread->rda.readers + thread->rda.count;
     for (reader=thread->rda.readers; reader<end; reader++) {
@@ -327,6 +335,7 @@ static int do_split(BinlogSpliterContext *ctx,
         }
         reader += thread->rda.count;
         thread->ctx = ctx;
+        thread->thread_index = thread - ctx->read_ctx.thread_array.threads;
         thread->slice_count = 0;
         if ((result=fc_create_thread(&tid, (void *(*)(void *))
                         data_read_thread_run, thread,

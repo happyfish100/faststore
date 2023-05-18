@@ -246,7 +246,7 @@ static void *slice_space_log_func(void *arg)
     int sleep_ms;
 
 #ifdef OS_LINUX
-    prctl(PR_SET_NAME, "SE-binlog-write");
+    prctl(PR_SET_NAME, "slice-space-log");
 #endif
 
     while (SF_G_CONTINUE_FLAG) {

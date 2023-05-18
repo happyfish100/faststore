@@ -554,6 +554,10 @@ static void *replication_quorum_thread_run(void *arg)
     bool set_version;
     bool by_slave;
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "replica-quorum");
+#endif
+
     while (1) {
         if ((ctx=fc_queue_pop(&fs_repl_quorum_thread.queue)) != NULL) {
             __sync_bool_compare_and_swap(&ctx->dealing, 1, 0);

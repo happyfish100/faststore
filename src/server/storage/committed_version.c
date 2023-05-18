@@ -52,6 +52,10 @@ static void *committed_version_thread_run(void *arg)
     FSVersionEntry *entry;
     FSVersionEntry *end;
 
+#ifdef OS_LINUX
+    prctl(PR_SET_NAME, "committed-vers");
+#endif
+
     COMMITTED_VERSION_RING.continue_flag = true;
     COMMITTED_VERSION_RING.running = true;
     next_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn);
