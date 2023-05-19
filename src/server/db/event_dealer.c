@@ -230,7 +230,7 @@ static int deal_sorted_events()
             }
         } else {
             if (ob->db_args->slices == NULL) {
-                if ((result=ob_index_alloc_db_slices(ob)) != 0) {
+                if ((result=ob_index_alloc_db_slices(segment, ob)) != 0) {
                     break;
                 }
             }

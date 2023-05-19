@@ -30,6 +30,12 @@ typedef struct fs_db_fetch_context {
 typedef struct {
     pthread_lock_cond_pair_t lcp; //for lock and notify
 
+    struct {
+        UniqSkiplistFactory factory;
+        struct fast_mblock_man ob;     //for ob_entry
+        struct fast_mblock_man slice;  //for slice_entry
+    } allocators;
+
     /* following fields for storage engine */
     FSDBFetchContext db_fetch_ctx;
     volatile int64_t count;    //ob count
@@ -291,7 +297,17 @@ extern "C" {
         PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     }
 
-    int ob_index_alloc_db_slices(OBEntry *ob);
+    static inline int ob_index_alloc_db_slices(OBSegment *segment, OBEntry *ob)
+    {
+        const int init_level_count = 2;
+        if ((ob->db_args->slices=uniq_skiplist_new(&segment->allocators.
+                        factory, init_level_count)) != NULL)
+        {
+            return 0;
+        } else {
+            return ENOMEM;
+        }
+    }
 
     int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob);
 

@@ -457,7 +457,6 @@ static void server_log_configs()
             "idempotency_max_channel_count: %d, "
             "write_to_cache: %d, "
             "object_block_hashtable_capacity: %"PRId64", "
-            "object_block_shared_allocator_count: %d, "
             "object_block_shared_lock_count: %d, "
             "trunk_index_dump_base_time: %02d:%02d, "
             "trunk_index_dump_interval: %d s, "
@@ -480,7 +479,7 @@ static void server_log_configs()
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
             WRITE_TO_CACHE, OB_HASHTABLE_CAPACITY,
-            OB_SHARED_ALLOCATOR_COUNT, OB_SHARED_LOCK_COUNT,
+            OB_SHARED_LOCK_COUNT,
             DATA_CFG.trunk_index_dump_base_time.hour,
             DATA_CFG.trunk_index_dump_base_time.minute,
             DATA_CFG.trunk_index_dump_interval,
@@ -499,8 +498,7 @@ static void server_log_configs()
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
                 ", trunk_index_dump_base_time: %02d:%02d"
                 ", trunk_index_dump_interval: %d s"
-                ", eliminate_interval: %d s, memory_limit: %.2f%%, "
-                "block_slice_memory_ratio => %s}",
+                ", eliminate_interval: %d s, memory_limit: %.2f%%}",
                 STORAGE_ENGINE_LIBRARY, STORAGE_PATH_STR,
                 BLOCK_BINLOG_SUBDIRS, g_server_global_vars->
                 slice_storage.cfg.block_segment.htable_capacity,
@@ -511,8 +509,7 @@ static void server_log_configs()
                 TRUNK_INDEX_DUMP_BASE_TIME.minute,
                 TRUNK_INDEX_DUMP_INTERVAL,
                 BLOCK_ELIMINATE_INTERVAL,
-                STORAGE_MEMORY_TOTAL_LIMIT * 100,
-                STORAGE_MEMORY_BLOCK_SLICE);
+                STORAGE_MEMORY_TOTAL_LIMIT * 100);
     } else {
         snprintf(sz_server_config + len, sizeof(sz_server_config) - len, "}");
     }
@@ -656,11 +653,7 @@ static int load_storage_engine_apis()
 static int load_storage_engine_parames(IniFullContext *ini_ctx)
 {
     int result;
-    int num1, num2;
-    char *block_slice_memory_ratio;
     char *library;
-    char *p;
-    char *endptr;
 
     ini_ctx->section_name = "storage-engine";
     STORAGE_ENABLED = iniGetBoolValue(ini_ctx->section_name,
@@ -746,56 +739,6 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
         STORAGE_MEMORY_TOTAL_LIMIT = 0.99;
     }
 
-    block_slice_memory_ratio = iniGetStrValue(ini_ctx->section_name,
-            "block_slice_memory_ratio", ini_ctx->context);
-    if (block_slice_memory_ratio == NULL) {
-        strcpy(STORAGE_MEMORY_BLOCK_SLICE, "3 : 7");
-        STORAGE_MEMORY_BLOCK_RATIO = 0.30;
-    } else {
-        num1 = strtol(block_slice_memory_ratio, &endptr, 10);
-        p = endptr;
-        while (*p == ' ') {
-            ++p;
-        }
-
-        do {
-            if (*p != ':') {
-                result = EINVAL;
-                break;
-            }
-
-            do {
-                ++p;
-            } while (*p == ' ');
-
-            num2 = strtol(p, &endptr, 10);
-            if (*endptr != '\0') {
-                result = EINVAL;
-                break;
-            }
-
-            if (num1 <= 0 || num2 <= 0) {
-                result = EINVAL;
-                break;
-            }
-
-            result = 0;
-        } while (0);
-
-        if (result != 0) {
-            logError("file: "__FILE__", line: %d, "
-                    "invalid block_slice_memory_ratio: %s, required "
-                    "format M : N, such as 3 : 7", __LINE__,
-                    block_slice_memory_ratio);
-            return result;
-        }
-
-        snprintf(STORAGE_MEMORY_BLOCK_SLICE,
-                sizeof(STORAGE_MEMORY_BLOCK_SLICE),
-                "%s", block_slice_memory_ratio);
-        STORAGE_MEMORY_BLOCK_RATIO = (double)num1 / (double)(num1 + num2);
-    }
-
     g_server_global_vars->slice_storage.cfg.block_segment.htable_capacity =
         iniGetIntCorrectValue(ini_ctx, "block_segment_hashtable_capacity",
                 1361, 163, 1403641);
@@ -809,6 +752,7 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
 static int load_storage_cfg(IniContext *ini_context, const char *filename)
 {
     int result;
+    int shared_lock_count;
     char *storage_config_filename;
     char full_filename[PATH_MAX];
     IniFullContext ini_ctx;
@@ -857,26 +801,23 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
         OB_HASHTABLE_CAPACITY = 11229331;
     }
 
-    OB_SHARED_ALLOCATOR_COUNT = iniGetIntValue(NULL,
-            "object_block_shared_allocator_count",
-            ini_context, 17);
-    if (OB_SHARED_ALLOCATOR_COUNT <= 0) {
-        logWarning("file: "__FILE__", line: %d, config file: %s, "
-                "item \"object_block_shared_allocator_count\": %d "
-                "is invalid, set to default: %d", __LINE__,
-                filename, OB_SHARED_ALLOCATOR_COUNT, 17);
-        OB_SHARED_ALLOCATOR_COUNT = 17;
-    }
-
-    OB_SHARED_LOCK_COUNT = iniGetIntValue(NULL,
+    shared_lock_count = iniGetIntValue(NULL,
             "object_block_shared_lock_count",
-            ini_context, 1361);
-    if (OB_SHARED_LOCK_COUNT <= 0) {
+            ini_context, 163);
+    if (shared_lock_count <= 0) {
         logWarning("file: "__FILE__", line: %d, config file: %s, "
                 "item \"object_block_shared_lock_count\": %d "
                 "is invalid, set to default: %d", __LINE__,
-                filename, OB_SHARED_LOCK_COUNT, 1361);
-        OB_SHARED_LOCK_COUNT = 1361;
+                filename, shared_lock_count, 163);
+        OB_SHARED_LOCK_COUNT = 163;
+    } else if (!fc_is_prime(OB_SHARED_LOCK_COUNT)) {
+        OB_SHARED_LOCK_COUNT = fc_ceil_prime(shared_lock_count);
+        logInfo("file: "__FILE__", line: %d, config file: %s, "
+                "item \"object_block_shared_lock_count\": %d "
+                "is not a prime number, set to %d", __LINE__,
+                filename, shared_lock_count, OB_SHARED_LOCK_COUNT);
+    } else {
+        OB_SHARED_LOCK_COUNT = shared_lock_count;
     }
 
     return 0;

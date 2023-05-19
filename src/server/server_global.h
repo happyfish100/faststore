@@ -105,7 +105,6 @@ typedef struct server_global_vars {
             bool write_to_cache;
             struct {
                 int shared_lock_count;
-                int shared_allocator_count;
                 int64_t hashtable_capacity;
             } object_block;
 
@@ -130,13 +129,7 @@ typedef struct server_global_vars {
         int eliminate_interval;
         FSStorageSNType sn_type;
         FSStorageEngineConfig cfg;
-        struct {
-            double total;  //server + plugin
-            struct {
-                double block;   //block / (block + slice)
-                char ratio[8];  //such as 3 : 7
-            } block_slice;
-        } memory_limit;  //ratio
+        double memory_limit;  //ratio, server + plugin
         struct {
             int64_t ob_count;
             int64_t slice_count;
@@ -333,8 +326,6 @@ typedef struct server_global_vars {
     storage.cfg.write_to_cache
 #define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \
     storage.cfg.object_block.hashtable_capacity
-#define OB_SHARED_ALLOCATOR_COUNT g_server_global_vars->  \
-    storage.cfg.object_block.shared_allocator_count
 #define OB_SHARED_LOCK_COUNT      g_server_global_vars->  \
     storage.cfg.object_block.shared_lock_count
 
@@ -365,9 +356,7 @@ typedef struct server_global_vars {
 #define TRUNK_INDEX_DUMP_INTERVAL   g_server_global_vars->slice_storage.cfg.trunk.index_dump_interval
 #define TRUNK_INDEX_DUMP_BASE_TIME  g_server_global_vars->slice_storage.cfg.trunk.index_dump_base_time
 #define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars->slice_storage.eliminate_interval
-#define STORAGE_MEMORY_TOTAL_LIMIT  g_server_global_vars->slice_storage.memory_limit.total
-#define STORAGE_MEMORY_BLOCK_RATIO  g_server_global_vars->slice_storage.memory_limit.block_slice.block
-#define STORAGE_MEMORY_BLOCK_SLICE  g_server_global_vars->slice_storage.memory_limit.block_slice.ratio
+#define STORAGE_MEMORY_TOTAL_LIMIT  g_server_global_vars->slice_storage.memory_limit
 #define STORAGE_ENGINE_OB_COUNT     g_server_global_vars->slice_storage.stats.ob_count
 #define STORAGE_ENGINE_SLICE_COUNT  g_server_global_vars->slice_storage.stats.slice_count
 
