@@ -525,8 +525,8 @@ static inline OBSliceEntry *ob_alloc_slice_for_load(OBSegment *segment,
         OB_INDEX_INIT_SLICE(slice, ob, init_refer);
     }
 
-    ob->db_args->locked = false;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob->db_args->locked = false;
     return slice;
 }
 
@@ -635,8 +635,14 @@ static int init_ob_shared_allocator_array(
     const int delay_free_seconds = 0;
     const bool bidirection = true;  //need previous link
     const bool allocator_use_lock = true;
+    const int alloc_elements_once = 16 * 1024;
+    const int64_t alloc_elements_limit = 0;
+    int block_prealloc_count;
+    int slice_prealloc_count;
     int ob_element_size;
     int64_t total_memory_limit;
+    int64_t block_min_memory;
+    int64_t slice_min_memory;
     OBSharedAllocator *allocator;
     OBSharedAllocator *end;
     struct {
@@ -654,21 +660,32 @@ static int init_ob_shared_allocator_array(
     }
 
     if (STORAGE_ENABLED) {
+        block_prealloc_count = 1;
+        slice_prealloc_count = 2;
         ob_element_size = sizeof(OBEntry) + sizeof(OBDBArgs);
         total_memory_limit = (int64_t)(SYSTEM_TOTAL_MEMORY *
                 STORAGE_MEMORY_TOTAL_LIMIT * MEMORY_LIMIT_LEVEL0_RATIO);
         ob_shared_ctx.limits.block.memory_limit = total_memory_limit *
             STORAGE_MEMORY_BLOCK_RATIO;
-        if (ob_shared_ctx.limits.block.memory_limit < 128 * 1024 * 1024)
+
+        block_min_memory = fast_mblock_get_trunk_size(
+                fast_mblock_get_block_size(ob_element_size),
+                alloc_elements_once) * block_prealloc_count *
+            allocator_array->count * 2;
+        if (ob_shared_ctx.limits.block.memory_limit < block_min_memory)
         {
-            ob_shared_ctx.limits.block.memory_limit = 128 * 1024 * 1024;
+            ob_shared_ctx.limits.block.memory_limit = block_min_memory;
         }
 
         ob_shared_ctx.limits.slice.memory_limit = total_memory_limit *
             (1.00 - STORAGE_MEMORY_BLOCK_RATIO);
-        if (ob_shared_ctx.limits.slice.memory_limit < 256 * 1024 * 1024)
+        slice_min_memory = fast_mblock_get_trunk_size(
+                fast_mblock_get_block_size(sizeof(OBSliceEntry)),
+                alloc_elements_once) * slice_prealloc_count *
+            allocator_array->count * 2;
+        if (ob_shared_ctx.limits.slice.memory_limit < slice_min_memory)
         {
-            ob_shared_ctx.limits.slice.memory_limit = 256 * 1024 * 1024;
+            ob_shared_ctx.limits.slice.memory_limit = slice_min_memory;
         }
 
         logInfo("file: "__FILE__", line: %d, memory limit "
@@ -682,6 +699,8 @@ static int init_ob_shared_allocator_array(
         trunk_callbacks.ptr = &trunk_callbacks.holder;
     } else {
         ob_element_size = sizeof(OBEntry);
+        block_prealloc_count = 0;
+        slice_prealloc_count = 0;
         trunk_callbacks.ptr = NULL;
     }
 
@@ -707,8 +726,10 @@ static int init_ob_shared_allocator_array(
             trunk_callbacks.ptr->args = &ob_shared_ctx.limits.block;
         }
         if ((result=fast_mblock_init_ex2(&allocator->ob, "ob_entry",
-                        ob_element_size, 16 * 1024, 0, &obj_callbacks_obentry,
-                        true, trunk_callbacks.ptr)) != 0)
+                        ob_element_size, alloc_elements_once,
+                        alloc_elements_limit, block_prealloc_count,
+                        &obj_callbacks_obentry, true,
+                        trunk_callbacks.ptr)) != 0)
         {
             return result;
         }
@@ -717,10 +738,11 @@ static int init_ob_shared_allocator_array(
         if (trunk_callbacks.ptr != NULL) {
             trunk_callbacks.ptr->args = &ob_shared_ctx.limits.slice;
         }
-        if ((result=fast_mblock_init_ex2(&allocator->slice,
-                        "slice_entry", sizeof(OBSliceEntry),
-                        16 * 1024, 0, &obj_callbacks_slice,
-                        true, trunk_callbacks.ptr)) != 0)
+        if ((result=fast_mblock_init_ex2(&allocator->slice, "slice_entry",
+                        sizeof(OBSliceEntry), alloc_elements_once,
+                        alloc_elements_limit, slice_prealloc_count,
+                        &obj_callbacks_slice, true,
+                        trunk_callbacks.ptr)) != 0)
         {
             return result;
         }
@@ -3080,6 +3102,7 @@ static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
     OB_INDEX_SET_HASHTABLE_ALLOCATOR(ob->bkey);
     end = fv->value.str_array.strings + fv->value.str_array.count;
     for (s=fv->value.str_array.strings; s<end; s++) {
+        //TODO
         slice = ob_alloc_slice_for_load(segment, allocator, ob, init_refer);
         if (slice == NULL) {
             return ENOMEM;

@@ -753,8 +753,6 @@ static void waiting_data_threads_finish(SliceLoaderContext *slice_ctx,
 
             if (min_sn > SLICE_LOAD_LAST_SN) {
                 SLICE_LOAD_LAST_SN = min_sn;
-                logInfo("thread: #%d, SLICE_LOAD_LAST_SN: %"PRId64,
-                        (int)(data_thread - ctx_array->contexts), SLICE_LOAD_LAST_SN);
             }
         }
     }
