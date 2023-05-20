@@ -567,7 +567,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
                 fast_mblock_get_block_size(sizeof(OBSliceEntry)),
                 alloc_elements_once) * slice_prealloc_count *
             segment_array->count * 2;
-        total_min_memory = block_min_memory + block_min_memory;
+        total_min_memory = block_min_memory + slice_min_memory;
         ob_shared_ctx.memory_limit = (int64_t)(SYSTEM_TOTAL_MEMORY *
                 STORAGE_MEMORY_TOTAL_LIMIT * MEMORY_LIMIT_LEVEL0_RATIO);
         if (ob_shared_ctx.memory_limit < total_min_memory) {
