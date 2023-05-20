@@ -810,7 +810,7 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
                 "is invalid, set to default: %d", __LINE__,
                 filename, shared_lock_count, 163);
         OB_SHARED_LOCK_COUNT = 163;
-    } else if (!fc_is_prime(OB_SHARED_LOCK_COUNT)) {
+    } else if (!fc_is_prime(shared_lock_count)) {
         OB_SHARED_LOCK_COUNT = fc_ceil_prime(shared_lock_count);
         logInfo("file: "__FILE__", line: %d, config file: %s, "
                 "item \"object_block_shared_lock_count\": %d "
