@@ -239,8 +239,10 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type)
     }
 
     logInfo("file: "__FILE__", line: %d, "
-            "scan block count: %d, reclaimed count: %d, reclaimed slice "
-            "count: %d", __LINE__, ob_count + skip, ob_count, slice_count);
+            "alloc type: %s, scan ob count: %d, reclaimed count: %d, "
+            "reclaimed slice count: %d", __LINE__, type ==
+            fs_allocate_type_block ? "block" : "slice",
+            ob_count + skip, ob_count, slice_count);
     return result;
 }
 
@@ -248,16 +250,33 @@ static inline void *reclaim_and_alloc(OBSegment *segment,
         const OBAllocateType type)
 {
     void *obj;
+    int i;
 
-    while (block_reclaim(segment, type) == 0) {
-        if (type == fs_allocate_type_block) {
-            obj = fast_mblock_alloc_object(&segment->allocators.ob);
-        } else {
-            obj = fast_mblock_alloc_object(&segment->allocators.slice);
+    for (i=0; i<100; i++) {
+        while (block_reclaim(segment, type) == 0) {
+            if (type == fs_allocate_type_block) {
+                obj = fast_mblock_alloc_object(&segment->allocators.ob);
+            } else {
+                obj = fast_mblock_alloc_object(&segment->allocators.slice);
+            }
+            if (obj != NULL) {
+                return obj;
+            }
         }
-        if (obj != NULL) {
-            return obj;
+
+        if (i == 0) {
+            logInfo("file: "__FILE__", line: %d, alloc type: %s, "
+                    "ob elements {total: %"PRId64", used: %"PRId64"}, "
+                    "slice elements {total: %"PRId64", used: %"PRId64"}",
+                    __LINE__, type == fs_allocate_type_block ? "block" :
+                    "slice", segment->allocators.ob.info.element_total_count,
+                    segment->allocators.ob.info.element_used_count,
+                    segment->allocators.slice.info.element_total_count,
+                    segment->allocators.slice.info.element_used_count);
+
+            change_notify_signal_to_deal();
         }
+        fc_sleep_ms(10);
     }
 
     return NULL;
