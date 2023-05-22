@@ -167,6 +167,18 @@ static int deal_ob_events(OBEntry *ob, const int event_count,
     return 0;
 }
 
+static inline void segment_lock_for_db(OBSegment *segment)
+{
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    segment->use_extra_allocator = true;
+}
+
+static inline void segment_unlock_for_db(OBSegment *segment)
+{
+    segment->use_extra_allocator = false;
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+}
+
 static int deal_sorted_events()
 {
     int result = 0;
@@ -182,7 +194,7 @@ static int deal_sorted_events()
     event_count = 0;
     ob = EVENT_PTR_ARRAY.events[0]->ob;
     segment = ob_index_get_segment(&ob->bkey);
-    ob_index_segment_lock(segment);
+    segment_lock_for_db(segment);
     prev_segment = segment;
     if (ob->db_args->slices == NULL) {
         if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
@@ -208,8 +220,8 @@ static int deal_sorted_events()
             ob = (*event)->ob;
             segment = ob_index_get_segment(&ob->bkey);
             if (segment != prev_segment) {
-                ob_index_segment_unlock(prev_segment);
-                ob_index_segment_lock(segment);
+                segment_unlock_for_db(prev_segment);
+                segment_lock_for_db(segment);
                 prev_segment = segment;
             }
 
@@ -255,7 +267,7 @@ static int deal_sorted_events()
     if (result == 0) {
         result = deal_ob_events(ob, event_count, old_slice_count);
     }
-    ob_index_segment_unlock(prev_segment);
+    segment_unlock_for_db(prev_segment);
     if (result != 0) {
         return result;
     }

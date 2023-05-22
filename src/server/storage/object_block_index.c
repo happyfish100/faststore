@@ -56,6 +56,7 @@ typedef struct {
     int64_t memory_limit;
     volatile int64_t malloc_bytes;
     OBSharedSegmentArray segment_array;
+    struct fast_mblock_man slice_allocator; //extra allocator for storage engine
 } OBSharedContext;
 
 static inline int do_add_slice_ex(OBHashtable *htable, OBEntry *ob,
@@ -104,7 +105,6 @@ static inline void ob_remove(OBSegment *segment, OBHashtable *htable,
 
     FC_ATOMIC_DEC(htable->count);
     if (htable->need_reclaim) {
-        FC_ATOMIC_DEC(segment->count);
         fc_list_del_init(&ob->db_args->dlink);
     }
 }
@@ -264,6 +264,16 @@ static inline void *reclaim_and_alloc(OBSegment *segment,
             }
         }
 
+        if (segment->use_extra_allocator && type == fs_allocate_type_slice) {
+            static int counter = 0;
+            if (counter++ % 100 == 0) {
+                logInfo("%d. extra slice elements {total: %"PRId64", used: %"PRId64"}",
+                        counter, ob_shared_ctx.slice_allocator.info.element_total_count,
+                        ob_shared_ctx.slice_allocator.info.element_used_count);
+            }
+            return fast_mblock_alloc_object(&ob_shared_ctx.slice_allocator);
+        }
+
         if (i == 0) {
             logInfo("file: "__FILE__", line: %d, alloc type: %s, "
                     "ob elements {total: %"PRId64", used: %"PRId64"}, "
@@ -316,7 +326,6 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
     FC_ATOMIC_INC(htable->count);
     if (htable->need_reclaim) {
         FC_ATOMIC_INC(ob->db_args->ref_count);
-        FC_ATOMIC_INC(segment->count);
         fc_list_add_tail(&ob->db_args->dlink, &segment->lru);
     }
 
@@ -594,6 +603,8 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
             while (ob_shared_ctx.memory_limit < total_min_memory) {
                 ob_shared_ctx.memory_limit *= 2;
             }
+        } else if (ob_shared_ctx.memory_limit < 256 * 1024 * 1024) {
+            ob_shared_ctx.memory_limit = 256 * 1024 * 1024;
         }
 
         logInfo("file: "__FILE__", line: %d, memory limit %"PRId64" MB",
@@ -747,6 +758,8 @@ void ob_index_destroy_htable(OBHashtable *htable)
 
 int ob_index_init()
 {
+    const int alloc_elements_once = 16 * 1024;
+    const int64_t alloc_elements_limit = 0;
     int result;
 
     if ((result=init_ob_shared_segment_array(&ob_shared_ctx.
@@ -758,6 +771,17 @@ int ob_index_init()
                     segment_array)) != 0)
     {
         return result;
+    }
+
+    if (STORAGE_ENABLED) {
+        if ((result=fast_mblock_init_ex1(&ob_shared_ctx.slice_allocator,
+                        "extra_slice_entry", sizeof(OBSliceEntry),
+                        alloc_elements_once, alloc_elements_limit,
+                        (fast_mblock_object_init_func)slice_alloc_init,
+                        &ob_shared_ctx.slice_allocator, true)) != 0)
+        {
+            return result;
+        }
     }
 
     if ((result=ob_index_init_htable(&G_OB_HASHTABLE,

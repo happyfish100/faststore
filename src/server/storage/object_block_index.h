@@ -38,8 +38,8 @@ typedef struct {
 
     /* following fields for storage engine */
     FSDBFetchContext db_fetch_ctx;
-    volatile int64_t count;    //ob count
-    struct fc_list_head lru;   //element: OBEntry
+    struct fc_list_head lru;       //element: OBEntry
+    bool use_extra_allocator;
 } OBSegment;
 
 #ifdef __cplusplus
@@ -286,16 +286,6 @@ extern "C" {
 #endif
 
     OBSegment *ob_index_get_segment(const FSBlockKey *bkey);
-
-    static inline void ob_index_segment_lock(OBSegment *segment)
-    {
-        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    }
-
-    static inline void ob_index_segment_unlock(OBSegment *segment)
-    {
-        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-    }
 
     static inline int ob_index_alloc_db_slices(OBSegment *segment, OBEntry *ob)
     {
