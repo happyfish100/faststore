@@ -273,7 +273,6 @@ static int slice_parse_buffer(BinlogLoaderContext *ctx)
 static inline int slice_loader_deal_record(SliceDataThreadContext
         *thread_ctx, SliceLoaderRecord *record)
 {
-    OBSliceEntry *slice;
     char binlog_filename[PATH_MAX];
     int64_t line_count;
     int log_level;
@@ -294,23 +293,15 @@ static inline int slice_loader_deal_record(SliceDataThreadContext
     switch (record->slice.op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
         case BINLOG_OP_TYPE_ALLOC_SLICE:
-            if ((slice=ob_index_alloc_slice(&record->
-                            slice.bs_key.block)) == NULL)
-            {
-                return ENOMEM;
-            }
-
             if (record->slice.space.store->index ==
                     DATA_REBUILD_PATH_INDEX)
             {
                 thread_ctx->rebuild_count++;
             }
 
-            slice->type = record->slice.slice_type;
-            slice->ssize = record->slice.bs_key.slice;
-            slice->space = record->slice.space;
-            slice->data_version = record->slice.data_version;
-            return ob_index_add_slice_by_binlog(record->slice.sn, slice);
+            return ob_index_add_slice_by_binlog(record->slice.sn,
+                    record->slice.data_version, &record->slice.bs_key,
+                    record->slice.slice_type, &record->slice.space);
         case BINLOG_OP_TYPE_DEL_SLICE:
             if ((result=ob_index_delete_slice_by_binlog(record->
                             slice.sn, &record->slice.bs_key)) == 0)

@@ -176,8 +176,6 @@ extern "C" {
         }
     }
 
-    void ob_index_free_slice(OBSliceEntry *slice);
-
     int ob_index_get_slices_ex(OBHashtable *htable,
             const FSBlockSliceKeyInfo *bs_key,
             OBSliceReadBufferArray *sarray);
@@ -229,7 +227,9 @@ extern "C" {
             const FSBlockKey *bkey, const time_t timestamp, const int64_t sn,
             const int64_t data_version, const char source);
 
-    int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice);
+    int ob_index_add_slice_by_binlog(const uint64_t sn,
+            const int64_t data_version, const FSBlockSliceKeyInfo *bs_key,
+            const DASliceType slice_type, const DATrunkSpaceInfo *space);
 
     static inline int ob_index_delete_slice_by_binlog(const uint64_t sn,
             const FSBlockSliceKeyInfo *bs_key)

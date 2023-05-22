@@ -1361,18 +1361,36 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
     return result;
 }
 
-int ob_index_add_slice_by_binlog(const uint64_t sn, OBSliceEntry *slice)
+int ob_index_add_slice_by_binlog(const uint64_t sn,
+        const int64_t data_version, const FSBlockSliceKeyInfo *bs_key,
+        const DASliceType slice_type, const DATrunkSpaceInfo *space)
 {
+    const int init_refer = 1;
     int result;
+    OBEntry *ob;
+    OBSliceEntry *slice;
 
-    OB_INDEX_SET_HASHTABLE_SEGMENT(&G_OB_HASHTABLE, slice->ob->bkey);
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, bs_key->block);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    if ((result=add_slice(segment, &G_OB_HASHTABLE, slice->ob, slice->
-                    ob->slices, slice, NULL, NULL, NULL)) == 0)
-    {
-        if (STORAGE_ENABLED) {
-            result = change_notify_push_add_slice(sn, slice);
+    ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, &bs_key->block, true);
+    if (ob != NULL) {
+        if ((slice=ob_slice_alloc(segment, ob, init_refer)) != NULL) {
+            slice->data_version = data_version;
+            slice->type = slice_type;
+            slice->ssize = bs_key->slice;
+            slice->space = *space;
+            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob, ob->
+                            slices, slice, NULL, NULL, NULL)) == 0)
+            {
+                if (STORAGE_ENABLED) {
+                    result = change_notify_push_add_slice(sn, slice);
+                }
+            }
+        } else {
+            result = ENOMEM;
         }
+    } else {
+        result = ENOMEM;
     }
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 

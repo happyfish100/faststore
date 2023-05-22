@@ -187,7 +187,7 @@ static int deal_sorted_events()
     OBEntry *ob;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
-    OBSegment *prev_segment;
+    OBSegment *curr_segment;
     OBSegment *segment;
 
     MERGED_BLOCK_ARRAY.count = 0;
@@ -195,7 +195,6 @@ static int deal_sorted_events()
     ob = EVENT_PTR_ARRAY.events[0]->ob;
     segment = ob_index_get_segment(&ob->bkey);
     segment_lock_for_db(segment);
-    prev_segment = segment;
     if (ob->db_args->slices == NULL) {
         if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
             return result;
@@ -218,11 +217,11 @@ static int deal_sorted_events()
             }
 
             ob = (*event)->ob;
-            segment = ob_index_get_segment(&ob->bkey);
-            if (segment != prev_segment) {
-                segment_unlock_for_db(prev_segment);
+            curr_segment = ob_index_get_segment(&ob->bkey);
+            if (segment != curr_segment) {
+                segment_unlock_for_db(segment);
+                segment = curr_segment;
                 segment_lock_for_db(segment);
-                prev_segment = segment;
             }
 
             if (ob->db_args->slices == NULL) {
@@ -267,7 +266,7 @@ static int deal_sorted_events()
     if (result == 0) {
         result = deal_ob_events(ob, event_count, old_slice_count);
     }
-    segment_unlock_for_db(prev_segment);
+    segment_unlock_for_db(segment);
     if (result != 0) {
         return result;
     }
