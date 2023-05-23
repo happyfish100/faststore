@@ -27,6 +27,7 @@
 typedef struct {
     SFBinlogWriterBuffer *head;
     int count;
+    int64_t first_sn;
     int64_t last_sn;
 } SliceBinlogRecordChain;
 
@@ -221,6 +222,7 @@ static void notify_all(struct fc_list_head *head)
 static int deal_records(struct fc_list_head *head)
 {
     int result;
+    FSSliceSpaceLogRecord *last_record;
 
     SLICE_SPACE_LOG_CTX.slice_redo.record_count = 0;
     SLICE_SPACE_LOG_CTX.space_redo.record_count = 0;
@@ -233,10 +235,17 @@ static int deal_records(struct fc_list_head *head)
     push_to_log_queues(head);
     da_trunk_space_log_wait(&DA_CTX);
 
+    last_record = fc_list_last_entry(head, FSSliceSpaceLogRecord, dlink);
+    while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
+                &SLICE_BINLOG_WRITER.writer) < last_record->last_sn)
+    {
+        fc_sleep_ms(1);
+    }
+
     notify_all(head);
     sorted_queue_free_chain(&SLICE_SPACE_LOG_CTX.queue,
             &SLICE_SPACE_LOG_CTX.allocator, head);
-    return 0;
+    return SF_G_CONTINUE_FLAG ? 0 : EINTR;
 }
 
 static void *slice_space_log_func(void *arg)
@@ -349,6 +358,9 @@ static int do_load(const char *filename, const string_t *content,
             if (record.sn > chain->last_sn) {
                 chain->last_sn = record.sn;
             }
+            if (record.sn < chain->first_sn) {
+                chain->first_sn = record.sn;
+            }
 
             if ((wbuffer=sf_binlog_writer_alloc_buffer(
                             &SLICE_BINLOG_WRITER.thread)) == NULL)
@@ -412,14 +424,20 @@ static int slice_log_redo(const char *slice_log_filename)
 
     chain.head = NULL;
     chain.count = 0;
+    chain.first_sn = INT64_MAX;
     chain.last_sn = 0;
     if ((result=slice_redo_load(slice_log_filename, &chain)) != 0) {
         return result;
     }
 
-    logInfo("last binlog sn: %"PRId64", chain last sn: %"PRId64", "
-            "slice redo record count: %d", SLICE_BINLOG_SN,
-            chain.last_sn, chain.count);
+    if (chain.count == 0) {
+        chain.first_sn = 0;
+    }
+
+    logInfo("last binlog sn: %"PRId64", redo first sn: %"PRId64", "
+            "redo last sn: %"PRId64", slice redo record count: %d",
+            SLICE_BINLOG_SN, chain.first_sn, chain.last_sn,
+            chain.count);
 
     if (chain.count == 0) {
         return 0;
@@ -431,15 +449,14 @@ static int slice_log_redo(const char *slice_log_filename)
         sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     }
 
-    while (sf_binlog_writer_get_last_version(
-                &SLICE_BINLOG_WRITER.
-                writer) < chain.last_sn)
+    while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
+                &SLICE_BINLOG_WRITER.writer) < chain.last_sn)
     {
         fc_sleep_ms(1);
     }
     SLICE_BINLOG_SN = chain.last_sn;
 
-    return result;
+    return SF_G_CONTINUE_FLAG ? 0 : EINTR;
 }
 
 static int slice_space_log_redo()
