@@ -26,9 +26,8 @@
 
 typedef struct {
     SFBinlogWriterBuffer *head;
+    SFBinlogWriterBuffer *tail;
     int count;
-    int64_t first_sn;
-    int64_t last_sn;
 } SliceBinlogRecordChain;
 
 static inline int buffer_to_file(FSBinlogWriteFileBufferPair *pair)
@@ -315,22 +314,19 @@ static int slice_space_log_compare(const FSSliceSpaceLogRecord *record1,
 }
 
 static int do_load(const char *filename, const string_t *content,
-        SliceBinlogRecordChain *chain)
+        SliceBinlogRecordChain *chain, int *row_count)
 {
     int result;
-    int line_count;
     string_t line;
     char *line_start;
     char *buff_end;
     char *line_end;
     SliceBinlogRecord record;
     SFBinlogWriterBuffer *wbuffer;
-    SFBinlogWriterBuffer *tail;
     char error_info[256];
 
-    line_count = 0;
+    *row_count = 0;
     result = 0;
-    tail = NULL;
     *error_info = '\0';
     line_start = content->str;
     buff_end = content->str + content->len;
@@ -340,7 +336,7 @@ static int do_load(const char *filename, const string_t *content,
             break;
         }
 
-        ++line_count;
+        ++(*row_count);
         ++line_end;
         line.str = line_start;
         line.len = line_end - line_start;
@@ -349,19 +345,12 @@ static int do_load(const char *filename, const string_t *content,
         {
             logError("file: "__FILE__", line: %d, "
                     "parse record fail, filename: %s, line no: %d%s%s",
-                    __LINE__, filename, line_count, (*error_info != '\0' ?
+                    __LINE__, filename, *row_count, (*error_info != '\0' ?
                         ", error info: " : ""), error_info);
             break;
         }
 
         if (record.sn > SLICE_BINLOG_SN) {
-            if (record.sn > chain->last_sn) {
-                chain->last_sn = record.sn;
-            }
-            if (record.sn < chain->first_sn) {
-                chain->first_sn = record.sn;
-            }
-
             if ((wbuffer=sf_binlog_writer_alloc_buffer(
                             &SLICE_BINLOG_WRITER.thread)) == NULL)
             {
@@ -376,9 +365,9 @@ static int do_load(const char *filename, const string_t *content,
             if (chain->head == NULL) {
                 chain->head = wbuffer;
             } else {
-                tail->next = wbuffer;
+                chain->tail->next = wbuffer;
             }
-            tail = wbuffer;
+            chain->tail = wbuffer;
             chain->count++;
         }
 
@@ -389,7 +378,7 @@ static int do_load(const char *filename, const string_t *content,
 }
 
 static int slice_redo_load(const char *filename,
-        SliceBinlogRecordChain *chain)
+        SliceBinlogRecordChain *chain, int *row_count)
 {
     int result;
     int64_t file_size;
@@ -411,7 +400,7 @@ static int slice_redo_load(const char *filename,
         return result;
     }
     content.len = file_size;
-    result = do_load(filename, &content, chain);
+    result = do_load(filename, &content, chain, row_count);
     free(content.str);
     return result;
 }
@@ -419,29 +408,34 @@ static int slice_redo_load(const char *filename,
 static int slice_log_redo(const char *slice_log_filename)
 {
     int result;
+    int row_count;
+    int64_t first_sn;
+    int64_t last_sn;
     SliceBinlogRecordChain chain;
     SFBinlogWriterBuffer *wbuffer;
 
-    chain.head = NULL;
+    chain.head = chain.tail = NULL;
     chain.count = 0;
-    chain.first_sn = INT64_MAX;
-    chain.last_sn = 0;
-    if ((result=slice_redo_load(slice_log_filename, &chain)) != 0) {
+    if ((result=slice_redo_load(slice_log_filename,
+                    &chain, &row_count)) != 0)
+    {
         return result;
     }
 
     if (chain.count == 0) {
-        chain.first_sn = 0;
-    }
-
-    logInfo("last binlog sn: %"PRId64", redo first sn: %"PRId64", "
-            "redo last sn: %"PRId64", slice redo record count: %d",
-            SLICE_BINLOG_SN, chain.first_sn, chain.last_sn,
-            chain.count);
-
-    if (chain.count == 0) {
+        logInfo("file: "__FILE__", line: %d, "
+                "slice redo file line count: %d, last binlog sn: "
+                "%"PRId64, __LINE__, row_count, SLICE_BINLOG_SN);
         return 0;
     }
+
+    first_sn = chain.head->version.first;
+    last_sn = chain.tail->version.last;
+    logInfo("file: "__FILE__", line: %d, "
+            "slice redo file line count: %d, last binlog sn: %"PRId64", "
+            "redo first sn: %"PRId64", redo last sn: %"PRId64", "
+            "redo record count: %d", __LINE__, row_count,
+            SLICE_BINLOG_SN, first_sn, last_sn, chain.count);
 
     while (chain.head != NULL) {
         wbuffer = chain.head;
@@ -450,11 +444,11 @@ static int slice_log_redo(const char *slice_log_filename)
     }
 
     while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
-                &SLICE_BINLOG_WRITER.writer) < chain.last_sn)
+                &SLICE_BINLOG_WRITER.writer) < last_sn)
     {
         fc_sleep_ms(1);
     }
-    SLICE_BINLOG_SN = chain.last_sn;
+    SLICE_BINLOG_SN = last_sn;
 
     return SF_G_CONTINUE_FLAG ? 0 : EINTR;
 }
