@@ -121,14 +121,38 @@ static int notify_event_compare(const FSChangeNotifyEvent *event1,
 int change_notify_init()
 {
     int result;
+    int event_alloc_elements_once;
+    int event_alloc_elements_limit;
+    int limit;
     pthread_t tid;
 
+    if (BATCH_STORE_ON_MODIFIES < 1000) {
+        event_alloc_elements_once = 2 * 1024;
+        limit = 64 * 1024;
+    } else if (BATCH_STORE_ON_MODIFIES < 10 * 1000) {
+        event_alloc_elements_once = 4 * 1024;
+        limit = BATCH_STORE_ON_MODIFIES * 16;
+    } else if (BATCH_STORE_ON_MODIFIES < 100 * 1000) {
+        event_alloc_elements_once = 8 * 1024;
+        limit = BATCH_STORE_ON_MODIFIES * 8;
+    } else {
+        event_alloc_elements_once = 16 * 1024;
+        limit = BATCH_STORE_ON_MODIFIES * 4;
+    }
+
+    event_alloc_elements_limit = event_alloc_elements_once;
+    while (event_alloc_elements_limit < limit) {
+        event_alloc_elements_limit *= 2;
+    }
     if ((result=fast_mblock_init_ex1(&change_notify_ctx.allocator,
                     "chg-event", sizeof(FSChangeNotifyEvent),
-                    16 * 1024, 0, NULL, NULL, true)) != 0)
+                    event_alloc_elements_once, event_alloc_elements_limit,
+                    NULL, NULL, true)) != 0)
     {
         return result;
     }
+    fast_mblock_set_need_wait(&change_notify_ctx.allocator,
+                true, (bool *)&SF_G_CONTINUE_FLAG);
 
     if ((result=sorted_queue_init(&change_notify_ctx.queue, (long)
                     (&((FSChangeNotifyEvent *)NULL)->dlink),
