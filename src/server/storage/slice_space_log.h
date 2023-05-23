@@ -38,7 +38,8 @@ extern "C" {
 
         record = fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
         if (record != NULL) {
-            record->slice_head = NULL;
+            record->slice_chain.head = NULL;
+            record->slice_chain.count = 0;
             record->space_chain.head = NULL;
             record->space_chain.tail = NULL;
         }

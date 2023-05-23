@@ -189,7 +189,10 @@ typedef struct fs_binlog_write_file_buffer_pair {
 
 typedef struct fs_slice_space_log_record {
     int64_t last_sn;
-    SFBinlogWriterBuffer *slice_head;
+    struct {
+        int count;
+        SFBinlogWriterBuffer *head;
+    } slice_chain;
     struct fc_queue_info space_chain;  //element: DATrunkSpaceLogRecord
     SFSynchronizeContext *sctx;
     struct fc_list_head dlink;
@@ -197,6 +200,7 @@ typedef struct fs_slice_space_log_record {
 
 typedef struct fs_slice_space_log_context {
     int record_count;
+    int64_t last_sn;  //for pop in order, not including
     FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;
     struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord

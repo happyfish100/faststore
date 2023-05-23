@@ -92,6 +92,7 @@ extern "C" {
         }
 
         FC_ATOMIC_SET(SLICE_BINLOG_SN, sn);
+        SLICE_SPACE_LOG_CTX.last_sn = sn;
         return 0;
     }
 

@@ -142,6 +142,20 @@ extern "C" {
         return sn;
     }
 
+    static inline int64_t ob_index_batch_generate_alone_sn(const int count)
+    {
+        const int data_group_id = 0;
+        const int64_t data_version = 0;
+        int64_t sn;
+        int i;
+
+        sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, count) - (count - 1);
+        for (i=0; i<count; i++) {
+            committed_version_add(data_group_id, data_version, sn + i);
+        }
+        return sn;
+    }
+
     static inline void ob_index_free_slice(OBSliceEntry *slice)
     {
         /*

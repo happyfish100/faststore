@@ -92,7 +92,8 @@ static int slice_add_log_to_queue(FSSliceOpContext *op_ctx)
         return ENOMEM;
     }
 
-    record->slice_head = NULL;
+    record->slice_chain.head = NULL;
+    record->slice_chain.count = 0;
     record->space_chain = op_ctx->update.space_chain;
     slice_tail = NULL;
     slice_sn_end = op_ctx->update.sarray.slice_sn_pairs +

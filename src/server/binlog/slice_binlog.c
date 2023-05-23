@@ -1509,7 +1509,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     }
 
     da_trunk_space_log_free_chain(&DA_CTX, space_chain);
-    if (record->slice_head != NULL) {
+    if (record->slice_chain.head != NULL) {
         record->sctx = sctx;
         slice_space_log_push(record);
     } else {
@@ -1605,7 +1605,8 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
             space, se->timestamp, se->sn, se->data_version, se->source,
             wbuffer->bf.buff);
     wbuffer->next = NULL;
-    record->slice_head = wbuffer;
+    record->slice_chain.head = wbuffer;
+    record->slice_chain.count = 1;
     record->last_sn = se->sn;
     dedup_space_chain(&record->space_chain, update_count);
     slice_space_log_push(record);

@@ -56,7 +56,7 @@ static int write_slice_redo_log(FSSliceSpaceLogRecord *record)
     int result;
     SFBinlogWriterBuffer *wbuffer;
 
-    wbuffer = record->slice_head;
+    wbuffer = record->slice_chain.head;
     while (wbuffer != NULL) {
         if (SLICE_SPACE_LOG_CTX.slice_redo.buffer.alloc_size -
                 SLICE_SPACE_LOG_CTX.slice_redo.buffer.length <
@@ -176,9 +176,9 @@ static inline void push_to_log_queues(struct fc_list_head *head)
     SFBinlogWriterBuffer *wbuffer;
 
     fc_list_for_each_entry (record, head, dlink) {
-        while (record->slice_head != NULL) {
-            wbuffer = record->slice_head;
-            record->slice_head = record->slice_head->next;
+        while (record->slice_chain.head != NULL) {
+            wbuffer = record->slice_chain.head;
+            record->slice_chain.head = record->slice_chain.head->next;
             sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.
                     writer, wbuffer);
             FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
@@ -229,6 +229,8 @@ static int deal_records(struct fc_list_head *head)
         return result;
     }
 
+    logInfo("slice_space_log record_count: %d", SLICE_SPACE_LOG_CTX.space_redo.record_count);
+
     da_trunk_space_log_inc_waiting_count(&DA_CTX, SLICE_SPACE_LOG_CTX.
             space_redo.record_count);
     push_to_log_queues(head);
@@ -257,6 +259,7 @@ static void *slice_space_log_func(void *arg)
     prctl(PR_SET_NAME, "slice-space-log");
 #endif
 
+    SLICE_SPACE_LOG_CTX.last_sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
     while (SF_G_CONTINUE_FLAG) {
         less_equal.last_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn) - 1;
         sorted_queue_try_pop_to_chain(&SLICE_SPACE_LOG_CTX.
@@ -307,10 +310,33 @@ static int init_file_buffer_pair(FSBinlogWriteFileBufferPair *pair,
     return fast_buffer_init_ex(&pair->buffer, buffer_size);
 }
 
-static int slice_space_log_compare(const FSSliceSpaceLogRecord *record1,
+static int slice_space_log_push_compare(const FSSliceSpaceLogRecord *record1,
         const FSSliceSpaceLogRecord *record2)
 {
     return fc_compare_int64(record1->last_sn, record2->last_sn);
+}
+
+static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
+        const FSSliceSpaceLogRecord *less_equal)
+{
+    int sub;
+
+    sub = fc_compare_int64(record->last_sn, less_equal->last_sn);
+    if (sub > 0) {
+        return sub;
+    }
+
+    if (record->last_sn - SLICE_SPACE_LOG_CTX.last_sn
+            == record->slice_chain.count)
+    {
+        SLICE_SPACE_LOG_CTX.last_sn = record->last_sn;
+        return sub;
+    } else {
+        logWarning("record last sn: %"PRId64", slice count: %d, expect: %d",
+                record->last_sn, record->slice_chain.count, (int)(record->last_sn -
+                    SLICE_SPACE_LOG_CTX.last_sn));
+        return 1;
+    }
 }
 
 static int do_load(const char *filename, const string_t *content,
@@ -325,7 +351,6 @@ static int do_load(const char *filename, const string_t *content,
     SFBinlogWriterBuffer *wbuffer;
     char error_info[256];
 
-    *row_count = 0;
     result = 0;
     *error_info = '\0';
     line_start = content->str;
@@ -416,6 +441,7 @@ static int slice_log_redo(const char *slice_log_filename)
 
     chain.head = chain.tail = NULL;
     chain.count = 0;
+    row_count = 0;
     if ((result=slice_redo_load(slice_log_filename,
                     &chain, &row_count)) != 0)
     {
@@ -532,10 +558,12 @@ int slice_space_log_init()
         return result;
     }
 
-    if ((result=sorted_queue_init(&SLICE_SPACE_LOG_CTX.queue, (long)
+    if ((result=sorted_queue_init_ex(&SLICE_SPACE_LOG_CTX.queue, (long)
                     (&((FSSliceSpaceLogRecord *)NULL)->dlink),
                     (int (*)(const void *, const void *))
-                    slice_space_log_compare)) != 0)
+                    slice_space_log_push_compare,
+                    (int (*)(const void *, const void *))
+                    slice_space_log_pop_compare)) != 0)
     {
         return result;
     }

@@ -1121,10 +1121,12 @@ int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
             slice, timestamp, sn, slice->data_version, source,
             wbuffer->bf.buff);
     wbuffer->next = NULL;
-    if (record->slice_head == NULL) {
-        record->slice_head = wbuffer;
+    if (record->slice_chain.head == NULL) {
+        record->slice_chain.head = wbuffer;
+        record->slice_chain.count = 1;
     } else {
         (*slice_tail)->next = wbuffer;
+        record->slice_chain.count++;
     }
     *slice_tail = wbuffer;
     record->last_sn = sn;
@@ -1147,7 +1149,8 @@ int ob_index_del_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     wbuffer->bf.length = slice_binlog_log_del_slice_to_buff(bs_key,
             timestamp, sn, data_version, source, wbuffer->bf.buff);
     wbuffer->next = NULL;
-    record->slice_head = wbuffer;
+    record->slice_chain.head = wbuffer;
+    record->slice_chain.count = 1;
     record->last_sn = sn;
     return 0;
 }
@@ -1168,18 +1171,18 @@ int ob_index_del_block_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     wbuffer->bf.length = slice_binlog_log_del_block_to_buff(bkey,
             timestamp, sn, data_version, source, wbuffer->bf.buff);
     wbuffer->next = NULL;
-    record->slice_head = wbuffer;
+    record->slice_chain.head = wbuffer;
+    record->slice_chain.count = 1;
     record->last_sn = sn;
     return 0;
 }
 
 static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
-        SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice)
+        SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice,
+        const int64_t sn)
 {
-    int64_t sn;
     int result;
 
-    sn = ob_index_generate_alone_sn();
     if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail, slice,
                     g_current_time, sn, BINLOG_SOURCE_RECLAIM)) != 0)
     {
@@ -1202,6 +1205,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
     SFBinlogWriterBuffer *slice_tail = NULL;
     OBSlicePtrSmartArray add_slice_array;
     OBSlicePtrSmartArray del_slice_array;
+    int64_t sn;
     int result;
     int slice_end;
     DASliceType expect_slice_type;
@@ -1227,8 +1231,9 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
                 current, &record->space_chain);
 
         if (call_by_reclaim) {
-            if ((result=add_slice_for_reclaim(record,
-                            &slice_tail, slice)) != 0)
+            sn = ob_index_generate_alone_sn();
+            if ((result=add_slice_for_reclaim(record, &slice_tail,
+                            slice, sn)) != 0)
             {
                 return result;
             }
@@ -1297,18 +1302,25 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
         }
         FREE_SLICE_PTR_ARRAY(del_slice_array);
 
-        for (i=0; i<add_slice_array.count; i++) {
-            if (call_by_reclaim) {
+        if (call_by_reclaim) {
+            sn = ob_index_batch_generate_alone_sn(add_slice_array.count);
+            for (i=0; i<add_slice_array.count; i++) {
                 if ((result=add_slice_for_reclaim(record, &slice_tail,
-                                add_slice_array.slices[i])) != 0)
+                                add_slice_array.slices[i], sn + i)) != 0)
                 {
                     return result;
                 }
-            }
 
-            do_add_slice(htable, ob, ob->slices, add_slice_array.
-                    slices[i], NULL, &record->space_chain);
+                do_add_slice(htable, ob, ob->slices, add_slice_array.
+                        slices[i], NULL, &record->space_chain);
+            }
+        } else {
+            for (i=0; i<add_slice_array.count; i++) {
+                do_add_slice(htable, ob, ob->slices, add_slice_array.
+                        slices[i], NULL, &record->space_chain);
+            }
         }
+
         FREE_SLICE_PTR_ARRAY(add_slice_array);
     }
 
