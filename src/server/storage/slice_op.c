@@ -325,7 +325,7 @@ static int write_iovec_array(FSSliceOpContext *op_ctx)
         for (slice_sn_pair=op_ctx->update.sarray.slice_sn_pairs;
                 slice_sn_pair<slice_sn_end; slice_sn_pair++)
         {
-            slice_total_length += slice_sn_pair->slice->ssize.length;
+            slice_total_length += slice_sn_pair->ssize.length;
             iovc = iov_arr.iovs;
             while (aligned_buffer < aligned_bend) {
                 buffer_total_length += (*aligned_buffer)->length;
