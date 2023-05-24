@@ -1105,8 +1105,10 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
 }
 
 int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
-        SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice,
-        const time_t timestamp, const int64_t sn, const char source)
+        SFBinlogWriterBuffer **slice_tail, const DASliceType slice_type,
+        const FSBlockKey *bkey, const FSSliceSize *ssize,
+        const DATrunkSpaceInfo *space, const time_t timestamp,
+        const uint64_t sn, const uint64_t data_version, const char source)
 {
     SFBinlogWriterBuffer *wbuffer;
 
@@ -1117,9 +1119,8 @@ int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     }
 
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff_ex(
-            slice, timestamp, sn, slice->data_version, source,
-            wbuffer->bf.buff);
+    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice_type, bkey,
+        ssize, space, timestamp, sn, data_version, source, wbuffer->bf.buff);
     wbuffer->next = NULL;
     if (record->slice_chain.head == NULL) {
         record->slice_chain.head = wbuffer;
@@ -1183,8 +1184,10 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
 {
     int result;
 
-    if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail, slice,
-                    g_current_time, sn, BINLOG_SOURCE_RECLAIM)) != 0)
+    if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail,
+                    slice->type, &slice->ob->bkey, &slice->ssize,
+                    &slice->space, g_current_time, sn, slice->
+                    data_version, BINLOG_SOURCE_RECLAIM)) != 0)
     {
         return result;
     }
@@ -1327,12 +1330,16 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
     return 0;
 }
 
-int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
-        OBSliceEntry *slice, DATrunkFileInfo *trunk, uint64_t *sn,
-        int *inc_alloc, struct fc_queue_info *space_chain)
+int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
+        const FSBlockKey *bkey, const FSSliceSize *ssize,
+        const int64_t data_version, FSSliceSNPair *slice_sn_pair,
+        SFSharedMBuffer *mbuffer, uint64_t *sn, int *inc_alloc,
+        struct fc_queue_info *space_chain)
 {
-    OBEntry *ob;
+    const int init_refer = 1;
     int result;
+    OBEntry *ob;
+    OBSliceEntry *slice;
 
     /*
     logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
@@ -1347,23 +1354,91 @@ int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
     ob = get_ob_entry(segment, htable, bucket, bkey, true);
     if (ob == NULL) {
         result = ENOMEM;
+    } else if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
+        result = ENOMEM;
     } else {
-        if (slice->ob != ob) {
-            slice->ob = ob;
+        slice->data_version = data_version;
+        slice->type = slice_type;
+        slice->ssize = *ssize;
+        if (slice_sn_pair != NULL) {
+            slice->space = slice_sn_pair->space;
+            if (slice_type == DA_SLICE_TYPE_CACHE) {
+                slice->cache.mbuffer = mbuffer;
+                slice->cache.buff = slice_sn_pair->cache_buff;
+                sf_shared_mbuffer_hold(mbuffer);
+                slice->space_chain = space_chain;
+            }
         }
-        result = add_slice(segment, htable, ob, ob->slices,
-                slice, trunk, inc_alloc, space_chain);
-        if (result == 0) {
-            __sync_add_and_fetch(&slice->ref_count, 1);
-            if (sn != NULL) {
-                if (*sn == 0) {
-                    *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
-                }
 
+        result = add_slice(segment, htable, ob, ob->slices, slice,
+                slice_sn_pair != NULL ? slice_sn_pair->trunk : NULL,
+                inc_alloc, space_chain);
+        if (result == 0) {
+            if (sn != NULL) {
+                *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
                 if (slice->type != DA_SLICE_TYPE_CACHE) {
                     if (STORAGE_ENABLED) {
                         result = change_notify_push_add_slice(*sn, slice);
                     }
+                }
+            }
+        }
+    }
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+
+    return result;
+}
+
+int ob_index_batch_add_slice(const int64_t data_version,
+        const FSBlockKey *bkey, FSSliceSNPairArray *sarray,
+        uint64_t *last_sn, int *total_alloc,
+        struct fc_queue_info *space_chain)
+{
+    const int init_refer = 1;
+    int inc_alloc;
+    int result;
+    int64_t sn;
+    FSSliceSNPair *slice_sn_pair;
+    FSSliceSNPair *slice_sn_end;
+    OBEntry *ob;
+    OBSliceEntry *slice;
+
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, *bkey);
+    *total_alloc = 0;
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, bkey, true);
+    if (ob == NULL) {
+        result = ENOMEM;
+    } else {
+        *last_sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, sarray->count);
+        slice_sn_end = sarray->slice_sn_pairs + sarray->count;
+        for (slice_sn_pair=sarray->slice_sn_pairs,
+                sn = (*last_sn) - (sarray->count - 1);
+                slice_sn_pair<slice_sn_end;
+                slice_sn_pair++, sn++)
+        {
+            if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
+                result = ENOMEM;
+                break;
+            }
+
+            inc_alloc = 0;
+            slice->data_version = data_version;
+            slice->type = slice_sn_pair->type;
+            slice->ssize = slice_sn_pair->ssize;
+            slice->space = slice_sn_pair->space;
+            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob,
+                            ob->slices, slice, slice_sn_pair->trunk,
+                            &inc_alloc, space_chain)) != 0)
+            {
+                break;
+            }
+
+            *total_alloc += inc_alloc;
+            slice_sn_pair->sn = sn;
+            if (STORAGE_ENABLED) {
+                if ((result=change_notify_push_add_slice(sn, slice)) != 0) {
+                    break;
                 }
             }
         }

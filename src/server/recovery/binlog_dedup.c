@@ -75,19 +75,10 @@ static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
 static inline int add_slice(OBHashtable *htable,
         ReplicaBinlogRecord *record, const DASliceType stype)
 {
-    OBSliceEntry *slice;
     int inc_alloc;
-
-    slice = ob_index_alloc_slice_ex(htable, &record->bs_key.block, 0);
-    if (slice == NULL) {
-        return ENOMEM;
-    }
-
-    slice->type = stype;
-    slice->ssize = record->bs_key.slice;
-    slice->data_version = record->data_version;
-    return ob_index_add_slice_ex(htable, &record->bs_key.block,
-            slice, NULL, NULL, &inc_alloc, NULL);
+    return ob_index_add_slice_ex(htable, stype, &record->bs_key.block,
+            &record->bs_key.slice, record->data_version, NULL, NULL,
+            NULL, &inc_alloc, NULL);
 }
 
 static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)

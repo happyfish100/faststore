@@ -46,9 +46,10 @@ typedef struct {
 extern "C" {
 #endif
 
-#define ob_index_add_slice(bkey, slice, trunk, sn, inc_alloc, space_chain) \
-    ob_index_add_slice_ex(&G_OB_HASHTABLE, bkey, slice, \
-            trunk, sn, inc_alloc, space_chain)
+#define ob_index_add_slice(slice_type, bkey, ssize, data_version, \
+        slice_sn_pair, mbuffer, sn, inc_alloc, space_chain) \
+    ob_index_add_slice_ex(&G_OB_HASHTABLE, slice_type, bkey, ssize, \
+            data_version, slice_sn_pair, mbuffer, sn, inc_alloc, space_chain)
 
 #define ob_index_update_slice(se, slice, update_count,   \
         record, slice_type, call_by_reclaim)  \
@@ -107,9 +108,16 @@ extern "C" {
             const bool need_reclaim);
     void ob_index_destroy_htable(OBHashtable *htable);
 
-    int ob_index_add_slice_ex(OBHashtable *htable, const FSBlockKey *bkey,
-            OBSliceEntry *slice, DATrunkFileInfo *trunk, uint64_t *sn,
-            int *inc_alloc, struct fc_queue_info *space_chain);
+    int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
+            const FSBlockKey *bkey, const FSSliceSize *ssize,
+            const int64_t data_version, FSSliceSNPair *slice_sn_pair,
+            SFSharedMBuffer *mbuffer, uint64_t *sn, int *inc_alloc,
+            struct fc_queue_info *space_chain);
+
+    int ob_index_batch_add_slice(const int64_t data_version,
+            const FSBlockKey *bkey, FSSliceSNPairArray *sarray,
+            uint64_t *last_sn, int *total_alloc,
+            struct fc_queue_info *space_chain);
 
     int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             const DATrunkSpaceInfo *space, int *update_count,
@@ -230,8 +238,10 @@ extern "C" {
     }
 
     int ob_index_add_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
-            SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice,
-            const time_t timestamp, const int64_t sn, const char source);
+            SFBinlogWriterBuffer **slice_tail, const DASliceType slice_type,
+            const FSBlockKey *bkey, const FSSliceSize *ssize,
+            const DATrunkSpaceInfo *space, const time_t timestamp,
+            const uint64_t sn, const uint64_t data_version, const char source);
 
     int ob_index_del_slice_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
             const FSBlockSliceKeyInfo *bs_key, const time_t timestamp,

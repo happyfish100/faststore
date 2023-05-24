@@ -42,9 +42,12 @@ typedef void (*fs_rw_done_callback_func)(
         struct fs_slice_op_context *op_ctx, void *arg);
 
 typedef struct {
-    struct ob_slice_entry *slice;
     uint64_t sn;     //for slice binlog
     int64_t version; //for write in order
+    DASliceType type;
+    FSSliceSize ssize;
+    DATrunkSpaceInfo space;
+    char *cache_buff;
     DATrunkFileInfo *trunk;
 } FSSliceSNPair;
 

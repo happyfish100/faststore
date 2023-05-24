@@ -45,20 +45,6 @@ extern "C" {
         }
     }
 
-    static inline void fs_slice_array_release(FSSliceSNPairArray *array)
-    {
-        FSSliceSNPair *slice_sn_pair;
-        FSSliceSNPair *slice_sn_end;
-
-        slice_sn_end = array->slice_sn_pairs + array->count;
-        for (slice_sn_pair=array->slice_sn_pairs;
-                slice_sn_pair<slice_sn_end; slice_sn_pair++)
-        {
-            ob_index_free_slice(slice_sn_pair->slice);
-        }
-        array->count = 0;
-    }
-
     static inline void fs_log_rw_error(FSSliceOpContext *op_ctx,
             const int result, const int ignore_errno, const char *caption)
     {
