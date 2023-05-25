@@ -39,6 +39,7 @@ static int parse_buffer(DBRemoveContext *ctx)
     char *buff_end;
     RebuildBinlogRecord record;
     OBEntry *ob;
+    FSChangeNotifyEvent *event;
     char error_info[256];
     int64_t sn = 0;
     int result;
@@ -68,17 +69,18 @@ static int parse_buffer(DBRemoveContext *ctx)
             return ENOMEM;
         }
 
+        event = fast_mblock_alloc_object(&STORAGE_EVENT_ALLOCATOR);
+        if (event == NULL) {
+            return ENOMEM;
+        }
+
         sn = ob_index_generate_alone_sn();
         if (record.bs_key.slice.offset == 0 && record.bs_key.
                 slice.length == FS_FILE_BLOCK_SIZE)
         {
-            if ((result=change_notify_push_del_block(sn, ob)) != 0) {
-                return result;
-            }
-        } else if ((result=change_notify_push_del_slice(sn,
-                        ob, &record.bs_key.slice)) != 0)
-        {
-            return result;
+            change_notify_push_del_block(event, sn, ob);
+        } else {
+            change_notify_push_del_slice(event, sn, ob, &record.bs_key.slice);
         }
 
         line.str = line_end;

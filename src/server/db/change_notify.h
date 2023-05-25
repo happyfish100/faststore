@@ -19,6 +19,8 @@
 
 #include "../server_types.h"
 
+#define  FS_CHANGE_NOTIFY_EVENT_TLS_BATCH_ALLOC   1024
+
 typedef enum fs_change_entry_type {
     fs_change_entry_type_block = 'b',
     fs_change_entry_type_slice = 's'
@@ -40,7 +42,11 @@ typedef struct fs_change_notify_event {
 
         FSSliceSize ssize;    //for slice delete
     };
-    struct fc_list_head dlink; //for queue
+
+    union {
+        struct fc_list_head dlink; //for queue
+        struct fs_change_notify_event *next;  //for TLS
+    };
 } FSChangeNotifyEvent;
 
 typedef struct fs_change_notify_event_ptr_array {
@@ -56,12 +62,14 @@ extern "C" {
     int change_notify_init();
     void change_notify_destroy();
 
-    int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice);
+    void change_notify_push_add_slice(FSChangeNotifyEvent *event,
+            const int64_t sn, OBSliceEntry *slice);
 
-    int change_notify_push_del_slice(const int64_t sn,
-            OBEntry *ob, const FSSliceSize *ssize);
+    void change_notify_push_del_slice(FSChangeNotifyEvent *event,
+            const int64_t sn, OBEntry *ob, const FSSliceSize *ssize);
 
-    int change_notify_push_del_block(const int64_t sn, OBEntry *ob);
+    void change_notify_push_del_block(FSChangeNotifyEvent *event,
+            const int64_t sn, OBEntry *ob);
 
     void change_notify_load_done_signal();
 

@@ -49,7 +49,7 @@ typedef struct fs_data_thread_context {
     volatile char blocked;  //for data replication quorum
     pthread_lock_cond_pair_t lcp;
     struct fc_queue queue;
-    struct fast_mblock_man allocator;
+    struct fast_mblock_man allocator;  //element: FSDataOperation
 } FSDataThreadContext;
 
 typedef struct fs_data_thread_array {

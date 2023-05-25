@@ -46,9 +46,9 @@ typedef struct {
 extern "C" {
 #endif
 
-#define ob_index_add_slice(slice_type, bkey, ssize, data_version, \
+#define ob_index_add_slice_no_db(slice_type, bkey, ssize, data_version, \
         slice_sn_pair, mbuffer, sn, inc_alloc, space_chain) \
-    ob_index_add_slice_ex(&G_OB_HASHTABLE, slice_type, bkey, ssize, \
+    ob_index_add_slice_no_db_ex(&G_OB_HASHTABLE, slice_type, bkey, ssize, \
             data_version, slice_sn_pair, mbuffer, sn, inc_alloc, space_chain)
 
 #define ob_index_update_slice(se, slice, update_count,   \
@@ -108,11 +108,11 @@ extern "C" {
             const bool need_reclaim);
     void ob_index_destroy_htable(OBHashtable *htable);
 
-    int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
-            const FSBlockKey *bkey, const FSSliceSize *ssize,
-            const int64_t data_version, FSSliceSNPair *slice_sn_pair,
-            SFSharedMBuffer *mbuffer, uint64_t *sn, int *inc_alloc,
-            struct fc_queue_info *space_chain);
+    int ob_index_add_slice_no_db_ex(OBHashtable *htable,
+            const DASliceType slice_type, const FSBlockKey *bkey,
+            const FSSliceSize *ssize, const int64_t data_version,
+            FSSliceSNPair *slice_sn_pair, SFSharedMBuffer *mbuffer,
+            uint64_t *sn, int *inc_alloc, struct fc_queue_info *space_chain);
 
     int ob_index_batch_add_slice(const int64_t data_version,
             const FSBlockKey *bkey, FSSliceSNPairArray *sarray,

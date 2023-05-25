@@ -37,7 +37,7 @@ extern "C" {
             return ENOMEM;
         }
 
-        if ((result=ob_index_add_slice(slice_sn_pair->type, &op_ctx->
+        if ((result=ob_index_add_slice_no_db(slice_sn_pair->type, &op_ctx->
                         info.bs_key.block, &slice_sn_pair->ssize,
                         op_ctx->info.data_version, slice_sn_pair,
                         op_ctx->mbuffer, &slice_sn_pair->sn,

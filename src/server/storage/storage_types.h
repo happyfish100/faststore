@@ -47,7 +47,7 @@ typedef struct {
     DASliceType type;
     FSSliceSize ssize;
     DATrunkSpaceInfo space;
-    char *cache_buff;
+    char *cache_buff;   //for type == DA_SLICE_TYPE_CACHE
     DATrunkFileInfo *trunk;
 } FSSliceSNPair;
 
@@ -120,7 +120,6 @@ typedef enum {
 #endif
 
 struct fs_cluster_data_server_info;
-struct fs_data_thread_context;
 typedef struct fs_slice_op_context {
     fs_data_op_notify_func notify_func;  //for data thread
     fs_rw_done_callback_func rw_done_callback; //for caller (data or nio thread)

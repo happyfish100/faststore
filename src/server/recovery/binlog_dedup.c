@@ -76,7 +76,7 @@ static inline int add_slice(OBHashtable *htable,
         ReplicaBinlogRecord *record, const DASliceType stype)
 {
     int inc_alloc;
-    return ob_index_add_slice_ex(htable, stype, &record->bs_key.block,
+    return ob_index_add_slice_no_db_ex(htable, stype, &record->bs_key.block,
             &record->bs_key.slice, record->data_version, NULL, NULL,
             NULL, &inc_alloc, NULL);
 }

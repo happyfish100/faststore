@@ -136,6 +136,7 @@ typedef struct server_global_vars {
         } stats;
         char *library;
         FSStorageEngineInterface api;
+        struct fast_mblock_man event_allocator; //element: FSChangeNotifyEvent
     } slice_storage;   //slice storage engine
 
     struct {
@@ -359,6 +360,7 @@ typedef struct server_global_vars {
 #define STORAGE_MEMORY_TOTAL_LIMIT  g_server_global_vars->slice_storage.memory_limit
 #define STORAGE_ENGINE_OB_COUNT     g_server_global_vars->slice_storage.stats.ob_count
 #define STORAGE_ENGINE_SLICE_COUNT  g_server_global_vars->slice_storage.stats.slice_count
+#define STORAGE_EVENT_ALLOCATOR     g_server_global_vars->slice_storage.event_allocator
 
 #define STORAGE_ENGINE_INIT_API      g_server_global_vars->slice_storage.api.init
 #define STORAGE_ENGINE_START_API     g_server_global_vars->slice_storage.api.start

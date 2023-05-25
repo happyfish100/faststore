@@ -53,10 +53,21 @@ typedef struct {
 } OBSlicePtrSmartArray;
 
 typedef struct {
+    struct {
+        FSChangeNotifyEvent *head;
+        int avail;
+    } event_allocator;
+} OBThreadLocal;
+
+typedef struct {
     int64_t memory_limit;
     volatile int64_t malloc_bytes;
     OBSharedSegmentArray segment_array;
     struct fast_mblock_man slice_allocator; //extra allocator for storage engine
+    struct {
+        pthread_key_t key;  //for OBThreadLocal
+        struct fast_mblock_man allocator; //element: OBThreadLocal
+    } tls;  //for storage engine
 } OBSharedContext;
 
 static inline int do_add_slice_ex(OBHashtable *htable, OBEntry *ob,
@@ -756,6 +767,131 @@ void ob_index_destroy_htable(OBHashtable *htable)
     htable->buckets = NULL;
 }
 
+static void ob_tls_destroy(void *ptr)
+{
+    OBThreadLocal *tls;
+    struct fast_mblock_chain chain;
+    struct fast_mblock_node *node;
+
+    tls = ptr;
+    logInfo(" ======== destroy ptr: %p, avail: %d", ptr, tls->event_allocator.avail);
+    if (tls->event_allocator.head != NULL) {
+        chain.head = chain.tail = fast_mblock_to_node_ptr(
+                tls->event_allocator.head);
+        tls->event_allocator.head = tls->event_allocator.head->next;
+        while (tls->event_allocator.head != NULL) {
+            node = fast_mblock_to_node_ptr(tls->event_allocator.head);
+            chain.tail->next = node;
+            chain.tail = node;
+            tls->event_allocator.head = tls->event_allocator.head->next;
+        }
+
+        chain.tail->next = NULL;
+        fast_mblock_batch_free(&STORAGE_EVENT_ALLOCATOR, &chain);
+        tls->event_allocator.avail = 0;
+    }
+
+    fast_mblock_free_object(&ob_shared_ctx.tls.allocator, ptr);
+}
+
+static int init_ob_tls()
+{
+    const int alloc_elements_once = 1024;
+    const int64_t alloc_elements_limit = 0;
+    int result;
+
+    if ((result=pthread_key_create(&ob_shared_ctx.tls.
+                    key, ob_tls_destroy)) != 0)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "pthread_key_create fail, errno: %d, error info: %s",
+                __LINE__, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=fast_mblock_init_ex1(&ob_shared_ctx.tls.allocator,
+                    "ob-thread-local", sizeof(OBThreadLocal),
+                    alloc_elements_once, alloc_elements_limit,
+                    NULL, NULL, true)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
+}
+
+static inline OBThreadLocal *get_tls_obj(const int target_event_count)
+{
+    OBThreadLocal *tls;
+    struct fast_mblock_node *node;
+    FSChangeNotifyEvent *event;
+    struct fast_mblock_chain chain;
+    int result;
+
+    tls = pthread_getspecific(ob_shared_ctx.tls.key);
+    if (tls == NULL) {
+        if ((tls=fast_mblock_alloc_object(&ob_shared_ctx.
+                        tls.allocator)) == NULL)
+        {
+            return NULL;
+        }
+
+        if ((result=pthread_setspecific(ob_shared_ctx.tls.key, tls)) != 0) {
+            logError("file: "__FILE__", line: %d, "
+                    "pthread_setspecific fail, errno: %d, error info: %s",
+                    __LINE__, result, STRERROR(result));
+            fast_mblock_free_object(&ob_shared_ctx.tls.allocator, tls);
+            return NULL;
+        }
+        logInfo(" ======= pthread_setspecific ===== ");
+    }
+
+    if (tls->event_allocator.avail < target_event_count) {
+        int alloc_count = FC_MAX(target_event_count,
+                FS_CHANGE_NOTIFY_EVENT_TLS_BATCH_ALLOC);
+        if (fast_mblock_batch_alloc(&STORAGE_EVENT_ALLOCATOR,
+                    alloc_count, &chain) != 0)
+        {
+            return NULL;
+        }
+
+        node = chain.head;
+        do {
+            event = (FSChangeNotifyEvent *)node->data;
+            event->next = tls->event_allocator.head;
+            tls->event_allocator.head = event;
+            tls->event_allocator.avail++;
+        } while ((node=node->next) != NULL);
+    }
+
+    return tls;
+}
+
+#define OB_GET_TLS_OBJ(tls, target_event_count) \
+    if (STORAGE_ENABLED) {  \
+        if ((tls=get_tls_obj(target_event_count)) == NULL) { \
+            return ENOMEM; \
+        } \
+    }
+
+
+static inline FSChangeNotifyEvent *tls_alloc_event(OBThreadLocal *tls)
+{
+    FSChangeNotifyEvent *event;
+
+    if (tls->event_allocator.head != NULL) {
+        event = tls->event_allocator.head;
+        tls->event_allocator.head = tls->event_allocator.head->next;
+        tls->event_allocator.avail--;
+        return event;
+    } else {
+        logWarning("file: "__FILE__", line: %d, "
+                "can't alloc event from thread local, try to "
+                "alloc from global event allocator", __LINE__);
+        return fast_mblock_alloc_object(&STORAGE_EVENT_ALLOCATOR);
+    }
+}
+
 int ob_index_init()
 {
     const int alloc_elements_once = 16 * 1024;
@@ -780,6 +916,10 @@ int ob_index_init()
                         (fast_mblock_object_init_func)slice_alloc_init,
                         &ob_shared_ctx.slice_allocator, true)) != 0)
         {
+            return result;
+        }
+
+        if ((result=init_ob_tls()) != 0) {
             return result;
         }
     }
@@ -1178,11 +1318,12 @@ int ob_index_del_block_to_wbuffer_chain(FSSliceSpaceLogRecord *record,
     return 0;
 }
 
-static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
-        SFBinlogWriterBuffer **slice_tail, OBSliceEntry *slice,
-        const int64_t sn)
+static inline int add_slice_for_reclaim(OBThreadLocal *tls,
+        FSSliceSpaceLogRecord *record, SFBinlogWriterBuffer **slice_tail,
+        OBSliceEntry *slice, const int64_t sn)
 {
     int result;
+    FSChangeNotifyEvent *event;
 
     if ((result=ob_index_add_slice_to_wbuffer_chain(record, slice_tail,
                     slice->type, &slice->ob->bkey, &slice->ssize,
@@ -1193,14 +1334,17 @@ static inline int add_slice_for_reclaim(FSSliceSpaceLogRecord *record,
     }
 
     if (STORAGE_ENABLED) {
-        return change_notify_push_add_slice(sn, slice);
-    } else {
-        return 0;
+        if ((event=tls_alloc_event(tls)) == NULL) {
+            return ENOMEM;
+        }
+        change_notify_push_add_slice(event, sn, slice);
     }
+    return 0;
 }
 
-static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
-        OBSliceEntry *slice, int *update_count, bool *release_slice,
+static int update_slice(OBThreadLocal *tls, OBSegment *segment,
+        OBHashtable *htable, OBEntry *ob, OBSliceEntry *slice,
+        int *update_count, bool *release_slice,
         FSSliceSpaceLogRecord *record, const bool call_by_reclaim)
 {
     UniqSkiplistNode *node;
@@ -1235,8 +1379,8 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
 
         if (call_by_reclaim) {
             sn = ob_index_generate_alone_sn();
-            if ((result=add_slice_for_reclaim(record, &slice_tail,
-                            slice, sn)) != 0)
+            if ((result=add_slice_for_reclaim(tls, record,
+                            &slice_tail, slice, sn)) != 0)
             {
                 return result;
             }
@@ -1308,7 +1452,7 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
         if (call_by_reclaim) {
             sn = ob_index_batch_generate_alone_sn(add_slice_array.count);
             for (i=0; i<add_slice_array.count; i++) {
-                if ((result=add_slice_for_reclaim(record, &slice_tail,
+                if ((result=add_slice_for_reclaim(tls, record, &slice_tail,
                                 add_slice_array.slices[i], sn + i)) != 0)
                 {
                     return result;
@@ -1330,11 +1474,11 @@ static int update_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
     return 0;
 }
 
-int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
-        const FSBlockKey *bkey, const FSSliceSize *ssize,
-        const int64_t data_version, FSSliceSNPair *slice_sn_pair,
-        SFSharedMBuffer *mbuffer, uint64_t *sn, int *inc_alloc,
-        struct fc_queue_info *space_chain)
+int ob_index_add_slice_no_db_ex(OBHashtable *htable,
+        const DASliceType slice_type, const FSBlockKey *bkey,
+        const FSSliceSize *ssize, const int64_t data_version,
+        FSSliceSNPair *slice_sn_pair, SFSharedMBuffer *mbuffer,
+        uint64_t *sn, int *inc_alloc, struct fc_queue_info *space_chain)
 {
     const int init_refer = 1;
     int result;
@@ -1342,7 +1486,7 @@ int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
     OBSliceEntry *slice;
 
     /*
-    logInfo("#######ob_index_add_slice: %p, ref_count: %d, "
+    logInfo("#######ob_index_add_slice_no_db: %p, ref_count: %d, "
             "block {oid: %"PRId64", offset: %"PRId64"}",
             slice, __sync_add_and_fetch(&slice->ref_count, 0),
             bkey->oid, bkey->offset);
@@ -1376,11 +1520,6 @@ int ob_index_add_slice_ex(OBHashtable *htable, const DASliceType slice_type,
         if (result == 0) {
             if (sn != NULL) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
-                if (slice->type != DA_SLICE_TYPE_CACHE) {
-                    if (STORAGE_ENABLED) {
-                        result = change_notify_push_add_slice(*sn, slice);
-                    }
-                }
             }
         }
     }
@@ -1396,14 +1535,17 @@ int ob_index_batch_add_slice(const int64_t data_version,
 {
     const int init_refer = 1;
     int inc_alloc;
-    int result;
+    int result = 0;
     int64_t sn;
+    OBThreadLocal *tls = NULL;
+    FSChangeNotifyEvent *event;
     FSSliceSNPair *slice_sn_pair;
     FSSliceSNPair *slice_sn_end;
     OBEntry *ob;
     OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, *bkey);
+    OB_GET_TLS_OBJ(tls, sarray->count);
     *total_alloc = 0;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, bkey, true);
@@ -1437,7 +1579,10 @@ int ob_index_batch_add_slice(const int64_t data_version,
             *total_alloc += inc_alloc;
             slice_sn_pair->sn = sn;
             if (STORAGE_ENABLED) {
-                if ((result=change_notify_push_add_slice(sn, slice)) != 0) {
+                if ((event=tls_alloc_event(tls)) != NULL) {
+                    change_notify_push_add_slice(event, sn, slice);
+                } else {
+                    result = ENOMEM;
                     break;
                 }
             }
@@ -1454,10 +1599,13 @@ int ob_index_add_slice_by_binlog(const uint64_t sn,
 {
     const int init_refer = 1;
     int result;
+    OBThreadLocal *tls = NULL;
+    FSChangeNotifyEvent *event;
     OBEntry *ob;
     OBSliceEntry *slice;
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, bs_key->block);
+    OB_GET_TLS_OBJ(tls, 1);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, &bs_key->block, true);
     if (ob != NULL) {
@@ -1470,7 +1618,11 @@ int ob_index_add_slice_by_binlog(const uint64_t sn,
                             slices, slice, NULL, NULL, NULL)) == 0)
             {
                 if (STORAGE_ENABLED) {
-                    result = change_notify_push_add_slice(sn, slice);
+                    if ((event=tls_alloc_event(tls)) != NULL) {
+                        change_notify_push_add_slice(event, sn, slice);
+                    } else {
+                        result = ENOMEM;
+                    }
                 }
             }
         } else {
@@ -1492,6 +1644,8 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
     const int init_refer = 1;
     int result;
     bool release_slice;
+    OBThreadLocal *tls = NULL;
+    FSChangeNotifyEvent *event;
     OBEntry *ob;
     OBSliceEntry *slice;
 
@@ -1504,6 +1658,8 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             */
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, se->bs_key.block);
+    OB_GET_TLS_OBJ(tls, call_by_reclaim ?
+            FS_CHANGE_NOTIFY_EVENT_TLS_BATCH_ALLOC : 1);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry(segment, htable, bucket, &se->bs_key.block, false);
     if (ob != NULL) {
@@ -1515,12 +1671,16 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
             slice->type = slice_type;
             slice->ssize = se->bs_key.slice;
             slice->space = *space;
-            if ((result=update_slice(segment, htable, ob, slice,
+            if ((result=update_slice(tls, segment, htable, ob, slice,
                             update_count, &release_slice, record,
                             call_by_reclaim)) == 0)
             {
                 if (STORAGE_ENABLED && !call_by_reclaim) {
-                    result = change_notify_push_add_slice(se->sn, slice);
+                    if ((event=tls_alloc_event(tls)) != NULL) {
+                        change_notify_push_add_slice(event, se->sn, slice);
+                    } else {
+                        result = ENOMEM;
+                    }
                 }
             }
             if (release_slice) {
@@ -1667,13 +1827,15 @@ int ob_index_delete_slice_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
         int *dec_alloc, struct fc_queue_info *space_chain)
 {
+    OBThreadLocal *tls = NULL;
+    FSChangeNotifyEvent *event;
     OBEntry *ob;
     OBEntry *previous;
     int result;
     int count;
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, bs_key->block);
-
+    OB_GET_TLS_OBJ(tls, 1);
     *dec_alloc = 0;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry_ex(segment, htable, bucket, &bs_key->block,
@@ -1690,8 +1852,12 @@ int ob_index_delete_slice_ex(OBHashtable *htable,
                 }
 
                 if (STORAGE_ENABLED) {
-                    result = change_notify_push_del_slice(
-                            *sn, ob, &bs_key->slice);
+                    if ((event=tls_alloc_event(tls)) != NULL) {
+                        change_notify_push_del_slice(event,
+                                *sn, ob, &bs_key->slice);
+                    } else {
+                        result = ENOMEM;
+                    }
                 }
             }
 
@@ -1708,6 +1874,8 @@ int ob_index_delete_slice_ex(OBHashtable *htable,
 int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
         uint64_t *sn, int *dec_alloc, struct fc_queue_info *space_chain)
 {
+    OBThreadLocal *tls = NULL;
+    FSChangeNotifyEvent *event;
     OBEntry *ob;
     OBEntry *previous;
     OBSliceEntry *slice;
@@ -1716,7 +1884,7 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
     int result;
 
     OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
-
+    OB_GET_TLS_OBJ(tls, 1);
     *dec_alloc = 0;
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry_ex(segment, htable, bucket, bkey,
@@ -1744,7 +1912,11 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
                 }
                 if (STORAGE_ENABLED) {
                     uniq_skiplist_clear(ob->slices);
-                    result = change_notify_push_del_block(*sn, ob);
+                    if ((event=tls_alloc_event(tls)) != NULL) {
+                        change_notify_push_del_block(event, *sn, ob);
+                    } else {
+                        result = ENOMEM;
+                    }
                 }
             }
         } else {  //no slices deleted

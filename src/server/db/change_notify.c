@@ -26,7 +26,6 @@
 
 typedef struct fs_change_notify_context {
     volatile int waiting_count;
-    struct fast_mblock_man allocator;  //element: FSChangeNotifyEvent
     struct sorted_queue queue;
 } FSchangeNotifyContext;
 
@@ -42,7 +41,7 @@ static inline int deal_events(struct fc_list_head *head)
     }
 
     sorted_queue_free_chain(&change_notify_ctx.queue,
-            &change_notify_ctx.allocator, head);
+            &STORAGE_EVENT_ALLOCATOR, head);
     __sync_sub_and_fetch(&change_notify_ctx.
             waiting_count, count);
     return 0;
@@ -144,14 +143,14 @@ int change_notify_init()
     while (event_alloc_elements_limit < limit) {
         event_alloc_elements_limit *= 2;
     }
-    if ((result=fast_mblock_init_ex1(&change_notify_ctx.allocator,
+    if ((result=fast_mblock_init_ex1(&STORAGE_EVENT_ALLOCATOR,
                     "chg-event", sizeof(FSChangeNotifyEvent),
                     event_alloc_elements_once, event_alloc_elements_limit,
                     NULL, NULL, true)) != 0)
     {
         return result;
     }
-    fast_mblock_set_need_wait(&change_notify_ctx.allocator,
+    fast_mblock_set_need_wait(&STORAGE_EVENT_ALLOCATOR,
                 true, (bool *)&SF_G_CONTINUE_FLAG);
 
     if ((result=sorted_queue_init(&change_notify_ctx.queue, (long)
@@ -189,16 +188,9 @@ static inline void change_notify_push_to_queue(FSChangeNotifyEvent *event)
     event->entry_type = _entry_type;  \
     event->op_type = _op_type
 
-int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice)
+void change_notify_push_add_slice(FSChangeNotifyEvent *event,
+        const int64_t sn, OBSliceEntry *slice)
 {
-    FSChangeNotifyEvent *event;
-
-    if ((event=fast_mblock_alloc_object(&change_notify_ctx.
-                    allocator)) == NULL)
-    {
-        return ENOMEM;
-    }
-
     CHANGE_NOTIFY_SET_EVENT(event, sn, slice->ob,
             fs_change_entry_type_slice,
             da_binlog_op_type_create);
@@ -207,43 +199,25 @@ int change_notify_push_add_slice(const int64_t sn, OBSliceEntry *slice)
     event->slice.ssize = slice->ssize;
     event->slice.space = slice->space;
     change_notify_push_to_queue(event);
-    return 0;
 }
 
-int change_notify_push_del_slice(const int64_t sn,
-        OBEntry *ob, const FSSliceSize *ssize)
+void change_notify_push_del_slice(FSChangeNotifyEvent *event,
+        const int64_t sn, OBEntry *ob, const FSSliceSize *ssize)
 {
-    FSChangeNotifyEvent *event;
-
-    if ((event=fast_mblock_alloc_object(&change_notify_ctx.
-                    allocator)) == NULL)
-    {
-        return ENOMEM;
-    }
-
     CHANGE_NOTIFY_SET_EVENT(event, sn, ob,
             fs_change_entry_type_slice,
             da_binlog_op_type_remove);
     event->ssize = *ssize;
     change_notify_push_to_queue(event);
-    return 0;
 }
 
-int change_notify_push_del_block(const int64_t sn, OBEntry *ob)
+void change_notify_push_del_block(FSChangeNotifyEvent *event,
+        const int64_t sn, OBEntry *ob)
 {
-    FSChangeNotifyEvent *event;
-
-    if ((event=fast_mblock_alloc_object(&change_notify_ctx.
-                    allocator)) == NULL)
-    {
-        return ENOMEM;
-    }
-
     CHANGE_NOTIFY_SET_EVENT(event, sn, ob,
             fs_change_entry_type_block,
             da_binlog_op_type_remove);
     change_notify_push_to_queue(event);
-    return 0;
 }
 
 void change_notify_load_done_signal()
