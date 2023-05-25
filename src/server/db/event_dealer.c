@@ -309,6 +309,12 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     int result;
     FSChangeNotifyEvent *event;
     FSChangeNotifyEvent *last;
+    int64_t start_time;
+    int64_t end_time;
+    int sort_time;
+    int deal_time;
+
+    start_time = get_current_time_us();
 
     EVENT_PTR_ARRAY.count = 0;
     *count = 0;
@@ -328,6 +334,10 @@ int event_dealer_do(struct fc_list_head *head, int *count)
                 compare_event_ptr_func);
     }
 
+    end_time = get_current_time_us();
+    sort_time = end_time - start_time;
+    start_time = end_time;
+
     event_dealer_ctx.updater_ctx.last_versions.block.prepare = last->sn;
     if ((result=deal_sorted_events()) != 0) {
         return result;
@@ -335,8 +345,12 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
 
-    logInfo("db event count: %d, last sn: %"PRId64, EVENT_PTR_ARRAY.count,
-            event_dealer_ctx.updater_ctx.last_versions.block.commit);
+    end_time = get_current_time_us();
+    deal_time = end_time - start_time;
+    logInfo("db event count: %d, last sn: %"PRId64", sort time: %d ms, "
+            "deal time: %d ms", EVENT_PTR_ARRAY.count,
+            event_dealer_ctx.updater_ctx.last_versions.block.commit,
+            sort_time / 1000, deal_time / 1000);
 
     return result;
 }

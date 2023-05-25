@@ -64,7 +64,7 @@ static void *change_notify_func(void *arg)
         wait_seconds = (last_time + BATCH_STORE_INTERVAL + 1) - g_current_time;
         waiting_count = FC_ATOMIC_GET(change_notify_ctx.waiting_count);
         logInfo("===== waiting_count1: %d", waiting_count);
-        if (wait_seconds > 0 && waiting_count < BATCH_STORE_ON_MODIFIES / 2) {
+        if (wait_seconds > 0 && waiting_count < BATCH_STORE_ON_MODIFIES) {
             lcp_timedwait_sec(&change_notify_ctx.queue.lcp, wait_seconds);
             logInfo("===== waiting_count2: %d", FC_ATOMIC_GET(change_notify_ctx.waiting_count));
         }
