@@ -21,6 +21,7 @@
 #include "sf/sf_global.h"
 #include "../server_global.h"
 #include "../storage/object_block_index.h"
+#include "../db/event_dealer.h"
 #include "binlog_loader.h"
 
 int binlog_loader_parse_buffer(BinlogLoaderContext *ctx)
@@ -65,7 +66,10 @@ int binlog_loader_load1(const char *subdir_name,
     BinlogLoaderContext parse_ctx;
     int64_t start_time;
     int64_t end_time;
+    int64_t db_last_sn;
     char time_buff[32];
+    char other_prompt[128];
+    int len;
     int result;
 
     start_time = get_current_time_ms();
@@ -76,8 +80,22 @@ int binlog_loader_load1(const char *subdir_name,
         return result;
     }
 
+    if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME) == 0) {
+        len = sprintf(other_prompt, ", slice binlog sn: %"PRId64,
+                SLICE_BINLOG_SN);
+        if (STORAGE_ENABLED) {
+            db_last_sn = event_dealer_get_last_data_version();
+            sprintf(other_prompt + len, ", db last sn: %"PRId64", "
+                    "record count: %"PRId64, db_last_sn,
+                    SLICE_BINLOG_SN - db_last_sn);
+        }
+    } else {
+        *other_prompt = '\0';
+    }
+
     logInfo("file: "__FILE__", line: %d, "
-            "loading %s data ...", __LINE__, subdir_name);
+            "loading %s data%s ...", __LINE__,
+            subdir_name, other_prompt);
 
     parse_ctx.parse_line = callbacks->parse_line;
     parse_ctx.arg = callbacks->arg;

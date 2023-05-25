@@ -63,8 +63,10 @@ static void *change_notify_func(void *arg)
     while (SF_G_CONTINUE_FLAG) {
         wait_seconds = (last_time + BATCH_STORE_INTERVAL + 1) - g_current_time;
         waiting_count = FC_ATOMIC_GET(change_notify_ctx.waiting_count);
-        if (wait_seconds > 0 && waiting_count < BATCH_STORE_ON_MODIFIES) {
+        logInfo("===== waiting_count1: %d", waiting_count);
+        if (wait_seconds > 0 && waiting_count < BATCH_STORE_ON_MODIFIES / 2) {
             lcp_timedwait_sec(&change_notify_ctx.queue.lcp, wait_seconds);
+            logInfo("===== waiting_count2: %d", FC_ATOMIC_GET(change_notify_ctx.waiting_count));
         }
 
         last_time = g_current_time;
@@ -181,6 +183,7 @@ static inline void change_notify_push_to_queue(FSChangeNotifyEvent *event)
             waiting_count, 1) == BATCH_STORE_ON_MODIFIES;
     sorted_queue_push_silence(&change_notify_ctx.queue, event);
     if (notify) {
+        logInfo("signal ..........................");
         pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
     }
 }
