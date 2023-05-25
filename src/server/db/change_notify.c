@@ -40,8 +40,6 @@ static inline int deal_events(struct fc_list_head *head)
         return result;
     }
 
-    sorted_queue_free_chain(&change_notify_ctx.queue,
-            &STORAGE_EVENT_ALLOCATOR, head);
     __sync_sub_and_fetch(&change_notify_ctx.
             waiting_count, count);
     return 0;

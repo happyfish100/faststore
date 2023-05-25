@@ -774,7 +774,6 @@ static void ob_tls_destroy(void *ptr)
     struct fast_mblock_node *node;
 
     tls = ptr;
-    logInfo(" ======== destroy ptr: %p, avail: %d", ptr, tls->event_allocator.avail);
     if (tls->event_allocator.head != NULL) {
         chain.head = chain.tail = fast_mblock_to_node_ptr(
                 tls->event_allocator.head);
@@ -843,7 +842,6 @@ static inline OBThreadLocal *get_tls_obj(const int target_event_count)
             fast_mblock_free_object(&ob_shared_ctx.tls.allocator, tls);
             return NULL;
         }
-        logInfo(" ======= pthread_setspecific ===== ");
     }
 
     if (tls->event_allocator.avail < target_event_count) {

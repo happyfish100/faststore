@@ -184,14 +184,19 @@ static int deal_sorted_events()
     int result = 0;
     int event_count;
     int old_slice_count;
+    int batch_free_count;
+    struct fast_mblock_chain chain;
     OBEntry *ob;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
     OBSegment *curr_segment;
     OBSegment *segment;
+    struct fast_mblock_node *node;
 
     MERGED_BLOCK_ARRAY.count = 0;
     event_count = 0;
+    batch_free_count = 0;
+    chain.head = chain.tail = NULL;
     ob = EVENT_PTR_ARRAY.events[0]->ob;
     segment = ob_index_get_segment(&ob->bkey);
     segment_lock_for_db(segment);
@@ -261,6 +266,20 @@ static int deal_sorted_events()
                 }
             }
         }
+
+        node = fast_mblock_to_node_ptr(*event);
+        if (chain.head == NULL) {
+            chain.head = node;
+        } else {
+            chain.tail->next = node;
+        }
+        chain.tail = node;
+        if (++batch_free_count == 1024) {
+            chain.tail->next = NULL;
+            fast_mblock_batch_free(&STORAGE_EVENT_ALLOCATOR, &chain);
+            chain.head = chain.tail = NULL;
+            batch_free_count = 0;
+        }
     }
 
     if (result == 0) {
@@ -271,11 +290,17 @@ static int deal_sorted_events()
         return result;
     }
 
+    if (chain.head != NULL) {
+        chain.tail->next = NULL;
+        fast_mblock_batch_free(&STORAGE_EVENT_ALLOCATOR, &chain);
+    }
+
     if (MERGED_BLOCK_ARRAY.count > 0) {
         if ((result=db_updater_deal(&event_dealer_ctx.updater_ctx)) == 0) {
             event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
         }
     }
+
     return result;
 }
 
