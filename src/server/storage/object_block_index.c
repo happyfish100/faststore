@@ -937,6 +937,19 @@ void ob_index_destroy()
 {
 }
 
+void ob_index_delete_tls()
+{
+    OBThreadLocal *tls;
+
+    if (STORAGE_ENABLED) {
+        tls = pthread_getspecific(ob_shared_ctx.tls.key);
+        if (tls != NULL) {
+            pthread_setspecific(ob_shared_ctx.tls.key, NULL);
+            ob_tls_destroy(tls);
+        }
+    }
+}
+
 static int add_to_space_chain(struct fc_queue_info *space_chain,
         OBSliceEntry *slice, const char op_type)
 {

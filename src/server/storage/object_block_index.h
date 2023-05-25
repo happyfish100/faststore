@@ -104,6 +104,8 @@ extern "C" {
     int ob_index_init();
     void ob_index_destroy();
 
+    void ob_index_delete_tls();
+
     int ob_index_init_htable(OBHashtable *htable, const int64_t capacity,
             const bool need_reclaim);
     void ob_index_destroy_htable(OBHashtable *htable);
