@@ -123,6 +123,7 @@ int change_notify_init()
     int event_alloc_elements_once;
     int event_alloc_elements_limit;
     int limit;
+    int max_threads;
     pthread_t tid;
 
     if (BATCH_STORE_ON_MODIFIES < 1000) {
@@ -138,6 +139,11 @@ int change_notify_init()
         event_alloc_elements_once = 16 * 1024;
         limit = BATCH_STORE_ON_MODIFIES * 4;
     }
+    max_threads = FS_DATA_RECOVERY_THREADS_LIMIT * (2 +
+            RECOVERY_THREADS_PER_DATA_GROUP +
+            CLUSTER_SERVER_ARRAY.count) + DATA_THREAD_COUNT;
+    limit += FS_CHANGE_NOTIFY_EVENT_TLS_BATCH_ALLOC *
+        FC_MAX(max_threads, SYSTEM_CPU_COUNT);
 
     event_alloc_elements_limit = event_alloc_elements_once;
     while (event_alloc_elements_limit < limit) {
