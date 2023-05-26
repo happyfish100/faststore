@@ -179,7 +179,7 @@ static inline void segment_unlock_for_db(OBSegment *segment)
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 }
 
-static int deal_sorted_events()
+static int deal_sorted_events(int64_t *ob_deal_end_time)
 {
     int result = 0;
     int event_count;
@@ -295,6 +295,8 @@ static int deal_sorted_events()
         fast_mblock_batch_free(&STORAGE_EVENT_ALLOCATOR, &chain);
     }
 
+    *ob_deal_end_time = get_current_time_us();
+
     if (MERGED_BLOCK_ARRAY.count > 0) {
         if ((result=db_updater_deal(&event_dealer_ctx.updater_ctx)) == 0) {
             event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
@@ -312,7 +314,9 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     int64_t start_time;
     int64_t end_time;
     int sort_time;
-    int deal_time;
+    int ob_deal_time;
+    int db_deal_time;
+    int64_t ob_deal_end_time;
 
     start_time = get_current_time_us();
 
@@ -339,18 +343,20 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     start_time = end_time;
 
     event_dealer_ctx.updater_ctx.last_versions.block.prepare = last->sn;
-    if ((result=deal_sorted_events()) != 0) {
+    if ((result=deal_sorted_events(&ob_deal_end_time)) != 0) {
         return result;
     }
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
 
     end_time = get_current_time_us();
-    deal_time = end_time - start_time;
-    logInfo("db event count: %d, last sn: %"PRId64", sort time: %d ms, "
-            "deal time: %d ms", EVENT_PTR_ARRAY.count,
+    ob_deal_time = ob_deal_end_time - start_time;
+    db_deal_time = end_time - ob_deal_end_time;
+    logInfo("db event count: %d, merged ob count: %d, last sn: %"PRId64", "
+            "sort time: %d ms, ob deal time: %d ms, db deal time: %d ms",
+            EVENT_PTR_ARRAY.count, MERGED_BLOCK_ARRAY.count,
             event_dealer_ctx.updater_ctx.last_versions.block.commit,
-            sort_time / 1000, deal_time / 1000);
+            sort_time / 1000, ob_deal_time / 1000, db_deal_time / 1000);
 
     return result;
 }

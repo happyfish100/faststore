@@ -655,7 +655,6 @@ int slice_binlog_get_last_sn_from_file()
     return result;
 }
 
-
 int slice_binlog_migrate_redo()
 {
     int result;
@@ -697,52 +696,9 @@ void slice_binlog_destroy()
     sf_binlog_writer_finish(&SLICE_BINLOG_WRITER.writer);
 }
 
-int slice_binlog_log_add_slice(const OBSliceEntry *slice,
+int slice_binlog_log_no_op(const FSBlockKey *bkey,
         const time_t current_time, const uint64_t sn,
         const uint64_t data_version, const int source)
-{
-    SFBinlogWriterBuffer *wbuffer;
-
-    if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                    &SLICE_BINLOG_WRITER.thread)) == NULL)
-    {
-        return ENOMEM;
-    }
-
-    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_add_slice_to_buff1(slice->type,
-            &slice->ob->bkey,  &slice->ssize, &slice->space, current_time,
-            sn, data_version, source, wbuffer->bf.buff);
-    sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
-    FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
-    return 0;
-}
-
-int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
-        const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source)
-{
-    SFBinlogWriterBuffer *wbuffer;
-
-    if ((wbuffer=sf_binlog_writer_alloc_buffer(
-                    &SLICE_BINLOG_WRITER.thread)) == NULL)
-    {
-        return ENOMEM;
-    }
-
-    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
-    wbuffer->bf.length = slice_binlog_log_del_slice_to_buff(
-            bs_key, current_time, sn, data_version, source,
-            wbuffer->bf.buff);
-    sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
-    FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
-    return 0;
-}
-
-static inline int log_block_update(const FSBlockKey *bkey,
-        const time_t current_time, const char op_type,
-        const uint64_t sn, const uint64_t data_version,
-        const int source)
 {
     SFBinlogWriterBuffer *wbuffer;
 
@@ -754,28 +710,12 @@ static inline int log_block_update(const FSBlockKey *bkey,
 
     SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
     wbuffer->bf.length = slice_binlog_log_update_block_to_buff(
-            bkey, current_time, op_type, sn, data_version,
-            source, wbuffer->bf.buff);
+            bkey, current_time, BINLOG_OP_TYPE_NO_OP, sn,
+            data_version, source, wbuffer->bf.buff);
     sf_push_to_binlog_write_queue(&SLICE_BINLOG_WRITER.writer, wbuffer);
     FC_ATOMIC_INC(SLICE_BINLOG_COUNT);
+    SLICE_SPACE_LOG_CTX.last_sn = sn;
     return 0;
-}
-
-int slice_binlog_log_del_block(const FSBlockKey *bkey,
-        const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source)
-{
-    return log_block_update(bkey, current_time,
-            BINLOG_OP_TYPE_DEL_BLOCK,
-            sn, data_version, source);
-}
-
-int slice_binlog_log_no_op(const FSBlockKey *bkey,
-        const time_t current_time, const uint64_t sn,
-        const uint64_t data_version, const int source)
-{
-    return log_block_update(bkey, current_time, BINLOG_OP_TYPE_NO_OP,
-            sn, data_version, source);
 }
 
 int slice_binlog_padding(const int row_count, const int source)

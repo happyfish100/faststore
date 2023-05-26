@@ -182,16 +182,6 @@ extern "C" {
                 current_time, sn, data_version, source, buff);
     }
 
-    static inline int slice_binlog_log_add_slice_to_buff(const OBSliceEntry
-            *slice, const time_t current_time, const uint64_t data_version,
-            const int source, char *buff)
-    {
-        int64_t sn;
-        sn = ob_index_generate_alone_sn();
-        return slice_binlog_log_add_slice_to_buff_ex(slice,
-                current_time, sn, data_version, source, buff);
-    }
-
     static inline int slice_binlog_log_update_block_to_buff(
             const FSBlockKey *bkey, const time_t current_time,
             const char op_type, const int64_t sn, const uint64_t
@@ -220,16 +210,6 @@ extern "C" {
                 BINLOG_OP_TYPE_NO_OP, sn, data_version, source, buff);
     }
 
-    static inline int slice_binlog_log_no_op_to_buff(const FSBlockKey *bkey,
-            const time_t current_time, const uint64_t data_version,
-            const int source, char *buff)
-    {
-        int64_t sn;
-        sn = ob_index_generate_alone_sn();
-        return slice_binlog_log_no_op_to_buff_ex(bkey, current_time,
-                sn, data_version, source, buff);
-    }
-
     static inline int slice_binlog_log_del_slice_to_buff(
             const FSBlockSliceKeyInfo *bs_key, const time_t current_time,
             const uint64_t sn, const uint64_t data_version,
@@ -241,18 +221,6 @@ extern "C" {
                 bs_key->block.oid, bs_key->block.offset,
                 bs_key->slice.offset, bs_key->slice.length);
     }
-
-    int slice_binlog_log_add_slice(const OBSliceEntry *slice,
-            const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source);
-
-    int slice_binlog_log_del_slice(const FSBlockSliceKeyInfo *bs_key,
-            const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source);
-
-    int slice_binlog_log_del_block(const FSBlockKey *bkey,
-            const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source);
 
     int slice_binlog_log_no_op(const FSBlockKey *bkey,
             const time_t current_time, const uint64_t sn,
