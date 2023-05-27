@@ -138,7 +138,6 @@ static int write_one_entry(FSDBUpdaterContext *ctx,
     int result;
 
     sf_serializer_pack_begin(&ctx->buffer);
-
     if ((result=sf_serializer_pack_int64(&ctx->buffer,
                     REDO_ENTRY_FIELD_ID_VERSION,
                     entry->version)) != 0)
@@ -203,16 +202,21 @@ static int do_write(FSDBUpdaterContext *ctx)
 static int write_redo_log(FSDBUpdaterContext *ctx)
 {
     int result;
+    int64_t start_time;
 
+    start_time = get_current_time_us();
     if ((result=fc_safe_write_file_open(&db_updater_ctx.redo)) != 0) {
         return result;
     }
 
-    //logInfo("write redo log count =====: %d", ctx->array.count);
     if ((result=do_write(ctx)) != 0) {
         return result;
     }
 
+    logInfo("write redo log count: %d, file size: %ld KB, time used: "
+            "%"PRId64" ms", ctx->array.count, (long)(lseek(db_updater_ctx.
+                    redo.fd, 0, SEEK_END) / 1024),
+            (get_current_time_us() - start_time) / 1000);
     return fc_safe_write_file_close(&db_updater_ctx.redo);
 }
 
