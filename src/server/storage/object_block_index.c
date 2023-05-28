@@ -207,7 +207,8 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
     }
 }
 
-static int block_reclaim(OBSegment *segment, const OBAllocateType type)
+static int block_reclaim(OBSegment *segment, const OBAllocateType type,
+        const int target_count)
 {
     OBEntry *ob;
     OBEntry *tmp;
@@ -240,31 +241,32 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type)
         }
 
         ++ob_count;
-        slice_count = uniq_skiplist_count(ob->slices);
+        slice_count += uniq_skiplist_count(ob->slices);
         uniq_skiplist_clear(ob->slices);
         ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
-        if (slice_count > 0 || type == fs_allocate_type_block) {
+        if (slice_count >= target_count || type == fs_allocate_type_block) {
             result = 0;
             break;
         }
     }
 
     logInfo("file: "__FILE__", line: %d, "
-            "alloc type: %s, scan ob count: %d, reclaimed count: %d, "
-            "reclaimed slice count: %d", __LINE__, type ==
-            fs_allocate_type_block ? "block" : "slice",
-            ob_count + skip, ob_count, slice_count);
+            "alloc type: %s, target count: %d, scan ob count: %d, "
+            "reclaimed count: %d, reclaimed slice count: %d", __LINE__,
+            type == fs_allocate_type_block ? "block" : "slice",
+            target_count, ob_count + skip, ob_count, slice_count);
     return result;
 }
 
 static inline void *reclaim_and_alloc(OBSegment *segment,
         const OBAllocateType type)
 {
+    const int target_count = 1;
     void *obj;
     int i;
 
     for (i=0; i<100; i++) {
-        while (block_reclaim(segment, type) == 0) {
+        while (block_reclaim(segment, type, target_count) == 0) {
             if (type == fs_allocate_type_block) {
                 obj = fast_mblock_alloc_object(&segment->allocators.ob);
             } else {
@@ -300,7 +302,38 @@ static inline void *reclaim_and_alloc(OBSegment *segment,
         fc_sleep_ms(10);
     }
 
+    logCrit("file: "__FILE__", line: %d, "
+            "alloc %s object fail, program exit!", __LINE__,
+            type == fs_allocate_type_block ? "block" : "slice");
+    sf_terminate_myself();
     return NULL;
+}
+
+static inline int reclaim_and_alloc_slices(OBSegment *segment,
+        const int count, struct fast_mblock_chain *chain)
+{
+    int i;
+
+    for (i=0; i<100; i++) {
+        while (block_reclaim(segment, fs_allocate_type_slice, count) == 0) {
+            if (fast_mblock_batch_alloc(&segment->allocators.
+                        slice, count, chain) == 0)
+            {
+                return 0;
+            }
+        }
+
+        if (i == 0) {
+            change_notify_signal_to_deal();
+        }
+        fc_sleep_ms(10);
+    }
+
+    logCrit("file: "__FILE__", line: %d, "
+            "batch alloc %d slices fail, program exit!",
+            __LINE__, count);
+    sf_terminate_myself();
+    return ENOMEM;
 }
 
 #define reclaim_and_alloc_block(segment) \
@@ -355,7 +388,7 @@ static inline int ob_load_slices(OBSegment *segment,
         return result;
     }
 
-    if (fv != NULL) {
+    if (fv != NULL && fv->value.str_array.count > 0) {
         return unpack_ob_entry(segment, ob, sl, fv);
     } else {
         return 0;
@@ -466,23 +499,27 @@ OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
     } \
     slice->ob = _ob
 
-static inline OBSliceEntry *ob_alloc_slice_for_load(OBSegment *segment,
-        OBEntry *ob, const int init_refer)
+static inline int ob_alloc_slices_for_load(OBSegment *segment, OBEntry *ob,
+        UniqSkiplist *sl, const int count, struct fast_mblock_chain *chain)
 {
-    OBSliceEntry *slice;
+    int result;
 
-    slice = fast_mblock_alloc_object(&segment->allocators.slice);
-    if (slice != NULL) {
-        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
-        return slice;
+    if (fast_mblock_batch_alloc(&segment->allocators.
+                slice, count, chain) == 0)
+    {
+        return 0;
     }
 
-    ob->db_args->locked = true;
-    if ((slice=reclaim_and_alloc_slice(segment)) != NULL) {
-        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
+    if (sl == ob->slices) {
+        ob->db_args->locked = true;
+        result = reclaim_and_alloc_slices(segment, count, chain);
+        ob->db_args->locked = false;
+    } else {
+        result = fast_mblock_batch_alloc(&ob_shared_ctx.
+                slice_allocator, count, chain);
     }
-    ob->db_args->locked = false;
-    return slice;
+
+    return result;
 }
 
 static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
@@ -3311,15 +3348,20 @@ static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
     int result;
     string_t *s;
     string_t *end;
+    struct fast_mblock_chain chain;
     OBSliceEntry *slice;
+
+    if ((result=ob_alloc_slices_for_load(segment, ob, sl, fv->
+                    value.str_array.count, &chain)) != 0)
+    {
+        return result;
+    }
 
     end = fv->value.str_array.strings + fv->value.str_array.count;
     for (s=fv->value.str_array.strings; s<end; s++) {
-        slice = ob_alloc_slice_for_load(segment, ob, init_refer);
-        if (slice == NULL) {
-            return ENOMEM;
-        }
-
+        slice = (OBSliceEntry *)chain.head->data;
+        chain.head = chain.head->next;
+        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
         if ((result=block_serializer_parse_slice(s, slice)) != 0) {
             return result;
         }
