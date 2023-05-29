@@ -29,7 +29,6 @@ typedef struct fs_db_updater_context {
 
         int64_t field;   //for check internal storage engine
     } last_versions;
-    FastBuffer buffer;
 } FSDBUpdaterContext;
 
 #ifdef __cplusplus

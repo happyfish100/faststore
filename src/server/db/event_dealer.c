@@ -46,12 +46,6 @@ int event_dealer_init()
     const int init_alloc = 1024;
     int result;
 
-    if ((result=fast_buffer_init_ex(&event_dealer_ctx.
-                    updater_ctx.buffer, 1024)) != 0)
-    {
-        return result;
-    }
-
     if ((result=block_serializer_init_packer(&event_dealer_ctx.
                     packer, init_alloc)) != 0)
     {

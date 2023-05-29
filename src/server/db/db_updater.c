@@ -13,7 +13,6 @@
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
 
-
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
 #include "fastcommon/pthread_func.h"
@@ -38,6 +37,9 @@
 #define REDO_ENTRY_FIELD_ID_FIELD_BUFFER          4
 
 typedef struct db_updater_ctx {
+    FastBuffer *buffers;
+    struct iovec *iov;
+    int iovcnt;
     SafeWriteFileInfo redo;
 } DBUpdaterCtx;
 
@@ -66,12 +68,26 @@ int db_updater_realloc_block_array(FSDBUpdateBlockArray *array)
     return 0;
 }
 
-static inline int write_buffer_to_file(const FastBuffer *buffer)
+static int write_buffers_to_file()
 {
     int result;
+    ssize_t bytes;
+    struct iovec *iov;
+    struct iovec *end;
+    FastBuffer *buffer;
 
-    if (fc_safe_write(db_updater_ctx.redo.fd, buffer->data,
-                buffer->length) != buffer->length)
+    bytes = 0;
+    end = db_updater_ctx.iov + db_updater_ctx.iovcnt;
+    for (iov=db_updater_ctx.iov, buffer=db_updater_ctx.buffers;
+            iov<end; iov++, buffer++)
+    {
+        bytes += buffer->length;
+        iov->iov_base = buffer->data;
+        iov->iov_len = buffer->length;
+    }
+
+    if (fc_safe_writev(db_updater_ctx.redo.fd, db_updater_ctx.iov,
+                db_updater_ctx.iovcnt) != bytes)
     {
         result = errno != 0 ? errno : EIO;
         logError("file: "__FILE__", line: %d, "
@@ -86,42 +102,44 @@ static inline int write_buffer_to_file(const FastBuffer *buffer)
 static int write_header(FSDBUpdaterContext *ctx)
 {
     int result;
+    FastBuffer *buffer;
 
-    sf_serializer_pack_begin(&ctx->buffer);
-    if ((result=sf_serializer_pack_integer(&ctx->buffer,
+    buffer = db_updater_ctx.buffers + db_updater_ctx.iovcnt++;
+    sf_serializer_pack_begin(buffer);
+    if ((result=sf_serializer_pack_integer(buffer,
                     REDO_HEADER_FIELD_ID_RECORD_COUNT,
                     ctx->array.count)) != 0)
     {
         return result;
     }
 
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_HEADER_FIELD_ID_LAST_FIELD_VERSION,
                     ctx->last_versions.field)) != 0)
     {
         return result;
     }
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_HEADER_FIELD_ID_LAST_BLOCK_VERSION,
                     ctx->last_versions.block.prepare)) != 0)
     {
         return result;
     }
 
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_HEADER_FIELD_ID_OB_COUNT,
                     STORAGE_ENGINE_OB_COUNT)) != 0)
     {
         return result;
     }
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_HEADER_FIELD_ID_SLICE_COUNT,
                     STORAGE_ENGINE_SLICE_COUNT)) != 0)
     {
         return result;
     }
 
-    sf_serializer_pack_end(&ctx->buffer);
+    sf_serializer_pack_end(buffer);
 
     /*
     logInfo("count: %d, last_versions {field: %"PRId64", block: %"PRId64"}, "
@@ -129,28 +147,30 @@ static int write_header(FSDBUpdaterContext *ctx)
             ctx->last_versions.block.prepare, ctx->buffer.length);
             */
 
-    return write_buffer_to_file(&ctx->buffer);
+    return 0;
 }
 
 static int write_one_entry(FSDBUpdaterContext *ctx,
         const FSDBUpdateBlockInfo *entry)
 {
     int result;
+    FastBuffer *buffer;
 
-    sf_serializer_pack_begin(&ctx->buffer);
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    buffer = db_updater_ctx.buffers + db_updater_ctx.iovcnt++;
+    sf_serializer_pack_begin(buffer);
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_ENTRY_FIELD_ID_VERSION,
                     entry->version)) != 0)
     {
         return result;
     }
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_ENTRY_FIELD_ID_BLOCK_OID,
                     entry->bkey.oid)) != 0)
     {
         return result;
     }
-    if ((result=sf_serializer_pack_int64(&ctx->buffer,
+    if ((result=sf_serializer_pack_int64(buffer,
                     REDO_ENTRY_FIELD_ID_BLOCK_OFFSET,
                     entry->bkey.offset)) != 0)
     {
@@ -158,7 +178,7 @@ static int write_one_entry(FSDBUpdaterContext *ctx,
     }
 
     if (entry->buffer != NULL) {
-        if ((result=sf_serializer_pack_buffer(&ctx->buffer,
+        if ((result=sf_serializer_pack_buffer(buffer,
                         REDO_ENTRY_FIELD_ID_FIELD_BUFFER,
                         entry->buffer)) != 0)
         {
@@ -166,8 +186,8 @@ static int write_one_entry(FSDBUpdaterContext *ctx,
         }
     }
 
-    sf_serializer_pack_end(&ctx->buffer);
-    return write_buffer_to_file(&ctx->buffer);
+    sf_serializer_pack_end(buffer);
+    return 0;
 }
 
 static int do_write(FSDBUpdaterContext *ctx)
@@ -176,6 +196,7 @@ static int do_write(FSDBUpdaterContext *ctx)
     FSDBUpdateBlockInfo *entry;
     FSDBUpdateBlockInfo *end;
 
+    db_updater_ctx.iovcnt = 0;
     if ((result=write_header(ctx)) != 0) {
         return result;
     }
@@ -183,6 +204,19 @@ static int do_write(FSDBUpdaterContext *ctx)
     end = ctx->array.entries + ctx->array.count;
     for (entry=ctx->array.entries; entry<end; entry++) {
         if ((result=write_one_entry(ctx, entry)) != 0) {
+            return result;
+        }
+
+        if (db_updater_ctx.iovcnt == FC_IOV_BATCH_SIZE) {
+            if ((result=write_buffers_to_file()) != 0) {
+                return result;
+            }
+            db_updater_ctx.iovcnt = 0;
+        }
+    }
+
+    if (db_updater_ctx.iovcnt > 0) {
+        if ((result=write_buffers_to_file()) != 0) {
             return result;
         }
     }
@@ -425,6 +459,28 @@ static int resume_from_redo_log(FSDBUpdaterContext *ctx)
 int db_updater_init(FSDBUpdaterContext *ctx)
 {
     int result;
+    int bytes;
+    FastBuffer *buffer;
+    FastBuffer *end;
+
+    bytes = sizeof(struct iovec) * FC_IOV_BATCH_SIZE;
+    db_updater_ctx.iov = fc_malloc(bytes);
+    if (db_updater_ctx.iov == NULL) {
+        return ENOMEM;
+    }
+    memset(db_updater_ctx.iov, 0, bytes);
+
+    bytes = sizeof(FastBuffer) * FC_IOV_BATCH_SIZE;
+    db_updater_ctx.buffers = fc_malloc(bytes);
+    if (db_updater_ctx.buffers == NULL) {
+        return ENOMEM;
+    }
+    end = db_updater_ctx.buffers + FC_IOV_BATCH_SIZE;
+    for (buffer=db_updater_ctx.buffers; buffer<end; buffer++) {
+        if ((result=fast_buffer_init_ex(buffer, 4 * 1024)) != 0) {
+            return result;
+        }
+    }
 
     if ((result=fc_safe_write_file_init(&db_updater_ctx.redo,
                     STORAGE_PATH_STR, REDO_LOG_FILENAME,

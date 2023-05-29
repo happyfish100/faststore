@@ -330,8 +330,9 @@ static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
         SLICE_SPACE_LOG_CTX.last_sn = record->last_sn;
         return sub;
     } else {
-        logWarning("record sn: %"PRId64", queue last sn: %"PRId64", "
-                "record slice count: %d, expect: %d", record->last_sn,
+        logWarning("file: "__FILE__", line: %d, "
+                "record sn: %"PRId64", queue last sn: %"PRId64", record "
+                "slice count: %d, expect: %d", __LINE__, record->last_sn,
                 SLICE_SPACE_LOG_CTX.last_sn, record->slice_chain.count,
                 (int)(record->last_sn - SLICE_SPACE_LOG_CTX.last_sn));
         return 1;
