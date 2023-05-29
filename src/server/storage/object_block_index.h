@@ -17,15 +17,7 @@
 #ifndef _OBJECT_BLOCK_INDEX_H
 #define _OBJECT_BLOCK_INDEX_H
 
-#include "sf/sf_serializer.h"
-#include "diskallocator/dio/trunk_read_thread.h"
-#include "diskallocator/dio/trunk_write_thread.h"
 #include "../server_global.h"
-
-typedef struct fs_db_fetch_context {
-    DASynchronizedReadContext read_ctx;
-    SFSerializerIterator it;
-} FSDBFetchContext;
 
 typedef struct {
     pthread_lock_cond_pair_t lcp; //for lock and notify
@@ -39,7 +31,6 @@ typedef struct {
     /* following fields for storage engine */
     FSDBFetchContext db_fetch_ctx;
     struct fc_list_head lru;       //element: OBEntry
-    bool use_extra_allocator;
 } OBSegment;
 
 #ifdef __cplusplus
@@ -75,9 +66,6 @@ extern "C" {
 
 #define ob_index_ob_entry_release(ob) \
     ob_index_ob_entry_release_ex(ob, 1)
-
-#define ob_index_alloc_slice(bkey) \
-    ob_index_alloc_slice_ex(&G_OB_HASHTABLE, bkey, 1)
 
 #define ob_index_dump_slices_to_file(start_index,  \
         end_index, filename, slice_count, source)  \
@@ -137,9 +125,6 @@ extern "C" {
 
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const bool create_flag);
-
-    OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
-            const FSBlockKey *bkey, const int init_refer);
 
     static inline int64_t ob_index_generate_alone_sn()
     {
@@ -325,7 +310,8 @@ extern "C" {
         }
     }
 
-    int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob);
+    int ob_index_load_db_slices(FSDBFetchContext *db_fetch_ctx,
+            OBSegment *segment, OBEntry *ob);
 
     int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
             const int64_t data_version, const DASliceType type,

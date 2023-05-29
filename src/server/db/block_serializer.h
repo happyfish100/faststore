@@ -88,10 +88,7 @@ extern "C" {
     int block_serializer_pack(BlockSerializerPacker *packer,
             const OBEntry *ob, FastBuffer **buffer);
 
-    int block_serializer_unpack(OBSegment *segment, const FSBlockKey *bkey,
-            const string_t *content, const SFSerializerFieldValue **fv);
-
-    int block_serializer_fetch_and_unpack(OBSegment *segment,
+    int block_serializer_fetch_and_unpack(FSDBFetchContext *db_fetch_ctx,
             const FSBlockKey *bkey, const SFSerializerFieldValue **fv);
 
     int block_serializer_parse_slice_ex(const string_t *line,

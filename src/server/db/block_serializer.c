@@ -256,22 +256,21 @@ int block_serializer_parse_slice_ex(const string_t *line,
     return 0;
 }
 
-int block_serializer_unpack(OBSegment *segment, const FSBlockKey *bkey,
-        const string_t *content, const SFSerializerFieldValue **fv)
+static int block_serializer_unpack(FSDBFetchContext *db_fetch_ctx,
+        const FSBlockKey *bkey, const string_t *content,
+        const SFSerializerFieldValue **fv)
 {
     int result;
 
-    if ((result=sf_serializer_unpack(&segment->
-                    db_fetch_ctx.it, content)) != 0)
-    {
+    if ((result=sf_serializer_unpack(&db_fetch_ctx->it, content)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, unpack fail, "
                 "error info: %s", __LINE__, bkey->oid, bkey->offset,
-                segment->db_fetch_ctx.it.error_info);
+                db_fetch_ctx->it.error_info);
         return result;
     }
 
-    if ((*fv=sf_serializer_next(&segment->db_fetch_ctx.it)) == NULL) {
+    if ((*fv=sf_serializer_next(&db_fetch_ctx->it)) == NULL) {
         logError("file: "__FILE__", line: %d, "
                 "block {oid: %"PRId64", offset: %"PRId64"}, no entry",
                 __LINE__, bkey->oid, bkey->offset);
@@ -298,14 +297,14 @@ int block_serializer_unpack(OBSegment *segment, const FSBlockKey *bkey,
     return 0;
 }
 
-int block_serializer_fetch_and_unpack(OBSegment *segment,
+int block_serializer_fetch_and_unpack(FSDBFetchContext *db_fetch_ctx,
         const FSBlockKey *bkey, const SFSerializerFieldValue **fv)
 {
     int result;
     string_t content;
 
-    if ((result=STORAGE_ENGINE_FETCH_API(bkey, &segment->
-                    db_fetch_ctx.read_ctx)) != 0)
+    if ((result=STORAGE_ENGINE_FETCH_API(bkey,
+                    &db_fetch_ctx->read_ctx)) != 0)
     {
         if (result == ENOENT) {
             *fv = NULL;
@@ -319,8 +318,7 @@ int block_serializer_fetch_and_unpack(OBSegment *segment,
         return result;
     }
 
-    FC_SET_STRING_EX(content, DA_OP_CTX_BUFFER_PTR(segment->
-                db_fetch_ctx.read_ctx.op_ctx), DA_OP_CTX_BUFFER_LEN(
-                    segment->db_fetch_ctx.read_ctx.op_ctx));
-    return block_serializer_unpack(segment, bkey, &content, fv);
+    FC_SET_STRING_EX(content, DA_OP_CTX_BUFFER_PTR(db_fetch_ctx->read_ctx.
+                op_ctx), DA_OP_CTX_BUFFER_LEN(db_fetch_ctx->read_ctx.op_ctx));
+    return block_serializer_unpack(db_fetch_ctx, bkey, &content, fv);
 }

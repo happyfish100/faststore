@@ -26,6 +26,7 @@
 
 typedef struct fs_event_dealer_context {
     BlockSerializerPacker packer;
+    FSDBFetchContext db_fetch_ctx;
     FSChangeNotifyEventPtrArray event_ptr_array;
     FSDBUpdaterContext updater_ctx;
     struct {
@@ -56,6 +57,13 @@ int event_dealer_init()
     {
         return result;
     }
+
+    if ((result=da_init_read_context(&event_dealer_ctx.
+                    db_fetch_ctx.read_ctx)) != 0)
+    {
+        return result;
+    }
+    sf_serializer_iterator_init(&event_dealer_ctx.db_fetch_ctx.it);
 
     return db_updater_init(&event_dealer_ctx.updater_ctx);
 }
@@ -120,8 +128,16 @@ static int compare_event_ptr_func(const FSChangeNotifyEvent **ev1,
     return fc_compare_int64((*ev1)->sn, (*ev2)->sn);
 }
 
-static int deal_ob_events(OBEntry *ob, const int event_count,
-        const int old_slice_count)
+static inline void ob_entry_release(OBSegment *segment,
+        OBEntry *ob, const int dec_count)
+{
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob_index_ob_entry_release_ex(ob, dec_count);
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+}
+
+static int deal_ob_events(OBSegment *segment, OBEntry *ob,
+        const int event_count, const int old_slice_count)
 {
     int result;
     bool empty;
@@ -130,7 +146,7 @@ static int deal_ob_events(OBEntry *ob, const int event_count,
     empty = ob->db_args->slices == NULL || uniq_skiplist_empty(
             ob->db_args->slices);
     if (empty && old_slice_count == 0) {
-        ob_index_ob_entry_release_ex(ob, event_count);
+        ob_entry_release(segment, ob, event_count);
         return 0;
     }
 
@@ -163,20 +179,8 @@ static int deal_ob_events(OBEntry *ob, const int event_count,
                 ob->db_args->slices) - old_slice_count;
     }
 
-    ob_index_ob_entry_release_ex(ob, event_count);
+    ob_entry_release(segment, ob, event_count);
     return 0;
-}
-
-static inline void segment_lock_for_db(OBSegment *segment)
-{
-    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    segment->use_extra_allocator = true;
-}
-
-static inline void segment_unlock_for_db(OBSegment *segment)
-{
-    segment->use_extra_allocator = false;
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 }
 
 static int deal_sorted_events(int64_t *ob_deal_end_time)
@@ -189,7 +193,6 @@ static int deal_sorted_events(int64_t *ob_deal_end_time)
     OBEntry *ob;
     FSChangeNotifyEvent **event;
     FSChangeNotifyEvent **end;
-    OBSegment *curr_segment;
     OBSegment *segment;
     struct fast_mblock_node *node;
 
@@ -199,9 +202,10 @@ static int deal_sorted_events(int64_t *ob_deal_end_time)
     chain.head = chain.tail = NULL;
     ob = EVENT_PTR_ARRAY.events[0]->ob;
     segment = ob_index_get_segment(&ob->bkey);
-    segment_lock_for_db(segment);
     if (ob->db_args->slices == NULL) {
-        if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
+        if ((result=ob_index_load_db_slices(&event_dealer_ctx.
+                        db_fetch_ctx, segment, ob)) != 0)
+        {
             return result;
         }
     }
@@ -212,25 +216,21 @@ static int deal_sorted_events(int64_t *ob_deal_end_time)
             if ((*event)->ob == ob) {
                 ++event_count;
             } else {
-                ob_index_ob_entry_release((*event)->ob);
+                ob_entry_release(segment, (*event)->ob, 1);
             }
         } else {
-            if ((result=deal_ob_events(ob, event_count,
+            if ((result=deal_ob_events(segment, ob, event_count,
                             old_slice_count)) != 0)
             {
                 break;
             }
 
             ob = (*event)->ob;
-            curr_segment = ob_index_get_segment(&ob->bkey);
-            if (segment != curr_segment) {
-                segment_unlock_for_db(segment);
-                segment = curr_segment;
-                segment_lock_for_db(segment);
-            }
-
+            segment = ob_index_get_segment(&ob->bkey);
             if (ob->db_args->slices == NULL) {
-                if ((result=ob_index_load_db_slices(segment, ob)) != 0) {
+                if ((result=ob_index_load_db_slices(&event_dealer_ctx.
+                                db_fetch_ctx, segment, ob)) != 0)
+                {
                     break;
                 }
             }
@@ -283,9 +283,8 @@ static int deal_sorted_events(int64_t *ob_deal_end_time)
     }
 
     if (result == 0) {
-        result = deal_ob_events(ob, event_count, old_slice_count);
+        result = deal_ob_events(segment, ob, event_count, old_slice_count);
     }
-    segment_unlock_for_db(segment);
     if (result != 0) {
         return result;
     }

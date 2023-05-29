@@ -229,18 +229,6 @@ static int deal_records(struct fc_list_head *head)
         return result;
     }
 
-    {
-        static time_t last_time = 0;
-        static int count = 0;
-
-        if (g_current_time - last_time > 0) {
-            logInfo("slice_space_log record count: %d", count);
-            last_time = g_current_time;
-            count = 0;
-        }
-        count += SLICE_SPACE_LOG_CTX.space_redo.record_count;
-    }
-
     da_trunk_space_log_inc_waiting_count(&DA_CTX, SLICE_SPACE_LOG_CTX.
             space_redo.record_count);
     push_to_log_queues(head);

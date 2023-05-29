@@ -125,7 +125,7 @@ static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
 {
     if (!htable->need_reclaim) {
         ob_remove(segment, htable, bucket, ob, previous);
-    } else if (FC_ATOMIC_GET(ob->db_args->ref_count) == 1) {
+    } else if (ob->db_args->ref_count == 1) {
         if (ob->db_args->status == FS_OB_STATUS_DELETING) {
             ob->db_args->status = FS_OB_STATUS_NORMAL;
         }
@@ -141,9 +141,8 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
     bool need_free;
 
     if (G_OB_HASHTABLE.need_reclaim) {
-        if (__sync_sub_and_fetch(&ob->db_args->
-                    ref_count, dec_count) == 0)
-        {
+        ob->db_args->ref_count -= dec_count;
+        if (ob->db_args->ref_count == 0) {
             need_free = true;
             if (ob->db_args->slices != NULL) {
                 uniq_skiplist_free(ob->db_args->slices);
@@ -222,7 +221,7 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
     ob_count = slice_count = skip = 0;
     result = ENOENT;
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
-        if (ob->db_args->locked || FC_ATOMIC_GET(ob->db_args->ref_count) > 1
+        if (ob->db_args->locked || ob->db_args->ref_count > 1
                 || ob->db_args->status == FS_OB_STATUS_DELETING)
         {
             ++skip;
@@ -258,8 +257,8 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
     return result;
 }
 
-static inline void *reclaim_and_alloc(OBSegment *segment,
-        const OBAllocateType type)
+static inline void *reclaim_and_alloc(OBSegment *segment, const
+        OBAllocateType type)
 {
     const int target_count = 1;
     void *obj;
@@ -275,16 +274,6 @@ static inline void *reclaim_and_alloc(OBSegment *segment,
             if (obj != NULL) {
                 return obj;
             }
-        }
-
-        if (segment->use_extra_allocator && type == fs_allocate_type_slice) {
-            static int counter = 0;
-            if (counter++ % 100 == 0) {
-                logInfo("%d. extra slice elements {total: %"PRId64", used: %"PRId64"}",
-                        counter, ob_shared_ctx.slice_allocator.info.element_total_count,
-                        ob_shared_ctx.slice_allocator.info.element_used_count);
-            }
-            return fast_mblock_alloc_object(&ob_shared_ctx.slice_allocator);
         }
 
         if (i == 0) {
@@ -369,20 +358,20 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
 
     FC_ATOMIC_INC(htable->count);
     if (htable->need_reclaim) {
-        FC_ATOMIC_INC(ob->db_args->ref_count);
+        ob->db_args->ref_count++;
         fc_list_add_tail(&ob->db_args->dlink, &segment->lru);
     }
 
     return ob;
 }
 
-static inline int ob_load_slices(OBSegment *segment,
-        OBEntry *ob, UniqSkiplist *sl)
+static inline int ob_load_slices(FSDBFetchContext *db_fetch_ctx,
+        OBSegment *segment, OBEntry *ob, UniqSkiplist *sl)
 {
     int result;
     const SFSerializerFieldValue *fv;
 
-    if ((result=block_serializer_fetch_and_unpack(segment,
+    if ((result=block_serializer_fetch_and_unpack(db_fetch_ctx,
                     &ob->bkey, &fv)) != 0)
     {
         return result;
@@ -439,7 +428,7 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
             if (ob->db_args->status == FS_OB_STATUS_DELETING) {
                 if (create_flag) {
                     ob->db_args->status = FS_OB_STATUS_NORMAL;
-                    FC_ATOMIC_INC(ob->db_args->ref_count);
+                    ob->db_args->ref_count++;
                 } else {
                     return NULL;
                 }
@@ -461,7 +450,9 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
     ob->bkey = *bkey;
 
     if (STORAGE_ENABLED) {
-        if (ob_load_slices(segment, ob, ob->slices) != 0) {
+        if (ob_load_slices(&segment->db_fetch_ctx,
+                    segment, ob, ob->slices) != 0)
+        {
             return NULL;
         }
     }
@@ -522,8 +513,8 @@ static inline int ob_alloc_slices_for_load(OBSegment *segment, OBEntry *ob,
     return result;
 }
 
-static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
-        OBEntry *ob, const int init_refer)
+static inline OBSliceEntry *ob_slice_alloc_ex(OBSegment *segment, OBEntry *ob,
+        const int init_refer, const bool call_by_db_event_dealer)
 {
     OBSliceEntry *slice;
 
@@ -537,32 +528,31 @@ static inline OBSliceEntry *ob_slice_alloc(OBSegment *segment,
         return NULL;
     }
 
-    ob->db_args->locked = true;
-    if ((slice=reclaim_and_alloc_slice(segment)) != NULL) {
-        OB_INDEX_INIT_SLICE(slice, ob, init_refer);
-    }
-    ob->db_args->locked = false;
-    return slice;
-}
+    if (call_by_db_event_dealer) {
+        static int counter = 0;
+        if (counter++ % 100 == 0) {
+            logInfo("%d. extra slice elements {total: %"PRId64", used: %"PRId64"}",
+                    counter, ob_shared_ctx.slice_allocator.info.element_total_count,
+                    ob_shared_ctx.slice_allocator.info.element_used_count);
+        }
 
-OBSliceEntry *ob_index_alloc_slice_ex(OBHashtable *htable,
-        const FSBlockKey *bkey, const int init_refer)
-{
-    OBEntry *ob;
-    OBSliceEntry *slice;
-
-    OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, *bkey);
-    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob = get_ob_entry(segment, htable, bucket, bkey, true);
-    if (ob == NULL) {
-        slice = NULL;
+        if ((slice=fast_mblock_alloc_object(&ob_shared_ctx.
+                        slice_allocator)) != NULL)
+        {
+            OB_INDEX_INIT_SLICE(slice, ob, init_refer);
+        }
     } else {
-        slice = ob_slice_alloc(segment, ob, init_refer);
+        ob->db_args->locked = true;
+        if ((slice=reclaim_and_alloc_slice(segment)) != NULL) {
+            OB_INDEX_INIT_SLICE(slice, ob, init_refer);
+        }
+        ob->db_args->locked = false;
     }
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-
     return slice;
 }
+
+#define ob_slice_alloc(segment, ob, init_refer) \
+    ob_slice_alloc_ex(segment, ob, init_refer, false)
 
 static int slice_compare(const void *p1, const void *p2)
 {
@@ -1078,12 +1068,16 @@ static inline int do_delete_slice_ex(OBHashtable *htable,
 
 static inline OBSliceEntry *slice_dup(OBSegment *segment,
         const OBSliceEntry *src, const DASliceType dest_type,
-        const int offset, const int length)
+        const int offset, const int length,
+        const bool call_by_db_event_dealer)
 {
+    const int init_refer = 1;
     OBSliceEntry *slice;
     int extra_offset;
 
-    if ((slice=ob_slice_alloc(segment, src->ob, 1)) == NULL) {
+    if ((slice=ob_slice_alloc_ex(segment, src->ob, init_refer,
+                    call_by_db_event_dealer)) == NULL)
+    {
         return NULL;
     }
 
@@ -1138,11 +1132,13 @@ static int add_to_slice_ptr_smart_array(OBSlicePtrSmartArray *array,
 
 static inline int dup_slice_to_smart_array(OBSegment *segment,
         const OBSliceEntry *src_slice, const int offset,
-        const int length, OBSlicePtrSmartArray *array)
+        const int length, const bool call_by_db_event_dealer,
+        OBSlicePtrSmartArray *array)
 {
     OBSliceEntry *new_slice;
 
-    new_slice = slice_dup(segment, src_slice, src_slice->type, offset, length);
+    new_slice = slice_dup(segment, src_slice, src_slice->type,
+            offset, length, call_by_db_event_dealer);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -1171,7 +1167,8 @@ static inline int dup_slice_to_smart_array(OBSegment *segment,
 
 static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
         UniqSkiplist *sl, OBSliceEntry *slice, DATrunkFileInfo *trunk,
-        int *inc_alloc, struct fc_queue_info *space_chain)
+        int *inc_alloc, struct fc_queue_info *space_chain,
+        const bool call_by_db_event_dealer)
 {
     UniqSkiplistNode *node;
     UniqSkiplistNode *previous;
@@ -1214,7 +1211,8 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
 
             if ((result=dup_slice_to_smart_array(segment, curr_slice,
                             curr_slice->ssize.offset, slice->ssize.offset -
-                            curr_slice->ssize.offset, &add_slice_array)) != 0)
+                            curr_slice->ssize.offset, call_by_db_event_dealer,
+                            &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -1223,6 +1221,7 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(segment, curr_slice,
                                 slice_end, curr_end - slice_end,
+                                call_by_db_event_dealer,
                                 &add_slice_array)) != 0)
                 {
                     return result;
@@ -1255,6 +1254,7 @@ static int add_slice(OBSegment *segment, OBHashtable *htable, OBEntry *ob,
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(segment, curr_slice,
                                 slice_end, curr_end - slice_end,
+                                call_by_db_event_dealer,
                                 &add_slice_array)) != 0)
                 {
                     return result;
@@ -1395,6 +1395,7 @@ static int update_slice(OBThreadLocal *tls, OBSegment *segment,
         int *update_count, bool *release_slice,
         FSSliceSpaceLogRecord *record, const bool call_by_reclaim)
 {
+    const bool call_by_db_event_dealer = false;
     UniqSkiplistNode *node;
     OBSliceEntry *current;
     SFBinlogWriterBuffer *slice_tail = NULL;
@@ -1480,7 +1481,7 @@ static int update_slice(OBThreadLocal *tls, OBSegment *segment,
 
             if ((result=dup_slice_to_smart_array(segment, slice,
                             current->ssize.offset, current->ssize.length,
-                            &add_slice_array)) != 0)
+                            call_by_db_event_dealer, &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -1529,6 +1530,7 @@ int ob_index_add_slice_no_db_ex(OBHashtable *htable,
         uint64_t *sn, int *inc_alloc, struct fc_queue_info *space_chain)
 {
     const int init_refer = 1;
+    const bool call_by_db_event_dealer = false;
     int result;
     OBEntry *ob;
     OBSliceEntry *slice;
@@ -1546,7 +1548,9 @@ int ob_index_add_slice_no_db_ex(OBHashtable *htable,
     ob = get_ob_entry(segment, htable, bucket, bkey, true);
     if (ob == NULL) {
         result = ENOMEM;
-    } else if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
+    } else if ((slice=ob_slice_alloc_ex(segment, ob, init_refer,
+                    call_by_db_event_dealer)) == NULL)
+    {
         result = ENOMEM;
     } else {
         slice->data_version = data_version;
@@ -1564,7 +1568,7 @@ int ob_index_add_slice_no_db_ex(OBHashtable *htable,
 
         result = add_slice(segment, htable, ob, ob->slices, slice,
                 slice_sn_pair != NULL ? slice_sn_pair->trunk : NULL,
-                inc_alloc, space_chain);
+                inc_alloc, space_chain, call_by_db_event_dealer);
         if (result == 0) {
             if (sn != NULL) {
                 *sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
@@ -1582,6 +1586,7 @@ int ob_index_batch_add_slice(const int64_t data_version,
         struct fc_queue_info *space_chain)
 {
     const int init_refer = 1;
+    const bool call_by_db_event_dealer = false;
     int inc_alloc;
     int result = 0;
     int64_t sn;
@@ -1617,9 +1622,9 @@ int ob_index_batch_add_slice(const int64_t data_version,
             slice->type = slice_sn_pair->type;
             slice->ssize = slice_sn_pair->ssize;
             slice->space = slice_sn_pair->space;
-            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob,
-                            ob->slices, slice, slice_sn_pair->trunk,
-                            &inc_alloc, space_chain)) != 0)
+            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob, ob->slices,
+                            slice, slice_sn_pair->trunk, &inc_alloc,
+                            space_chain, call_by_db_event_dealer)) != 0)
             {
                 break;
             }
@@ -1646,6 +1651,7 @@ int ob_index_add_slice_by_binlog(const uint64_t sn,
         const DASliceType slice_type, const DATrunkSpaceInfo *space)
 {
     const int init_refer = 1;
+    const bool call_by_db_event_dealer = false;
     int result;
     OBThreadLocal *tls = NULL;
     FSChangeNotifyEvent *event;
@@ -1662,8 +1668,9 @@ int ob_index_add_slice_by_binlog(const uint64_t sn,
             slice->type = slice_type;
             slice->ssize = bs_key->slice;
             slice->space = *space;
-            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob, ob->
-                            slices, slice, NULL, NULL, NULL)) == 0)
+            if ((result=add_slice(segment, &G_OB_HASHTABLE, ob,
+                            ob->slices, slice, NULL, NULL, NULL,
+                            call_by_db_event_dealer)) == 0)
             {
                 if (STORAGE_ENABLED) {
                     if ((event=tls_alloc_event(tls)) != NULL) {
@@ -1746,7 +1753,8 @@ int ob_index_update_slice_ex(OBHashtable *htable, const DASliceEntry *se,
 
 static int delete_slice(OBSegment *segment, OBHashtable *htable,
         OBEntry *ob, UniqSkiplist *sl, const FSBlockSliceKeyInfo *bs_key,
-        int *count, int *dec_alloc, struct fc_queue_info *space_chain)
+        int *count, int *dec_alloc, struct fc_queue_info *space_chain,
+        const bool call_by_db_event_dealer)
 {
     OBSliceEntry target;
     UniqSkiplistNode *node;
@@ -1787,7 +1795,8 @@ static int delete_slice(OBSegment *segment, OBHashtable *htable,
 
             if ((result=dup_slice_to_smart_array(segment, curr_slice,
                             curr_slice->ssize.offset, bs_key->slice.offset -
-                            curr_slice->ssize.offset, &add_slice_array)) != 0)
+                            curr_slice->ssize.offset, call_by_db_event_dealer,
+                            &add_slice_array)) != 0)
             {
                 return result;
             }
@@ -1795,6 +1804,7 @@ static int delete_slice(OBSegment *segment, OBHashtable *htable,
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(segment, curr_slice,
                                 slice_end, curr_end - slice_end,
+                                call_by_db_event_dealer,
                                 &add_slice_array)) != 0)
                 {
                     return result;
@@ -1828,6 +1838,7 @@ static int delete_slice(OBSegment *segment, OBHashtable *htable,
             if (curr_end > slice_end) {
                 if ((result=dup_slice_to_smart_array(segment, curr_slice,
                                 slice_end, curr_end - slice_end,
+                                call_by_db_event_dealer,
                                 &add_slice_array)) != 0)
                 {
                     return result;
@@ -1875,6 +1886,7 @@ int ob_index_delete_slice_ex(OBHashtable *htable,
         const FSBlockSliceKeyInfo *bs_key, uint64_t *sn,
         int *dec_alloc, struct fc_queue_info *space_chain)
 {
+    const bool call_by_db_event_dealer = false;
     OBThreadLocal *tls = NULL;
     FSChangeNotifyEvent *event;
     OBEntry *ob;
@@ -1892,7 +1904,8 @@ int ob_index_delete_slice_ex(OBHashtable *htable,
         result = ENOENT;
     } else {
         result = delete_slice(segment, htable, ob, ob->slices,
-                bs_key, &count, dec_alloc, space_chain);
+                bs_key, &count, dec_alloc, space_chain,
+                call_by_db_event_dealer);
         if (result == 0) {
             if (sn != NULL) {
                 if (*sn == 0) {
@@ -2016,10 +2029,11 @@ static inline int dup_slice_to_array(OBSegment *segment, OBHashtable *htable,
         const OBSliceEntry *src_slice, const int offset, const int length,
         OBSliceReadBufferArray *array)
 {
+    const bool call_by_db_event_dealer = false;
     OBSliceEntry *new_slice;
 
-    new_slice = slice_dup(segment, src_slice,
-            src_slice->type, offset, length);
+    new_slice = slice_dup(segment, src_slice, src_slice->type,
+            offset, length, call_by_db_event_dealer);
     if (new_slice == NULL) {
         return ENOMEM;
     }
@@ -2353,8 +2367,8 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
     }
 
     segment = ob_shared_ctx.segment_array.segments;
-    if ((result=block_serializer_fetch_and_unpack(
-                    segment, bkey, &fv)) != 0)
+    if ((result=block_serializer_fetch_and_unpack(&segment->
+                    db_fetch_ctx, bkey, &fv)) != 0)
     {
         return result;
     }
@@ -2680,8 +2694,8 @@ static int walk_callback_for_remove_slices(const FSBlockKey *bkey, void *arg)
     }
 
     segment = ob_shared_ctx.segment_array.segments;
-    if ((result=block_serializer_fetch_and_unpack(
-                    segment, bkey, &fv)) != 0)
+    if ((result=block_serializer_fetch_and_unpack(&segment->
+                    db_fetch_ctx, bkey, &fv)) != 0)
     {
         return result;
     }
@@ -3387,14 +3401,15 @@ OBSegment *ob_index_get_segment(const FSBlockKey *bkey)
     return segment;
 }
 
-int ob_index_load_db_slices(OBSegment *segment, OBEntry *ob)
+int ob_index_load_db_slices(FSDBFetchContext *db_fetch_ctx,
+        OBSegment *segment, OBEntry *ob)
 {
     int result;
 
     if ((result=ob_index_alloc_db_slices(segment, ob)) != 0) {
         return result;
     }
-    return ob_load_slices(segment, ob, ob->db_args->slices);
+    return ob_load_slices(db_fetch_ctx, segment, ob, ob->db_args->slices);
 }
 
 int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
@@ -3402,9 +3417,12 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
         const FSSliceSize *ssize, const DATrunkSpaceInfo *space)
 {
     const int init_refer = 1;
+    const bool call_by_db_event_dealer = true;
     OBSliceEntry *slice;
 
-    if ((slice=ob_slice_alloc(segment, ob, init_refer)) == NULL) {
+    if ((slice=ob_slice_alloc_ex(segment, ob, init_refer,
+                    call_by_db_event_dealer)) == NULL)
+    {
         return ENOMEM;
     }
     slice->data_version = data_version;
@@ -3412,12 +3430,14 @@ int ob_index_add_slice_by_db(OBSegment *segment, OBEntry *ob,
     slice->ssize = *ssize;
     slice->space = *space;
     return add_slice(segment, &G_OB_HASHTABLE, ob, ob->
-            db_args->slices, slice, NULL, NULL, NULL);
+            db_args->slices, slice, NULL, NULL, NULL,
+            call_by_db_event_dealer);
 }
 
 int ob_index_delete_slice_by_db(OBSegment *segment,
         OBEntry *ob, const FSSliceSize *ssize)
 {
+    const bool call_by_db_event_dealer = true;
     int count;
     int result;
     FSBlockSliceKeyInfo bs_key;
@@ -3425,7 +3445,8 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
     result = delete_slice(segment, &G_OB_HASHTABLE, ob, ob->
-            db_args->slices, &bs_key, &count, NULL, NULL);
+            db_args->slices, &bs_key, &count, NULL, NULL,
+            call_by_db_event_dealer);
     return (result == ENOENT ? 0 : result);
 }
 

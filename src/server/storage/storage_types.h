@@ -23,7 +23,10 @@
 #include "fastcommon/fast_mblock.h"
 #include "fastcommon/sorted_queue.h"
 #include "sf/sf_shared_mbuffer.h"
+#include "sf/sf_serializer.h"
 #include "diskallocator/storage_types.h"
+#include "diskallocator/dio/trunk_read_thread.h"
+#include "diskallocator/dio/trunk_write_thread.h"
 #include "../../common/fs_types.h"
 
 #define FS_MAX_SPLIT_COUNT_PER_SPACE_ALLOC   2
@@ -57,10 +60,15 @@ typedef struct {
     FSSliceSNPair *slice_sn_pairs;
 } FSSliceSNPairArray;
 
+typedef struct fs_db_fetch_context {
+    DASynchronizedReadContext read_ctx;
+    SFSerializerIterator it;
+} FSDBFetchContext;
+
 typedef struct ob_db_args {
     bool locked;
     char status;
-    volatile short ref_count;
+    short ref_count;
     UniqSkiplist *slices;  //the element is OBSliceEntry
     struct fc_list_head dlink; //for storage engine LRU
 } OBDBArgs;
