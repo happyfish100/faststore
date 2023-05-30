@@ -45,26 +45,31 @@ typedef struct db_updater_ctx {
 
 static DBUpdaterCtx db_updater_ctx;
 
-int db_updater_realloc_block_array(FSDBUpdateBlockArray *array)
+int db_updater_realloc_block_array(FSDBUpdateBlockArray *array,
+        const int old_count)
 {
-    FSDBUpdateBlockInfo *entries;
+    FSDBUpdateBlockInfo *old_entries;
+    FSDBUpdateBlockInfo *new_entries;
+    int old_alloc;
     int new_alloc;
 
-    new_alloc = (array->alloc == 0) ? 8 * 1024 : array->alloc * 2;
-    entries = (FSDBUpdateBlockInfo *)fc_malloc(
+    old_alloc = FC_ATOMIC_GET(array->alloc);
+    new_alloc = (old_alloc == 0) ? 8 * 1024 : old_alloc * 2;
+    new_entries = (FSDBUpdateBlockInfo *)fc_malloc(
             sizeof(FSDBUpdateBlockInfo) * new_alloc);
-    if (entries == NULL) {
+    if (new_entries == NULL) {
         return ENOMEM;
     }
 
-    if (array->entries != NULL) {
-        memcpy(entries, array->entries, sizeof(
-                    FSDBUpdateBlockInfo) * array->count);
-        free(array->entries);
+    old_entries = (FSDBUpdateBlockInfo *)FC_ATOMIC_GET(array->entries);
+    if (old_entries != NULL) {
+        memcpy(new_entries, old_entries, sizeof(
+                    FSDBUpdateBlockInfo) * old_count);
+        sched_delay_free_ptr(old_entries, 10);
     }
 
-    array->entries = entries;
-    array->alloc = new_alloc;
+    __sync_bool_compare_and_swap(&array->entries, old_entries, new_entries);
+    __sync_bool_compare_and_swap(&array->alloc, old_alloc, new_alloc);
     return 0;
 }
 
@@ -201,8 +206,8 @@ static int do_write(FSDBUpdaterContext *ctx)
         return result;
     }
 
-    end = ctx->array.entries + ctx->array.count;
-    for (entry=ctx->array.entries; entry<end; entry++) {
+    end = (FSDBUpdateBlockInfo *)ctx->array.entries + ctx->array.count;
+    for (entry=(FSDBUpdateBlockInfo *)ctx->array.entries; entry<end; entry++) {
         if ((result=write_one_entry(ctx, entry)) != 0) {
             return result;
         }
@@ -347,12 +352,14 @@ static int unpack_one_block(SFSerializerIterator *it,
     }
 
     if (ctx->array.count >= ctx->array.alloc) {
-        if ((result=db_updater_realloc_block_array(&ctx->array)) != 0) {
+        if ((result=db_updater_realloc_block_array(&ctx->array,
+                        ctx->array.count)) != 0)
+        {
             return result;
         }
     }
 
-    entry = ctx->array.entries + ctx->array.count;
+    entry = (FSDBUpdateBlockInfo *)ctx->array.entries + ctx->array.count;
     entry->buffer = NULL;
     while ((fv=sf_serializer_next(it)) != NULL) {
         switch (fv->fid) {
@@ -480,6 +487,10 @@ int db_updater_init(FSDBUpdaterContext *ctx)
         if ((result=fast_buffer_init_ex(buffer, 4 * 1024)) != 0) {
             return result;
         }
+    }
+
+    if ((result=db_updater_realloc_block_array(&ctx->array, 0)) != 0) {
+        return result;
     }
 
     if ((result=fc_safe_write_file_init(&db_updater_ctx.redo,

@@ -124,6 +124,7 @@ typedef struct server_global_vars {
 
     struct {
         bool enabled;
+        short event_dealer_thread_count;
         int batch_store_on_modifies;
         int batch_store_interval;
         int eliminate_interval;
@@ -357,6 +358,7 @@ typedef struct server_global_vars {
 #define TRUNK_INDEX_DUMP_INTERVAL   g_server_global_vars->slice_storage.cfg.trunk.index_dump_interval
 #define TRUNK_INDEX_DUMP_BASE_TIME  g_server_global_vars->slice_storage.cfg.trunk.index_dump_base_time
 #define BLOCK_ELIMINATE_INTERVAL  g_server_global_vars->slice_storage.eliminate_interval
+#define EVENT_DEALER_THREAD_COUNT g_server_global_vars->slice_storage.event_dealer_thread_count
 #define STORAGE_MEMORY_TOTAL_LIMIT  g_server_global_vars->slice_storage.memory_limit
 #define STORAGE_ENGINE_OB_COUNT     g_server_global_vars->slice_storage.stats.ob_count
 #define STORAGE_ENGINE_SLICE_COUNT  g_server_global_vars->slice_storage.stats.slice_count

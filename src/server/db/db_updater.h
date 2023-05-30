@@ -27,7 +27,7 @@ typedef struct fs_db_updater_context {
             int64_t commit;
         } block; //for check with slice sn
 
-        int64_t field;   //for check internal storage engine
+        volatile int64_t field;   //for check internal storage engine
     } last_versions;
 } FSDBUpdaterContext;
 
@@ -38,7 +38,8 @@ extern "C" {
     int db_updater_init(FSDBUpdaterContext *ctx);
     void db_updater_destroy();
 
-    int db_updater_realloc_block_array(FSDBUpdateBlockArray *array);
+    int db_updater_realloc_block_array(FSDBUpdateBlockArray *array,
+            const int old_count);
 
     int db_updater_deal(FSDBUpdaterContext *ctx);
 

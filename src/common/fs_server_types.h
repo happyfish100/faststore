@@ -30,9 +30,9 @@ typedef struct fs_db_update_block_info {
 } FSDBUpdateBlockInfo;
 
 typedef struct fs_db_update_block_array {
-    FSDBUpdateBlockInfo *entries;
-    int count;
-    int alloc;
+    volatile FSDBUpdateBlockInfo *entries;
+    volatile int count;
+    volatile int alloc;
 } FSDBUpdateBlockArray;
 
 typedef struct fs_storage_engine_config {

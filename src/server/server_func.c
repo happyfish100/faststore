@@ -36,6 +36,10 @@
 #include "server_group_info.h"
 #include "server_func.h"
 
+#define EVENT_DEALER_THREAD_DEFAULT_COUNT  4
+#define EVENT_DEALER_THREAD_MIN_COUNT      1
+#define EVENT_DEALER_THREAD_MAX_COUNT     64
+
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
         const int64_t default_value, int64_t *bytes)
@@ -495,6 +499,7 @@ static void server_log_configs()
                 ", library: %s, data_path: %s, block_binlog_subdirs: %d"
                 ", block_segment_hashtable_capacity: %d"
                 ", block_segment_shared_lock_count: %d"
+                ", event_dealer_thread_count: %d"
                 ", batch_store_on_modifies: %d, batch_store_interval: %d s"
                 ", trunk_index_dump_base_time: %02d:%02d"
                 ", trunk_index_dump_interval: %d s"
@@ -504,6 +509,7 @@ static void server_log_configs()
                 slice_storage.cfg.block_segment.htable_capacity,
                 g_server_global_vars->slice_storage.cfg.
                 block_segment.shared_lock_count,
+                EVENT_DEALER_THREAD_COUNT,
                 BATCH_STORE_ON_MODIFIES, BATCH_STORE_INTERVAL,
                 TRUNK_INDEX_DUMP_BASE_TIME.hour,
                 TRUNK_INDEX_DUMP_BASE_TIME.minute,
@@ -745,6 +751,10 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
     g_server_global_vars->slice_storage.cfg.block_segment.shared_lock_count =
         iniGetIntCorrectValue(ini_ctx, "block_segment_shared_lock_count",
                 163, 1, 1361);
+
+    EVENT_DEALER_THREAD_COUNT = iniGetIntCorrectValue(ini_ctx,
+            "event_dealer_thread_count", EVENT_DEALER_THREAD_DEFAULT_COUNT,
+            EVENT_DEALER_THREAD_MIN_COUNT, EVENT_DEALER_THREAD_MAX_COUNT);
 
     return 0;
 }

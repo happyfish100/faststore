@@ -55,7 +55,7 @@ static void *change_notify_func(void *arg)
     int result;
 
 #ifdef OS_LINUX
-    prctl(PR_SET_NAME, "chg-notify");
+    prctl(PR_SET_NAME, "ev-dispatcher");
 #endif
 
     memset(&less_equal, 0, sizeof(less_equal));
