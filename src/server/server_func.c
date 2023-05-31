@@ -40,6 +40,8 @@
 #define EVENT_DEALER_THREAD_MIN_COUNT      1
 #define EVENT_DEALER_THREAD_MAX_COUNT     64
 
+#define FS_SYSTEM_FLAG_FILENAME    ".fstore.dat"
+
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
         const int64_t default_value, int64_t *bytes)
@@ -826,6 +828,52 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
     return 0;
 }
 
+static int check_file_block_size()
+{
+    char filename[PATH_MAX];
+    char buff[256];
+    IniContext ini_context;
+    int file_block_size;
+    int len;
+    int result;
+
+    snprintf(filename, sizeof(filename), "%s/%s",
+            DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
+    if (access(filename, F_OK) != 0) {
+        result = errno != 0 ? errno : EPERM;
+        if (result == ENOENT) {
+            len = sprintf(buff, "file_block_size=%d\n", FILE_BLOCK_SIZE);
+            return safeWriteToFile(filename, buff, len);
+        }
+
+        logError("file: "__FILE__", line: %d, "
+                "access file %s fail, errno: %d, error info: %s",
+                __LINE__, filename, result, STRERROR(result));
+        return result;
+    }
+
+    if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "load conf file \"%s\" fail, ret code: %d",
+                __LINE__, filename, result);
+        return result;
+    }
+
+    file_block_size = iniGetIntValue(NULL,
+            "file_block_size", &ini_context, 0);
+    if (file_block_size != FILE_BLOCK_SIZE) {
+        logError("file: "__FILE__", line: %d, "
+                "file_block_size in cluster.conf changed, old: %d KB, "
+                "new: %d KB, you must restore file_block_size to %d KB",
+                __LINE__, file_block_size / 1024, FILE_BLOCK_SIZE / 1024,
+                file_block_size / 1024);
+        return EINVAL;
+    }
+
+    iniFreeContext(&ini_context);
+    return 0;
+}
+
 int server_load_config(const char *filename)
 {
     IniContext ini_context;
@@ -1023,6 +1071,10 @@ int server_load_config(const char *filename)
         ceil(SF_G_NETWORK_TIMEOUT / 2.00);
     if (g_server_global_vars->replica.active_test_interval == 0) {
         g_server_global_vars->replica.active_test_interval = 1;
+    }
+
+    if ((result=check_file_block_size()) != 0) {
+        return result;
     }
 
     iniFreeContext(&ini_context);

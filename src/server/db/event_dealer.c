@@ -399,7 +399,7 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     int64_t slice_count;
     int64_t start_time;
     int64_t end_time;
-    int avg_slices;
+    double avg_slices;
     int sort_time;
     int ob_deal_time;
     int db_deal_time;
@@ -464,9 +464,9 @@ int event_dealer_do(struct fc_list_head *head, int *count)
             event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
         }
 
-        avg_slices = slice_count / MERGED_BLOCK_ARRAY.count;
+        avg_slices = (double)slice_count / MERGED_BLOCK_ARRAY.count;
     } else {
-        avg_slices = 0;
+        avg_slices = 0.00;
     }
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
@@ -475,7 +475,7 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     ob_deal_time = ob_deal_end_time - start_time;
     db_deal_time = end_time - ob_deal_end_time;
     logInfo("db event count: %d, merged ob count: %d, packed slice count: "
-            "%"PRId64", avg slices per ob: %d, last sn: %"PRId64", "
+            "%"PRId64", avg slices per ob: %.2f, last sn: %"PRId64", "
             "sort time: %d ms, ob deal time: %d ms, db deal time: %d ms",
             *count, MERGED_BLOCK_ARRAY.count, slice_count, avg_slices,
             event_dealer_ctx.updater_ctx.last_versions.block.commit,

@@ -933,7 +933,7 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
     char *buff_end;
     int i;
 
-    logInfo("file_block_size = %d", cluster_cfg->file_block.size);
+    logInfo("file_block_size = %d kB", cluster_cfg->file_block.size / 1024);
     logInfo("server_group_count = %d", cluster_cfg->server_groups.count);
     logInfo("data_group_count = %d", cluster_cfg->data_groups.count);
 
