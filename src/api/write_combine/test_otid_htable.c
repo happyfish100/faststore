@@ -68,10 +68,10 @@ void *thread_run(void *arg)
 
         op_ctx.bs_key.block.offset = FS_FILE_BLOCK_ALIGN(offset);
         op_ctx.bs_key.slice.offset = offset - op_ctx.bs_key.block.offset;
-        if (op_ctx.bs_key.slice.offset + length <= FS_FILE_BLOCK_SIZE) {
+        if (op_ctx.bs_key.slice.offset + length <= FILE_BLOCK_SIZE) {
             op_ctx.bs_key.slice.length = length;
         } else {
-            op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE -
+            op_ctx.bs_key.slice.length = FILE_BLOCK_SIZE -
                 op_ctx.bs_key.slice.offset;
         }
         op_ctx.bid = op_ctx.bs_key.block.offset;

@@ -18,9 +18,9 @@
 #include "fastcommon/ini_file_reader.h"
 #include "fastcommon/shared_func.h"
 #include "fastcommon/logger.h"
-#include "fs_func.h"
 #include "fs_cluster_cfg.h"
 #include "client_global.h"
+#include "fs_func.h"
 #include "simple_connection_manager.h"
 #include "client_func.h"
 
@@ -102,6 +102,7 @@ void fs_client_log_config_ex(FSClientContext *client_ctx,
             "connect_timeout: %d, "
             "network_timeout: %d, "
             "read_rule: %s, %s, "
+            "file_block_size: %d KB, "
             "server group count: %d, "
             "data group count: %d%s%s",
             g_fs_global_vars.version.major,
@@ -112,6 +113,7 @@ void fs_client_log_config_ex(FSClientContext *client_ctx,
             client_ctx->common_cfg.network_timeout,
             sf_get_read_rule_caption(client_ctx->common_cfg.read_rule),
             net_retry_output,
+            client_ctx->cluster_cfg.ptr->file_block.size / 1024,
             FS_SERVER_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             FS_DATA_GROUP_COUNT(*client_ctx->cluster_cfg.ptr),
             extra_config != NULL ? ", " : "",

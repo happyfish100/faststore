@@ -27,7 +27,6 @@
 #define FS_SERVER_DEFAULT_REPLICA_PORT  21015
 #define FS_SERVER_DEFAULT_SERVICE_PORT  21016
 
-#define FS_FILE_BLOCK_SIZE    (4 * 1024 * 1024)
 #define FS_MAX_DATA_GROUPS_PER_SERVER   1024
 #define FS_MAX_GROUP_SERVERS             128
 
@@ -43,9 +42,6 @@
 #define FS_CLUSTER_STAT_FILTER_BY_IS_MASTER       4
 
 #define FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST    1
-
-#define FS_FILE_BLOCK_ALIGN(offset) \
-    (offset & (~(FS_FILE_BLOCK_SIZE - 1)))
 
 #define FS_BLOCK_KEY_EQUAL(bkey1, bkey2) \
     ((bkey1).oid == (bkey2).oid && (bkey1).offset == (bkey2).offset)

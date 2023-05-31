@@ -25,10 +25,11 @@
 extern "C" {
 #endif
 
-    static inline void fs_calc_block_hashcode(FSBlockKey *bkey)
+    static inline void fs_calc_block_hashcode(FSBlockKey *bkey,
+            const int file_block_size)
     {
         bkey->hash_code = bkey->oid + bkey->offset +
-            (bkey->offset / FS_FILE_BLOCK_SIZE);
+            (bkey->offset / file_block_size);
     }
 
     static inline void fs_fill_padding_bkey(const int data_group_id,

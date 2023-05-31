@@ -2612,7 +2612,7 @@ static inline int remove_trunk_to_file(const FSBlockKey *bkey,
     }
 
     ssize.offset = 0;
-    ssize.length = FS_FILE_BLOCK_SIZE;
+    ssize.length = FILE_BLOCK_SIZE;
     ctx->writer.buffer.current += rebuild_binlog_log_to_buff(
             BINLOG_OP_TYPE_WRITE_SLICE, bkey, &ssize,
             ctx->writer.buffer.current);

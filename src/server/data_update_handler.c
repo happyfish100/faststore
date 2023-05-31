@@ -150,15 +150,15 @@ static int parse_check_block_key(struct fast_task_info *task,
 {
     op_ctx->info.bs_key.block.oid = buff2long(bkey->oid);
     op_ctx->info.bs_key.block.offset = buff2long(bkey->offset);
-    if (op_ctx->info.bs_key.block.offset % FS_FILE_BLOCK_SIZE != 0) {
+    if (op_ctx->info.bs_key.block.offset % FILE_BLOCK_SIZE != 0) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "block offset: %"PRId64" "
                 "NOT the multiple of the block size %d",
-                op_ctx->info.bs_key.block.offset, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.block.offset, FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
-    fs_calc_block_hashcode(&op_ctx->info.bs_key.block);
+    fs_calc_block_hashcode(&op_ctx->info.bs_key.block, FILE_BLOCK_SIZE);
     op_ctx->info.data_group_id = FS_DATA_GROUP_ID(op_ctx->info.bs_key.block);
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {
@@ -300,22 +300,22 @@ int du_handler_parse_check_block_slice(struct fast_task_info *task,
     op_ctx->info.bs_key.slice.offset = buff2int(bs->slice_size.offset);
     op_ctx->info.bs_key.slice.length = buff2int(bs->slice_size.length);
     if (op_ctx->info.bs_key.slice.offset < 0 || op_ctx->info.bs_key.slice.offset >=
-            FS_FILE_BLOCK_SIZE)
+            FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message, "slice offset: %d "
                 "is invalid which < 0 or exceeds the block size %d",
-                op_ctx->info.bs_key.slice.offset, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.slice.offset, FILE_BLOCK_SIZE);
         return EINVAL;
     }
     if (op_ctx->info.bs_key.slice.length <= 0 || op_ctx->info.bs_key.slice.offset +
-            op_ctx->info.bs_key.slice.length > FS_FILE_BLOCK_SIZE)
+            op_ctx->info.bs_key.slice.length > FILE_BLOCK_SIZE)
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "slice offset: %d, length: %d is invalid which <= 0, "
                 "or offset + length exceeds the block size %d",
                 op_ctx->info.bs_key.slice.offset,
-                op_ctx->info.bs_key.slice.length, FS_FILE_BLOCK_SIZE);
+                op_ctx->info.bs_key.slice.length, FILE_BLOCK_SIZE);
         return EINVAL;
     }
 
@@ -823,10 +823,10 @@ int du_handler_deal_client_join(struct fast_task_info *task)
                 data_group_count, FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX));
         return EINVAL;
     }
-    if (file_block_size != FS_FILE_BLOCK_SIZE) {
+    if (file_block_size != FILE_BLOCK_SIZE) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "client file block size: %d != mine: %d",
-                file_block_size, FS_FILE_BLOCK_SIZE);
+                file_block_size, FILE_BLOCK_SIZE);
         return EINVAL;
     }
 

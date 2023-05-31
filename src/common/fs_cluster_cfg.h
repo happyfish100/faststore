@@ -64,6 +64,10 @@ typedef struct {
     FSDataGroupArray data_groups;
     FSServerDataMappingArray server_data_mappings;
     FCServerInfoPtrArray used_server_array;
+    struct {
+        int size;
+        int mask;  //(~(FS_FILE_BLOCK_SIZE - 1))
+    } file_block;
     int unused_server_count;
     int cluster_group_index;
     int replica_group_index;
@@ -80,6 +84,13 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+    static inline void fs_cluster_cfg_set_file_block_size(
+            FSClusterConfig *cfg, const int file_block_size)
+    {
+        cfg->file_block.size = file_block_size;
+        cfg->file_block.mask = ~(file_block_size - 1);
+    }
 
     int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
             const char *cluster_filename, const bool calc_signs);

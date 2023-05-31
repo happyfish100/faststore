@@ -174,7 +174,7 @@ static int init_task_allocator_array(DataReplayTaskAllocatorArray
         return ENOMEM;
     }
 
-    element_size = sizeof(ReplayTaskInfo) + FS_FILE_BLOCK_SIZE;
+    element_size = sizeof(ReplayTaskInfo) + FILE_BLOCK_SIZE;
     end = allocator_array->allocators + count;
     for (ai=allocator_array->allocators; ai<end; ai++) {
         if ((result=fast_mblock_init_ex1(&ai->allocator, "replay_task",
@@ -754,11 +754,11 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
         }
 
         if (replay_ctx->record.bs_key.slice.length >
-                FS_FILE_BLOCK_SIZE)
+                FILE_BLOCK_SIZE)
         {
             sprintf(error_info, "slice length: %d > block size: %d!",
                     replay_ctx->record.bs_key.slice.length,
-                    FS_FILE_BLOCK_SIZE);
+                    FILE_BLOCK_SIZE);
             result = EINVAL;
             break;
         }
@@ -778,7 +778,8 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
             return EINTR;
         }
 
-        fs_calc_block_hashcode(&replay_ctx->record.bs_key.block);
+        fs_calc_block_hashcode(&replay_ctx->record.
+                bs_key.block, FILE_BLOCK_SIZE);
         task->op_type = replay_ctx->record.op_type;
         task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;

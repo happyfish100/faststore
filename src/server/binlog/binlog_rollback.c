@@ -126,7 +126,7 @@ static int init_rollback_context(DataRollbackContext *rollback_ctx,
     int result;
 
     memset(rollback_ctx, 0, sizeof(*rollback_ctx));
-    rollback_ctx->op_ctx.info.buff = fc_malloc(FS_FILE_BLOCK_SIZE);
+    rollback_ctx->op_ctx.info.buff = fc_malloc(FILE_BLOCK_SIZE);
     if (rollback_ctx->op_ctx.info.buff == NULL) {
         return ENOMEM;
     }
@@ -273,11 +273,11 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     uint64_t sn;
     struct fc_queue_info space_chain;
 
-    fs_calc_block_hashcode(&record->bs_key.block);
+    fs_calc_block_hashcode(&record->bs_key.block, FILE_BLOCK_SIZE);
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
     if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
         rollback_ctx->op_ctx.info.bs_key.slice.offset = 0;
-        rollback_ctx->op_ctx.info.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
+        rollback_ctx->op_ctx.info.bs_key.slice.length = FILE_BLOCK_SIZE;
     } else {
         rollback_ctx->op_ctx.info.bs_key.slice = record->bs_key.slice;
     }

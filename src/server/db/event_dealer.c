@@ -36,7 +36,8 @@ typedef struct fs_event_dealer_thread_context {
     int event_count;
     int old_slice_count;
     struct {
-        int64_t ob_count;
+        int64_t ob_inc;
+        int64_t slice_inc;
         int64_t slice_count;
     } stats;
 } FSEventDealerThreadContext;
@@ -198,6 +199,7 @@ static int deal_ob_events(FSEventDealerThreadContext *thread)
     int result;
     int count;
     int alloc;
+    int new_slice_count;
     bool empty;
     int64_t version;
     FSDBUpdateBlockInfo *block;
@@ -252,14 +254,15 @@ static int deal_ob_events(FSEventDealerThreadContext *thread)
     }
 
     if (empty) {
-        thread->stats.ob_count--;
-        thread->stats.slice_count -= thread->old_slice_count;
+        thread->stats.ob_inc--;
+        thread->stats.slice_inc -= thread->old_slice_count;
     } else {
+        new_slice_count = uniq_skiplist_count(thread->ob->db_args->slices);
+        thread->stats.slice_count += new_slice_count;
         if (thread->old_slice_count == 0) {
-            thread->stats.ob_count++;
+            thread->stats.ob_inc++;
         }
-        thread->stats.slice_count += uniq_skiplist_count(thread->
-                ob->db_args->slices) - thread->old_slice_count;
+        thread->stats.slice_inc += new_slice_count - thread->old_slice_count;
     }
 
     ob_entry_release(thread->segment, thread->ob, thread->event_count);
@@ -393,8 +396,10 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     FSEventDealerThreadContext *thread;
     FSChangeNotifyEvent *event;
     FSChangeNotifyEvent *last;
+    int64_t slice_count;
     int64_t start_time;
     int64_t end_time;
+    int avg_slices;
     int sort_time;
     int ob_deal_time;
     int db_deal_time;
@@ -431,8 +436,8 @@ int event_dealer_do(struct fc_list_head *head, int *count)
             thread<event_dealer_ctx.thread_array.end; thread++)
     {
         if (thread->event_ptr_array.count > 0) {
-            thread->stats.ob_count = 0;
-            thread->stats.slice_count = 0;
+            thread->stats.ob_inc = 0;
+            thread->stats.slice_inc = 0;
             pthread_cond_signal(&thread->lcp.cond);
             ++thread_count;
         }
@@ -441,13 +446,16 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     sf_synchronize_counter_wait(&event_dealer_ctx.sctx);
     ob_deal_end_time = get_current_time_us();
 
+    slice_count = 0;
     for (thread=event_dealer_ctx.thread_array.threads;
             thread<event_dealer_ctx.thread_array.end; thread++)
     {
         if (thread->event_ptr_array.count > 0) {
-            STORAGE_ENGINE_OB_COUNT += thread->stats.ob_count;
-            STORAGE_ENGINE_SLICE_COUNT += thread->stats.slice_count;
+            slice_count += thread->stats.slice_count;
+            STORAGE_ENGINE_OB_COUNT += thread->stats.ob_inc;
+            STORAGE_ENGINE_SLICE_COUNT += thread->stats.slice_inc;
             thread->event_ptr_array.count = 0;
+            thread->stats.slice_count = 0;
         }
     }
 
@@ -455,6 +463,10 @@ int event_dealer_do(struct fc_list_head *head, int *count)
         if ((result=db_updater_deal(&event_dealer_ctx.updater_ctx)) == 0) {
             event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
         }
+
+        avg_slices = slice_count / MERGED_BLOCK_ARRAY.count;
+    } else {
+        avg_slices = 0;
     }
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
@@ -462,9 +474,10 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     end_time = get_current_time_us();
     ob_deal_time = ob_deal_end_time - start_time;
     db_deal_time = end_time - ob_deal_end_time;
-    logInfo("db event count: %d, merged ob count: %d, last sn: %"PRId64", "
+    logInfo("db event count: %d, merged ob count: %d, packed slice count: "
+            "%"PRId64", avg slices per ob: %d, last sn: %"PRId64", "
             "sort time: %d ms, ob deal time: %d ms, db deal time: %d ms",
-            *count, MERGED_BLOCK_ARRAY.count,
+            *count, MERGED_BLOCK_ARRAY.count, slice_count, avg_slices,
             event_dealer_ctx.updater_ctx.last_versions.block.commit,
             sort_time / 1000, ob_deal_time / 1000, db_deal_time / 1000);
 

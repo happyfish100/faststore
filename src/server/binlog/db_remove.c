@@ -76,7 +76,7 @@ static int parse_buffer(DBRemoveContext *ctx)
 
         sn = ob_index_generate_alone_sn();
         if (record.bs_key.slice.offset == 0 && record.bs_key.
-                slice.length == FS_FILE_BLOCK_SIZE)
+                slice.length == FILE_BLOCK_SIZE)
         {
             change_notify_push_del_block(event, sn, ob);
         } else {

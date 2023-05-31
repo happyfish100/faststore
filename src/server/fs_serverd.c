@@ -495,8 +495,11 @@ static int setup_server_env(const char *config_filename)
         return result;
     }
 
-    result = sf_setup_signal_handler();
+    if (STORAGE_ENABLED) {
+        sched_set_delay_params(0, 0);
+    }
 
+    result = sf_setup_signal_handler();
     log_set_cache(true);
     return result;
 }

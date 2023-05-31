@@ -96,7 +96,7 @@ static void process_on_successive(FSPrereadInsertContext *ictx,
         *release_buffer = (entry->buffer != NULL);
         if (ictx->op_ctx->bs_key.slice.length < ictx->op_ctx->
                 api_ctx->read_ahead.skip_preread_on_slice_size &&
-                FS_FILE_BLOCK_SIZE - ictx->op_ctx->bs_key.slice.offset > 0)
+                FILE_BLOCK_SIZE - ictx->op_ctx->bs_key.slice.offset > 0)
         {
             if (buffer_valid) {
                 entry->continuous_count++;
@@ -104,7 +104,7 @@ static void process_on_successive(FSPrereadInsertContext *ictx,
                 entry->continuous_count = 1;
             }
 
-            block_remain = FS_FILE_BLOCK_SIZE -
+            block_remain = FILE_BLOCK_SIZE -
                 ictx->op_ctx->bs_key.slice.offset;
             max_size = FC_MIN(block_remain, ictx->op_ctx->
                     api_ctx->read_ahead.max_buffer_size);

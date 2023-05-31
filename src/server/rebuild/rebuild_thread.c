@@ -282,7 +282,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     thread->op_ctx.info.write_binlog.log_replica = false;
     thread->op_ctx.info.data_version = 0;
     thread->op_ctx.info.myself = NULL;
-    thread->op_ctx.info.buff = (char *)fc_malloc(FS_FILE_BLOCK_SIZE);
+    thread->op_ctx.info.buff = (char *)fc_malloc(FILE_BLOCK_SIZE);
     if (thread->op_ctx.info.buff == NULL) {
         return ENOMEM;
     }

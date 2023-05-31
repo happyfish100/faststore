@@ -326,6 +326,8 @@ typedef struct server_global_vars {
 
 #define WRITE_TO_CACHE            g_server_global_vars->  \
     storage.cfg.write_to_cache
+#define FILE_BLOCK_SIZE           g_server_global_vars->  \
+    cluster.config.ctx.file_block.size
 #define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \
     storage.cfg.object_block.hashtable_capacity
 #define OB_SHARED_LOCK_COUNT      g_server_global_vars->  \

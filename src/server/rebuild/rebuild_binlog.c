@@ -56,7 +56,7 @@ int rebuild_binlog_record_unpack(const string_t *line,
     BINLOG_PARSE_INT_SILENCE(record->bs_key.slice.length, "slice length",
             REBUILD_BINLOG_FIELD_INDEX_SLICE_LENGTH, '\n', 1);
 
-    fs_calc_block_hashcode(&record->bs_key.block);
+    fs_calc_block_hashcode(&record->bs_key.block, FILE_BLOCK_SIZE);
     return 0;
 }
 

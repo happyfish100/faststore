@@ -26,16 +26,25 @@
 #include "client_proto.h"
 #include "simple_connection_manager.h"
 
+#define FS_FILE_BLOCK_ALIGN(offset) (offset & FS_FILE_BLOCK_MASK)
+
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+static inline void fs_set_file_block_size(FSClientContext *client,
+        const int file_block_size)
+{
+    fs_cluster_cfg_set_file_block_size(client->
+            cluster_cfg.ptr, file_block_size);
+}
 
 static inline void fs_set_block_key(FSBlockKey *bkey,
         const int64_t oid, const int64_t offset)
 {
     bkey->oid = oid;
     bkey->offset = FS_FILE_BLOCK_ALIGN(offset);
-    fs_calc_block_hashcode(bkey);
+    fs_calc_block_hashcode(bkey, FS_FILE_BLOCK_SIZE);
 }
 
 static inline void fs_set_slice_size(FSBlockSliceKeyInfo *bs_key,
@@ -59,7 +68,7 @@ static inline void fs_set_block_slice(FSBlockSliceKeyInfo *bs_key,
 static inline void fs_next_block_key(FSBlockKey *bkey)
 {
     bkey->offset += FS_FILE_BLOCK_SIZE;
-    fs_calc_block_hashcode(bkey);
+    fs_calc_block_hashcode(bkey, FS_FILE_BLOCK_SIZE);
 }
 
 static inline void fs_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,

@@ -20,6 +20,10 @@
 #include "fs_global.h"
 #include "fs_cluster_cfg.h"
 
+#define FILE_BLOCK_DEFAULT_SIZE    (4 * 1024 * 1024)
+#define FILE_BLOCK_MIN_SIZE        (256 * 1024)
+#define FILE_BLOCK_MAX_SIZE        (8 * 1024 * 1024)
+
 #define INIT_ID_ARRAY(array) \
     do {  \
         (array).alloc = (array).count = 0; \
@@ -813,8 +817,11 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
         const char *cluster_filename, const bool calc_signs)
 {
     IniContext ini_context;
+    IniFullContext ini_ctx;
     const int min_hosts_each_group = 1;
     const bool share_between_groups = true;
+    int file_block_size;
+    int aligned_block_size;
     int result;
 
     memset(cluster_cfg, 0, sizeof(FSClusterConfig));
@@ -826,6 +833,23 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
                 __LINE__, cluster_filename, result);
         return result;
     }
+
+    FAST_INI_SET_FULL_CTX_EX(ini_ctx, cluster_filename,
+            NULL, &ini_context);
+    file_block_size = iniGetIntCorrectValue(&ini_ctx,
+            "file_block_size", FILE_BLOCK_DEFAULT_SIZE,
+            FILE_BLOCK_MIN_SIZE, FILE_BLOCK_MAX_SIZE);
+    if (!is_power2(file_block_size)) {
+        aligned_block_size = FILE_BLOCK_MIN_SIZE;
+        while (aligned_block_size < file_block_size) {
+            aligned_block_size *= 2;
+        }
+        logWarning("file: "__FILE__", line: %d, "
+                "file_block_size: %d is not the power of two, set to %d",
+                __LINE__, file_block_size, aligned_block_size);
+        file_block_size = aligned_block_size;
+    }
+    fs_cluster_cfg_set_file_block_size(cluster_cfg, file_block_size);
 
     if ((result=fc_server_load_from_ini_context_ex(&cluster_cfg->
                     server_cfg, &ini_context, cluster_filename,
@@ -909,6 +933,7 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
     char *buff_end;
     int i;
 
+    logInfo("file_block_size = %d", cluster_cfg->file_block.size);
     logInfo("server_group_count = %d", cluster_cfg->server_groups.count);
     logInfo("data_group_count = %d", cluster_cfg->data_groups.count);
 
@@ -954,8 +979,10 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
     }
 
     if ((result=fast_buffer_append(buffer,
+                    "file_block_size = %d\n"
                     "server_group_count = %d\n"
                     "data_group_count = %d\n",
+                    cluster_cfg->file_block.size,
                     cluster_cfg->server_groups.count,
                     cluster_cfg->data_groups.count)) != 0)
     {

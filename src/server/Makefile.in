@@ -7,7 +7,7 @@ LIB_PATH = $(LIBS) -lm -ldl -lfastcommon -lserverframe -lfcfsauthclient \
 TARGET_PATH = $(TARGET_PREFIX)/bin
 CONFIG_PATH = $(TARGET_CONF_PATH)
 
-COMMON_OBJS = ../common/fs_proto.o ../common/fs_func.o ../common/fs_global.o \
+COMMON_OBJS = ../common/fs_proto.o ../common/fs_global.o \
               ../common/fs_cluster_cfg.o
 
 CLIENT_OBJS = ../client/fs_client.o ../client/client_func.o \

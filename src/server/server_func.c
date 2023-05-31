@@ -75,28 +75,18 @@ static void log_cluster_server_config()
     //fc_server_to_log(&SERVER_CONFIG_CTX);
 }
 
-static int load_master_election_config(const char *filename)
+static int load_master_election_config(IniFullContext *ini_ctx)
 {
-    const char *section_name = "master-election";
-    int result;
-    IniContext ini_context;
     char *policy;
     char *remain;
     char *endptr;
 
-    if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
-        logError("file: "__FILE__", line: %d, "
-                "load conf file \"%s\" fail, ret code: %d",
-                __LINE__, filename, result);
-        return result;
-    }
-
-    RESUME_MASTER_ROLE = iniGetBoolValue(section_name,
-            "resume_master_role", &ini_context, true);
+    RESUME_MASTER_ROLE = iniGetBoolValue(ini_ctx->section_name,
+            "resume_master_role", ini_ctx->context, true);
     MASTER_ELECTION_TIMEOUTS = FS_DEFAULT_MASTER_ELECTION_TIMEOUTS;
-    MASTER_ELECTION_FAILOVER = iniGetBoolValue(section_name,
-            "failover", &ini_context, true);
-    policy = iniGetStrValue(section_name, "policy", &ini_context);
+    MASTER_ELECTION_FAILOVER = iniGetBoolValue(ini_ctx->section_name,
+            "failover", ini_ctx->context, true);
+    policy = iniGetStrValue(ini_ctx->section_name, "policy", ini_ctx->context);
     if (policy == NULL || *policy == '\0' ||
             strcasecmp(policy, FS_MASTER_ELECTION_POLICY_STRICT_STR) == 0)
     {
@@ -109,7 +99,7 @@ static int load_master_election_config(const char *filename)
     {
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, section: %s, item: policy is invalid",
-                __LINE__, filename, section_name);
+                __LINE__, ini_ctx->filename, ini_ctx->section_name);
         return EINVAL;
     }
 
@@ -123,8 +113,8 @@ static int load_master_election_config(const char *filename)
     if (*remain != ':') {
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, section: %s, item: policy is invalid, "
-                "expect colon (:) after %s", __LINE__, filename,
-                section_name, FS_MASTER_ELECTION_POLICY_TIMEOUT_STR);
+                "expect colon (:) after %s", __LINE__, ini_ctx->filename,
+                ini_ctx->section_name, FS_MASTER_ELECTION_POLICY_TIMEOUT_STR);
         return EINVAL;
     }
     remain++;  //skip colon
@@ -133,7 +123,7 @@ static int load_master_election_config(const char *filename)
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, section: %s, item: policy, "
                 "value: %s, expect timeout number after colon",
-                __LINE__, filename, section_name, policy);
+                __LINE__, ini_ctx->filename, ini_ctx->section_name, policy);
         return EINVAL;
     }
 
@@ -144,11 +134,10 @@ static int load_master_election_config(const char *filename)
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, section: %s, item: policy, "
                 "invalid timeout number: %s, length: %d",
-                __LINE__, filename, section_name, remain,
-                (int)strlen(remain));
+                __LINE__, ini_ctx->filename, ini_ctx->section_name,
+                remain, (int)strlen(remain));
         return EINVAL;
     }
-    iniFreeContext(&ini_context);
 
     return 0;
 }
@@ -197,6 +186,11 @@ static int load_cluster_sub_config(const char *cluster_filename)
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, cluster_filename,
             "leader-election", &ini_context);
     if ((result=load_leader_election_config(&ini_ctx)) != 0) {
+        return result;
+    }
+
+    ini_ctx.section_name = "master-election";
+    if ((result=load_master_election_config(&ini_ctx)) != 0) {
         return result;
     }
 
@@ -261,9 +255,6 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
         return result;
     }
 
-    if ((result=load_master_election_config(full_cluster_filename)) != 0) {
-        return result;
-    }
     fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
 
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
@@ -448,7 +439,7 @@ static void server_log_configs()
 
     len = snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, cluster server group id = %d, "
-            "data_path = %s, data_threads = %d, "
+            "file_block_size: %d KB, data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
@@ -471,6 +462,7 @@ static void server_log_configs()
             "max_shutdown_duration: %ds}, "
             "storage-engine { enabled: %d",
             CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
+            FILE_BLOCK_SIZE / 1024,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_THREADS_PER_DATA_GROUP,
@@ -602,6 +594,7 @@ static int server_init_client(const char *config_filename)
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
     g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
         client_ctx.cluster_cfg.ptr->replica_group_index;
+    fs_set_file_block_size(&g_fs_client_vars.client_ctx, FILE_BLOCK_SIZE);
     if ((result=init_net_retry_config(config_filename)) != 0) {
         return result;
     }

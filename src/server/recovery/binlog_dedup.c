@@ -117,7 +117,8 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
         }
 
         op_type = dedup_ctx->record.op_type;
-        fs_calc_block_hashcode(&dedup_ctx->record.bs_key.block);
+        fs_calc_block_hashcode(&dedup_ctx->record.
+                bs_key.block, FILE_BLOCK_SIZE);
         switch (op_type) {
             case BINLOG_OP_TYPE_WRITE_SLICE:
             case BINLOG_OP_TYPE_ALLOC_SLICE:
@@ -145,7 +146,7 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                             block, NULL, &dec_alloc, NULL);
                     dedup_ctx->record.bs_key.slice.offset = 0;
                     dedup_ctx->record.bs_key.slice.length =
-                        FS_FILE_BLOCK_SIZE;
+                        FILE_BLOCK_SIZE;
                 }
 
                 if (dec_alloc != dedup_ctx->record.bs_key.slice.length ||
