@@ -836,7 +836,7 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
 
     FAST_INI_SET_FULL_CTX_EX(ini_ctx, cluster_filename,
             NULL, &ini_context);
-    file_block_size = iniGetIntCorrectValue(&ini_ctx,
+    file_block_size = iniGetByteCorrectValue(&ini_ctx,
             "file_block_size", FILE_BLOCK_DEFAULT_SIZE,
             FILE_BLOCK_MIN_SIZE, FILE_BLOCK_MAX_SIZE);
     if (!is_power2(file_block_size)) {

@@ -255,9 +255,9 @@ static int write_redo_log(FSDBUpdaterContext *ctx)
 
     file_size = lseek(db_updater_ctx.redo.fd, 0, SEEK_END);
     logInfo("write redo log count: %d, file size: %"PRId64" KB, avg size: "
-            "%"PRId64", time used: %"PRId64" ms", ctx->array.count, file_size,
-            file_size / ctx->array.count, (get_current_time_us() -
-                start_time) / 1000);
+            "%"PRId64", time used: %"PRId64" ms", ctx->array.count,
+            file_size / 1024, file_size / ctx->array.count,
+            (get_current_time_us() - start_time) / 1000);
     return fc_safe_write_file_close(&db_updater_ctx.redo);
 }
 
