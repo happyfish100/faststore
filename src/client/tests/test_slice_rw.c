@@ -133,7 +133,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    fs_calc_block_hashcode(&bs_key.block);
+    fs_calc_block_hashcode(&bs_key.block, FS_FILE_BLOCK_SIZE);
     if ((result=fs_client_slice_write(&g_fs_client_vars.
                     client_ctx, &bs_key, out_buff,
                     &write_bytes, &inc_alloc)) != 0)

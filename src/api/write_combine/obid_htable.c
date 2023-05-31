@@ -37,7 +37,7 @@ typedef struct fs_api_find_callback_arg {
      write_combine.skip_combine_on_last_merged_slices)
 
 #define IF_COMBINE_BY_SLICE_POSITION(slice) \
-    (FILE_BLOCK_SIZE - (slice.offset + slice.length) >= 4096)
+    (FS_FILE_BLOCK_SIZE - (slice.offset + slice.length) >= 4096)
 
 static inline void add_to_slice_waiting_list(FSAPISliceEntry *slice,
         FSAPIInsertSliceContext *ictx)
@@ -560,7 +560,7 @@ ssize_t wcombine_obid_htable_datasync(const int64_t oid, const uint64_t tid)
 
     op_ctx.allocator_ctx = fs_api_allocator_get(tid);
     op_ctx.bs_key.slice.offset = 0;
-    op_ctx.bs_key.slice.length = FILE_BLOCK_SIZE;
+    op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
     callback_arg.op_ctx = &op_ctx;
     callback_arg.conflict_count = &conflict_count;
     key.oid = oid;

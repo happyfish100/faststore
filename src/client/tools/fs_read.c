@@ -136,7 +136,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    fs_calc_block_hashcode(&bs_key.block);
+    fs_calc_block_hashcode(&bs_key.block, FS_FILE_BLOCK_SIZE);
     in_buff = (char *)fc_malloc(bs_key.slice.length);
     if (in_buff == NULL) {
         return ENOMEM;

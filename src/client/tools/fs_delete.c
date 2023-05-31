@@ -118,7 +118,7 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    fs_calc_block_hashcode(&bs_key.block);
+    fs_calc_block_hashcode(&bs_key.block, FS_FILE_BLOCK_SIZE);
     if (bs_key.slice.offset == 0 &&
             bs_key.slice.length == FS_FILE_BLOCK_SIZE)
     {

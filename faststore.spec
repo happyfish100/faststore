@@ -6,7 +6,7 @@
 
 Name: faststore
 Version: 4.0.0
-Release: 1%{?dist}
+Release: 5%{?dist}
 Summary: a high performance distributed file storage service
 License: AGPL v3.0
 Group: Arch/Tech

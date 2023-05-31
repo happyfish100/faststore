@@ -26,7 +26,7 @@
 FSAPIContext g_fs_api_ctx;
 
 #define FS_API_MIN_WRITE_COMBINE_BUFFER_SIZE      ( 64 * 1024)
-#define FS_API_MAX_WRITE_COMBINE_BUFFER_SIZE     FILE_BLOCK_SIZE
+#define FS_API_MAX_WRITE_COMBINE_BUFFER_SIZE     FS_FILE_BLOCK_SIZE
 #define FS_API_DEFAULT_WRITE_COMBINE_BUFFER_SIZE  (256 * 1024)
 
 #define FS_API_MIN_WRITE_COMBINE_MIN_WAIT_TIME        10
@@ -38,7 +38,7 @@ FSAPIContext g_fs_api_ctx;
 #define FS_API_DEFAULT_WRITE_COMBINE_MAX_WAIT_TIME  1000
 
 #define FS_API_MIN_SKIP_COMBINE_ON_SLICE_SIZE        ( 64 * 1024)
-#define FS_API_MAX_SKIP_COMBINE_ON_SLICE_SIZE      FILE_BLOCK_SIZE
+#define FS_API_MAX_SKIP_COMBINE_ON_SLICE_SIZE      FS_FILE_BLOCK_SIZE
 #define FS_API_DEFAULT_SKIP_COMBINE_ON_SLICE_SIZE    (256 * 1024)
 
 #define FS_API_DEFAULT_SKIP_COMBINE_ON_LAST_MERGED_SLICES  1
@@ -594,7 +594,7 @@ int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
     FS_API_SET_CTX_AND_TID_EX(op_ctx, api_ctx, tid);
     op_ctx.op_type = 'D';
     op_ctx.bs_key.slice.offset = 0;
-    op_ctx.bs_key.slice.length = FILE_BLOCK_SIZE;
+    op_ctx.bs_key.slice.length = FS_FILE_BLOCK_SIZE;
     fs_set_block_key(&op_ctx.bs_key.block, oid, 0);
     remain = file_size;
     while (1) {
@@ -610,7 +610,7 @@ int fs_api_unlink_file(FSAPIContext *api_ctx, const int64_t oid,
             break;
         }
 
-        remain -= FILE_BLOCK_SIZE;
+        remain -= FS_FILE_BLOCK_SIZE;
         if (remain <= 0) {
             break;
         }
