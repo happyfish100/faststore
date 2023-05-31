@@ -26,7 +26,8 @@
 
 
 typedef int (*fs_storage_engine_init_func)(IniFullContext *ini_ctx,
-        const int my_server_id, const FSStorageEngineConfig *db_cfg,
+        const int my_server_id, const int file_block_size,
+        const FSStorageEngineConfig *db_cfg,
         const DADataConfig *data_cfg);
 
 typedef int (*fs_storage_engine_start_func)();

@@ -237,7 +237,6 @@ int main(int argc, char *argv[])
     srand(time(NULL));
     //fast_mblock_manager_init();
 
-    //sched_set_delay_params(300, 1024);
     do {
         if ((result=setup_server_env(CMDLINE_CONFIG_FILENAME)) != 0) {
             break;

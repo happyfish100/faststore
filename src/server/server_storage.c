@@ -82,7 +82,7 @@ static int storage_init()
         return result;
     }
 
-    if ((result=da_load_config_ex(&DA_CTX, "[faststore]", FILE_BLOCK_SIZE,
+    if ((result=da_load_config_ex(&DA_CTX, "[fstore]", FILE_BLOCK_SIZE,
                     &DATA_CFG, STORAGE_FILENAME, have_extra_field,
                     destroy_store_path_index, migrate_path_mark_filename)) != 0)
     {
