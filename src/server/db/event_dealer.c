@@ -396,6 +396,8 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     FSEventDealerThreadContext *thread;
     FSChangeNotifyEvent *event;
     FSChangeNotifyEvent *last;
+
+#ifdef DEBUG_FLAG
     int64_t slice_count;
     int64_t start_time;
     int64_t end_time;
@@ -406,6 +408,7 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     int64_t ob_deal_end_time;
 
     start_time = get_current_time_us();
+#endif
 
     *count = 0;
     fc_list_for_each_entry (event, head, dlink) {
@@ -423,9 +426,11 @@ int event_dealer_do(struct fc_list_head *head, int *count)
         thread->event_ptr_array.events[thread->event_ptr_array.count++] = event;
     }
 
+#ifdef DEBUG_FLAG
     end_time = get_current_time_us();
     sort_time = end_time - start_time;
     start_time = end_time;
+#endif
 
     last = fc_list_entry(head->prev, FSChangeNotifyEvent, dlink);
     event_dealer_ctx.updater_ctx.last_versions.block.prepare = last->sn;
@@ -444,14 +449,19 @@ int event_dealer_do(struct fc_list_head *head, int *count)
     }
     sf_synchronize_counter_add(&event_dealer_ctx.sctx, thread_count);
     sf_synchronize_counter_wait(&event_dealer_ctx.sctx);
-    ob_deal_end_time = get_current_time_us();
 
+#ifdef DEBUG_FLAG
+    ob_deal_end_time = get_current_time_us();
     slice_count = 0;
+#endif
+
     for (thread=event_dealer_ctx.thread_array.threads;
             thread<event_dealer_ctx.thread_array.end; thread++)
     {
         if (thread->event_ptr_array.count > 0) {
+#ifdef DEBUG_FLAG
             slice_count += thread->stats.slice_count;
+#endif
             STORAGE_ENGINE_OB_COUNT += thread->stats.ob_inc;
             STORAGE_ENGINE_SLICE_COUNT += thread->stats.slice_inc;
             thread->event_ptr_array.count = 0;
@@ -463,14 +473,18 @@ int event_dealer_do(struct fc_list_head *head, int *count)
         if ((result=db_updater_deal(&event_dealer_ctx.updater_ctx)) == 0) {
             event_dealer_free_buffers(&MERGED_BLOCK_ARRAY);
         }
-
+#ifdef DEBUG_FLAG
         avg_slices = (double)slice_count / MERGED_BLOCK_ARRAY.count;
+#endif
     } else {
+#ifdef DEBUG_FLAG
         avg_slices = 0.00;
+#endif
     }
     event_dealer_ctx.updater_ctx.last_versions.block.commit =
         event_dealer_ctx.updater_ctx.last_versions.block.prepare;
 
+#ifdef DEBUG_FLAG
     end_time = get_current_time_us();
     ob_deal_time = ob_deal_end_time - start_time;
     db_deal_time = end_time - ob_deal_end_time;
@@ -480,6 +494,7 @@ int event_dealer_do(struct fc_list_head *head, int *count)
             *count, MERGED_BLOCK_ARRAY.count, slice_count, avg_slices,
             event_dealer_ctx.updater_ctx.last_versions.block.commit,
             sort_time / 1000, ob_deal_time / 1000, db_deal_time / 1000);
+#endif
 
     return result;
 }

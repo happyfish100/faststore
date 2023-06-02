@@ -213,18 +213,23 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
     OBEntry *tmp;
     OBEntry **bucket;
     OBEntry *previous;
-    int ob_count;
     int slice_count;
-    int skip;
     int result;
 
-    ob_count = slice_count = skip = 0;
+#ifdef DEBUG_FLAG
+    int ob_count = 0;
+    int skip = 0;
+#endif
+
+    slice_count = 0;
     result = ENOENT;
     fc_list_for_each_entry_safe(ob, tmp, &segment->lru, db_args->dlink) {
         if (ob->db_args->locked || ob->db_args->ref_count > 1
                 || ob->db_args->status == FS_OB_STATUS_DELETING)
         {
+#ifdef DEBUG_FLAG
             ++skip;
+#endif
             continue;
         }
 
@@ -239,7 +244,9 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
             continue;
         }
 
+#ifdef DEBUG_FLAG
         ++ob_count;
+#endif
         slice_count += uniq_skiplist_count(ob->slices);
         uniq_skiplist_clear(ob->slices);
         ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
@@ -249,11 +256,14 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
         }
     }
 
+#ifdef DEBUG_FLAG
     logInfo("file: "__FILE__", line: %d, "
             "alloc type: %s, target count: %d, scan ob count: %d, "
             "reclaimed count: %d, reclaimed slice count: %d", __LINE__,
             type == fs_allocate_type_block ? "block" : "slice",
             target_count, ob_count + skip, ob_count, slice_count);
+#endif
+
     return result;
 }
 
@@ -277,15 +287,6 @@ static inline void *reclaim_and_alloc(OBSegment *segment, const
         }
 
         if (i == 0) {
-            logInfo("file: "__FILE__", line: %d, alloc type: %s, "
-                    "ob elements {total: %"PRId64", used: %"PRId64"}, "
-                    "slice elements {total: %"PRId64", used: %"PRId64"}",
-                    __LINE__, type == fs_allocate_type_block ? "block" :
-                    "slice", segment->allocators.ob.info.element_total_count,
-                    segment->allocators.ob.info.element_used_count,
-                    segment->allocators.slice.info.element_total_count,
-                    segment->allocators.slice.info.element_used_count);
-
             change_notify_signal_to_deal();
         }
         fc_sleep_ms(10);
@@ -529,13 +530,6 @@ static inline OBSliceEntry *ob_slice_alloc_ex(OBSegment *segment, OBEntry *ob,
     }
 
     if (call_by_db_event_dealer) {
-        static int counter = 0;
-        if (counter++ % 100 == 0) {
-            logInfo("%d. extra slice elements {total: %"PRId64", used: %"PRId64"}",
-                    counter, ob_shared_ctx.slice_allocator.info.element_total_count,
-                    ob_shared_ctx.slice_allocator.info.element_used_count);
-        }
-
         if ((slice=fast_mblock_alloc_object(&ob_shared_ctx.
                         slice_allocator)) != NULL)
         {
