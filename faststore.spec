@@ -17,6 +17,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires: libaio-devel
 BuildRequires: libserverframe-devel >= 1.1.26
+BuildRequires: libdiskallocator-devel >= 1.1.0
 BuildRequires: FastCFS-auth-devel >= 3.7.2
 BuildRequires: FastCFS-vote-devel >= 3.7.2
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
