@@ -343,9 +343,11 @@ static int slice_migrate_parse_buffer(ServerBinlogReader *reader,
 
 static int slice_migrate_do()
 {
+    const int suggest_buffer_size = 4 * 1024 * 1024;
     int result;
     int start_index;
     int last_index;
+    int buffer_size;
     int read_bytes;
     int64_t sn;
     int64_t waiting_count;
@@ -378,8 +380,9 @@ static int slice_migrate_do()
 
     position.index = start_index;
     position.offset = 0;
+    buffer_size = FC_MAX(suggest_buffer_size, BINLOG_BUFFER_SIZE);
     if ((result=binlog_reader_init1_ex(&reader, FS_SLICE_MIGRATE_SUBDIR_NAME,
-                    "", last_index, &position)) != 0)
+                    "", last_index, &position, buffer_size)) != 0)
     {
         return result;
     }

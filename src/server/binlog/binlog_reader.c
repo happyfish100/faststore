@@ -277,11 +277,14 @@ int binlog_reader_integral_full_read(ServerBinlogReader *reader,
 
 static int do_reader_init(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
-        ServerBinlogInfo *binlog_info, const SFBinlogFilePosition *pos)
+        ServerBinlogInfo *binlog_info, const SFBinlogFilePosition *pos,
+        const int buffer_size)
 {
     int result;
 
-    if ((result=binlog_buffer_init(&reader->binlog_buffer)) != 0) {
+    if ((result=sf_binlog_buffer_init(&reader->binlog_buffer,
+                    buffer_size)) != 0)
+    {
         return result;
     }
 
@@ -309,23 +312,24 @@ int binlog_reader_init_ex(ServerBinlogReader *reader,
         SFBinlogWriterInfo *writer, const SFBinlogFilePosition *pos)
 {
     ServerBinlogInfo binlog_info;
-    
+
     binlog_info.type = binlog_index_type_writer_ptr;
     binlog_info.writer = writer;
-    return do_reader_init(reader, subdir_name,
-            fname_suffix, &binlog_info, pos);
+    return do_reader_init(reader, subdir_name, fname_suffix,
+            &binlog_info, pos, BINLOG_BUFFER_SIZE);
 }
 
 int binlog_reader_init1_ex(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
-        const int write_index, const SFBinlogFilePosition *pos)
+        const int write_index, const SFBinlogFilePosition *pos,
+        const int buffer_size)
 {
     ServerBinlogInfo binlog_info;
     
     binlog_info.type = binlog_index_type_index_val;
     binlog_info.write_index = write_index;
-    return do_reader_init(reader, subdir_name,
-            fname_suffix, &binlog_info, pos);
+    return do_reader_init(reader, subdir_name, fname_suffix,
+            &binlog_info, pos, buffer_size);
 }
 
 void binlog_reader_destroy(ServerBinlogReader *reader)

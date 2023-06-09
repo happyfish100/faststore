@@ -58,7 +58,8 @@ extern "C" {
     binlog_reader_init_ex(reader, subdir_name, "", writer, pos)
 
 #define binlog_reader_init1(reader, subdir_name, write_index, pos) \
-    binlog_reader_init1_ex(reader, subdir_name, "", write_index, pos)
+    binlog_reader_init1_ex(reader, subdir_name, "", write_index,   \
+            pos, BINLOG_BUFFER_SIZE)
 
 int binlog_reader_init_ex(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
@@ -66,7 +67,8 @@ int binlog_reader_init_ex(ServerBinlogReader *reader,
 
 int binlog_reader_init1_ex(ServerBinlogReader *reader,
         const char *subdir_name, const char *fname_suffix,
-        const int write_index, const SFBinlogFilePosition *pos);
+        const int write_index, const SFBinlogFilePosition *pos,
+        const int buffer_size);
 
 void binlog_reader_destroy(ServerBinlogReader *reader);
 
