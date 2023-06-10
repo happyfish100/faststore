@@ -159,6 +159,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
 
     stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
+    stat_resp->auth_enabled = AUTH_ENABLED ? 1 : 0;
+    stat_resp->storage_engine = STORAGE_ENABLED ? 1 : 0;
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
     stat_resp->version.len = sprintf(stat_resp->version.str, "%d.%d.%d",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,

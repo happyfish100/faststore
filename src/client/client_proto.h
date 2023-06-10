@@ -25,7 +25,9 @@
 typedef struct fs_client_service_stat {
     int server_id;
     bool is_leader;
-    char padding[3];
+    bool auth_enabled;
+    bool storage_engine;
+    char padding[1];
     char version_holder[12];
     string_t version;
 

@@ -73,6 +73,8 @@ static void output(const ConnectionInfo *conn,
             "\thost: %s:%u\n"
             "\tversion: %.*s\n"
             "\tis_leader: %s\n"
+            "\tauth_enabled: %s\n"
+            "\tstorage_engine: %s\n"
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
@@ -83,6 +85,8 @@ static void output(const ConnectionInfo *conn,
             stat->server_id, conn->ip_addr, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
+            (stat->auth_enabled ?  "true" : "false"),
+            (stat->storage_engine ?  "true" : "false"),
             get_server_group_ids(stat->server_id, server_group_ids),
             stat->connection.current_count,
             stat->connection.max_count,

@@ -205,6 +205,9 @@ typedef struct fs_proto_service_stat_req {
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
     char is_leader;
+    char auth_enabled;
+    char storage_engine;
+    char padding[6];
     struct {
         char len;
         char str[10];
