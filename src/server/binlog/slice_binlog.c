@@ -373,6 +373,8 @@ static int slice_migrate_do()
     {
         return result;
     }
+    sf_binlog_writer_change_passive_write(&SLICE_BINLOG_WRITER.writer, true);
+    sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, false);
 
     logInfo("file: "__FILE__", line: %d, "
             "begin migrate slice binlog, binlog count: %d ...",
@@ -388,8 +390,8 @@ static int slice_migrate_do()
     }
 
     waiting_count = 0;
-    while ((result=binlog_reader_integral_read(&reader,
-                    reader.binlog_buffer.buff,
+    while (SF_G_CONTINUE_FLAG && (result=binlog_reader_integral_read(
+                    &reader, reader.binlog_buffer.buff,
                     reader.binlog_buffer.size,
                     &read_bytes)) == 0)
     {
@@ -407,6 +409,9 @@ static int slice_migrate_do()
     }
 
     binlog_reader_destroy(&reader);
+    if (!SF_G_CONTINUE_FLAG) {
+        return EINTR;
+    }
     if (result == ENOENT) {
         result = 0;
     }
@@ -414,11 +419,20 @@ static int slice_migrate_do()
         return result;
     }
 
+    sf_binlog_writer_flush_file(&SLICE_BINLOG_WRITER.writer);
     sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
-    while (sf_binlog_writer_get_last_version(&SLICE_BINLOG_WRITER.writer) < sn) {
+    while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
+                &SLICE_BINLOG_WRITER.writer) < sn)
+    {
         ++waiting_count;
         fc_sleep_ms(1);
     }
+    if (!SF_G_CONTINUE_FLAG) {
+        return EINTR;
+    }
+
+    sf_binlog_writer_change_passive_write(&SLICE_BINLOG_WRITER.writer, false);
+    sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, true);
 
     long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
     logInfo("file: "__FILE__", line: %d, "
