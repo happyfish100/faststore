@@ -190,7 +190,7 @@ static inline void ob_entry_release(OBSegment *segment,
         OBEntry *ob, const int dec_count)
 {
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-    ob_index_ob_entry_release_ex(ob, dec_count);
+    ob_index_ob_entry_release_ex(&G_OB_HASHTABLE, ob, dec_count);
     PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 }
 

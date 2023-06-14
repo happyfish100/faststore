@@ -133,18 +133,23 @@ static inline void ob_entry_remove(OBSegment *segment, OBHashtable *htable,
     } else {
         ob->db_args->status = FS_OB_STATUS_DELETING;
     }
-    ob_index_ob_entry_release(ob);
+    ob_index_ob_entry_release(htable, ob);
 }
 
-void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
+void ob_index_ob_entry_release_ex(OBHashtable *htable,
+        OBEntry *ob, const int dec_count)
 {
     bool need_free;
 
-    if (G_OB_HASHTABLE.need_reclaim) {
+    if (htable->need_reclaim) {
         ob->db_args->ref_count -= dec_count;
         if (ob->db_args->ref_count == 0) {
             need_free = true;
             if (ob->db_args->slices != NULL) {
+                if (!uniq_skiplist_empty(ob->db_args->slices)) {
+                    FC_ATOMIC_DEC_EX(htable->slice_count,
+                            uniq_skiplist_count(ob->db_args->slices));
+                }
                 uniq_skiplist_free(ob->db_args->slices);
                 ob->db_args->slices = NULL;
             }
@@ -154,7 +159,7 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
                 int cmpr;
                 bool found;
 
-                OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, ob->bkey);
+                OB_INDEX_SET_BUCKET_AND_SEGMENT(htable, ob->bkey);
                 if (*bucket == NULL) {
                     found = false;
                 } else {
@@ -184,7 +189,7 @@ void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count)
                 ob->db_args->status = FS_OB_STATUS_NORMAL;
 
                 if (found) {
-                    ob_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
+                    ob_remove(segment, htable, bucket, ob, previous);
                 } else {
                     logWarning("file: "__FILE__", line: %d, "
                             "can't found ob entry {oid: %"PRId64", "
@@ -213,6 +218,7 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
     OBEntry *tmp;
     OBEntry **bucket;
     OBEntry *previous;
+    int current_count;
     int slice_count;
     int result;
 
@@ -247,8 +253,14 @@ static int block_reclaim(OBSegment *segment, const OBAllocateType type,
 #ifdef DEBUG_FLAG
         ++ob_count;
 #endif
-        slice_count += uniq_skiplist_count(ob->slices);
-        uniq_skiplist_clear(ob->slices);
+
+        current_count = uniq_skiplist_count(ob->slices);
+        if (current_count > 0) {
+            slice_count += current_count;
+            FC_ATOMIC_DEC_EX(G_OB_HASHTABLE.slice_count, current_count);
+            uniq_skiplist_clear(ob->slices);
+        }
+
         ob_entry_remove(segment, &G_OB_HASHTABLE, bucket, ob, previous);
         if (slice_count >= target_count || type == fs_allocate_type_block) {
             result = 0;
@@ -450,7 +462,7 @@ static OBEntry *get_ob_entry_ex(OBSegment *segment, OBHashtable *htable,
     }
     ob->bkey = *bkey;
 
-    if (STORAGE_ENABLED) {
+    if (STORAGE_ENABLED && htable == &G_OB_HASHTABLE) {
         if (ob_load_slices(&segment->db_fetch_ctx,
                     segment, ob, ob->slices) != 0)
         {
@@ -762,7 +774,9 @@ void ob_index_destroy_htable(OBHashtable *htable)
     OBEntry *ob;
     OBEntry *deleted;
     OBSegment *segment;
+    int64_t slice_count;
 
+    slice_count = 0;
     end = htable->buckets + htable->capacity;
     for (bucket=htable->buckets; bucket<end; bucket++) {
         if (*bucket == NULL) {
@@ -776,6 +790,7 @@ void ob_index_destroy_htable(OBHashtable *htable)
 
         ob = *bucket;
         do {
+            slice_count += uniq_skiplist_count(ob->slices);
             uniq_skiplist_free(ob->slices);
 
             deleted = ob;
@@ -784,6 +799,9 @@ void ob_index_destroy_htable(OBHashtable *htable)
         } while (ob != NULL);
 
         PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+    }
+    if (slice_count > 0) {
+        FC_ATOMIC_DEC_EX(htable->slice_count, slice_count);
     }
 
     free(htable->buckets);
@@ -1965,6 +1983,8 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
         }
 
         if (*dec_alloc > 0) {
+            FC_ATOMIC_DEC_EX(htable->slice_count,
+                    uniq_skiplist_count(ob->slices));
             result = 0;
             if (sn != NULL) {
                 if (*sn == 0) {
@@ -2324,24 +2344,6 @@ void ob_index_get_ob_and_slice_stats(FSServiceOBSliceStat *ob,
         ob->element_used += segment->allocators.ob.info.element_used_count;
         slice->element_used += segment->allocators.slice.info.element_used_count;
     }
-}
-
-int64_t ob_index_get_total_slice_count()
-{
-    int64_t slice_count;
-    OBSegment *segment;
-    OBSegment *end;
-
-    slice_count = 0;
-    end = ob_shared_ctx.segment_array.segments +
-        ob_shared_ctx.segment_array.count;
-    for (segment=ob_shared_ctx.segment_array.segments;
-            segment<end; segment++)
-    {
-        slice_count += segment->allocators.slice.info.element_used_count;
-    }
-
-    return slice_count;
 }
 
 typedef struct {
@@ -2966,7 +2968,12 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
 
                 current = ob;
                 ob = ob->next;
-                uniq_skiplist_clear(current->slices);
+
+                if (!uniq_skiplist_empty(current->slices)) {
+                    FC_ATOMIC_DEC_EX(htable->slice_count,
+                            uniq_skiplist_count(current->slices));
+                    uniq_skiplist_clear(current->slices);
+                }
                 ob_entry_remove(segment, htable, bucket, current, previous);
             }
         }
@@ -3403,6 +3410,7 @@ static int unpack_ob_entry(OBSegment *segment, OBEntry *ob,
             return result;
         }
     }
+    FC_ATOMIC_INC_EX(G_OB_HASHTABLE.slice_count, fv->value.str_array.count);
 
     return 0;
 }
@@ -3465,6 +3473,10 @@ int ob_index_delete_slice_by_db(OBSegment *segment,
 int ob_index_delete_block_by_db(OBSegment *segment, OBEntry *ob)
 {
     if (ob->db_args->slices != NULL) {
+        if (!uniq_skiplist_empty(ob->db_args->slices)) {
+            FC_ATOMIC_DEC_EX(G_OB_HASHTABLE.slice_count,
+                    uniq_skiplist_count(ob->db_args->slices));
+        }
         uniq_skiplist_free(ob->db_args->slices);
         ob->db_args->slices = NULL;
     }

@@ -78,11 +78,14 @@ static void output(const ConnectionInfo *conn,
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
-            "writer: {next_version: %"PRId64", total_count: %"PRId64", "
+            "writer: {next_version: %"PRId64", \n"
+            "\t\t  total_count: %"PRId64", "
             "waiting_count: %d, max_waitings: %d}}\n"
-            "\tdata : {ob : {total_count: %"PRId64", cached_count: %"PRId64", "
+            "\tdata : {ob : {total_count: %"PRId64", "
+            "cached_count: %"PRId64", "
             "element_used: %"PRId64"},\n"
-            "\t\tslice : {total_count: %"PRId64", cached_count: %"PRId64", "
+            "\t\tslice : {total_count: %"PRId64", "
+            "cached_count: %"PRId64", "
             "element_used: %"PRId64"},\n"
             "\t\tavg slices/OB: %.2f}\n\n",
             stat->server_id, conn->ip_addr, conn->port,

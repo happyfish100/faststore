@@ -64,8 +64,8 @@ extern "C" {
 #define ob_index_get_ob_entry(bkey) \
     ob_index_get_ob_entry_ex(&G_OB_HASHTABLE, bkey, false)
 
-#define ob_index_ob_entry_release(ob) \
-    ob_index_ob_entry_release_ex(ob, 1)
+#define ob_index_ob_entry_release(htable, ob) \
+    ob_index_ob_entry_release_ex(htable, ob, 1)
 
 #define ob_index_dump_slices_to_file(start_index,  \
         end_index, filename, slice_count, source)  \
@@ -121,7 +121,8 @@ extern "C" {
     int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
             uint64_t *sn, int *dec_alloc, struct fc_queue_info *space_chain);
 
-    void ob_index_ob_entry_release_ex(OBEntry *ob, const int dec_count);
+    void ob_index_ob_entry_release_ex(OBHashtable *htable,
+            OBEntry *ob, const int dec_count);
 
     OBEntry *ob_index_get_ob_entry_ex(OBHashtable *htable,
             const FSBlockKey *bkey, const bool create_flag);
@@ -279,7 +280,10 @@ extern "C" {
         *slice_count = FC_ATOMIC_GET(G_OB_HASHTABLE.slice_count);
     }
 
-    int64_t ob_index_get_total_slice_count();
+    static inline int64_t ob_index_get_total_slice_count()
+    {
+        return FC_ATOMIC_GET(G_OB_HASHTABLE.slice_count);
+    }
 
     int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             const int64_t start_index, const int64_t end_index,
