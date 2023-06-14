@@ -62,6 +62,12 @@ typedef struct {
 } FSCounterTripple;
 
 typedef struct {
+    int64_t total_count;
+    int64_t cached_count;
+    int64_t element_used;
+} FSServiceOBSliceStat;
+
+typedef struct {
     unsigned char servers[SF_CLUSTER_CONFIG_SIGN_LEN];
     unsigned char cluster[SF_CLUSTER_CONFIG_SIGN_LEN];
 } FSClusterMD5Digests;

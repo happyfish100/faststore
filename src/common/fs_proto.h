@@ -202,6 +202,12 @@ typedef struct fs_proto_service_stat_req {
     char data_group_id[4];   //0 for slice binlog
 } FSProtoServiceStatReq;
 
+typedef struct fs_proto_service_ob_slice_stat {
+    char total_count[8];
+    char cached_count[8];
+    char element_used[8];
+} FSProtoServiceOBSliceStat;
+
 typedef struct fs_proto_service_stat_resp {
     char server_id[4];
     char is_leader;
@@ -229,8 +235,8 @@ typedef struct fs_proto_service_stat_resp {
     } binlog;
 
     struct {
-        char ob_count[8];
-        char slice_count[8];
+        FSProtoServiceOBSliceStat ob;
+        FSProtoServiceOBSliceStat slice;
     } data;
 
 } FSProtoServiceStatResp;

@@ -700,6 +700,15 @@ int fs_client_proto_server_group_space_stat(FSClientContext *client_ctx,
     return result;
 }
 
+static inline void parse_ob_slice_stat(
+        const FSProtoServiceOBSliceStat *proto,
+        FSServiceOBSliceStat *stat)
+{
+    stat->total_count = buff2long(proto->total_count);
+    stat->cached_count = buff2long(proto->cached_count);
+    stat->element_used = buff2long(proto->element_used);
+}
+
 int fs_client_proto_service_stat(FSClientContext *client_ctx,
         const ConnectionInfo *spec_conn, const int data_group_id,
         FSClientServiceStat *stat)
@@ -775,8 +784,7 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->binlog.writer.max_waitings = buff2int(
             stat_resp.binlog.writer.max_waitings);
 
-    stat->data.ob_count = buff2long(stat_resp.data.ob_count);
-    stat->data.slice_count = buff2long(stat_resp.data.slice_count);
-
+    parse_ob_slice_stat(&stat_resp.data.ob, &stat->data.ob);
+    parse_ob_slice_stat(&stat_resp.data.slice, &stat->data.slice);
     return 0;
 }

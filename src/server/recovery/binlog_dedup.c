@@ -659,12 +659,12 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
     dedup_ctx.recovery_ctx = ctx;
     ctx->arg = &dedup_ctx;
 
+    dedup_ctx.out.current_version = FC_ATOMIC_GET(ctx->
+            master->dg->myself->data.current_version);
+
     if ((result=init_htables(ctx)) != 0) {
         return result;
     }
-    
-    dedup_ctx.out.current_version = __sync_fetch_and_add(
-            &ctx->master->dg->myself->data.current_version, 0);
 
     result = dedup_binlog(ctx);
 

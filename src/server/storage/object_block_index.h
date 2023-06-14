@@ -269,8 +269,15 @@ extern "C" {
         return fc_compare_int64(bkey1->offset, bkey2->offset);
     }
 
-    void ob_index_get_ob_and_slice_counts(int64_t *ob_count,
-            int64_t *slice_count);
+    void ob_index_get_ob_and_slice_stats(FSServiceOBSliceStat *ob,
+            FSServiceOBSliceStat *slice);
+
+    static inline void ob_index_get_ob_and_slice_counts(
+            int64_t *ob_count, int64_t *slice_count)
+    {
+        *ob_count = FC_ATOMIC_GET(G_OB_HASHTABLE.ob_count);
+        *slice_count = FC_ATOMIC_GET(G_OB_HASHTABLE.slice_count);
+    }
 
     int64_t ob_index_get_total_slice_count();
 

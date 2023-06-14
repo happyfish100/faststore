@@ -42,8 +42,8 @@ typedef struct fs_client_service_stat {
     } binlog;
 
     struct {
-        int64_t ob_count;
-        int64_t slice_count;
+        FSServiceOBSliceStat ob;
+        FSServiceOBSliceStat slice;
     } data;
 
 } FSClientServiceStat;

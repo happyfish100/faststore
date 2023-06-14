@@ -114,13 +114,21 @@ void service_task_finish_cleanup(struct fast_task_info *task)
     sf_task_finish_clean_up(task);
 }
 
+static inline void output_ob_slice_stat(const FSServiceOBSliceStat *stat,
+        FSProtoServiceOBSliceStat *proto)
+{
+    long2buff(stat->total_count, proto->total_count);
+    long2buff(stat->cached_count, proto->cached_count);
+    long2buff(stat->element_used, proto->element_used);
+}
+
 static int service_deal_service_stat(struct fast_task_info *task)
 {
     int result;
     int data_group_id;
     int64_t current_version;
-    int64_t ob_count;
-    int64_t slice_count;
+    FSServiceOBSliceStat ob;
+    FSServiceOBSliceStat slice;
     FSBinlogWriterStat writer_stat;
     FSClusterDataGroupInfo *group;
     FSProtoServiceStatReq *req;
@@ -150,12 +158,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
         replica_binlog_writer_stat(data_group_id, &writer_stat);
     }
 
-    if (STORAGE_ENABLED) {
-        ob_count = STORAGE_ENGINE_OB_COUNT;
-        slice_count = STORAGE_ENGINE_SLICE_COUNT;
-    } else {
-        ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
-    }
+    ob_index_get_ob_and_slice_stats(&ob, &slice);
 
     stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
@@ -175,8 +178,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int2buff(writer_stat.waiting_count, stat_resp->binlog.writer.waiting_count);
     int2buff(writer_stat.max_waitings, stat_resp->binlog.writer.max_waitings);
 
-    long2buff(ob_count, stat_resp->data.ob_count);
-    long2buff(slice_count, stat_resp->data.slice_count);
+    output_ob_slice_stat(&ob, &stat_resp->data.ob);
+    output_ob_slice_stat(&slice, &stat_resp->data.slice);
 
     RESPONSE.header.body_len = sizeof(FSProtoServiceStatResp);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_SERVICE_STAT_RESP;

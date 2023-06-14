@@ -168,6 +168,7 @@ typedef struct server_global_vars {
             SFBinlogWriterThread binlog_writer_thread; //only one write thread
         } binlog;
 
+        int64_t dedup_memory_limit; //memory limit for recovery dedup
         SFContext sf_context;       //for replica communication
     } replica;
 
@@ -390,6 +391,9 @@ typedef struct server_global_vars {
 
 #define RECOVERY_MAX_QUEUE_DEPTH \
     g_server_global_vars->replica.recovery_max_queue_depth
+
+#define RECOVERY_DEDUP_MEMORY_LIMIT \
+    g_server_global_vars->replica.dedup_memory_limit
 
 #define FS_DATA_GROUP_ID(bkey) (FS_BLOCK_HASH_CODE(bkey) % \
        FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX) + 1)

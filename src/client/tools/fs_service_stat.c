@@ -62,9 +62,9 @@ static void output(const ConnectionInfo *conn,
     double avg_slices;
     char server_group_ids[64];
 
-    if (stat->data.ob_count > 0) {
-        avg_slices = (double)stat->data.slice_count /
-            (double)stat->data.ob_count;
+    if (stat->data.ob.total_count > 0) {
+        avg_slices = (double)stat->data.slice.total_count /
+            (double)stat->data.ob.total_count;
     } else {
         avg_slices = 0.00;
     }
@@ -80,8 +80,11 @@ static void output(const ConnectionInfo *conn,
             "\tbinlog : {current_version: %"PRId64", "
             "writer: {next_version: %"PRId64", total_count: %"PRId64", "
             "waiting_count: %d, max_waitings: %d}}\n"
-            "\tdata : {ob_count: %"PRId64", slice_count: %"PRId64", "
-            "avg slices/OB: %.2f}\n\n",
+            "\tdata : {ob : {total_count: %"PRId64", cached_count: %"PRId64", "
+            "element_used: %"PRId64"},\n"
+            "\t\tslice : {total_count: %"PRId64", cached_count: %"PRId64", "
+            "element_used: %"PRId64"},\n"
+            "\t\tavg slices/OB: %.2f}\n\n",
             stat->server_id, conn->ip_addr, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
@@ -95,7 +98,12 @@ static void output(const ConnectionInfo *conn,
             stat->binlog.writer.total_count,
             stat->binlog.writer.waiting_count,
             stat->binlog.writer.max_waitings,
-            stat->data.ob_count, stat->data.slice_count,
+            stat->data.ob.total_count,
+            stat->data.ob.cached_count,
+            stat->data.ob.element_used,
+            stat->data.slice.total_count,
+            stat->data.slice.cached_count,
+            stat->data.slice.element_used,
             avg_slices);
 }
 

@@ -114,7 +114,7 @@ static inline void ob_remove(OBSegment *segment, OBHashtable *htable,
         previous->next = ob->next;
     }
 
-    FC_ATOMIC_DEC(htable->count);
+    FC_ATOMIC_DEC(htable->ob_count);
     if (htable->need_reclaim) {
         fc_list_del_init(&ob->db_args->dlink);
     }
@@ -357,7 +357,7 @@ static OBEntry *ob_entry_alloc(OBSegment *segment, OBHashtable *htable,
         return NULL;
     }
 
-    FC_ATOMIC_INC(htable->count);
+    FC_ATOMIC_INC(htable->ob_count);
     if (htable->need_reclaim) {
         ob->db_args->ref_count++;
         fc_list_add_tail(&ob->db_args->dlink, &segment->lru);
@@ -638,6 +638,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         } else if (ob_shared_ctx.memory_limit < 256 * 1024 * 1024) {
             ob_shared_ctx.memory_limit = 256 * 1024 * 1024;
         }
+        RECOVERY_DEDUP_MEMORY_LIMIT = ob_shared_ctx.memory_limit / 4;
 
         logInfo("file: "__FILE__", line: %d, memory limit %"PRId64" MB",
                 __LINE__, ob_shared_ctx.memory_limit / (1024 * 1024));
@@ -651,6 +652,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         block_prealloc_count = 0;
         slice_prealloc_count = 0;
         trunk_callbacks.ptr = NULL;
+        RECOVERY_DEDUP_MEMORY_LIMIT = SYSTEM_TOTAL_MEMORY / 4;
     }
 
     obj_callbacks_obentry.init_func = (fast_mblock_object_init_func)
@@ -1008,6 +1010,7 @@ static inline int do_add_slice_ex(OBHashtable *htable, OBEntry *ob,
                 slice->ssize.length);
         return result;
     }
+    FC_ATOMIC_INC(htable->slice_count);
 
     if (space_chain != NULL) {
         if ((result=add_to_space_chain(space_chain, slice,
@@ -1046,9 +1049,11 @@ static inline int do_delete_slice_ex(OBHashtable *htable,
                 result, STRERROR(result), ob->bkey.oid,
                 ob->bkey.offset, slice->ssize.offset,
                 slice->ssize.length);
+        return result;
     }
+    FC_ATOMIC_DEC(htable->slice_count);
 
-    return result;
+    return 0;
 }
 
 #define do_add_slice(htable, ob, sl, slice, trunk, _space_chain) \
@@ -2292,19 +2297,32 @@ int ob_index_get_slice_count_ex(OBHashtable *htable,
     return count;
 }
 
-void ob_index_get_ob_and_slice_counts(int64_t *ob_count, int64_t *slice_count)
+void ob_index_get_ob_and_slice_stats(FSServiceOBSliceStat *ob,
+        FSServiceOBSliceStat *slice)
 {
     OBSegment *segment;
     OBSegment *end;
 
-    *ob_count = *slice_count = 0;
+    if (STORAGE_ENABLED) {
+        ob->total_count = STORAGE_ENGINE_OB_COUNT;
+        slice->total_count = STORAGE_ENGINE_SLICE_COUNT;
+        ob->cached_count = FC_ATOMIC_GET(G_OB_HASHTABLE.ob_count);
+        slice->cached_count = FC_ATOMIC_GET(G_OB_HASHTABLE.slice_count);
+    } else {
+        ob->total_count = ob->cached_count = FC_ATOMIC_GET(
+                G_OB_HASHTABLE.ob_count);
+        slice->total_count = slice->cached_count = FC_ATOMIC_GET(
+                G_OB_HASHTABLE.slice_count);
+    }
+
+    ob->element_used = slice->element_used = 0;
     end = ob_shared_ctx.segment_array.segments +
         ob_shared_ctx.segment_array.count;
     for (segment=ob_shared_ctx.segment_array.segments;
             segment<end; segment++)
     {
-        *ob_count += segment->allocators.ob.info.element_used_count;
-        *slice_count += segment->allocators.slice.info.element_used_count;
+        ob->element_used += segment->allocators.ob.info.element_used_count;
+        slice->element_used += segment->allocators.slice.info.element_used_count;
     }
 }
 

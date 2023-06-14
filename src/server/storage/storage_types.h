@@ -82,7 +82,8 @@ typedef struct ob_entry {
 } OBEntry;
 
 typedef struct {
-    volatile int64_t count;
+    volatile int64_t ob_count;
+    volatile int64_t slice_count;
     int64_t capacity;
     OBEntry **buckets;
     bool need_reclaim;
