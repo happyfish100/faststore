@@ -52,9 +52,20 @@ typedef struct {
     BinlogReadThreadResult *r;
     ReplicaBinlogRecord record;
     struct {
-        FSCounterTripple create;  //add slice index
-        FSCounterTripple remove;  //remove slice index
-        int64_t partial_deletes;
+        struct {
+            FSCounterTripple current;
+            FSCounterTripple sum;
+        } create;  //add slice index
+
+        struct {
+            FSCounterTripple current;
+            FSCounterTripple sum;
+        } remove;  //remove slice index
+
+        struct {
+            int64_t current;
+            int64_t sum;
+        } partial_deletes;
     } rstat;  //record stat
 
     struct {
@@ -69,8 +80,6 @@ typedef struct {
     } out;
     DataRecoveryContext *recovery_ctx;
 } BinlogDedupContext;
-
-static int realloc_slice_ptr_array(OBSlicePtrArray *sarray);
 
 static inline int add_slice(OBHashtable *htable,
         ReplicaBinlogRecord *record, const DASliceType stype)
@@ -129,9 +138,9 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                     result = add_slice(&dedup_ctx->htables.create,
                             &dedup_ctx->record, DA_SLICE_TYPE_ALLOC);
                 }
-                dedup_ctx->rstat.create.total++;
+                dedup_ctx->rstat.create.current.total++;
                 if (result == 0) {
-                    dedup_ctx->rstat.create.success++;
+                    dedup_ctx->rstat.create.current.success++;
                 }
                 break;
             case BINLOG_OP_TYPE_DEL_SLICE:
@@ -157,7 +166,7 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                                     &dedup_ctx->record,
                                     DA_SLICE_TYPE_FILE)) == 0)
                     {
-                        dedup_ctx->rstat.partial_deletes++;
+                        dedup_ctx->rstat.partial_deletes.current++;
                     } else {
                         result = r;
                     }
@@ -179,11 +188,11 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
                     */
                 }
 
-                dedup_ctx->rstat.remove.total++;
+                dedup_ctx->rstat.remove.current.total++;
                 if (result == 0) {
-                    dedup_ctx->rstat.remove.success++;
+                    dedup_ctx->rstat.remove.current.success++;
                 } else if (result == ENOENT) {
-                    dedup_ctx->rstat.remove.ignore++;
+                    dedup_ctx->rstat.remove.current.ignore++;
                     result = 0;
                 }
                 break;
@@ -223,60 +232,75 @@ static int deal_binlog_buffer(BinlogDedupContext *dedup_ctx)
     return result;
 }
 
-static int do_dedup_binlog(DataRecoveryContext *ctx)
+static int realloc_slice_ptr_array(OBSlicePtrArray *sarray,
+        const int new_alloc)
 {
-    BinlogDedupContext *dedup_ctx;
-    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    int result;
+    OBSliceEntry **slices;
+    int bytes;
 
-    dedup_ctx = (BinlogDedupContext *)ctx->arg;
-    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
-            subdir_name);
-    if ((result=binlog_read_thread_init(&dedup_ctx->rdthread_ctx, subdir_name,
-                    NULL, NULL, BINLOG_BUFFER_SIZE)) != 0)
-    {
-        if (result == ENOENT) {
-            logWarning("file: "__FILE__", line: %d, "
-                    "%s, the fetched binlog not exist, "
-                    "cleanup!", __LINE__, subdir_name);
-            data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
-        }
-        return result;
+    bytes = sizeof(OBSliceEntry *) * new_alloc;
+    slices = (OBSliceEntry **)fc_malloc(bytes);
+    if (slices == NULL) {
+        return ENOMEM;
     }
 
-    logDebug("file: "__FILE__", line: %d, "
-            "dedup %s data ...", __LINE__, subdir_name);
+    memcpy(slices, sarray->slices, sarray->count *
+            sizeof(OBSliceEntry *));
+    free(sarray->slices);
 
-    result = 0;
-    while (SF_G_CONTINUE_FLAG) {
-        if ((dedup_ctx->r=binlog_read_thread_fetch_result(
-                        &dedup_ctx->rdthread_ctx)) == NULL)
-        {
-            result = EINTR;
-            break;
+    sarray->alloc = new_alloc;
+    sarray->slices = slices;
+    return 0;
+}
+
+static int check_realloc_slice_ptr_array(OBSlicePtrArray
+        *slice_ptr_array, const int64_t count)
+{
+    int64_t n;
+    int64_t target_alloc;
+
+    if (slice_ptr_array->alloc > 0) {
+        if (count <= slice_ptr_array->alloc) {
+            return 0;
         }
 
-        /*
-        logInfo("errno: %d, buffer length: %d", dedup_ctx->r->err_no,
-                dedup_ctx->r->buffer.length);
-                */
-        if (dedup_ctx->r->err_no == ENOENT) {
-            break;
-        } else if (dedup_ctx->r->err_no != 0) {
-            result = dedup_ctx->r->err_no;
-            break;
-        }
+        target_alloc = slice_ptr_array->alloc;
+        do {
+            target_alloc *= 2;
+        } while (target_alloc < count);
 
-        if ((result=deal_binlog_buffer(dedup_ctx)) != 0) {
-            break;
-        }
-
-        binlog_read_thread_return_result_buffer(&dedup_ctx->rdthread_ctx,
-                dedup_ctx->r);
+        return realloc_slice_ptr_array(slice_ptr_array, target_alloc);
     }
 
-    binlog_read_thread_terminate(&dedup_ctx->rdthread_ctx);
-    return result;
+    if (count <= 8) {
+        slice_ptr_array->alloc = 8;
+    } else if (count <= 64) {
+        slice_ptr_array->alloc = 64;
+    } else if (count <= 512) {
+        slice_ptr_array->alloc = 512;
+    } else if (count <= 4 * 1024) {
+        slice_ptr_array->alloc = 1024;
+    } else {
+        n = count / 4;
+        if (n <= 2 * 1024) {
+            slice_ptr_array->alloc = 2 * 1024;
+        } else if (n <= 8 * 1024) {
+            slice_ptr_array->alloc = 8 * 1024;
+        } else if (n <= 64 * 1024) {
+            slice_ptr_array->alloc = 64 * 1024;
+        } else if (n <= 512 * 1024) {
+            slice_ptr_array->alloc = 512 * 1024;
+        } else {
+            slice_ptr_array->alloc = 1024 * 1024;
+        }
+    }
+
+    slice_ptr_array->slices = (OBSliceEntry **)fc_malloc(
+            sizeof(OBSliceEntry *) * slice_ptr_array->alloc);
+    if (slice_ptr_array->slices == NULL) {
+        return ENOMEM;
+    }
+    return 0;
 }
 
 static int slice_array_to_file(BinlogDedupContext *dedup_ctx)
@@ -332,7 +356,9 @@ static inline int add_to_sarray(OBSlicePtrArray *sarray,
     }
 
     if (sarray->count >= sarray->alloc) {
-        if ((result=realloc_slice_ptr_array(sarray)) != 0) {
+        if ((result=realloc_slice_ptr_array(sarray,
+                        2 * sarray->alloc)) != 0)
+        {
             return result;
         }
     }
@@ -451,7 +477,7 @@ static int htable_dump(BinlogDedupContext *dedup_ctx,
         } while (ob != NULL);
     }
 
-    *binlog_count = dedup_ctx->out.slice_array.count;
+    *binlog_count += dedup_ctx->out.slice_array.count;
     if (dedup_ctx->out.slice_array.count > 1) {
         qsort(dedup_ctx->out.slice_array.slices,
                 dedup_ctx->out.slice_array.count,
@@ -504,114 +530,6 @@ static void htable_reverse_remove(BinlogHashtables *htables)
     }
 }
 
-static int init_slice_ptr_array(OBSlicePtrArray *slice_ptr_array,
-        const int64_t count)
-{
-    int64_t n;
-    if (count <= 8) {
-        slice_ptr_array->alloc = 8;
-    } else if (count <= 64) {
-        slice_ptr_array->alloc = 64;
-    } else if (count <= 512) {
-        slice_ptr_array->alloc = 512;
-    } else if (count <= 4 * 1024) {
-        slice_ptr_array->alloc = 1024;
-    } else {
-        n = count / 4;
-        if (n <= 2 * 1024) {
-            slice_ptr_array->alloc = 2 * 1024;
-        } else if (n <= 8 * 1024) {
-            slice_ptr_array->alloc = 8 * 1024;
-        } else if (n <= 64 * 1024) {
-            slice_ptr_array->alloc = 64 * 1024;
-        } else if (n <= 512 * 1024) {
-            slice_ptr_array->alloc = 512 * 1024;
-        } else {
-            slice_ptr_array->alloc = 1024 * 1024;
-        }
-    }
-
-    slice_ptr_array->slices = (OBSliceEntry **)fc_malloc(
-            sizeof(OBSliceEntry *) * slice_ptr_array->alloc);
-    if (slice_ptr_array->slices == NULL) {
-        return ENOMEM;
-    }
-    return 0;
-}
-
-static int realloc_slice_ptr_array(OBSlicePtrArray *sarray)
-{
-    OBSliceEntry **slices;
-    int new_alloc;
-    int bytes;
-
-    new_alloc = 2 * sarray->alloc;
-    bytes = sizeof(OBSliceEntry *) * new_alloc;
-    slices = (OBSliceEntry **)fc_malloc(bytes);
-    if (slices == NULL) {
-        return ENOMEM;
-    }
-
-    memcpy(slices, sarray->slices, sarray->count *
-            sizeof(OBSliceEntry *));
-    free(sarray->slices);
-
-    sarray->alloc = new_alloc;
-    sarray->slices = slices;
-    return 0;
-}
-
-static int dedup_binlog(DataRecoveryContext *ctx)
-{
-    BinlogDedupContext *dedup_ctx;
-    int result;
-    int64_t count;
-
-    dedup_ctx = (BinlogDedupContext *)ctx->arg;
-    if ((result=do_dedup_binlog(ctx)) != 0) {
-        return result;
-    }
-
-    if (dedup_ctx->rstat.create.success == 0 && 
-            dedup_ctx->rstat.partial_deletes == 0)
-    {
-        return 0;
-    }
-
-    if ((result=open_output_file(ctx)) != 0) {
-        close_output_file(dedup_ctx);
-        return result;
-    }
-
-    count = FC_MAX(dedup_ctx->rstat.partial_deletes,
-            dedup_ctx->rstat.create.success);
-    if ((result=init_slice_ptr_array(&dedup_ctx->out.
-                    slice_array, count)) != 0)
-    {
-        return result;
-    }
-
-    if (dedup_ctx->rstat.partial_deletes > 0) {
-        if (dedup_ctx->rstat.create.success > 0) {
-            htable_reverse_remove(&dedup_ctx->htables);
-        }
-
-        dedup_ctx->out.current_op_type = BINLOG_OP_TYPE_DEL_SLICE;
-        result = htable_dump(dedup_ctx, &dedup_ctx->htables.remove,
-                 &dedup_ctx->out.binlog_counts.remove);
-    }
-
-    if (dedup_ctx->rstat.create.success > 0) {
-        dedup_ctx->out.current_op_type = BINLOG_OP_TYPE_WRITE_SLICE;
-        result = htable_dump(dedup_ctx, &dedup_ctx->htables.create,
-                &dedup_ctx->out.binlog_counts.create);
-    }
-
-    free(dedup_ctx->out.slice_array.slices);
-    close_output_file(dedup_ctx);
-    return result;
-}
-
 static int init_htables(DataRecoveryContext *ctx)
 {
     BinlogDedupContext *dedup_ctx;
@@ -646,6 +564,133 @@ static int init_htables(DataRecoveryContext *ctx)
     return 0;
 }
 
+static int output_binlog(BinlogDedupContext *dedup_ctx)
+{
+    int result;
+    int64_t count;
+
+    if (dedup_ctx->rstat.create.current.success == 0 &&
+            dedup_ctx->rstat.partial_deletes.current == 0)
+    {
+        return 0;
+    }
+
+    dedup_ctx->rstat.create.sum.total += dedup_ctx->rstat.create.current.total;
+    dedup_ctx->rstat.create.sum.success += dedup_ctx->rstat.create.current.success;
+    dedup_ctx->rstat.remove.sum.total += dedup_ctx->rstat.remove.current.total;
+    dedup_ctx->rstat.remove.sum.success += dedup_ctx->rstat.remove.current.success;
+    dedup_ctx->rstat.remove.sum.ignore += dedup_ctx->rstat.remove.current.ignore;
+    dedup_ctx->rstat.partial_deletes.sum += dedup_ctx->rstat.partial_deletes.current;
+
+    count = FC_MAX(dedup_ctx->rstat.partial_deletes.current,
+            dedup_ctx->rstat.create.current.success);
+    if ((result=check_realloc_slice_ptr_array(&dedup_ctx->out.
+                    slice_array, count)) != 0)
+    {
+        return result;
+    }
+
+    if (dedup_ctx->rstat.partial_deletes.current > 0) {
+        if (dedup_ctx->rstat.create.current.success > 0) {
+            htable_reverse_remove(&dedup_ctx->htables);
+        }
+
+        dedup_ctx->out.current_op_type = BINLOG_OP_TYPE_DEL_SLICE;
+        if ((result=htable_dump(dedup_ctx, &dedup_ctx->htables.remove,
+                        &dedup_ctx->out.binlog_counts.remove)) != 0)
+        {
+            return result;
+        }
+    }
+
+    if (dedup_ctx->rstat.create.current.success > 0) {
+        dedup_ctx->out.current_op_type = BINLOG_OP_TYPE_WRITE_SLICE;
+        result = htable_dump(dedup_ctx, &dedup_ctx->htables.create,
+                &dedup_ctx->out.binlog_counts.create);
+    }
+
+    dedup_ctx->rstat.create.current.total = 0;
+    dedup_ctx->rstat.create.current.success = 0;
+    dedup_ctx->rstat.remove.current.total = 0;
+    dedup_ctx->rstat.remove.current.success = 0;
+    dedup_ctx->rstat.remove.current.ignore = 0;
+    dedup_ctx->rstat.partial_deletes.current = 0;
+
+    ob_index_clear_htable(&dedup_ctx->htables.create);
+    ob_index_clear_htable(&dedup_ctx->htables.remove);
+    return result;
+}
+
+static int dedup_binlog(DataRecoveryContext *ctx)
+{
+    BinlogDedupContext *dedup_ctx;
+    char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    int result;
+
+    dedup_ctx = (BinlogDedupContext *)ctx->arg;
+    data_recovery_get_subdir_name(ctx, RECOVERY_BINLOG_SUBDIR_NAME_FETCH,
+            subdir_name);
+    if ((result=binlog_read_thread_init(&dedup_ctx->rdthread_ctx, subdir_name,
+                    NULL, NULL, BINLOG_BUFFER_SIZE)) != 0)
+    {
+        if (result == ENOENT) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "%s, the fetched binlog not exist, "
+                    "cleanup!", __LINE__, subdir_name);
+            data_recovery_unlink_sys_data(ctx);  //cleanup for bad case
+        }
+        return result;
+    }
+
+    logDebug("file: "__FILE__", line: %d, "
+            "dedup %s data ...", __LINE__, subdir_name);
+
+    result = 0;
+    while (SF_G_CONTINUE_FLAG) {
+        if ((dedup_ctx->r=binlog_read_thread_fetch_result(
+                        &dedup_ctx->rdthread_ctx)) == NULL)
+        {
+            result = EINTR;
+            break;
+        }
+
+        /*
+        logInfo("errno: %d, buffer length: %d", dedup_ctx->r->err_no,
+                dedup_ctx->r->buffer.length);
+                */
+        if (dedup_ctx->r->err_no == ENOENT) {
+            break;
+        } else if (dedup_ctx->r->err_no != 0) {
+            result = dedup_ctx->r->err_no;
+            break;
+        }
+
+        if ((result=deal_binlog_buffer(dedup_ctx)) != 0) {
+            break;
+        }
+        binlog_read_thread_return_result_buffer(&dedup_ctx->rdthread_ctx,
+                dedup_ctx->r);
+
+        if ((dedup_ctx->htables.create.ob_count + dedup_ctx->
+                    htables.remove.ob_count) * OB_ELEMENT_SIZE +
+                (dedup_ctx->htables.create.slice_count + dedup_ctx->
+                    htables.remove.slice_count) * sizeof(OBSliceEntry) >
+                RECOVERY_DEDUP_MEMORY_LIMIT)
+        {
+            if ((result=output_binlog(dedup_ctx)) != 0) {
+                break;
+            }
+        }
+    }
+
+    binlog_read_thread_terminate(&dedup_ctx->rdthread_ctx);
+    if (result == 0) {
+        return output_binlog(dedup_ctx);
+    } else {
+        return result;
+    }
+}
+
 int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 {
     int result;
@@ -666,8 +711,14 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
         return result;
     }
 
+    if ((result=open_output_file(ctx)) != 0) {
+        return result;
+    }
+
     result = dedup_binlog(ctx);
 
+    free(dedup_ctx.out.slice_array.slices);
+    close_output_file(&dedup_ctx);
     ob_index_destroy_htable(&dedup_ctx.htables.create);
     ob_index_destroy_htable(&dedup_ctx.htables.remove);
 
@@ -685,11 +736,16 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
                 "ignore : %"PRId64", partial : %"PRId64"}}, "
                 "output: {create : %"PRId64", delete : %"PRId64"}, "
                 "time used: %s ms", __LINE__, ctx->ds->dg->id,
-                dedup_ctx.rstat.create.total + dedup_ctx.rstat.remove.total,
-                dedup_ctx.rstat.create.success + dedup_ctx.rstat.remove.success,
-                dedup_ctx.rstat.create.total, dedup_ctx.rstat.create.success,
-                dedup_ctx.rstat.remove.total, dedup_ctx.rstat.remove.success,
-                dedup_ctx.rstat.remove.ignore, dedup_ctx.rstat.partial_deletes,
+                dedup_ctx.rstat.create.sum.total +
+                dedup_ctx.rstat.remove.sum.total,
+                dedup_ctx.rstat.create.sum.success +
+                dedup_ctx.rstat.remove.sum.success,
+                dedup_ctx.rstat.create.sum.total,
+                dedup_ctx.rstat.create.sum.success,
+                dedup_ctx.rstat.remove.sum.total,
+                dedup_ctx.rstat.remove.sum.success,
+                dedup_ctx.rstat.remove.sum.ignore,
+                dedup_ctx.rstat.partial_deletes.sum,
                 dedup_ctx.out.binlog_counts.create,
                 dedup_ctx.out.binlog_counts.remove, time_buff);
     } else {

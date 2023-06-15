@@ -96,6 +96,9 @@ extern "C" {
 
     int ob_index_init_htable(OBHashtable *htable, const int64_t capacity,
             const bool need_reclaim);
+
+    void ob_index_clear_htable(OBHashtable *htable);
+
     void ob_index_destroy_htable(OBHashtable *htable);
 
     int ob_index_add_slice_no_db_ex(OBHashtable *htable,

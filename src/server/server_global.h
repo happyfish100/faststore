@@ -101,6 +101,7 @@ typedef struct server_global_vars {
 
     struct {
         DAContext da_ctx;
+        short ob_element_size;
         struct {
             bool write_to_cache;
             struct {
@@ -321,6 +322,7 @@ typedef struct server_global_vars {
 #define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
 
+#define OB_ELEMENT_SIZE       g_server_global_vars->storage.ob_element_size
 #define DA_CTX                g_server_global_vars->storage.da_ctx
 #define STORAGE_CFG           DA_CTX.storage.cfg
 #define PATHS_BY_INDEX_PPTR   STORAGE_CFG.paths_by_index.paths

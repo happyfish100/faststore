@@ -614,7 +614,6 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
     const int64_t alloc_elements_limit = 0;
     int block_prealloc_count;
     int slice_prealloc_count;
-    int ob_element_size;
     int64_t block_min_memory;
     int64_t slice_min_memory;
     int64_t total_min_memory;
@@ -630,9 +629,9 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
     if (STORAGE_ENABLED) {
         block_prealloc_count = 1;
         slice_prealloc_count = 2;
-        ob_element_size = sizeof(OBEntry) + sizeof(OBDBArgs);
+        OB_ELEMENT_SIZE = sizeof(OBEntry) + sizeof(OBDBArgs);
         block_min_memory = fast_mblock_get_trunk_size(
-                fast_mblock_get_block_size(ob_element_size),
+                fast_mblock_get_block_size(OB_ELEMENT_SIZE),
                 alloc_elements_once) * block_prealloc_count *
             segment_array->count * 2;
         slice_min_memory = fast_mblock_get_trunk_size(
@@ -650,7 +649,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         } else if (ob_shared_ctx.memory_limit < 256 * 1024 * 1024) {
             ob_shared_ctx.memory_limit = 256 * 1024 * 1024;
         }
-        RECOVERY_DEDUP_MEMORY_LIMIT = ob_shared_ctx.memory_limit / 4;
+        RECOVERY_DEDUP_MEMORY_LIMIT = ob_shared_ctx.memory_limit / 5;
 
         logInfo("file: "__FILE__", line: %d, memory limit %"PRId64" MB",
                 __LINE__, ob_shared_ctx.memory_limit / (1024 * 1024));
@@ -660,11 +659,11 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         trunk_callbacks.holder.args = NULL;
         trunk_callbacks.ptr = &trunk_callbacks.holder;
     } else {
-        ob_element_size = sizeof(OBEntry);
+        OB_ELEMENT_SIZE = sizeof(OBEntry);
         block_prealloc_count = 0;
         slice_prealloc_count = 0;
         trunk_callbacks.ptr = NULL;
-        RECOVERY_DEDUP_MEMORY_LIMIT = SYSTEM_TOTAL_MEMORY / 4;
+        RECOVERY_DEDUP_MEMORY_LIMIT = SYSTEM_TOTAL_MEMORY / 5;
     }
 
     obj_callbacks_obentry.init_func = (fast_mblock_object_init_func)
@@ -687,7 +686,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
 
         obj_callbacks_obentry.args = &segment->allocators.ob;
         if ((result=fast_mblock_init_ex2(&segment->allocators.ob, "ob_entry",
-                        ob_element_size, alloc_elements_once,
+                        OB_ELEMENT_SIZE, alloc_elements_once,
                         alloc_elements_limit, block_prealloc_count,
                         &obj_callbacks_obentry, true,
                         trunk_callbacks.ptr)) != 0)
@@ -767,43 +766,40 @@ int ob_index_init_htable(OBHashtable *htable, const int64_t capacity,
     return 0;
 }
 
-void ob_index_destroy_htable(OBHashtable *htable)
+void ob_index_clear_htable(OBHashtable *htable)
 {
     OBEntry **bucket;
     OBEntry **end;
     OBEntry *ob;
     OBEntry *deleted;
-    OBSegment *segment;
-    int64_t slice_count;
 
-    slice_count = 0;
     end = htable->buckets + htable->capacity;
     for (bucket=htable->buckets; bucket<end; bucket++) {
         if (*bucket == NULL) {
             continue;
         }
 
-        segment = ob_shared_ctx.segment_array.segments +
-            (bucket - htable->buckets) %
-            ob_shared_ctx.segment_array.count;
-        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
-
         ob = *bucket;
         do {
-            slice_count += uniq_skiplist_count(ob->slices);
             uniq_skiplist_free(ob->slices);
+            ob->slices = NULL;
 
             deleted = ob;
             ob = ob->next;
             fast_mblock_free_object(deleted->allocator, deleted);
         } while (ob != NULL);
-
-        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-    }
-    if (slice_count > 0) {
-        FC_ATOMIC_DEC_EX(htable->slice_count, slice_count);
+        *bucket = NULL;
     }
 
+    htable->ob_count = 0;
+    htable->slice_count = 0;
+}
+
+void ob_index_destroy_htable(OBHashtable *htable)
+{
+    if (htable->ob_count > 0) {
+        ob_index_clear_htable(htable);
+    }
     free(htable->buckets);
     htable->buckets = NULL;
 }
