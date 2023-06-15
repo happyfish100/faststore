@@ -300,7 +300,6 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         {
             const int data_group_id = 0;
             const int64_t data_version = 0;
-
             committed_version_add(data_group_id, data_version, sn);
             r = slice_binlog_del_slice_push(&record->bs_key,
                     g_current_time, sn, record->data_version,
@@ -310,7 +309,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
         }
     } else {
         sn = ob_index_generate_alone_sn();
-        r = slice_binlog_log_no_op(&record->bs_key.block, g_current_time,
+        r = slice_binlog_no_op_push(&record->bs_key.block, g_current_time,
                 sn, record->data_version, BINLOG_SOURCE_ROLLBACK);
     }
     if (r != 0) {

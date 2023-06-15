@@ -512,6 +512,7 @@ static int init_parse_thread_context(SliceParseThreadContext *thread_ctx)
 {
     const int alloc_elements_once = 8 * 1024;
     int elements_limit;
+    int elements_min;
     int result;
 
     if ((result=init_pthread_lock_cond_pair(&thread_ctx->notify.lcp)) != 0) {
@@ -520,6 +521,10 @@ static int init_parse_thread_context(SliceParseThreadContext *thread_ctx)
 
     elements_limit = (8 * BINLOG_BUFFER_SIZE) /
         FS_SLICE_BINLOG_MIN_RECORD_SIZE;
+    elements_min = FC_MAX(MBLOCK_BATCH_ALLOC_SIZE, alloc_elements_once);
+    if (elements_limit <= elements_min) {
+        elements_limit = 2 * elements_min;
+    }
     if ((result=fast_mblock_init_ex1(&thread_ctx->record_allocator,
                     "slice_record", sizeof(SliceLoaderRecord),
                     alloc_elements_once, elements_limit,

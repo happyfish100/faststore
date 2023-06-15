@@ -713,7 +713,7 @@ void slice_binlog_destroy()
     sf_binlog_writer_finish(&SLICE_BINLOG_WRITER.writer);
 }
 
-int slice_binlog_log_no_op(const FSBlockKey *bkey,
+static int slice_binlog_log_no_op(const FSBlockKey *bkey,
         const time_t current_time, const uint64_t sn,
         const uint64_t data_version, const int source)
 {
@@ -735,7 +735,8 @@ int slice_binlog_log_no_op(const FSBlockKey *bkey,
     return 0;
 }
 
-int slice_binlog_padding(const int row_count, const int source)
+int slice_binlog_padding_ex(const int row_count,
+        const int source, const bool direct_log)
 {
     const int64_t data_version = 0;
     int result;
@@ -749,9 +750,14 @@ int slice_binlog_padding(const int row_count, const int source)
     bkey.offset = 0;
     for (i=1; i<=row_count; i++) {
         sn = ob_index_generate_alone_sn();
-        if ((result=slice_binlog_log_no_op(&bkey, current_time + i,
-                        sn, data_version, source)) != 0)
-        {
+        if (direct_log) {
+            result = slice_binlog_log_no_op(&bkey, current_time + i,
+                    sn, data_version, source);
+        } else {
+            result = slice_binlog_no_op_push(&bkey, current_time + i,
+                    sn, data_version, source);
+        }
+        if (result != 0) {
             return result;
         }
     }
@@ -1588,6 +1594,36 @@ int slice_binlog_del_slice_push(const FSBlockSliceKeyInfo *bs_key,
     {
         return result;
     }
+    slice_space_log_push(record);
+    return 0;
+}
+
+int slice_binlog_no_op_push(const FSBlockKey *bkey,
+        const time_t current_time, const uint64_t sn,
+        const uint64_t data_version, const int source)
+{
+    FSSliceSpaceLogRecord *record;
+    SFBinlogWriterBuffer *wbuffer;
+
+    if ((record=slice_space_log_alloc_record()) == NULL) {
+        return ENOMEM;
+    }
+
+    record->space_chain.head = record->space_chain.tail = NULL;
+    if ((wbuffer=sf_binlog_writer_alloc_buffer(
+                    &SLICE_BINLOG_WRITER.thread)) == NULL)
+    {
+        return ENOMEM;
+    }
+
+    SF_BINLOG_BUFFER_SET_VERSION(wbuffer, sn);
+    wbuffer->bf.length = slice_binlog_log_update_block_to_buff(
+            bkey, current_time, BINLOG_OP_TYPE_NO_OP, sn,
+            data_version, source, wbuffer->bf.buff);
+    wbuffer->next = NULL;
+    record->slice_chain.head = wbuffer;
+    record->slice_chain.count = 1;
+    record->last_sn = sn;
     slice_space_log_push(record);
     return 0;
 }

@@ -706,7 +706,6 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
 
     dedup_ctx.out.current_version = FC_ATOMIC_GET(ctx->
             master->dg->myself->data.current_version);
-
     if ((result=init_htables(ctx)) != 0) {
         return result;
     }

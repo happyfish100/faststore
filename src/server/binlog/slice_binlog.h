@@ -222,11 +222,15 @@ extern "C" {
                 bs_key->slice.offset, bs_key->slice.length);
     }
 
-    int slice_binlog_log_no_op(const FSBlockKey *bkey,
-            const time_t current_time, const uint64_t sn,
-            const uint64_t data_version, const int source);
+    int slice_binlog_padding_ex(const int row_count,
+            const int source, const bool direct_log);
 
-    int slice_binlog_padding(const int row_count, const int source);
+    static inline int slice_binlog_padding(const int row_count,
+            const int source)
+    {
+        const bool direct_log = true;
+        return slice_binlog_padding_ex(row_count, source, direct_log);
+    }
 
     static inline int slice_binlog_padding_one(const int source)
     {
@@ -234,10 +238,17 @@ extern "C" {
         return slice_binlog_padding(row_count, source);
     }
 
-    static inline int slice_binlog_padding_for_check(const int source)
+    static inline int slice_binlog_padding_for_check_ex(
+            const int source, const bool direct_log)
     {
         const int row_count = LOCAL_BINLOG_CHECK_LAST_SECONDS + 1;
-        return slice_binlog_padding(row_count, source);
+        return slice_binlog_padding_ex(row_count, source, direct_log);
+    }
+
+    static inline int slice_binlog_padding_for_check(const int source)
+    {
+        const bool direct_log = true;
+        return slice_binlog_padding_for_check_ex(source, direct_log);
     }
 
     void slice_binlog_writer_stat(FSBinlogWriterStat *stat);
@@ -256,6 +267,10 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source,
             struct fc_queue_info *space_chain);
+
+    int slice_binlog_no_op_push(const FSBlockKey *bkey,
+            const time_t current_time, const uint64_t sn,
+            const uint64_t data_version, const int source);
 
 #ifdef __cplusplus
 }

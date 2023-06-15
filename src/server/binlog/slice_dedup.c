@@ -170,9 +170,11 @@ static int remove_binlog_files(SliceBinlogDedupRedoContext *redo_ctx)
 static int dedup_finish(SliceBinlogDedupRedoContext *redo_ctx)
 {
     const int source = BINLOG_SOURCE_DUMP;
+    bool direct_log;
     int result;
 
-    if ((result=slice_binlog_padding_for_check(source)) != 0) {
+    direct_log = (redo_ctx->caller == FS_SLICE_DEDUP_CALL_BY_MIGRATE);
+    if ((result=slice_binlog_padding_for_check_ex(source, direct_log)) != 0) {
         return result;
     }
 
