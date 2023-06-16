@@ -301,6 +301,7 @@ int replica_binlog_init()
     SFBinlogWriterInfo *writer;
     int data_group_id;
     int min_id;
+    int max_delay;
     char filepath[PATH_MAX];
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     int result;
@@ -334,11 +335,16 @@ int replica_binlog_init()
         return result;
     }
 
+    if (LOCAL_BINLOG_CHECK_LAST_SECONDS > 0) {
+        max_delay = (LOCAL_BINLOG_CHECK_LAST_SECONDS + 1) / 2;
+    } else {
+        max_delay = 60;
+    }
     REPLICA_BINLOG_WRITER_ARRAY.base_id = min_id;
     writer = REPLICA_BINLOG_WRITER_ARRAY.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&REPLICA_BINLOG_WRITER_THREAD,
                     "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
-                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
+                    max_delay, FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
                     use_fixed_buffer_size, passive_write)) != 0)
     {
         return result;
@@ -523,7 +529,7 @@ int replica_binlog_log_slice(const time_t current_time,
 
     wbuffer->bf.length = replica_binlog_log_slice_to_buff(current_time,
             data_version, bs_key, source, op_type, wbuffer->bf.buff);
-    sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_write_queue(writer, wbuffer);
     return 0;
 }
 
@@ -542,7 +548,7 @@ int replica_binlog_log_block(const time_t current_time,
 
     wbuffer->bf.length = replica_binlog_log_block_to_buff(current_time,
             data_version, bkey, source, op_type, wbuffer->bf.buff);
-    sf_push_to_binlog_thread_queue(writer->thread, wbuffer);
+    sf_push_to_binlog_write_queue(writer, wbuffer);
     return 0;
 }
 

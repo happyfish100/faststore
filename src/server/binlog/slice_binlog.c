@@ -60,6 +60,7 @@ static int init_binlog_writer()
 {
     int result;
     int ring_size;
+    int max_delay;
 
     ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
     if ((result=sf_binlog_writer_init_by_version(&SLICE_BINLOG_WRITER.writer,
@@ -68,9 +69,16 @@ static int init_binlog_writer()
     {
         return result;
     }
+
+    if (LOCAL_BINLOG_CHECK_LAST_SECONDS > 0) {
+        max_delay = (LOCAL_BINLOG_CHECK_LAST_SECONDS + 1) / 2;
+    } else {
+        max_delay = 60;
+    }
     slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
-    return sf_binlog_writer_init_thread(&SLICE_BINLOG_WRITER.thread, "slice",
-            &SLICE_BINLOG_WRITER.writer, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
+    return sf_binlog_writer_init_thread(&SLICE_BINLOG_WRITER.thread,
+            "slice", &SLICE_BINLOG_WRITER.writer, max_delay,
+            FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 int slice_binlog_set_binlog_start_index(const int start_index)

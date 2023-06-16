@@ -238,6 +238,7 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
 {
     int result;
     int thread_index;
+    int max_delay;
     char subdir_name[64];
     RebuildBinlogWriterContext *rctx;
     RebuildBinlogWriterContext *wend;
@@ -246,6 +247,12 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
             sizeof(RebuildBinlogWriterContext));
     if (ctx->wctx_array.contexts == NULL) {
         return ENOMEM;
+    }
+
+    if (LOCAL_BINLOG_CHECK_LAST_SECONDS > 0) {
+        max_delay = (LOCAL_BINLOG_CHECK_LAST_SECONDS + 1) / 2;
+    } else {
+        max_delay = 60;
     }
 
     wend = ctx->wctx_array.contexts + split_count;
@@ -266,7 +273,7 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
         }
 
         if ((result=sf_binlog_writer_init_thread(&rctx->wctx.thread,
-                        subdir_name, &rctx->wctx.writer,
+                        subdir_name, &rctx->wctx.writer, max_delay,
                         FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
         {
             return result;
