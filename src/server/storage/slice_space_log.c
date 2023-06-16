@@ -318,6 +318,8 @@ static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
         const FSSliceSpaceLogRecord *less_equal)
 {
     int sub;
+    int distance;
+    int log_level;
 
     sub = fc_compare_int64(record->last_sn, less_equal->last_sn);
     if (sub > 0) {
@@ -330,11 +332,20 @@ static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
         SLICE_SPACE_LOG_CTX.last_sn = record->last_sn;
         return sub;
     } else {
-        logWarning("file: "__FILE__", line: %d, "
-                "record sn: %"PRId64", queue last sn: %"PRId64", record "
-                "slice count: %d, expect: %d", __LINE__, record->last_sn,
-                SLICE_SPACE_LOG_CTX.last_sn, record->slice_chain.count,
-                (int)(record->last_sn - SLICE_SPACE_LOG_CTX.last_sn));
+        distance = record->last_sn - SLICE_SPACE_LOG_CTX.last_sn;
+        if (distance < 0) {
+            log_level = LOG_ERR;
+        } else if (distance > 128) {
+            log_level = LOG_WARNING;
+        } else {
+            log_level = LOG_DEBUG;
+        }
+        log_it_ex(&g_log_context, log_level,
+                "file: "__FILE__", line: %d, "
+                "record sn: %"PRId64", queue last sn: %"PRId64", "
+                "record slice count: %d, expect: %d", __LINE__,
+                record->last_sn, SLICE_SPACE_LOG_CTX.last_sn,
+                record->slice_chain.count, distance);
         return 1;
     }
 }

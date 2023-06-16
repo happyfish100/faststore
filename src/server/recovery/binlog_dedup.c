@@ -68,6 +68,8 @@ typedef struct {
         } partial_deletes;
     } rstat;  //record stat
 
+    int64_t dedup_count;
+
     struct {
         OBSlicePtrArray slice_array;  //for sort
         BinlogFileWriter writer;
@@ -575,6 +577,7 @@ static int output_binlog(BinlogDedupContext *dedup_ctx)
         return 0;
     }
 
+    ++dedup_ctx->dedup_count;
     dedup_ctx->rstat.create.sum.total += dedup_ctx->rstat.create.current.total;
     dedup_ctx->rstat.create.sum.success += dedup_ctx->rstat.create.current.success;
     dedup_ctx->rstat.remove.sum.total += dedup_ctx->rstat.remove.current.total;
@@ -734,7 +737,8 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
                 "delete : {total : %"PRId64", success : %"PRId64", "
                 "ignore : %"PRId64", partial : %"PRId64"}}, "
                 "output: {create : %"PRId64", delete : %"PRId64"}, "
-                "time used: %s ms", __LINE__, ctx->ds->dg->id,
+                "dedup/split count: %"PRId64", time used: %s ms",
+                __LINE__, ctx->ds->dg->id,
                 dedup_ctx.rstat.create.sum.total +
                 dedup_ctx.rstat.remove.sum.total,
                 dedup_ctx.rstat.create.sum.success +
@@ -746,7 +750,8 @@ int data_recovery_dedup_binlog(DataRecoveryContext *ctx, int64_t *binlog_count)
                 dedup_ctx.rstat.remove.sum.ignore,
                 dedup_ctx.rstat.partial_deletes.sum,
                 dedup_ctx.out.binlog_counts.create,
-                dedup_ctx.out.binlog_counts.remove, time_buff);
+                dedup_ctx.out.binlog_counts.remove,
+                dedup_ctx.dedup_count, time_buff);
     } else {
         logError("file: "__FILE__", line: %d, "
                 "dedup binlog fail, result: %d",
