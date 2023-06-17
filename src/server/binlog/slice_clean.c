@@ -133,8 +133,10 @@ static int slice_clean_func(void *args)
     static volatile bool clean_in_progress = false;
     int result;
     int remove_count;
+    int log_level;
     int64_t start_time_ms;
     int64_t time_used;
+    char *prompt;
     char time_buff[32];
 
     if (!clean_in_progress) {
@@ -143,14 +145,23 @@ static int slice_clean_func(void *args)
         start_time_ms = get_current_time_ms();
         logInfo("file: "__FILE__", line: %d, "
                 "clean slice binlogs ...", __LINE__);
-
-        result = clean_binlogs(&remove_count);
+        if ((result=clean_binlogs(&remove_count)) == 0) {
+            prompt = "success";
+            log_level = LOG_INFO;
+        } else {
+            prompt = "fail";
+            log_level = LOG_ERR;
+        }
         time_used = get_current_time_ms() - start_time_ms;
-        logInfo("file: "__FILE__", line: %d, "
+        log_it_ex(&g_log_context, log_level,
+                "file: "__FILE__", line: %d, "
                 "clean slice binlogs %s, remove binlog count: %d, "
-                "time used: %s ms", __LINE__, (result == 0 ? "success" :
-                    "fail"), remove_count, long_to_comma_str(
-                        time_used, time_buff));
+                "time used: %s ms", __LINE__, prompt, remove_count,
+                long_to_comma_str(time_used, time_buff));
+
+        if (remove_count > 0) {
+            //TODO
+        }
 
         clean_in_progress = false;
     }
