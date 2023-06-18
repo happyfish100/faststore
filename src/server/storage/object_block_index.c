@@ -617,6 +617,8 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
     int64_t block_min_memory;
     int64_t slice_min_memory;
     int64_t total_min_memory;
+    char ob_slice_limit_buff[32];
+    char dedup_limit_buff[32];
     OBSegment *segment;
     OBSegment *end;
     struct {
@@ -651,8 +653,13 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         }
         RECOVERY_DEDUP_MEMORY_LIMIT = ob_shared_ctx.memory_limit / 5;
 
-        logInfo("file: "__FILE__", line: %d, memory limit %"PRId64" MB",
-                __LINE__, ob_shared_ctx.memory_limit / (1024 * 1024));
+        long_to_comma_str(ob_shared_ctx.memory_limit / (1024 * 1024),
+                ob_slice_limit_buff);
+        long_to_comma_str(RECOVERY_DEDUP_MEMORY_LIMIT / (1024 * 1024),
+                dedup_limit_buff);
+        logInfo("file: "__FILE__", line: %d, ob and slice memory limit: "
+                "%s MB, recovery dedup memory limit: %s MB", __LINE__,
+                ob_slice_limit_buff, dedup_limit_buff);
 
         trunk_callbacks.holder.check_func = block_malloc_trunk_check;
         trunk_callbacks.holder.notify_func = block_malloc_trunk_notify_func;
@@ -664,6 +671,12 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
         slice_prealloc_count = 0;
         trunk_callbacks.ptr = NULL;
         RECOVERY_DEDUP_MEMORY_LIMIT = SYSTEM_TOTAL_MEMORY / 5;
+
+        long_to_comma_str(RECOVERY_DEDUP_MEMORY_LIMIT / (1024 * 1024),
+                dedup_limit_buff);
+        logInfo("file: "__FILE__", line: %d, "
+                "recovery dedup memory limit: %s MB",
+                __LINE__, dedup_limit_buff);
     }
 
     obj_callbacks_obentry.init_func = (fast_mblock_object_init_func)

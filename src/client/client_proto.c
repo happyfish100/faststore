@@ -764,7 +764,9 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
 
     stat->is_leader = stat_resp.is_leader;
     stat->auth_enabled = stat_resp.auth_enabled;
-    stat->storage_engine = stat_resp.storage_engine;
+    stat->storage_engine.enabled = stat_resp.storage_engine.enabled;
+    stat->storage_engine.current_version = buff2long(
+            stat_resp.storage_engine.current_version);
     stat->server_id = buff2int(stat_resp.server_id);
     memcpy(stat->version.str, stat_resp.version.str, stat->version.len);
     *(stat->version.str + stat->version.len) = '\0';

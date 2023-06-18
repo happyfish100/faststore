@@ -61,6 +61,8 @@ static void output(const ConnectionInfo *conn,
 {
     double avg_slices;
     char server_group_ids[64];
+    char storage_engine_buff[128];
+    int len;
 
     if (stat->data.ob.total_count > 0) {
         avg_slices = (double)stat->data.slice.total_count /
@@ -69,12 +71,19 @@ static void output(const ConnectionInfo *conn,
         avg_slices = 0.00;
     }
 
+    len = sprintf(storage_engine_buff, "enabled: %s", stat->
+            storage_engine.enabled ? "true" : "false");
+    if (stat->storage_engine.enabled) {
+        sprintf(storage_engine_buff + len, ", current_version: %"PRId64,
+                stat->storage_engine.current_version);
+    }
+
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
             "\tversion: %.*s\n"
             "\tis_leader: %s\n"
             "\tauth_enabled: %s\n"
-            "\tstorage_engine: %s\n"
+            "\tstorage_engine: {%s}\n"
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
@@ -92,8 +101,8 @@ static void output(const ConnectionInfo *conn,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
             (stat->auth_enabled ?  "true" : "false"),
-            (stat->storage_engine ?  "true" : "false"),
-            get_server_group_ids(stat->server_id, server_group_ids),
+            storage_engine_buff, get_server_group_ids(
+                    stat->server_id, server_group_ids),
             stat->connection.current_count,
             stat->connection.max_count,
             stat->binlog.current_version,

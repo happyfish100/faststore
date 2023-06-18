@@ -46,6 +46,7 @@
 #include "binlog/replica_binlog.h"
 #include "replication/replication_common.h"
 #include "replication/replication_quorum.h"
+#include "db/event_dealer.h"
 #include "server_global.h"
 #include "server_func.h"
 #include "server_group_info.h"
@@ -163,7 +164,16 @@ static int service_deal_service_stat(struct fast_task_info *task)
     stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
     stat_resp->auth_enabled = AUTH_ENABLED ? 1 : 0;
-    stat_resp->storage_engine = STORAGE_ENABLED ? 1 : 0;
+
+    if (STORAGE_ENABLED) {
+        stat_resp->storage_engine.enabled = 1;
+        long2buff(event_dealer_get_last_data_version(),
+                stat_resp->storage_engine.current_version);
+    } else {
+        stat_resp->storage_engine.enabled = 0;
+        long2buff(0, stat_resp->storage_engine.current_version);
+    }
+
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
     stat_resp->version.len = sprintf(stat_resp->version.str, "%d.%d.%d",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
