@@ -17,6 +17,7 @@
 #include "fastcommon/logger.h"
 #include "fastcommon/fc_atomic.h"
 #include "../../common/fs_func.h"
+#include "../server_func.h"
 #include "binlog_func.h"
 #include "slice_binlog.h"
 #include "slice_clean.h"
@@ -139,34 +140,40 @@ static int slice_clean_func(void *args)
     char *prompt;
     char time_buff[32];
 
-    if (!clean_in_progress) {
-        clean_in_progress = true;
-
-        start_time_ms = get_current_time_ms();
-        logInfo("file: "__FILE__", line: %d, "
-                "clean slice binlogs ...", __LINE__);
-        if ((result=clean_binlogs(&remove_count)) == 0) {
-            prompt = "success";
-            log_level = LOG_INFO;
-        } else {
-            prompt = "fail";
-            log_level = LOG_ERR;
-        }
-        time_used = get_current_time_ms() - start_time_ms;
-        log_it_ex(&g_log_context, log_level,
-                "file: "__FILE__", line: %d, "
-                "clean slice binlogs %s, remove binlog count: %d, "
-                "time used: %s ms", __LINE__, prompt, remove_count,
-                long_to_comma_str(time_used, time_buff));
-
-        if (remove_count > 0) {
-            //TODO
-        }
-
-        clean_in_progress = false;
+    if (clean_in_progress) {
+        return 0;
     }
 
-    return 0;
+    clean_in_progress = true;
+
+    start_time_ms = get_current_time_ms();
+    logInfo("file: "__FILE__", line: %d, "
+            "clean slice binlogs ...", __LINE__);
+    if ((result=clean_binlogs(&remove_count)) == 0) {
+        prompt = "success";
+        log_level = LOG_INFO;
+    } else {
+        prompt = "fail";
+        log_level = LOG_ERR;
+    }
+    time_used = get_current_time_ms() - start_time_ms;
+    log_it_ex(&g_log_context, log_level,
+            "file: "__FILE__", line: %d, "
+            "clean slice binlogs %s, remove binlog count: %d, "
+            "time used: %s ms", __LINE__, prompt, remove_count,
+            long_to_comma_str(time_used, time_buff));
+
+    if (remove_count > 0) {
+        SLICE_REMOVE_FILES += remove_count;
+        if (result == 0) {
+            result = fs_write_to_sys_file();
+        } else {
+            fs_write_to_sys_file();
+        }
+    }
+
+    clean_in_progress = false;
+    return result;
 }
 
 int slice_clean_add_schedule()

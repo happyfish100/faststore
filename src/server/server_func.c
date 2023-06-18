@@ -230,13 +230,25 @@ static void calc_my_data_groups_quorum_vars()
     }
 }
 
-static int check_file_block_size()
+int fs_write_to_sys_file()
 {
+    int len;
     char filename[PATH_MAX];
     char buff[256];
+
+    snprintf(filename, sizeof(filename), "%s/%s",
+            DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
+    len = sprintf(buff, "file_block_size=%d\n"
+            "slice_remove_files=%u\n",
+            FILE_BLOCK_SIZE, SLICE_REMOVE_FILES);
+    return safeWriteToFile(filename, buff, len);
+}
+
+static int load_from_sys_file()
+{
+    char filename[PATH_MAX];
     IniContext ini_context;
     int file_block_size;
-    int len;
     int result;
 
     snprintf(filename, sizeof(filename), "%s/%s",
@@ -244,8 +256,7 @@ static int check_file_block_size()
     if (access(filename, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
-            len = sprintf(buff, "file_block_size=%d\n", FILE_BLOCK_SIZE);
-            return safeWriteToFile(filename, buff, len);
+            return fs_write_to_sys_file();
         }
 
         logError("file: "__FILE__", line: %d, "
@@ -269,6 +280,15 @@ static int check_file_block_size()
                 "new: %d KB, you must restore file_block_size to %d KB",
                 __LINE__, file_block_size / 1024, FILE_BLOCK_SIZE / 1024,
                 file_block_size / 1024);
+        return EINVAL;
+    }
+
+    SLICE_REMOVE_FILES = iniGetIntValue(NULL,
+            "slice_remove_files", &ini_context, 0);
+    if (SLICE_REMOVE_FILES > 0 && !STORAGE_ENABLED) {
+        logError("file: "__FILE__", line: %d, can't disable storage "
+                "engine because slice_remove_files: %d > 0!",
+                __LINE__, SLICE_REMOVE_FILES);
         return EINVAL;
     }
 
@@ -296,10 +316,6 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
     if ((result=fs_cluster_cfg_load_from_ini(&CLUSTER_CONFIG_CTX,
             ini_context, filename)) != 0)
     {
-        return result;
-    }
-
-    if ((result=check_file_block_size()) != 0) {
         return result;
     }
 
@@ -1025,6 +1041,10 @@ int server_load_config(const char *filename)
     }
 
     if ((result=load_storage_engine_parames(&full_ini_ctx)) != 0) {
+        return result;
+    }
+
+    if ((result=load_from_sys_file()) != 0) {
         return result;
     }
 

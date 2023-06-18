@@ -25,6 +25,8 @@ extern "C" {
 
 int server_load_config(const char *filename);
 
+int fs_write_to_sys_file();
+
 void fs_server_restart(const char *reason);
 
 #ifdef __cplusplus

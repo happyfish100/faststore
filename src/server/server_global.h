@@ -191,6 +191,7 @@ typedef struct server_global_vars {
             struct {
                 int keep_days;
                 TimeInfo time;
+                volatile int remove_files;
             } cleanup;
 
             volatile int64_t record_count;
@@ -295,6 +296,7 @@ typedef struct server_global_vars {
 
 #define SLICE_KEEP_DAYS    g_server_global_vars->slice.binlog.cleanup.keep_days
 #define SLICE_DELETE_TIME  g_server_global_vars->slice.binlog.cleanup.time
+#define SLICE_REMOVE_FILES g_server_global_vars->slice.binlog.cleanup.remove_files
 
 #define REPLICATION_QUORUM  g_server_global_vars->replica.quorum
 #define REPLICA_QUORUM_NEED_MAJORITY g_server_global_vars-> \
