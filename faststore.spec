@@ -17,7 +17,7 @@ BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
 BuildRequires: libaio-devel
 BuildRequires: libserverframe-devel >= 1.1.27
-BuildRequires: libdiskallocator-devel >= 1.1.0
+BuildRequires: libdiskallocator-devel >= 1.1.1
 BuildRequires: FastCFS-auth-devel >= 3.7.2
 BuildRequires: FastCFS-vote-devel >= 3.7.2
 Requires: %__cp %__mv %__chmod %__grep %__mkdir %__install %__id
@@ -31,7 +31,7 @@ commit version: %{CommitVersion}
 %package -n %{FastStoreServer}
 Requires: libaio
 Requires: libserverframe >= 1.1.27
-Requires: libfsstorage >= 1.1.0
+Requires: libfsstorage >= 1.1.1
 Requires: FastCFS-auth-client >= 3.7.2
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: FastCFS-vote-client >= 3.7.2
