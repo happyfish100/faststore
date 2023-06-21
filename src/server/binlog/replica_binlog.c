@@ -1259,20 +1259,23 @@ int replica_binlog_remove_all_files(const int data_group_id)
 int replica_binlog_waiting_write_done(const int data_group_id,
         const uint64_t waiting_data_version, const char *caption)
 {
-#define MAX_WAITING_COUNT  100
+#define MAX_WAITING_COUNT  10000
     int result;
     int r;
     int count;
     int log_level;
+    int64_t start_time_ms;
     uint64_t data_version;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char filename[PATH_MAX];
     char prompt[64];
+    char time_buff[32];
 
     if (waiting_data_version == 0) {
         return 0;
     }
 
+    start_time_ms = get_current_time_ms();
     result = ETIMEDOUT;
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
     for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
@@ -1282,11 +1285,11 @@ int replica_binlog_waiting_write_done(const int data_group_id,
         if ((r=replica_binlog_get_last_data_version(
                         filename, &data_version)) != 0)
         {
-            result = r;
-            break;
-        }
-
-        if (data_version >= waiting_data_version) {
+            if (r != ENOENT) {
+                result = r;
+                break;
+            }
+        } else if (data_version >= waiting_data_version) {
             result = 0;
             break;
         }
@@ -1311,10 +1314,11 @@ int replica_binlog_waiting_write_done(const int data_group_id,
         }
     }
 
+    long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
     log_it_ex(&g_log_context, log_level, "file: "__FILE__", line: %d, "
             "data group id: %d, waiting %s last data version: %"PRId64", "
-            "waiting binlog write done %s", __LINE__, data_group_id,
-            caption, waiting_data_version, prompt);
+            "waiting binlog write done %s, time used: %s ms", __LINE__,
+            data_group_id, caption, waiting_data_version, prompt, time_buff);
     return result;
 }
 
