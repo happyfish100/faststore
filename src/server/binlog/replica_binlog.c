@@ -1285,7 +1285,7 @@ int replica_binlog_waiting_write_done(const int data_group_id,
         if ((r=replica_binlog_get_last_data_version(
                         filename, &data_version)) != 0)
         {
-            if (r != ENOENT) {
+            if (!(r == ENOENT || r == EINVAL)) {
                 result = r;
                 break;
             }
