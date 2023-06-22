@@ -59,7 +59,7 @@ int replica_binlog_get_first_record(const char *filename,
 
 int replica_binlog_get_last_record_ex(const char *filename,
         ReplicaBinlogRecord *record, SFBinlogFilePosition *position,
-        int *record_len)
+        int *record_len, const int log_level)
 {
     char buff[FS_REPLICA_BINLOG_MAX_RECORD_SIZE];
     char error_info[256];
@@ -91,7 +91,8 @@ int replica_binlog_get_last_record_ex(const char *filename,
     {
         int64_t line_count;
         fc_get_file_line_count(filename, &line_count);
-        logError("file: "__FILE__", line: %d, "
+        log_it_ex(&g_log_context, log_level,
+                "file: "__FILE__", line: %d, "
                 "binlog file %s, line no: %"PRId64", %s",
                 __LINE__, filename, line_count, error_info);
 
@@ -105,6 +106,7 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
         uint64_t *data_version, SFBinlogFilePosition *position,
         int *record_len)
 {
+    const int log_level = LOG_ERR;
     SFBinlogWriterInfo *writer;
     char filename[PATH_MAX];
     int result;
@@ -120,7 +122,7 @@ static int get_last_data_version_from_file_ex(const int data_group_id,
                 filename, sizeof(filename));
 
         if ((result=replica_binlog_get_last_data_version_ex(filename,
-                        data_version, position, record_len)) == 0)
+                        data_version, position, record_len, log_level)) == 0)
         {
             return 0;
         }
@@ -619,6 +621,7 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
         const uint64_t last_data_version, SFBinlogFilePosition *pos,
         const bool ignore_dv_overflow)
 {
+    const int log_level = LOG_ERR;
     int result;
     int record_len;
     uint64_t data_version;
@@ -628,7 +631,7 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
     sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
             pos->index, filename, sizeof(filename));
     if ((result=replica_binlog_get_last_data_version_ex(filename,
-                    &data_version, pos, &record_len)) != 0)
+                    &data_version, pos, &record_len, log_level)) != 0)
     {
         return result;
     }
@@ -1263,9 +1266,11 @@ int replica_binlog_waiting_write_done(const int data_group_id,
     int result;
     int r;
     int count;
+    int record_len;
     int log_level;
     int64_t start_time_ms;
     uint64_t data_version;
+    SFBinlogFilePosition position;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     char filename[PATH_MAX];
     char prompt[64];
@@ -1279,11 +1284,12 @@ int replica_binlog_waiting_write_done(const int data_group_id,
     result = ETIMEDOUT;
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
     for (count=0; count<MAX_WAITING_COUNT && SF_G_CONTINUE_FLAG; count++) {
+        log_level =  count < MAX_WAITING_COUNT - 1 ? LOG_NOTHING : LOG_WARNING;
         sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
                 replica_binlog_get_current_write_index(
                     data_group_id), filename, sizeof(filename));
-        if ((r=replica_binlog_get_last_data_version(
-                        filename, &data_version)) != 0)
+        if ((r=replica_binlog_get_last_data_version_ex(filename, &data_version,
+                        &position, &record_len, log_level)) != 0)
         {
             if (!(r == ENOENT || r == EINVAL)) {
                 result = r;

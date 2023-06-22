@@ -131,27 +131,29 @@ extern "C" {
 
     int replica_binlog_get_last_record_ex(const char *filename,
             ReplicaBinlogRecord *record, SFBinlogFilePosition *position,
-            int *record_len);
+            int *record_len, const int log_level);
 
     static inline int replica_binlog_get_last_record(const char *filename,
             ReplicaBinlogRecord *record)
     {
+        const int log_level = LOG_ERR;
         SFBinlogFilePosition position;
         int record_len;
 
         return replica_binlog_get_last_record_ex(filename,
-                record, &position, &record_len);
+                record, &position, &record_len, log_level);
     }
 
     static inline int replica_binlog_get_last_data_version_ex(
             const char *filename, uint64_t *data_version,
-            SFBinlogFilePosition *position, int *record_len)
+            SFBinlogFilePosition *position, int *record_len,
+            const int log_level)
     {
         ReplicaBinlogRecord record;
         int result;
 
-        if ((result=replica_binlog_get_last_record_ex(filename,
-                        &record, position, record_len)) == 0)
+        if ((result=replica_binlog_get_last_record_ex(filename, &record,
+                        position, record_len, log_level)) == 0)
         {
             *data_version = record.data_version;
         } else {
@@ -164,11 +166,12 @@ extern "C" {
     static inline int replica_binlog_get_last_data_version(
             const char *filename, uint64_t *data_version)
     {
+        const int log_level = LOG_ERR;
         SFBinlogFilePosition position;
         int record_len;
 
         return replica_binlog_get_last_data_version_ex(filename,
-                data_version, &position, &record_len);
+                data_version, &position, &record_len, log_level);
     }
 
     static inline int replica_binlog_get_last_dv(const int data_group_id,
