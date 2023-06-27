@@ -63,9 +63,12 @@ static int init_binlog_writer()
     int max_delay;
 
     ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
-    if ((result=sf_binlog_writer_init_by_version(&SLICE_BINLOG_WRITER.writer,
-                    DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
-                    SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, ring_size)) != 0)
+    if ((result=sf_binlog_writer_init_by_version_ex(&SLICE_BINLOG_WRITER.
+                    writer, DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
+                    SF_BINLOG_FILE_PREFIX, SLICE_BINLOG_SN + 1,
+                    BINLOG_BUFFER_SIZE, ring_size,
+                    SF_BINLOG_DEFAULT_ROTATE_SIZE,
+                    BINLOG_CALL_FSYNC)) != 0)
     {
         return result;
     }
@@ -382,7 +385,9 @@ static int slice_migrate_do()
         return result;
     }
     sf_binlog_writer_change_passive_write(&SLICE_BINLOG_WRITER.writer, true);
-    sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, false);
+    if (BINLOG_CALL_FSYNC) {
+        sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, false);
+    }
 
     logInfo("file: "__FILE__", line: %d, "
             "begin migrate slice binlog, binlog count: %d ...",
@@ -440,7 +445,9 @@ static int slice_migrate_do()
     }
 
     sf_binlog_writer_change_passive_write(&SLICE_BINLOG_WRITER.writer, false);
-    sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, true);
+    if (BINLOG_CALL_FSYNC) {
+        sf_binlog_writer_change_call_fsync(&SLICE_BINLOG_WRITER.writer, true);
+    }
 
     long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
     logInfo("file: "__FILE__", line: %d, "

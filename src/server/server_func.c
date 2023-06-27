@@ -513,6 +513,7 @@ static void server_log_configs()
             "recovery_max_queue_depth = %d, "
             "rebuild_threads = %d, "
             "binlog_buffer_size = %d KB, "
+            "binlog_call_fsync = %d, "
             "net_buffer_memory_limit = %.2f%%, "
             "local_binlog_check_last_seconds = %d s, "
             "slave_binlog_check_last_rows = %d, "
@@ -537,6 +538,7 @@ static void server_log_configs()
             RECOVERY_MAX_QUEUE_DEPTH,
             DATA_REBUILD_THREADS,
             BINLOG_BUFFER_SIZE / 1024,
+            BINLOG_CALL_FSYNC,
             NET_BUFFER_MEMORY_LIMIT.ratio * 100,
             LOCAL_BINLOG_CHECK_LAST_SECONDS,
             SLAVE_BINLOG_CHECK_LAST_ROWS,
@@ -974,6 +976,9 @@ int server_load_config(const char *filename)
                 "rebuild_threads", FS_DEFAULT_DATA_REBUILD_THREADS,
                 FS_MIN_DATA_REBUILD_THREADS, FS_MAX_DATA_REBUILD_THREADS);
     }
+
+    BINLOG_CALL_FSYNC = iniGetBoolValue(NULL,
+            "binlog_call_fsync", &ini_context, true);
 
     LOCAL_BINLOG_CHECK_LAST_SECONDS = iniGetIntValue(NULL,
             "local_binlog_check_last_seconds", &ini_context,
