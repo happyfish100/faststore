@@ -29,7 +29,13 @@ extern "C" {
 
     static inline FSSliceSpaceLogRecord *slice_space_log_alloc_record()
     {
-        return fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
+        FSSliceSpaceLogRecord *record;
+
+        record = fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
+        if (record != NULL) {
+            record->timestamp = g_current_time;
+        }
+        return record;
     }
 
     static inline FSSliceSpaceLogRecord *slice_space_log_alloc_init_record()
@@ -38,6 +44,7 @@ extern "C" {
 
         record = fast_mblock_alloc_object(&SLICE_SPACE_LOG_CTX.allocator);
         if (record != NULL) {
+            record->timestamp = g_current_time;
             record->slice_chain.head = NULL;
             record->slice_chain.count = 0;
             record->space_chain.head = NULL;
@@ -55,6 +62,16 @@ extern "C" {
     static inline void slice_space_log_push(FSSliceSpaceLogRecord *record)
     {
         sorted_queue_push_silence(&SLICE_SPACE_LOG_CTX.queue, record);
+    }
+
+    static inline void slice_space_log_queue_lock()
+    {
+        sorted_queue_lock(&SLICE_SPACE_LOG_CTX.queue);
+    }
+
+    static inline void slice_space_log_queue_unlock()
+    {
+        sorted_queue_unlock(&SLICE_SPACE_LOG_CTX.queue);
     }
 
     void trunk_migrate_done_callback(const DATrunkFileInfo *trunk);

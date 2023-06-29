@@ -45,9 +45,12 @@ extern "C" {
         {
             return result;
         }
-
         op_ctx->update.space_changed += inc_alloc;
         op_ctx->info.sn.last = slice_sn_pair->sn;
+
+        record->last_sn = slice_sn_pair->sn;
+        record->status = FS_SLICE_SPACE_LOG_RECORD_STATUS_IN_PROGRESS;
+        slice_space_log_push(record);
 
         se.timestamp = op_ctx->update.timestamp;
         se.source = op_ctx->info.source;

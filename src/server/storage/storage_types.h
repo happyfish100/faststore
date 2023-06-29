@@ -198,8 +198,13 @@ typedef struct fs_binlog_write_file_buffer_pair {
     int record_count;
 } FSBinlogWriteFileBufferPair;
 
+#define FS_SLICE_SPACE_LOG_RECORD_STATUS_READY       0
+#define FS_SLICE_SPACE_LOG_RECORD_STATUS_IN_PROGRESS 1
+
 typedef struct fs_slice_space_log_record {
     int64_t last_sn;
+    int64_t timestamp;  //for flow control
+    char status;
     struct {
         int count;
         SFBinlogWriterBuffer *head;

@@ -321,6 +321,10 @@ static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
     int distance;
     int log_level;
 
+    if (record->status != FS_SLICE_SPACE_LOG_RECORD_STATUS_READY) {
+        return 1;
+    }
+
     sub = fc_compare_int64(record->last_sn, less_equal->last_sn);
     if (sub > 0) {
         return sub;

@@ -1583,11 +1583,14 @@ int slice_binlog_cached_slice_write_done(const DASliceEntry *se,
             space, se->timestamp, se->sn, se->data_version, se->source,
             wbuffer->bf.buff);
     wbuffer->next = NULL;
+
+    slice_space_log_queue_lock();
     record->slice_chain.head = wbuffer;
     record->slice_chain.count = 1;
-    record->last_sn = se->sn;
     dedup_space_chain(&record->space_chain, update_count);
-    slice_space_log_push(record);
+    record->status = FS_SLICE_SPACE_LOG_RECORD_STATUS_READY;
+    slice_space_log_queue_unlock();
+
     return 0;
 }
 
