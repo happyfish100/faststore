@@ -105,6 +105,7 @@ typedef struct server_global_vars {
         short ob_element_size;
         struct {
             bool write_to_cache;
+            int cache_flush_max_delay;  //in seconds
             struct {
                 int shared_lock_count;
                 int64_t hashtable_capacity;
@@ -332,6 +333,8 @@ typedef struct server_global_vars {
 
 #define WRITE_TO_CACHE            g_server_global_vars->  \
     storage.cfg.write_to_cache
+#define CACHE_FLUSH_MAX_DELAY     g_server_global_vars->  \
+    storage.cfg.cache_flush_max_delay
 #define FILE_BLOCK_SIZE           g_server_global_vars->  \
     cluster.config.ctx.file_block.size
 #define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \

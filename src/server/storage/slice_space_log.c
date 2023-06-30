@@ -218,7 +218,8 @@ static void notify_all(struct fc_list_head *head)
     }
 }
 
-static int deal_records(struct fc_list_head *head)
+static int deal_records(struct fc_list_head *head,
+        uint32_t *last_deal_timestamp)
 {
     int result;
     FSSliceSpaceLogRecord *last_record;
@@ -234,7 +235,8 @@ static int deal_records(struct fc_list_head *head)
     push_to_log_queues(head);
     da_trunk_space_log_wait(&DA_CTX);
 
-    last_record = fc_list_last_entry(head, FSSliceSpaceLogRecord, dlink);
+    last_record = fc_list_entry(head->prev, FSSliceSpaceLogRecord, dlink);
+    *last_deal_timestamp = last_record->timestamp;
     while (SF_G_CONTINUE_FLAG && sf_binlog_writer_get_last_version(
                 &SLICE_BINLOG_WRITER.writer) < last_record->last_sn)
     {
@@ -251,12 +253,15 @@ static void *slice_space_log_func(void *arg)
 {
     FSSliceSpaceLogRecord less_equal;
     struct fc_list_head head;
+    uint32_t current_timestamp;
+    uint32_t last_deal_timestamp;
     int sleep_ms;
 
 #ifdef OS_LINUX
     prctl(PR_SET_NAME, "slice-space-log");
 #endif
 
+    current_timestamp = last_deal_timestamp = 0;
     SLICE_SPACE_LOG_CTX.last_sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);
     while (SF_G_CONTINUE_FLAG) {
         less_equal.last_sn = FC_ATOMIC_GET(COMMITTED_VERSION_RING.next_sn) - 1;
@@ -264,26 +269,57 @@ static void *slice_space_log_func(void *arg)
                 queue, &less_equal, &head);
         SLICE_SPACE_LOG_CTX.record_count = 0;
         if (!fc_list_empty(&head)) {
-            if (deal_records(&head) != 0) {
+            bool need_sleep;
+            if (deal_records(&head, &current_timestamp) != 0) {
                 logCrit("file: "__FILE__", line: %d, "
                         "deal notify events fail, "
                         "program exit!", __LINE__);
                 sf_terminate_myself();
                 break;
             }
+
+            if (sorted_queue_empty(&SLICE_SPACE_LOG_CTX.queue)) {
+                current_timestamp = 0;
+            }
+            if ((current_timestamp == 0 && last_deal_timestamp != 0) ||
+                    (current_timestamp > last_deal_timestamp))
+            {
+                last_deal_timestamp = current_timestamp;
+                FC_ATOMIC_SET(SLICE_SPACE_LOG_CTX.flow_ctrol.
+                        last_deal_timestamp, current_timestamp);
+
+                PTHREAD_MUTEX_LOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+                if (SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count > 0) {
+                    pthread_cond_broadcast(&SLICE_SPACE_LOG_CTX.
+                            flow_ctrol.lcp.cond);
+                    need_sleep = false;
+                } else {
+                    need_sleep = true;
+                }
+                PTHREAD_MUTEX_UNLOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+            } else {
+                need_sleep = true;
+            }
+
+            if (need_sleep) {
+                if (SLICE_SPACE_LOG_CTX.record_count <= 100) {
+                    sleep_ms = 1000;
+                } else if (SLICE_SPACE_LOG_CTX.record_count <= 1000) {
+                    sleep_ms = 100;
+                } else if (SLICE_SPACE_LOG_CTX.record_count <= 10000) {
+                    sleep_ms = 10;
+                } else if (SLICE_SPACE_LOG_CTX.record_count <= 100000) {
+                    sleep_ms = 1;
+                } else {
+                    sleep_ms = 0;
+                }
+            } else {
+                sleep_ms = 0;
+            }
+        } else {
+            sleep_ms = 1000;
         }
 
-        if (SLICE_SPACE_LOG_CTX.record_count <= 100) {
-            sleep_ms = 1000;
-        } else if (SLICE_SPACE_LOG_CTX.record_count <= 1000) {
-            sleep_ms = 100;
-        } else if (SLICE_SPACE_LOG_CTX.record_count <= 10000) {
-            sleep_ms = 10;
-        } else if (SLICE_SPACE_LOG_CTX.record_count <= 100000) {
-            sleep_ms = 1;
-        } else {
-            sleep_ms = 0;
-        }
         if (sleep_ms > 0) {
             lcp_timedwait_ms(&SLICE_SPACE_LOG_CTX.queue.lcp, sleep_ms);
         }
@@ -583,6 +619,14 @@ int slice_space_log_init()
         return result;
     }
 
+    SLICE_SPACE_LOG_CTX.flow_ctrol.last_deal_timestamp = 0;
+    SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count = 0;
+    if ((result=init_pthread_lock_cond_pair(&SLICE_SPACE_LOG_CTX.
+                    flow_ctrol.lcp)) != 0)
+    {
+        return result;
+    }
+
     if ((result=slice_space_log_redo()) != 0) {
         return result;
     }
@@ -598,4 +642,60 @@ void slice_space_log_destroy()
 void trunk_migrate_done_callback(const DATrunkFileInfo *trunk)
 {
     pthread_cond_signal(&SLICE_SPACE_LOG_CTX.queue.lcp.cond);
+}
+
+void slice_space_log_push(FSSliceSpaceLogRecord *record)
+{
+    int64_t last_deal_timestamp;
+
+    last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
+            flow_ctrol.last_deal_timestamp);
+    if (last_deal_timestamp > 0 && g_current_time -
+            last_deal_timestamp > CACHE_FLUSH_MAX_DELAY)
+    {
+        time_t start_time;
+        time_t last_log_timestamp;
+        int time_used;
+        int log_level;
+
+        start_time = g_current_time;
+        PTHREAD_MUTEX_LOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+        SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count++;
+        last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
+                flow_ctrol.last_deal_timestamp);
+        while (last_deal_timestamp > 0 && g_current_time -
+                last_deal_timestamp > CACHE_FLUSH_MAX_DELAY)
+        {
+            pthread_cond_wait(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.cond,
+                    &SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+            last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
+                    flow_ctrol.last_deal_timestamp);
+        }
+        SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count--;
+        PTHREAD_MUTEX_UNLOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+
+        time_used = g_current_time - start_time;
+        if (time_used > 0) {
+            last_log_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
+                    flow_ctrol.last_log_timestamp);
+            if (g_current_time != last_log_timestamp &&
+                    __sync_bool_compare_and_swap(&SLICE_SPACE_LOG_CTX.
+                        flow_ctrol.last_log_timestamp, last_log_timestamp,
+                        g_current_time))
+            {
+                if (time_used <= CACHE_FLUSH_MAX_DELAY) {
+                    log_level = LOG_DEBUG;
+                } else {
+                    log_level = LOG_WARNING;
+                }
+                log_it_ex(&g_log_context, log_level,
+                        "file: "__FILE__", line: %d, "
+                        "cache_flush_max_delay: %d s, flow ctrol "
+                        "waiting time: %d s", __LINE__,
+                        CACHE_FLUSH_MAX_DELAY, time_used);
+            }
+        }
+    }
+
+    sorted_queue_push_silence(&SLICE_SPACE_LOG_CTX.queue, record);
 }

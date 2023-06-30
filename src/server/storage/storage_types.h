@@ -216,11 +216,17 @@ typedef struct fs_slice_space_log_record {
 
 typedef struct fs_slice_space_log_context {
     int record_count;
-    int64_t last_sn;  //for pop in order, not including
+    int64_t last_sn;  //for pop in order, including
     FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;
     struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
     struct sorted_queue queue;
+    struct {
+        volatile time_t last_log_timestamp;
+        volatile uint32_t last_deal_timestamp;
+        int waiting_count;
+        pthread_lock_cond_pair_t lcp;
+    } flow_ctrol;
 } FSSliceSpaceLogContext;
 
 #endif

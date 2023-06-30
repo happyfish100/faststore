@@ -520,6 +520,7 @@ static void server_log_configs()
             "cluster server count = %d, "
             "idempotency_max_channel_count: %d, "
             "write_to_cache: %d, "
+            "cache_flush_max_delay: %d s, "
             "object_block_hashtable_capacity: %"PRId64", "
             "object_block_shared_lock_count: %d, "
             "trunk_index_dump_base_time: %02d:%02d, "
@@ -544,8 +545,8 @@ static void server_log_configs()
             SLAVE_BINLOG_CHECK_LAST_ROWS,
             FC_SID_SERVER_COUNT(SERVER_CONFIG_CTX),
             SF_IDEMPOTENCY_MAX_CHANNEL_COUNT,
-            WRITE_TO_CACHE, OB_HASHTABLE_CAPACITY,
-            OB_SHARED_LOCK_COUNT,
+            WRITE_TO_CACHE, CACHE_FLUSH_MAX_DELAY,
+            OB_HASHTABLE_CAPACITY, OB_SHARED_LOCK_COUNT,
             DATA_CFG.trunk_index_dump_base_time.hour,
             DATA_CFG.trunk_index_dump_base_time.minute,
             DATA_CFG.trunk_index_dump_interval,
@@ -583,17 +584,19 @@ static void server_log_configs()
     }
 
     logInfo("faststore V%d.%d.%d, %s, %s, service: {%s}, cluster: {%s}, "
-            "replica: {%s}, %s, %s, data-replication {quorum: %s, "
+            "replica: {%s}", g_fs_global_vars.version.major,
+            g_fs_global_vars.version.minor, g_fs_global_vars.version.patch,
+            sz_global_config, sz_slowlog_config, sz_service_config,
+            sz_cluster_config, sz_replica_config);
+    logInfo("%s, %s, data-replication {quorum: %s, "
             "deactive_on_failures: %d, quorum_need_majority: %d, "
             "quorum_need_detect: %d}, %s, %s, %s",
-            g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
-            g_fs_global_vars.version.patch, sz_global_config,
-            sz_slowlog_config, sz_service_config, sz_cluster_config,
-            sz_replica_config, sz_server_config, sz_melection_config,
+            sz_server_config, sz_melection_config,
             sf_get_replication_quorum_caption(REPLICATION_QUORUM),
             REPLICA_QUORUM_DEACTIVE_ON_FAILURES,
             REPLICA_QUORUM_NEED_MAJORITY, REPLICA_QUORUM_NEED_DETECT,
             sz_slice_binlog_config, sz_replica_binlog_config, sz_auth_config);
+
     log_local_host_ip_addrs();
     log_cluster_server_config();
 }
@@ -862,6 +865,17 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
 
     WRITE_TO_CACHE = iniGetBoolValue(NULL,
             "write_to_cache", ini_context, true);
+    if (WRITE_TO_CACHE) {
+        CACHE_FLUSH_MAX_DELAY = iniGetIntValue(NULL,
+                "cache_flush_max_delay", ini_context, 3);
+        if (CACHE_FLUSH_MAX_DELAY <= 0) {
+            logWarning("file: "__FILE__", line: %d, "
+                    "config file: %s, item \"cache_flush_max_delay\": "
+                    "%d is invalid, set to default: %d", __LINE__,
+                    filename, CACHE_FLUSH_MAX_DELAY, 3);
+            CACHE_FLUSH_MAX_DELAY = 3;
+        }
+    }
 
     OB_HASHTABLE_CAPACITY = iniGetInt64Value(NULL,
             "object_block_hashtable_capacity",

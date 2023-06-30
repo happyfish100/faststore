@@ -59,10 +59,7 @@ extern "C" {
         fast_mblock_free_object(&SLICE_SPACE_LOG_CTX.allocator, record);
     }
 
-    static inline void slice_space_log_push(FSSliceSpaceLogRecord *record)
-    {
-        sorted_queue_push_silence(&SLICE_SPACE_LOG_CTX.queue, record);
-    }
+    void slice_space_log_push(FSSliceSpaceLogRecord *record);
 
     static inline void slice_space_log_queue_lock()
     {
