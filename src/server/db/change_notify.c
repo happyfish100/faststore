@@ -109,10 +109,16 @@ static void *change_notify_func(void *arg)
     return NULL;
 }
 
-static int notify_event_compare(const FSChangeNotifyEvent *event1,
+static int notify_event_push_compare(const FSChangeNotifyEvent *event1,
         const FSChangeNotifyEvent *event2)
 {
     return fc_compare_int64(event1->sn, event2->sn);
+}
+
+static int notify_event_pop_compare(const FSChangeNotifyEvent *event,
+        const FSChangeNotifyEvent *less_equal, void *arg)
+{
+    return fc_compare_int64(event->sn, less_equal->sn);
 }
 
 int change_notify_init()
@@ -160,7 +166,9 @@ int change_notify_init()
     if ((result=sorted_queue_init(&change_notify_ctx.queue, (long)
                     (&((FSChangeNotifyEvent *)NULL)->dlink),
                     (int (*)(const void *, const void *))
-                    notify_event_compare)) != 0)
+                    notify_event_push_compare,
+                    (int (*)(const void *, const void *, void *arg))
+                    notify_event_pop_compare, NULL)) != 0)
     {
         return result;
     }

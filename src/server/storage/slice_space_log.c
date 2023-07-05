@@ -351,7 +351,7 @@ static int slice_space_log_push_compare(const FSSliceSpaceLogRecord *record1,
 }
 
 static int slice_space_log_pop_compare(const FSSliceSpaceLogRecord *record,
-        const FSSliceSpaceLogRecord *less_equal)
+        const FSSliceSpaceLogRecord *less_equal, void *arg)
 {
     int sub;
     int distance;
@@ -609,12 +609,12 @@ int slice_space_log_init()
         return result;
     }
 
-    if ((result=sorted_queue_init_ex(&SLICE_SPACE_LOG_CTX.queue, (long)
+    if ((result=sorted_queue_init(&SLICE_SPACE_LOG_CTX.queue, (long)
                     (&((FSSliceSpaceLogRecord *)NULL)->dlink),
                     (int (*)(const void *, const void *))
                     slice_space_log_push_compare,
-                    (int (*)(const void *, const void *))
-                    slice_space_log_pop_compare)) != 0)
+                    (int (*)(const void *, const void *, void *))
+                    slice_space_log_pop_compare, NULL)) != 0)
     {
         return result;
     }
