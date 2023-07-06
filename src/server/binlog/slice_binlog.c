@@ -764,7 +764,11 @@ int slice_binlog_padding_ex(const int row_count,
     bkey.oid = 1;
     bkey.offset = 0;
     for (i=1; i<=row_count; i++) {
-        sn = ob_index_generate_alone_sn();
+        if (committed_version_inited()) {
+            sn = ob_index_generate_alone_sn();
+        } else {
+            sn = __sync_add_and_fetch(&SLICE_BINLOG_SN, 1);
+        }
         if (direct_log) {
             result = slice_binlog_log_no_op(&bkey, current_time + i,
                     sn, data_version, source);

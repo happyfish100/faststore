@@ -112,6 +112,7 @@ int committed_version_init(const int64_t sn)
     }
     memset(COMMITTED_VERSION_RING.versions, 0, bytes);
 
+    COMMITTED_VERSION_RING.inited = true;
     COMMITTED_VERSION_RING.count = 0;
     COMMITTED_VERSION_RING.waitings = 0;
     FC_ATOMIC_SET(COMMITTED_VERSION_RING.next_sn, sn + 1);

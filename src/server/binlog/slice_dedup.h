@@ -29,7 +29,7 @@
 extern "C" {
 #endif
 
-    int slice_dedup_redo();
+    int slice_dedup_redo(const char caller);
 
     int slice_dedup_add_schedule();
 

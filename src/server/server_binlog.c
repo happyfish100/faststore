@@ -124,7 +124,7 @@ int server_binlog_init()
         return result;
     }
 
-    if ((result=slice_dedup_redo()) != 0) {
+    if ((result=slice_dedup_redo(FS_SLICE_DEDUP_CALL_BY_MIGRATE)) != 0) {
         return result;
     }
 
@@ -141,6 +141,10 @@ int server_binlog_init()
     }
 
     if ((result=committed_version_init(SLICE_BINLOG_SN)) != 0) {
+        return result;
+    }
+
+    if ((result=slice_dedup_redo(FS_SLICE_DEDUP_CALL_BY_CRONTAB)) != 0) {
         return result;
     }
 

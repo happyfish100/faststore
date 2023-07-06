@@ -276,7 +276,7 @@ static int do_dedup(const char caller)
     return redo(&redo_ctx);
 }
 
-int slice_dedup_redo()
+int slice_dedup_redo(const char caller)
 {
     int result;
     SliceBinlogDedupRedoContext redo_ctx;
@@ -299,7 +299,16 @@ int slice_dedup_redo()
         return result;
     }
 
-    return redo(&redo_ctx);
+    if (redo_ctx.caller == caller) {
+        if (caller == FS_SLICE_DEDUP_CALL_BY_MIGRATE &&
+                FC_ATOMIC_GET(SLICE_BINLOG_SN) == 0)
+        {
+            FC_ATOMIC_SET(SLICE_BINLOG_SN, redo_ctx.slice_count);
+        }
+        return redo(&redo_ctx);
+    } else {
+        return 0;
+    }
 }
 
 int slice_dedup_binlog_ex(const char caller, const int64_t slice_count)

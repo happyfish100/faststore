@@ -31,10 +31,13 @@ typedef struct {
     volatile int waitings;
     volatile bool continue_flag;
     volatile bool running;
+    bool inited;
     FSVersionEntry *versions;
     volatile int64_t next_sn;
     pthread_lock_cond_pair_t lcp;
 } FSCommittedVersionRing;
+
+#define committed_version_inited() COMMITTED_VERSION_RING.inited
 
 #ifdef __cplusplus
 extern "C" {
