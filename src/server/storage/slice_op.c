@@ -195,13 +195,15 @@ static int fs_slice_alloc(FSSliceOpContext *op_ctx, const FSBlockSliceKeyInfo
 
     *slice_count = 2;
     if (reclaim_alloc) {
-        result = da_storage_allocator_reclaim_alloc(&DA_CTX, 
-                FS_BLOCK_HASH_CODE(bs_key->block),
-                bs_key->slice.length, spaces, slice_count);
+        result = da_storage_allocator_reclaim_alloc(&DA_CTX,
+                FS_BLOCK_HASH_CODE(bs_key->block), bs_key->slice.length,
+                spaces, slice_count, slice_type == DA_SLICE_TYPE_CACHE ?
+                DA_SLICE_TYPE_FILE : slice_type);
     } else {
-        result = da_storage_allocator_normal_alloc(&DA_CTX,
-                FS_BLOCK_HASH_CODE(bs_key->block),
-                bs_key->slice.length, spaces, slice_count);
+        result = da_storage_allocator_normal_alloc_ex(&DA_CTX,
+                FS_BLOCK_HASH_CODE(bs_key->block), bs_key->slice.length,
+                spaces, slice_count, slice_type == DA_SLICE_TYPE_CACHE ?
+                DA_SLICE_TYPE_FILE : slice_type);
     }
 
     if (result != 0) {
