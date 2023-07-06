@@ -394,6 +394,7 @@ static int do_load(const char *filename, const string_t *content,
         SliceBinlogRecordChain *chain, int *row_count)
 {
     int result;
+    int64_t next_sn;
     string_t line;
     char *line_start;
     char *buff_end;
@@ -403,6 +404,7 @@ static int do_load(const char *filename, const string_t *content,
     char error_info[256];
 
     result = 0;
+    next_sn = SLICE_BINLOG_SN + 1;
     *error_info = '\0';
     line_start = content->str;
     buff_end = content->str + content->len;
@@ -426,7 +428,8 @@ static int do_load(const char *filename, const string_t *content,
             break;
         }
 
-        if (record.sn > SLICE_BINLOG_SN) {
+        if (record.sn == next_sn) {
+            ++next_sn;
             if ((wbuffer=sf_binlog_writer_alloc_buffer(
                             &SLICE_BINLOG_WRITER.thread)) == NULL)
             {
@@ -445,6 +448,8 @@ static int do_load(const char *filename, const string_t *content,
             }
             chain->tail = wbuffer;
             chain->count++;
+        } else if (record.sn > next_sn) {
+            break;
         }
 
         line_start = line_end;
