@@ -304,6 +304,7 @@ int slice_dedup_redo(const char caller)
                 FC_ATOMIC_GET(SLICE_BINLOG_SN) == 0)
         {
             FC_ATOMIC_SET(SLICE_BINLOG_SN, redo_ctx.slice_count);
+            slice_binlog_set_next_version_ex(redo_ctx.slice_count + 1);
         }
         return redo(&redo_ctx);
     } else {
