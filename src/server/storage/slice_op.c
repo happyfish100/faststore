@@ -695,11 +695,11 @@ static inline int check_realloc_buffer_ptr_array(AIOBufferPtrArray
 static inline int add_zero_aligned_buffer(FSSliceOpContext *op_ctx,
         const int path_index, const int length)
 {
-    const int align_block_count = 0;
+    const bool need_align = false;
     DAAlignedReadBuffer *aligned_buffer;
 
-    aligned_buffer = da_aligned_buffer_new(&DA_CTX, path_index, 0,
-            length, length, align_block_count);
+    aligned_buffer = da_aligned_buffer_new(&DA_CTX,
+            path_index, 0, length, length, need_align);
     if (aligned_buffer == NULL) {
         return ENOMEM;
     }
@@ -713,12 +713,12 @@ static inline int add_zero_aligned_buffer(FSSliceOpContext *op_ctx,
 static inline int add_cached_aligned_buffer(FSSliceOpContext *op_ctx,
         OBSliceEntry *slice)
 {
-    const int align_block_count = 0;
+    const bool need_align = false;
     DAAlignedReadBuffer *aligned_buffer;
 
     aligned_buffer = da_aligned_buffer_new(&DA_CTX, slice->
             space.store->index, 0, slice->ssize.length,
-            slice->space.size, align_block_count);
+            slice->space.size, need_align);
     if (aligned_buffer == NULL) {
         return ENOMEM;
     }
@@ -805,14 +805,14 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
 
             do_read_done(pair->slice, op_ctx, 0);
         } else {
-            const int align_block_count = 2;
+            const bool need_align = true;
             DAAlignedReadBuffer **aligned_buffer;
 
             aligned_buffer = op_ctx->aio_buffer_parray.buffers +
                 op_ctx->aio_buffer_parray.count++;
             *aligned_buffer = da_aligned_buffer_new(&DA_CTX, pair->slice->
                     space.store->index, 0, pair->slice->ssize.length,
-                    pair->slice->space.size, align_block_count);
+                    pair->slice->space.size, need_align);
             if (*aligned_buffer == NULL) {
                 return ENOMEM;
             }
