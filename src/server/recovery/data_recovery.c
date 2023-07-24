@@ -30,6 +30,7 @@
 #include "fastcommon/fc_atomic.h"
 #include "sf/sf_global.h"
 #include "sf/sf_service.h"
+#include "sf/sf_func.h"
 #include "../../common/fs_proto.h"
 #include "../../common/fs_func.h"
 #include "../server_global.h"
@@ -775,8 +776,15 @@ static int do_data_recovery(DataRecoveryContext *ctx)
             int64_t confirmed_version;
 
             confirmed_version = ctx->restore.start_dv - 1;
-            binlog_rollback(ctx->ds, confirmed_version,
-                    is_redo, FS_WHICH_SIDE_SLAVE);
+            if ((result=binlog_rollback(ctx->ds, confirmed_version,
+                            is_redo, FS_WHICH_SIDE_SLAVE)) != 0)
+            {
+                logCrit("file: "__FILE__", line: %d, "
+                        "replica binlog rollback fail, errno: %d, "
+                        "program exit!", __LINE__, result);
+                sf_terminate_myself();
+                return result;
+            }
         }
 
         ctx->stage = DATA_RECOVERY_STAGE_CLEANUP;

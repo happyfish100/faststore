@@ -60,9 +60,11 @@
 #include "rebuild/store_path_rebuild.h"
 #include "shared_thread_pool.h"
 
+//#define FS_MBLOCK_CHECK  1
+
 static int setup_server_env(const char *config_filename);
 
-#ifdef DEBUG_FLAG
+#ifdef FS_MBLOCK_CHECK
 static int setup_mblock_stat_task();
 #endif
 
@@ -238,7 +240,10 @@ int main(int argc, char *argv[])
 
     sf_enable_exit_on_oom();
     srand(time(NULL));
-    //fast_mblock_manager_init();
+
+#ifdef FS_MBLOCK_CHECK
+    fast_mblock_manager_init();
+#endif
 
     do {
         if ((result=setup_server_env(CMDLINE_CONFIG_FILENAME)) != 0) {
@@ -416,8 +421,11 @@ int main(int argc, char *argv[])
         return result;
     }
 
-#ifdef DEBUG_FLAG
+#ifdef FS_MBLOCK_CHECK
     setup_mblock_stat_task();
+#endif
+
+#ifdef DEBUG_FLAG
     sched_print_all_entries();
 #endif
 
@@ -456,7 +464,7 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-#ifdef DEBUG_FLAG
+#ifdef FS_MBLOCK_CHECK
 static int mblock_stat_task_func(void *args)
 {
     //fast_mblock_manager_stat_print_ex(false, FAST_MBLOCK_ORDER_BY_ELEMENT_SIZE);

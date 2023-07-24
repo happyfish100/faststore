@@ -536,8 +536,8 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
     if (last_data_version != my_confirmed_version) {
         logError("file: "__FILE__", line: %d, "
                 "binlog last_data_version: %"PRId64" != "
-                "confirmed data version: %"PRId64", program exit!",
-                __LINE__, last_data_version, my_confirmed_version);
+                "confirmed data version: %"PRId64, __LINE__,
+                last_data_version, my_confirmed_version);
         return EBUSY;
     }
 
