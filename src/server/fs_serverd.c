@@ -61,7 +61,10 @@
 #include "shared_thread_pool.h"
 
 static int setup_server_env(const char *config_filename);
+
+#ifdef DEBUG_FLAG
 static int setup_mblock_stat_task();
+#endif
 
 static bool daemon_mode = true;
 static char g_pid_filename[MAX_PATH_SIZE];
@@ -256,7 +259,9 @@ int main(int argc, char *argv[])
             break;
         }
 
-        //sched_print_all_entries();
+#ifdef DEBUG_FLAG
+        sched_print_all_entries();
+#endif
 
         if ((result=sf_socket_server_ex(&CLUSTER_SF_CTX)) != 0) {
             sleep(120);
@@ -343,7 +348,10 @@ int main(int argc, char *argv[])
             sf_data_read_rule_master_only;
 
         common_handler_init();
-        //sched_print_all_entries();
+
+#ifdef DEBUG_FLAG
+        sched_print_all_entries();
+#endif
 
         sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,
                 cluster_thread_loop_callback);
@@ -408,8 +416,10 @@ int main(int argc, char *argv[])
         return result;
     }
 
+#ifdef DEBUG_FLAG
     setup_mblock_stat_task();
-    //sched_print_all_entries();
+    sched_print_all_entries();
+#endif
 
     sf_accept_loop();
     if (g_schedule_flag) {
@@ -446,10 +456,11 @@ int main(int argc, char *argv[])
     return 0;
 }
 
+#ifdef DEBUG_FLAG
 static int mblock_stat_task_func(void *args)
 {
     //fast_mblock_manager_stat_print_ex(false, FAST_MBLOCK_ORDER_BY_ELEMENT_SIZE);
-    //fast_mblock_manager_stat_print_ex(true, FAST_MBLOCK_ORDER_BY_ALLOC_BYTES);
+    fast_mblock_manager_stat_print_ex(true, FAST_MBLOCK_ORDER_BY_ALLOC_BYTES);
     return 0;
 }
 
@@ -460,13 +471,11 @@ static int setup_mblock_stat_task()
 
     INIT_SCHEDULE_ENTRY(schedule_entry, sched_generate_next_id(),
             0, 0, 0, 300,  mblock_stat_task_func, NULL);
-
-    //schedule_entry.new_thread = true;
-
     schedule_array.count = 1;
     schedule_array.entries = &schedule_entry;
     return sched_add_entries(&schedule_array);
 }
+#endif
 
 static int setup_server_env(const char *config_filename)
 {
