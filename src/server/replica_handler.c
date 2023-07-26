@@ -293,7 +293,6 @@ static int replica_fetch_binlog_first_output(struct fast_task_info *task,
 
     body_header = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)REQUEST.body;
     buff = (char *)(body_header + 1);
-
     if ((result=fetch_binlog_output(task, buff, sizeof(*body_header),
                     FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_RESP)) != 0)
     {
@@ -429,10 +428,23 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     {
         char prompt[128];
         if (result == SF_CLUSTER_ERROR_BINLOG_INCONSISTENT) {
+            SFBinlogWriterInfo *writer;
+            uint64_t binlog_last_dv;
+
+            replica_binlog_get_last_dv(data_group_id, &binlog_last_dv);
+            writer = replica_binlog_get_writer(data_group_id);
             logError("file: "__FILE__", line: %d, "
                     "data group id: %d, slave id: %d, first unmatched "
-                    "data version: %"PRId64, __LINE__, data_group_id,
-                    server_id, first_unmatched_dv);
+                    "data version: %"PRId64", my current data version: "
+                    "%"PRId64", my last data version in binlog: %"PRId64", "
+                    "binlog writer next version: %"PRId64", binlog writer "
+                    "waiting count: %d, binlog thread waiting count: %d",
+                    __LINE__, data_group_id, server_id, first_unmatched_dv,
+                    my_data_version, binlog_last_dv,
+                    sf_binlog_writer_get_next_version(writer),
+                    sf_binlog_writer_get_waiting_count(writer),
+                    sf_binlog_writer_get_thread_waiting_count(
+                        &REPLICA_BINLOG_WRITER_THREAD));
             return replica_fetch_binlog_inconsistent_output(task,
                     data_group_id, last_data_version);
         } else if (result == SF_CLUSTER_ERROR_BINLOG_MISSED) {
@@ -458,7 +470,7 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
                     data_group_id, last_data_version)) != 0)
     {
         if (result == EOVERFLOW) {
-            my_data_version = __sync_add_and_fetch(&myself->data.current_version, 0);
+            my_data_version = FC_ATOMIC_GET(myself->data.current_version);
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "data group id: %d, slave server id: %d 's last data "
                     "version: %"PRId64" larger than the last of my binlog "
@@ -536,8 +548,8 @@ static int replica_deal_fetch_binlog_first(struct fast_task_info *task)
     } else {
         until_version = 0;
     }
-    return replica_fetch_binlog_first_output(task, myself,
-            is_full_dump, is_online, repl_version, until_version);
+    return replica_fetch_binlog_first_output(task, myself, is_full_dump,
+            is_online, repl_version, until_version);
 }
 
 static int replica_deal_fetch_binlog_next(struct fast_task_info *task)

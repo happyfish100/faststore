@@ -196,10 +196,12 @@ static int find_binlog_length(DataRecoveryContext *ctx,
         last_data_version = ctx->fetch.last_data_version;
     }
 
+    /*
     logDebug("data group id: %d, current binlog length: %d, is_online: %d, "
             "last_data_version: %"PRId64", until_version: %"PRId64,
             ctx->ds->dg->id, binlog->len, ctx->is_online,
             ctx->fetch.last_data_version, fetch_ctx->until_version);
+            */
 
     if (last_data_version == fetch_ctx->until_version) {
         *is_last = true;
@@ -210,21 +212,22 @@ static int find_binlog_length(DataRecoveryContext *ctx,
             if (++(fetch_ctx->wait_count) >= 5) {
                 logError("file: "__FILE__", line: %d, "
                         "data group id: %d, master server id: %d, "
-                        "waiting replica binlog timeout, "
-                        "current data version: %"PRId64", waiting/until "
-                        "data version: %"PRId64, __LINE__, ctx->ds->dg->id,
+                        "waiting replica binlog timeout, current data "
+                        "version: %"PRId64", waiting/until data version: "
+                        "%"PRId64", is_online: %d", __LINE__, ctx->ds->dg->id,
                         ctx->master->cs->server->id, last_data_version,
-                        fetch_ctx->until_version);
+                        fetch_ctx->until_version, ctx->is_online);
                 return ETIMEDOUT;
             }
 
             logInfo("file: "__FILE__", line: %d, "
-                    "data group id: %d, master server id: %d, "
-                    "%dth waiting replica binlog ..., "
-                    "current data version: %"PRId64", waiting/until data "
-                    "version: %"PRId64, __LINE__, ctx->ds->dg->id,
+                    "data group id: %d, master server id: %d, %dth "
+                    "waiting replica binlog ..., current data version: "
+                    "%"PRId64", waiting/until data version: %"PRId64", "
+                    "is_online: %d", __LINE__, ctx->ds->dg->id,
                     ctx->master->cs->server->id, fetch_ctx->wait_count,
-                    last_data_version, fetch_ctx->until_version);
+                    last_data_version, fetch_ctx->until_version,
+                    ctx->is_online);
             fc_sleep_ms(500);
         } else {
             fetch_ctx->wait_count = 0;
@@ -296,8 +299,8 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     response.error.length = 0;
     header = (FSProtoHeader *)out_buff;
     SF_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
-    if ((result=sf_send_and_check_response_header(conn, out_buff,
-            out_bytes, &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
+    if ((result=sf_send_and_check_response_header(conn, out_buff, out_bytes,
+                    &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
         int log_level;
         if (result == EOVERFLOW) {
