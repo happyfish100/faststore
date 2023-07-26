@@ -457,6 +457,7 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
     int last_index;
     int binlog_index;
     uint64_t last_data_version;
+    uint64_t new_confirmed_version;
     SFBinlogFilePosition position;
     char filename[PATH_MAX];
 
@@ -534,11 +535,21 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
         return result;
     }
     if (last_data_version != my_confirmed_version) {
-        logError("file: "__FILE__", line: %d, "
-                "binlog last_data_version: %"PRId64" != "
+        if (last_data_version > my_confirmed_version) {
+            logError("file: "__FILE__", line: %d, "
+                    "binlog last_data_version: %"PRId64" > "
+                    "confirmed data version: %"PRId64, __LINE__,
+                    last_data_version, my_confirmed_version);
+            return EBUSY;
+        }
+
+        logWarning("file: "__FILE__", line: %d, "
+                "binlog last_data_version: %"PRId64" < "
                 "confirmed data version: %"PRId64, __LINE__,
                 last_data_version, my_confirmed_version);
-        return EBUSY;
+        new_confirmed_version = last_data_version;
+    } else {
+        new_confirmed_version = my_confirmed_version;
     }
 
     if ((result=replica_binlog_writer_change_write_index(
@@ -548,7 +559,7 @@ int binlog_rollback(FSClusterDataServerInfo *myself, const uint64_t
     }
 
     if ((result=replica_binlog_set_data_version(myself,
-                    my_confirmed_version)) != 0)
+                    new_confirmed_version)) != 0)
     {
         return result;
     }

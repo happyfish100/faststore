@@ -76,8 +76,8 @@ int replica_binlog_get_last_record_ex(const char *filename,
         }
     }
 
-    if ((result=fc_get_last_line(filename, buff,
-                    sizeof(buff), &file_size, &line)) != 0)
+    if ((result=fc_get_last_line(filename, buff, sizeof(buff),
+                    &file_size, &line)) != 0)
     {
         *record_len = 0;
         position->offset = 0;
@@ -557,7 +557,7 @@ int replica_binlog_log_block(const time_t current_time,
 }
 
 static int find_position_by_buffer(ServerBinlogReader *reader,
-        const uint64_t last_data_version, SFBinlogFilePosition *pos)
+        const uint64_t data_version, SFBinlogFilePosition *pos)
 {
     int result;
     char error_info[256];
@@ -591,7 +591,7 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
             return result;
         }
 
-        if (last_data_version < record.data_version) {
+        if (data_version < record.data_version) {
             pos->index = reader->position.index;
             pos->offset = reader->position.offset - (reader->
                     binlog_buffer.end - reader->binlog_buffer.current);
@@ -605,12 +605,12 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
 }
 
 static int find_position_by_reader(ServerBinlogReader *reader,
-        const uint64_t last_data_version, SFBinlogFilePosition *pos)
+        const uint64_t data_version, SFBinlogFilePosition *pos)
 {
     int result;
 
     while ((result=binlog_reader_read(reader)) == 0) {
-        result = find_position_by_buffer(reader, last_data_version, pos);
+        result = find_position_by_buffer(reader, data_version, pos);
         if (result != EAGAIN) {
             break;
         }
@@ -620,25 +620,25 @@ static int find_position_by_reader(ServerBinlogReader *reader,
 }
 
 static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
-        const uint64_t last_data_version, SFBinlogFilePosition *pos,
+        const uint64_t target_data_version, SFBinlogFilePosition *pos,
         const bool ignore_dv_overflow)
 {
     const int log_level = LOG_ERR;
     int result;
     int record_len;
-    uint64_t data_version;
+    uint64_t last_data_version;
     char filename[PATH_MAX];
     ServerBinlogReader reader;
 
     sf_binlog_writer_get_filename(DATA_PATH_STR, subdir_name,
             pos->index, filename, sizeof(filename));
     if ((result=replica_binlog_get_last_data_version_ex(filename,
-                    &data_version, pos, &record_len, log_level)) != 0)
+                    &last_data_version, pos, &record_len, log_level)) != 0)
     {
         return result;
     }
 
-    if (last_data_version == data_version) {  //match the last record
+    if (target_data_version == last_data_version) {  //match the last record
         if (pos->index < sf_binlog_get_current_write_index(writer)) {
             pos->index++; //skip to next binlog
             pos->offset = 0;
@@ -648,7 +648,7 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
         return 0;
     }
 
-    if (last_data_version > data_version) {
+    if (target_data_version > last_data_version) {
         if (pos->index < sf_binlog_get_current_write_index(writer)) {
             pos->index++;   //skip to next binlog
             pos->offset = 0;
@@ -661,21 +661,19 @@ static int find_position(const char *subdir_name, SFBinlogWriterInfo *writer,
         }
 
         logWarning("file: "__FILE__", line: %d, subdir_name: %s, "
-                "last_data_version: %"PRId64" is too large, which "
+                "target_data_version: %"PRId64" is too large, which "
                 " > the last data version %"PRId64" in the binlog file %s, "
-                "binlog index: %d", __LINE__, subdir_name,
-                last_data_version, data_version, filename, pos->index);
+                "binlog index: %d", __LINE__, subdir_name, target_data_version,
+                last_data_version, filename, pos->index);
         return EOVERFLOW;
     }
 
     pos->offset = 0;
-    if ((result=binlog_reader_init(&reader, subdir_name,
-                    writer, pos)) != 0)
-    {
+    if ((result=binlog_reader_init(&reader, subdir_name, writer, pos)) != 0) {
         return result;
     }
 
-    result = find_position_by_reader(&reader, last_data_version, pos);
+    result = find_position_by_reader(&reader, target_data_version, pos);
     binlog_reader_destroy(&reader);
     return result;
 }
