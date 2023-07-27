@@ -655,8 +655,10 @@ void slice_space_log_push(FSSliceSpaceLogRecord *record)
 
     last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
             flow_ctrol.last_deal_timestamp);
-    if (last_deal_timestamp > 0 && g_current_time -
-            last_deal_timestamp > CACHE_FLUSH_MAX_DELAY)
+    if ((last_deal_timestamp > 0 && g_current_time - last_deal_timestamp >
+                CACHE_FLUSH_MAX_DELAY) && (record->last_sn -
+                    SLICE_SPACE_LOG_CTX.last_sn >
+                    100 * record->slice_chain.count))
     {
         time_t start_time;
         time_t last_log_timestamp;

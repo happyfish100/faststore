@@ -216,7 +216,7 @@ typedef struct fs_slice_space_log_record {
 
 typedef struct fs_slice_space_log_context {
     int record_count;
-    int64_t last_sn;  //for pop in order, including
+    volatile int64_t last_sn;  //for pop in order, including
     FSBinlogWriteFileBufferPair slice_redo;
     FSBinlogWriteFileBufferPair space_redo;
     struct fast_mblock_man allocator;  //element: FSSliceSpaceLogRecord
