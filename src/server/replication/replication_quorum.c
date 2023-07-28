@@ -89,12 +89,25 @@ static int get_confirmed_version_from_file(const int data_group_id,
 
     *confirmed_version = strtoll(buff, &endptr, 10);
     if (*endptr != ' ') {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, get confirmed version from file %s "
+                "fail, content length: %d, content: %s", __LINE__,
+                data_group_id, filename, (int)file_size, buff);
         return EINVAL;
     }
 
     crc32.calc = CRC32(buff, endptr - buff);
     crc32.value = strtol(endptr + 1, NULL, 16);
-    return (crc32.value == crc32.calc ? 0 : EINVAL);
+    if (crc32.value == crc32.calc) {
+        return 0;
+    } else {
+        logWarning("file: "__FILE__", line: %d, "
+                "data group id: %d, get confirmed version from file %s fail, "
+                "crc32: %08x != calculate: %08x, content length: %d, "
+                "content: %s", __LINE__, data_group_id, filename, crc32.value,
+                crc32.calc, (int)file_size, buff);
+        return EINVAL;
+    }
 }
 
 static int load_confirmed_version(const int data_group_id,
