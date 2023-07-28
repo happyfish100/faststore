@@ -632,9 +632,10 @@ static int get_last_sn(bool *migrate_flag)
         }
         return 0;
     } else if (migrate_flag == NULL) {
+        logError("file: "__FILE__", line: %d, "
+                "migrate_flag is NULL", __LINE__);
         return EINVAL;
     }
-
 
     //check the first line also
     sf_binlog_writer_get_filename(DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,

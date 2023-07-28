@@ -1917,7 +1917,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     if ((result=fast_buffer_check_capacity(
                     &NETWORK_BUFFER, body_len)) != 0)
     {
-        return EINVAL;
+        return result;
     }
 
     if (body_len > 0) {
@@ -2061,8 +2061,8 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
 
     start_time = g_current_time;
     timeout_ms = 100;
-    response.error.length = 0;
     do {
+        response.error.length = 0;
         if ((result=cluster_recv_from_leader(conn, &response,
                         timeout_ms, true)) != 0)
         {

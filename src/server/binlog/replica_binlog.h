@@ -223,9 +223,6 @@ extern "C" {
     int replica_binlog_record_unpack(const string_t *line,
             ReplicaBinlogRecord *record, char *error_info);
 
-    int replica_binlog_unpack_records(const string_t *buffer,
-            ReplicaBinlogRecord *records, const int size, int *count);
-
     static inline int replica_binlog_log_slice_to_buff(const time_t
             current_time, const int64_t data_version,
             const FSBlockSliceKeyInfo *bs_key, const int source,

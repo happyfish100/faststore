@@ -803,8 +803,9 @@ int replica_binlog_get_last_lines(const int data_group_id, char *buff,
             current_windex, buff, buff_size, count, length);
 }
 
-int replica_binlog_unpack_records(const string_t *buffer,
-        ReplicaBinlogRecord *records, const int size, int *count)
+static int replica_binlog_unpack_records(const int data_group_id,
+        const string_t *buffer, ReplicaBinlogRecord *records,
+        const int size, int *count)
 {
     int result;
     char error_info[256];
@@ -821,6 +822,10 @@ int replica_binlog_unpack_records(const string_t *buffer,
     while (p < end) {
         line_end = (char *)memchr(p, '\n', end - p);
         if (line_end == NULL) {
+            logError("file: "__FILE__", line: %d, "
+                    "data group id: %d, unpack replica binlog fail, expect "
+                    "line end char (\\n), binlog line: %.*s", __LINE__,
+                    data_group_id, (int)(end - p), p);
             return EINVAL;
         }
 
@@ -831,8 +836,9 @@ int replica_binlog_unpack_records(const string_t *buffer,
                         record++, error_info)) != 0)
         {
             logError("file: "__FILE__", line: %d, "
-                    "binlog unpack fail, %s, binlog line: %.*s",
-                    __LINE__, error_info, line.len, line.str);
+                    "data group id: %d, unpack reliplica binlog fail, %s, "
+                    "binlog line: %.*s", __LINE__, data_group_id,
+                    error_info, line.len, line.str);
             return result;
         }
 
@@ -934,8 +940,9 @@ int replica_binlog_master_check_consistency(const int data_group_id,
     }
 
     *first_unmatched_dv = 0;
-    if ((result=replica_binlog_unpack_records(sbuffer, slave_records,
-                    FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS, &slave_rows)) != 0)
+    if ((result=replica_binlog_unpack_records(data_group_id, sbuffer,
+                    slave_records, FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS,
+                    &slave_rows)) != 0)
     {
         return result;
     }
@@ -955,8 +962,9 @@ int replica_binlog_master_check_consistency(const int data_group_id,
         return result;
     }
 
-    if ((result=replica_binlog_unpack_records(&mbuffer, master_records,
-                    FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS, &master_rows)) != 0)
+    if ((result=replica_binlog_unpack_records(data_group_id, &mbuffer,
+                    master_records, FS_MAX_SLAVE_BINLOG_CHECK_LAST_ROWS,
+                    &master_rows)) != 0)
     {
         return result;
     }
@@ -1008,8 +1016,8 @@ int replica_binlog_slave_check_consistency(const int data_group_id,
     }
 
     do {
-        if ((result=replica_binlog_unpack_records(mbuffer, master_records,
-                        max_rows, &master_rows)) != 0)
+        if ((result=replica_binlog_unpack_records(data_group_id, mbuffer,
+                        master_records, max_rows, &master_rows)) != 0)
         {
             break;
         }
@@ -1029,8 +1037,8 @@ int replica_binlog_slave_check_consistency(const int data_group_id,
             break;
         }
 
-        if ((result=replica_binlog_unpack_records(&sbuffer, slave_records,
-                        max_rows, &slave_rows)) != 0)
+        if ((result=replica_binlog_unpack_records(data_group_id, &sbuffer,
+                        slave_records, max_rows, &slave_rows)) != 0)
         {
             break;
         }
@@ -1412,6 +1420,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
                 "binlog file %s, line no: %"PRId64", %s",
                 __LINE__, reader->filename, line_count, error_info);
     }
+
     return result;
 }
 
