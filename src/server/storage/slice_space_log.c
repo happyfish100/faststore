@@ -317,7 +317,15 @@ static void *slice_space_log_func(void *arg)
                 sleep_ms = 0;
             }
         } else {
-            sleep_ms = 1000;
+            PTHREAD_MUTEX_LOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
+            if (SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count > 0) {
+                pthread_cond_broadcast(&SLICE_SPACE_LOG_CTX.
+                        flow_ctrol.lcp.cond);
+                sleep_ms = 10;
+            } else {
+                sleep_ms = 1000;
+            }
+            PTHREAD_MUTEX_UNLOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
         }
 
         if (sleep_ms > 0) {
@@ -651,27 +659,29 @@ void trunk_migrate_done_callback(const DATrunkFileInfo *trunk)
 
 void slice_space_log_push(FSSliceSpaceLogRecord *record)
 {
+    time_t current_time;
     int64_t last_deal_timestamp;
 
+    current_time = g_current_time;
     last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
             flow_ctrol.last_deal_timestamp);
-    if ((last_deal_timestamp > 0 && g_current_time - last_deal_timestamp >
+    if ((last_deal_timestamp > 0 && current_time - last_deal_timestamp >
                 CACHE_FLUSH_MAX_DELAY) && (record->last_sn -
-                    SLICE_SPACE_LOG_CTX.last_sn >
-                    100 * record->slice_chain.count))
+                    SLICE_SPACE_LOG_CTX.last_sn > 100 *
+                    FC_MAX(1, record->slice_chain.count)))
     {
-        time_t start_time;
         time_t last_log_timestamp;
         int time_used;
         int log_level;
 
-        start_time = g_current_time;
         PTHREAD_MUTEX_LOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
         SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count++;
         last_deal_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
                 flow_ctrol.last_deal_timestamp);
-        while (last_deal_timestamp > 0 && g_current_time -
-                last_deal_timestamp > CACHE_FLUSH_MAX_DELAY)
+        while (last_deal_timestamp > 0 && current_time - last_deal_timestamp
+                > CACHE_FLUSH_MAX_DELAY  && (record->last_sn -
+                    SLICE_SPACE_LOG_CTX.last_sn > 100 *
+                    FC_MAX(1, record->slice_chain.count)))
         {
             pthread_cond_wait(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.cond,
                     &SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
@@ -681,7 +691,7 @@ void slice_space_log_push(FSSliceSpaceLogRecord *record)
         SLICE_SPACE_LOG_CTX.flow_ctrol.waiting_count--;
         PTHREAD_MUTEX_UNLOCK(&SLICE_SPACE_LOG_CTX.flow_ctrol.lcp.lock);
 
-        time_used = g_current_time - start_time;
+        time_used = g_current_time - current_time;
         if (time_used > 0) {
             last_log_timestamp = FC_ATOMIC_GET(SLICE_SPACE_LOG_CTX.
                     flow_ctrol.last_log_timestamp);
