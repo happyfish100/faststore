@@ -143,7 +143,7 @@ int change_notify_init()
         event_alloc_elements_once = 16 * 1024;
         limit = BATCH_STORE_ON_MODIFIES * 4;
     }
-    max_threads = FS_DATA_RECOVERY_THREADS_LIMIT * (2 +
+    max_threads = RECOVERY_CONCURRENT * (2 +
             RECOVERY_THREADS_PER_DATA_GROUP +
             CLUSTER_SERVER_ARRAY.count) + DATA_THREAD_COUNT;
     limit += FS_CHANGE_NOTIFY_EVENT_TLS_BATCH_ALLOC *

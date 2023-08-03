@@ -217,7 +217,7 @@ void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai)
 int binlog_replay_init(const char *config_filename)
 {
     return init_task_allocator_array(&replay_global_vars.
-            allocator_array, FS_DATA_RECOVERY_THREADS_LIMIT,
+            allocator_array, RECOVERY_CONCURRENT,
             RECOVERY_THREADS_PER_DATA_GROUP *
             RECOVERY_MAX_QUEUE_DEPTH * 2);
 }

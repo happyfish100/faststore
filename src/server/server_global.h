@@ -155,6 +155,7 @@ typedef struct server_global_vars {
 
         bool quorum_rollback_done;  //for startup
         int channels_between_two_servers;
+        int recovery_concurrent;
         int recovery_threads_per_data_group;
         int recovery_max_queue_depth;
         int active_test_interval;   //round(nework_timeout / 2)
@@ -394,6 +395,9 @@ typedef struct server_global_vars {
 
 #define REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  \
     g_server_global_vars->replica.channels_between_two_servers
+
+#define RECOVERY_CONCURRENT \
+    g_server_global_vars->replica.recovery_concurrent
 
 #define RECOVERY_THREADS_PER_DATA_GROUP \
     g_server_global_vars->replica.recovery_threads_per_data_group

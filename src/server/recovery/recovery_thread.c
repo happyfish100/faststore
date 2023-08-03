@@ -208,7 +208,7 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
             break;
         case FS_DS_STATUS_INIT:
             if (fc_thread_pool_avail_count(&recovery_thread_ctx.tpool) <
-                    FS_DATA_RECOVERY_THREADS_LIMIT)
+                    RECOVERY_CONCURRENT)
             {
                 common_blocked_queue_push_ex(&recovery_thread_ctx.queue,
                         ds, &notify);
@@ -247,7 +247,7 @@ static void *recovery_thread_entrance(void *arg)
 int recovery_thread_init()
 {
     const int alloc_elements_once = 256;
-    const int limit = FS_DATA_RECOVERY_THREADS_LIMIT;
+    const int limit = RECOVERY_CONCURRENT;
     const int max_idle_time = 60;
     const int min_idle_count = 0;
     int result;

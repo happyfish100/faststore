@@ -70,7 +70,9 @@
 #define FS_MIN_DATA_THREAD_COUNT                         2
 #define FS_MAX_DATA_THREAD_COUNT                       256
 
-#define FS_DATA_RECOVERY_THREADS_LIMIT                   2
+#define FS_DEFAULT_RECOVERY_CONCURRENT                   4
+#define FS_MIN_RECOVERY_CONCURRENT                       1
+#define FS_MAX_RECOVERY_CONCURRENT                      64
 
 #define FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS  2
 #define FS_MIN_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS      1

@@ -509,6 +509,7 @@ static void server_log_configs()
             "my server id = %d, cluster server group id = %d, "
             "file_block_size: %d KB, data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
+            "recovery_concurrent = %d, "
             "recovery_threads_per_data_group = %d, "
             "recovery_max_queue_depth = %d, "
             "rebuild_threads = %d, "
@@ -535,6 +536,7 @@ static void server_log_configs()
             FILE_BLOCK_SIZE / 1024,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
+            RECOVERY_CONCURRENT,
             RECOVERY_THREADS_PER_DATA_GROUP,
             RECOVERY_MAX_QUEUE_DEPTH,
             DATA_REBUILD_THREADS,
@@ -964,6 +966,10 @@ int server_load_config(const char *filename)
             FS_DEFAULT_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             FS_MIN_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             FS_MAX_REPLICA_CHANNELS_BETWEEN_TWO_SERVERS);
+
+    RECOVERY_CONCURRENT = iniGetIntCorrectValue(&full_ini_ctx,
+            "recovery_concurrent", FS_DEFAULT_RECOVERY_CONCURRENT,
+            FS_MIN_RECOVERY_CONCURRENT, FS_MAX_RECOVERY_CONCURRENT);
 
     RECOVERY_THREADS_PER_DATA_GROUP = iniGetIntCorrectValue(&full_ini_ctx,
             "recovery_threads_per_data_group",
