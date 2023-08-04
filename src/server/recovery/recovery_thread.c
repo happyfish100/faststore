@@ -207,12 +207,10 @@ static void recovery_thread_deal(FSClusterDataServerInfo *ds)
                     status, fs_get_server_status_caption(status));
             break;
         case FS_DS_STATUS_INIT:
-            if (fc_thread_pool_avail_count(&recovery_thread_ctx.tpool) <
-                    RECOVERY_CONCURRENT)
-            {
+            if (fc_thread_pool_avail_count(&recovery_thread_ctx.tpool) <= 0) {
                 common_blocked_queue_push_ex(&recovery_thread_ctx.queue,
                         ds, &notify);
-                fc_sleep_ms(10);
+                fc_sleep_ms(100);
                 break;
             }
             //continue to deal
