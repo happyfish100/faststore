@@ -566,7 +566,8 @@ static int slice_compare(const void *p1, const void *p2)
         ((OBSliceEntry *)p2)->ssize.offset;
 }
 
-static void slice_free_func(void *ptr, const int delay_seconds)
+static void slice_free_func(UniqSkiplist *sl,
+        void *ptr, const int delay_seconds)
 {
     ob_index_free_slice((OBSliceEntry *)ptr);
 }
@@ -692,7 +693,7 @@ static int init_ob_shared_allocators(OBSharedSegmentArray *segment_array)
                         max_level_count, slice_compare, slice_free_func,
                         alloc_skiplist_once, min_alloc_elements_once,
                         delay_free_seconds, bidirection,
-                        allocator_use_lock)) != 0)
+                        allocator_use_lock, NULL)) != 0)
         {
             return result;
         }
