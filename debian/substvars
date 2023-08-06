@@ -1,9 +1,9 @@
-libfastcommon:Version=1.0.68
-libserverframe:Version=1.1.28
-libfsstorage:Version=1.1.2
+libfastcommon:Version=1.0.69
+libserverframe:Version=1.1.29
+libfsstorage:Version=1.1.3
 fastcfs-auth-config:Version=2.0.0
-fastcfs-auth-client:Version=4.2.0
+fastcfs-auth-client:Version=4.3.0
 fastcfs-vote-config:Version=3.4.0
-fastcfs-vote-client:Version=4.2.0
+fastcfs-vote-client:Version=4.3.0
 faststore-config:Version=1.0.0
-faststore-client:Version=4.2.0
+faststore-client:Version=4.3.0
