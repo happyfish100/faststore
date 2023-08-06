@@ -16,5 +16,5 @@
 #include "fs_global.h"
 
 FSGlobalVars g_fs_global_vars = {
-    {4, 2, 0}
+    {4, 3, 0}
 };
