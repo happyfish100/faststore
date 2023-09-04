@@ -174,6 +174,7 @@ typedef struct server_global_vars {
 
         int64_t dedup_memory_limit; //memory limit for recovery dedup
         SFContext sf_context;       //for replica communication
+        SFNetworkHandler *network_handler;
     } replica;
 
     struct {
@@ -326,6 +327,7 @@ typedef struct server_global_vars {
 
 #define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
 #define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
+#define REPLICA_NET_HANDLER   g_server_global_vars->replica.network_handler
 
 #define OB_ELEMENT_SIZE       g_server_global_vars->storage.ob_element_size
 #define DA_CTX                g_server_global_vars->storage.da_ctx

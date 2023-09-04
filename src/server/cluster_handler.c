@@ -732,7 +732,7 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
             break;
     }
 
-    return sf_proto_deal_task_done(task, &TASK_CTX.common);
+    return sf_proto_deal_task_done(task, "cluster-partly", &TASK_CTX.common);
 }
 
 int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
@@ -805,7 +805,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = (result > 0 ? -1 * result : result);
-        return sf_proto_deal_task_done(task, &TASK_CTX.common);
+        return sf_proto_deal_task_done(task, "cluster", &TASK_CTX.common);
     }
 }
 

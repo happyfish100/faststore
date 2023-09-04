@@ -136,7 +136,7 @@ int replication_processor_bind_thread(FSReplication *replication)
     struct fast_task_info *task;
     FSServerContext *server_ctx;
 
-    if ((task=sf_alloc_init_task(&REPLICA_SF_CTX, -1)) == NULL) {
+    if ((task=sf_alloc_init_task(REPLICA_NET_HANDLER, -1)) == NULL) {
         return ENOMEM;
     }
 

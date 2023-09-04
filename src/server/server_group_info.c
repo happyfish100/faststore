@@ -336,22 +336,28 @@ static FCServerInfo *get_myself_in_cluster_cfg(
     } found;
     FCServerInfo *server;
     FCServerInfo *myself;
+    SFNetworkHandler *service_handler;
+    SFNetworkHandler *cluster_handler;
+    SFNetworkHandler *replica_handler;
     int ports[6];
     int count;
     int i;
 
+    service_handler = g_sf_context.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
+    cluster_handler = CLUSTER_SF_CTX.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
+    replica_handler = REPLICA_SF_CTX.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
     count = 0;
-    ports[count++] = g_sf_context.inner_port;
-    if (g_sf_context.outer_port != g_sf_context.inner_port) {
-        ports[count++] = g_sf_context.outer_port;
+    ports[count++] = service_handler->inner.port;
+    if (service_handler->outer.port != service_handler->inner.port) {
+        ports[count++] = service_handler->outer.port;
     }
-    ports[count++] = CLUSTER_SF_CTX.inner_port;
-    if (CLUSTER_SF_CTX.outer_port != CLUSTER_SF_CTX.inner_port) {
-        ports[count++] = CLUSTER_SF_CTX.outer_port;
+    ports[count++] = cluster_handler->inner.port;
+    if (cluster_handler->outer.port != cluster_handler->inner.port) {
+        ports[count++] = cluster_handler->outer.port;
     }
-    ports[count++] = REPLICA_SF_CTX.inner_port;
-    if (REPLICA_SF_CTX.outer_port != REPLICA_SF_CTX.inner_port) {
-        ports[count++] = REPLICA_SF_CTX.outer_port;
+    ports[count++] = replica_handler->inner.port;
+    if (replica_handler->outer.port != replica_handler->inner.port) {
+        ports[count++] = replica_handler->outer.port;
     }
 
     myself = NULL;

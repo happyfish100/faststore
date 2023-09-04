@@ -1341,7 +1341,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = result;
-        return sf_proto_deal_task_done(task, &TASK_CTX.common);
+        return sf_proto_deal_task_done(task, "replica", &TASK_CTX.common);
     }
 }
 
