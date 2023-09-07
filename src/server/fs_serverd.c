@@ -85,7 +85,7 @@ static int init_nio_task(struct fast_task_info *task)
     }
 
     if (RDMA_INIT_CONNECTION != NULL) {
-        return RDMA_INIT_CONNECTION(task, RDMA_INIT_CONNECTION);
+        return RDMA_INIT_CONNECTION(task, RDMA_PD);
     } else {
         return 0;
     }

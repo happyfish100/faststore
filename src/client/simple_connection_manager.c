@@ -30,7 +30,7 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
 
     params = (SFConnectionParameters *)conn->args;
     if (((FSClientContext *)args)->idempotency_enabled) {
-        params->channel = idempotency_client_channel_get(conn->network_type,
+        params->channel = idempotency_client_channel_get(conn->comm_type,
                 conn->ip_addr, conn->port, ((FSClientContext *)args)->
                 common_cfg.connect_timeout, &result);
         if (params->channel == NULL) {
