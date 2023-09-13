@@ -645,8 +645,9 @@ static int init_net_retry_config(const char *config_filename)
 
 static int server_init_client(const char *config_filename)
 {
-    int result;
     const bool bg_thread_enabled = false;
+    int result;
+    FCServerGroupInfo *server_group;
 
     /* set read rule for store path rebuild */
     g_fs_client_vars.client_ctx.common_cfg.read_rule =
@@ -665,6 +666,15 @@ static int server_init_client(const char *config_filename)
     fs_set_file_block_size(&g_fs_client_vars.client_ctx, FILE_BLOCK_SIZE);
     if ((result=init_net_retry_config(config_filename)) != 0) {
         return result;
+    }
+
+    server_group = fc_server_get_group_by_index(
+            &FS_CLUSTER_SERVER_CFG(&g_fs_client_vars.client_ctx),
+            FS_CFG_SERVICE_INDEX(&g_fs_client_vars.client_ctx));
+    if (server_group->comm_type != fc_comm_type_sock) {
+        if ((result=conn_pool_global_init_for_rdma()) != 0) {
+            return result;
+        }
     }
 
     if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.
@@ -941,6 +951,7 @@ int server_load_config(const char *filename)
                     filename, &ini_context, "service",
                     FS_SERVER_DEFAULT_SERVICE_PORT,
                     FS_SERVER_DEFAULT_SERVICE_PORT,
+                    server_group->buffer_size,
                     FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;

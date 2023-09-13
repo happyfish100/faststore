@@ -126,6 +126,7 @@ int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
         FCFSAuthClientContext *auth_ctx, IniFullContext *ini_ctx)
 {
     IniContext iniContext;
+    FCServerGroupInfo *server_group;
     int result;
 
     client_ctx->auth.ctx = auth_ctx;
@@ -150,6 +151,13 @@ int fs_client_load_from_file_ex1(FSClientContext *client_ctx,
         client_ctx->inited = true;
         client_ctx->cluster_cfg.group_index = client_ctx->
             cluster_cfg.ptr->service_group_index;
+
+        server_group = fc_server_get_group_by_index(
+                &FS_CLUSTER_SERVER_CFG(client_ctx),
+                FS_CFG_SERVICE_INDEX(client_ctx));
+        if (server_group->comm_type != fc_comm_type_sock) {
+            result = conn_pool_global_init_for_rdma();
+        }
     }
     return result;
 }

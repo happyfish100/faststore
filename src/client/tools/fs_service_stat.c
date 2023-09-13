@@ -244,11 +244,17 @@ int main(int argc, char *argv[])
                 connections.ptr[count++] = &addr_parray->addrs[0]->conn;
             }
         } else {
+            FCServerGroupInfo *server_group;
             if ((result=conn_pool_parse_server_info(host, &conn,
                             FS_SERVER_DEFAULT_SERVICE_PORT)) != 0)
             {
                 return result;
             }
+
+            server_group = fc_server_get_group_by_index(
+                    &FS_CLUSTER_SERVER_CFG(&g_fs_client_vars.client_ctx),
+                    FS_CFG_SERVICE_INDEX(&g_fs_client_vars.client_ctx));
+            conn.comm_type = server_group->comm_type;
             connections.ptr[count++] = &conn;
         }
     }

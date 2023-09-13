@@ -58,16 +58,35 @@ static int do_slice_write(FSClientContext *client_ctx,
         int2buff(bs_key->slice.offset, req_header->bs.slice_size.offset);
         int2buff(bs_key->slice.length, req_header->bs.slice_size.length);
 
-        if ((result=tcpsenddata_nb(conn->sock, out_buff, front_bytes,
-                        client_ctx->common_cfg.network_timeout)) != 0)
-        {
-            break;
-        }
+        if (conn->comm_type == fc_comm_type_rdma) {
+            if (send_func == tcpsenddata_nb) {
+                if ((result=G_RDMA_CONNECTION_CALLBACKS.request_by_buf2(conn,
+                                out_buff, front_bytes, data, size, client_ctx->
+                                common_cfg.network_timeout * 1000)) != 0)
+                {
+                    break;
+                }
+            } else {
+                if ((result=G_RDMA_CONNECTION_CALLBACKS.request_by_mix(conn,
+                                out_buff, front_bytes, (struct iovec *)data,
+                                size, client_ctx->common_cfg.network_timeout
+                                * 1000)) != 0)
+                {
+                    break;
+                }
+            }
+        } else {
+            if ((result=tcpsenddata_nb(conn->sock, out_buff, front_bytes,
+                            client_ctx->common_cfg.network_timeout)) != 0)
+            {
+                break;
+            }
 
-        if ((result=send_func(conn->sock, data, size, client_ctx->
-                        common_cfg.network_timeout)) != 0)
-        {
-            break;
+            if ((result=send_func(conn->sock, data, size, client_ctx->
+                            common_cfg.network_timeout)) != 0)
+            {
+                break;
+            }
         }
 
         if ((result=sf_recv_response(conn, &response, client_ctx->common_cfg.
@@ -125,6 +144,7 @@ static int do_slice_read(FSClientContext *client_ctx,
     FSProtoReplicaSliceReadReq *rreq;
     FSProtoBlockSlice *proto_bs;
     SFDynamicIOVArray iova;
+    BufferInfo *buffer;
     int out_bytes;
     int hole_start;
     int hole_len;
@@ -151,6 +171,11 @@ static int do_slice_read(FSClientContext *client_ctx,
     connection_params = client_ctx->cm.ops.
         get_connection_params(&client_ctx->cm, conn);
 
+    if (conn->comm_type == fc_comm_type_rdma) {
+        buffer = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn);
+    } else {
+        buffer = NULL;
+    }
     result = 0;
     hole_start = buff_offet = 0;
     remain = bs_key->slice.length;
@@ -194,21 +219,33 @@ static int do_slice_read(FSClientContext *client_ctx,
                 break;
             }
 
-            if (is_readv) {
-                result = tcpreadv_nb_ex(conn->sock, response.header.
-                        body_len, iova.iov, iova.cnt, client_ctx->common_cfg.
-                        network_timeout, &bytes);
+            if (conn->comm_type == fc_comm_type_rdma) {
+                if (is_readv) {
+                    sf_iova_memcpy(iova, buffer->buff +
+                            sizeof(FSProtoHeader),
+                            response.header.body_len);
+                } else {
+                    memcpy((char *)data + buff_offet, buffer->buff +
+                            sizeof(FSProtoHeader), response.header.body_len);
+                }
+                bytes = response.header.body_len;
             } else {
-                result = tcprecvdata_nb_ex(conn->sock, (char *)data +
-                        buff_offet, response.header.body_len, client_ctx->
-                        common_cfg.network_timeout, &bytes);
-            }
+                if (is_readv) {
+                    result = tcpreadv_nb_ex(conn->sock, response.header.
+                            body_len, iova.iov, iova.cnt, client_ctx->common_cfg.
+                            network_timeout, &bytes);
+                } else {
+                    result = tcprecvdata_nb_ex(conn->sock, (char *)data +
+                            buff_offet, response.header.body_len, client_ctx->
+                            common_cfg.network_timeout, &bytes);
+                }
 
-            if (result != 0) {
-                response.error.length = snprintf(response.error.message,
-                        sizeof(response.error.message), "recv data fail, "
-                        "errno: %d, error info: %s", result, STRERROR(result));
-                break;
+                if (result != 0) {
+                    response.error.length = snprintf(response.error.message,
+                            sizeof(response.error.message), "recv data fail, "
+                            "errno: %d, error info: %s", result, STRERROR(result));
+                    break;
+                }
             }
 
             hole_len = buff_offet - hole_start;
@@ -442,6 +479,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
         memcpy(master->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
         *(master->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
         master->conn.port = buff2short(server_resp.port);
+        master->conn.comm_type = conn->comm_type;
     }
 
     SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
@@ -483,6 +521,7 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
         memcpy(server->conn.ip_addr, server_resp.ip_addr, IP_ADDRESS_SIZE);
         *(server->conn.ip_addr + IP_ADDRESS_SIZE - 1) = '\0';
         server->conn.port = buff2short(server_resp.port);
+        server->conn.comm_type = conn->comm_type;
     }
 
     SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
@@ -512,6 +551,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     int result;
     int out_bytes;
     int calc_size;
+    bool need_free;
 
     if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
                     spec_conn, &result)) == NULL)
@@ -531,22 +571,29 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
             out_bytes - sizeof(FSProtoHeader));
 
     in_buff = fixed_buff;
+    need_free = false;
     if ((result=sf_send_and_check_response_header(conn, out_buff, out_bytes,
                     &response, client_ctx->common_cfg.network_timeout,
                     FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
-        if (response.header.body_len > sizeof(fixed_buff)) {
-            in_buff = (char *)fc_malloc(response.header.body_len);
-            if (in_buff == NULL) {
-                response.error.length = sprintf(response.error.message,
-                        "malloc %d bytes fail", response.header.body_len);
-                result = ENOMEM;
+        if (conn->comm_type == fc_comm_type_rdma) {
+            in_buff = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn)->buff +
+                + sizeof(FSProtoHeader);
+        } else {
+            if (response.header.body_len > sizeof(fixed_buff)) {
+                in_buff = (char *)fc_malloc(response.header.body_len);
+                if (in_buff == NULL) {
+                    response.error.length = sprintf(response.error.message,
+                            "malloc %d bytes fail", response.header.body_len);
+                    result = ENOMEM;
+                }
+                need_free = true;
             }
-        }
 
-        if (result == 0) {
-            result = tcprecvdata_nb(conn->sock, in_buff, response.header.
-                    body_len, client_ctx->common_cfg.network_timeout);
+            if (result == 0) {
+                result = tcprecvdata_nb(conn->sock, in_buff, response.header.
+                        body_len, client_ctx->common_cfg.network_timeout);
+            }
         }
     }
 
@@ -609,10 +656,8 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     }
 
     SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
-    if (in_buff != fixed_buff) {
-        if (in_buff != NULL) {
-            free(in_buff);
-        }
+    if (need_free) {
+        free(in_buff);
     }
 
     return result;

@@ -175,21 +175,29 @@ int main(int argc, char *argv[])
         return result;
     }
 
-    if (spec_conn == NULL && server_id != 0) {
-        FCAddressPtrArray *addr_parray;
+    if (spec_conn == NULL) {
+        if (server_id != 0) {
+            FCAddressPtrArray *addr_parray;
 
-        if ((server=fc_server_get_by_id(&g_fs_client_vars.client_ctx.
-                        cluster_cfg.ptr->server_cfg, server_id)) == NULL)
-        {
-            logError("file: "__FILE__", line: %d, "
-                    "server id: %d not exist",
-                    __LINE__, server_id);
-            return ENOENT;
+            if ((server=fc_server_get_by_id(&g_fs_client_vars.client_ctx.
+                            cluster_cfg.ptr->server_cfg, server_id)) == NULL)
+            {
+                logError("file: "__FILE__", line: %d, "
+                        "server id: %d not exist",
+                        __LINE__, server_id);
+                return ENOENT;
+            }
+
+            addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(
+                    &g_fs_client_vars.client_ctx, server);
+            spec_conn = &addr_parray->addrs[0]->conn;
         }
-
-        addr_parray = &FS_CFG_SERVICE_ADDRESS_ARRAY(
-                &g_fs_client_vars.client_ctx, server);
-        spec_conn = &addr_parray->addrs[0]->conn;
+    } else {
+        FCServerGroupInfo *server_group;
+        server_group = fc_server_get_group_by_index(
+                &FS_CLUSTER_SERVER_CFG(&g_fs_client_vars.client_ctx),
+                FS_CFG_SERVICE_INDEX(&g_fs_client_vars.client_ctx));
+        spec_conn->comm_type = server_group->comm_type;
     }
 
     alloc_size = FS_DATA_GROUP_COUNT(*g_fs_client_vars.
