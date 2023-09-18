@@ -232,8 +232,8 @@ static int do_slice_read(FSClientContext *client_ctx,
             } else {
                 if (is_readv) {
                     result = tcpreadv_nb_ex(conn->sock, response.header.
-                            body_len, iova.iov, iova.cnt, client_ctx->common_cfg.
-                            network_timeout, &bytes);
+                            body_len, iova.iov, iova.cnt, client_ctx->
+                            common_cfg.network_timeout, &bytes);
                 } else {
                     result = tcprecvdata_nb_ex(conn->sock, (char *)data +
                             buff_offet, response.header.body_len, client_ctx->

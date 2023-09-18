@@ -951,11 +951,12 @@ int server_load_config(const char *filename)
                     filename, &ini_context, "service",
                     FS_SERVER_DEFAULT_SERVICE_PORT,
                     FS_SERVER_DEFAULT_SERVICE_PORT,
-                    server_group->buffer_size,
+                    SERVER_CONFIG_CTX.buffer_size,
                     FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
     }
+    sf_service_set_smart_polling(&server_group->smart_polling);
 
     server_group = fc_server_get_group_by_index(
             &SERVER_CONFIG_CTX, CLUSTER_GROUP_INDEX);
@@ -967,6 +968,8 @@ int server_load_config(const char *filename)
     {
         return result;
     }
+    sf_service_set_smart_polling_ex(&CLUSTER_SF_CTX,
+            &server_group->smart_polling);
 
     server_group = fc_server_get_group_by_index(
             &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX);
@@ -978,6 +981,8 @@ int server_load_config(const char *filename)
     {
         return result;
     }
+    sf_service_set_smart_polling_ex(&REPLICA_SF_CTX,
+            &server_group->smart_polling);
 
     //fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
