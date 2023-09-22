@@ -33,6 +33,9 @@ void replication_processor_bind_task(FSReplication *replication,
 
 //replication client side
 int replication_processor_bind_thread(FSReplication *replication);
+void replication_processor_connect_done(struct fast_task_info *task,
+        const int err_no);
+int replication_processor_join_server(struct fast_task_info *task);
 
 //replication server and client
 int replication_processor_unbind(FSReplication *replication);

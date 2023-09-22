@@ -64,7 +64,6 @@ static int init_replication_context(FSReplication *replication)
     int bytes;
     int alloc_size;
 
-    replication->connection_info.conn.sock = -1;
     if ((result=fc_queue_init(&replication->context.caller.rpc_queue,
                     (long)(&((ReplicationRPCEntry *)NULL)->nexts) +
                     sizeof(void *) * replication->peer->link_index)) != 0)

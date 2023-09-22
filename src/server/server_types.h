@@ -440,7 +440,6 @@ typedef struct fs_replication {
         int next_connect_time;
         int last_errno;
         int fail_count;
-        ConnectionInfo conn;
     } connection_info;  //for client to make connection
 
     struct {

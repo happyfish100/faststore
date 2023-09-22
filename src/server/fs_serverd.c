@@ -369,7 +369,7 @@ int main(int argc, char *argv[])
 
         sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,
                 cluster_thread_loop_callback);
-        sf_set_deal_task_func_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
+        sf_set_deal_task_callback_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
@@ -383,6 +383,10 @@ int main(int argc, char *argv[])
         if (result != 0) {
             break;
         }
+
+        sf_set_connect_done_callback_ex(&REPLICA_SF_CTX,
+                replication_processor_connect_done);
+        sf_service_set_connect_need_log_ex(&REPLICA_SF_CTX, false);
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
         sf_accept_loop_ex(&REPLICA_SF_CTX, false);

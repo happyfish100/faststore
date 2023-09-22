@@ -134,20 +134,28 @@ static inline void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     FSReplication *replication;
+
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION:
             replication = REPLICA_REPLICATION;
             if (replication != NULL) {
-                replication_processor_unbind(replication);
-                replica_offline_slave_data_servers(replication->peer);
+                switch (FC_ATOMIC_GET(replication->stage)) {
+                    case FS_REPLICATION_STAGE_WAITING_JOIN_RESP:
+                    case FS_REPLICATION_STAGE_SYNCING:
+                        replication_processor_unbind(replication);
+                        replica_offline_slave_data_servers(replication->peer);
 
-                logInfo("file: "__FILE__", line: %d, "
-                        "replication peer id: %d, %s:%u disconnected",
-                        __LINE__, replication->peer->server->id,
-                        REPLICA_GROUP_ADDRESS_FIRST_IP(
-                            replication->peer->server),
-                        CLUSTER_GROUP_ADDRESS_FIRST_PORT(
-                            replication->peer->server));
+                        logInfo("file: "__FILE__", line: %d, "
+                                "replication peer id: %d, %s:%u disconnected",
+                                __LINE__, replication->peer->server->id,
+                                REPLICA_GROUP_ADDRESS_FIRST_IP(
+                                    replication->peer->server),
+                                CLUSTER_GROUP_ADDRESS_FIRST_PORT(
+                                    replication->peer->server));
+                        break;
+                    default:
+                        break;
+                }
                 REPLICA_REPLICATION = NULL;
             } else {
                 logError("file: "__FILE__", line: %d, "
@@ -1241,7 +1249,9 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
 
-    if (stage == SF_NIO_STAGE_CONTINUE) {
+    if (stage == SF_NIO_STAGE_HANDSHAKE) {
+        result = replication_processor_join_server(task);
+    } else if (stage == SF_NIO_STAGE_CONTINUE) {
         if (task->continue_callback != NULL) {
             result = task->continue_callback(task);
         } else {
