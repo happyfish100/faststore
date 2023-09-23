@@ -97,6 +97,7 @@ typedef struct server_global_vars {
         time_t last_shutdown_time;
 
         SFContext sf_context;  //for cluster communication
+        FCServerGroupInfo *server_group;
     } cluster;
 
     struct {
@@ -182,7 +183,9 @@ typedef struct server_global_vars {
 
         int64_t dedup_memory_limit; //memory limit for recovery dedup
         SFContext sf_context;       //for replica communication
+        FCServerGroupInfo *server_group;
         SFNetworkHandler *network_handler;
+        ConnectionExtraParams conn_extra_params;
     } replica;
 
     struct {
@@ -337,9 +340,13 @@ typedef struct server_global_vars {
 #define SLAVE_BINLOG_CHECK_LAST_ROWS    g_server_global_vars->data. \
     slave_binlog_check_last_rows
 
-#define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
-#define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
-#define REPLICA_NET_HANDLER   g_server_global_vars->replica.network_handler
+#define CLUSTER_SF_CTX            g_server_global_vars->cluster.sf_context
+#define CLUSTER_SERVER_GROUP      g_server_global_vars->cluster.server_group
+
+#define REPLICA_SF_CTX            g_server_global_vars->replica.sf_context
+#define REPLICA_SERVER_GROUP      g_server_global_vars->replica.server_group
+#define REPLICA_NET_HANDLER       g_server_global_vars->replica.network_handler
+#define REPLICA_CONN_EXTRA_PARAMS g_server_global_vars->replica.conn_extra_params
 
 #define OB_ELEMENT_SIZE       g_server_global_vars->storage.ob_element_size
 #define DA_CTX                g_server_global_vars->storage.da_ctx

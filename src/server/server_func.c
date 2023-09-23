@@ -647,7 +647,6 @@ static int server_init_client(const char *config_filename)
 {
     const bool bg_thread_enabled = false;
     int result;
-    FCServerGroupInfo *server_group;
 
     /* set read rule for store path rebuild */
     g_fs_client_vars.client_ctx.common_cfg.read_rule =
@@ -668,10 +667,9 @@ static int server_init_client(const char *config_filename)
         return result;
     }
 
-    server_group = fc_server_get_group_by_index(
-            &FS_CLUSTER_SERVER_CFG(&g_fs_client_vars.client_ctx),
-            FS_CFG_SERVICE_INDEX(&g_fs_client_vars.client_ctx));
-    if (server_group->comm_type != fc_comm_type_sock) {
+    if (CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock ||
+            REPLICA_SERVER_GROUP->comm_type != fc_comm_type_sock)
+    {
         if ((result=conn_pool_global_init_for_rdma()) != 0) {
             return result;
         }
@@ -958,10 +956,10 @@ int server_load_config(const char *filename)
     }
     sf_service_set_smart_polling(&server_group->smart_polling);
 
-    server_group = fc_server_get_group_by_index(
+    CLUSTER_SERVER_GROUP = fc_server_get_group_by_index(
             &SERVER_CONFIG_CTX, CLUSTER_GROUP_INDEX);
     if ((result=sf_load_context_from_config(&CLUSTER_SF_CTX,
-                    server_group->comm_type, filename,
+                    CLUSTER_SERVER_GROUP->comm_type, filename,
                     &ini_context, "cluster",
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
                     FS_SERVER_DEFAULT_CLUSTER_PORT)) != 0)
@@ -969,12 +967,12 @@ int server_load_config(const char *filename)
         return result;
     }
     sf_service_set_smart_polling_ex(&CLUSTER_SF_CTX,
-            &server_group->smart_polling);
+            &CLUSTER_SERVER_GROUP->smart_polling);
 
-    server_group = fc_server_get_group_by_index(
+    REPLICA_SERVER_GROUP = fc_server_get_group_by_index(
             &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX);
     if ((result=sf_load_context_from_config(&REPLICA_SF_CTX,
-                    server_group->comm_type, filename,
+                    REPLICA_SERVER_GROUP->comm_type, filename,
                     &ini_context, "replica",
                     FS_SERVER_DEFAULT_REPLICA_PORT,
                     FS_SERVER_DEFAULT_REPLICA_PORT)) != 0)
@@ -982,7 +980,12 @@ int server_load_config(const char *filename)
         return result;
     }
     sf_service_set_smart_polling_ex(&REPLICA_SF_CTX,
-            &server_group->smart_polling);
+            &REPLICA_SERVER_GROUP->smart_polling);
+    if ((result=conn_pool_set_rdma_extra_params(&REPLICA_CONN_EXTRA_PARAMS,
+                    &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX)) != 0)
+    {
+        return result;
+    }
 
     //fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {

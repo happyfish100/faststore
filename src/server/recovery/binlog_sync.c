@@ -42,7 +42,7 @@ typedef struct {
     int fd;
     int wait_count;
     uint64_t until_version;
-    SFSharedMBuffer *mbuffer;  //for network
+    SFSharedMBuffer *mbuffer;  //for ether network (socket)
 } BinlogSyncContext;
 
 static int query_binlog_info(ConnectionInfo *conn, DataRecoveryContext *ctx,
@@ -87,6 +87,7 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
     int result;
     BinlogSyncContext *sync_ctx;
     FSProtoHeader *header;
+    char *body;
     SFResponseInfo response;
 
     sync_ctx = (BinlogSyncContext *)ctx->arg;
@@ -115,20 +116,25 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
         return EOVERFLOW;
     }
 
-    if ((result=tcprecvdata_nb(conn->sock, sync_ctx->mbuffer->buff,
-                    response.header.body_len, SF_G_NETWORK_TIMEOUT)) != 0)
-    {
-        response.error.length = snprintf(response.error.message,
-                sizeof(response.error.message),
-                "recv data fail, errno: %d, error info: %s",
-                result, STRERROR(result));
-        fs_log_network_error(&response, conn, result);
-        return result;
+    if (conn->comm_type == fc_comm_type_rdma) {
+        body = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn)->
+            buff + sizeof(FSProtoHeader);
+    } else {
+        body = sync_ctx->mbuffer->buff;
+        if ((result=tcprecvdata_nb(conn->sock, body, response.header.
+                        body_len, SF_G_NETWORK_TIMEOUT)) != 0)
+        {
+            response.error.length = snprintf(response.error.message,
+                    sizeof(response.error.message),
+                    "recv data fail, errno: %d, error info: %s",
+                    result, STRERROR(result));
+            fs_log_network_error(&response, conn, result);
+            return result;
+        }
     }
 
-    if (fc_safe_write(((BinlogSyncContext *)ctx->arg)->fd,
-                sync_ctx->mbuffer->buff, response.header.body_len) !=
-            response.header.body_len)
+    if (fc_safe_write(((BinlogSyncContext *)ctx->arg)->fd, body, response.
+                header.body_len) != response.header.body_len)
     {
         result = errno != 0 ? errno : EPERM;
         logError("file: "__FILE__", line: %d, "
@@ -230,25 +236,32 @@ static int do_sync_binlogs(DataRecoveryContext *ctx)
     int last_index;
     int64_t last_size;
     int64_t binlog_size;
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
 
-    if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
-                        ctx->master->cs->server), &conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+    if ((conn=conn_pool_alloc_connection(REPLICA_SERVER_GROUP->comm_type,
+                    &REPLICA_CONN_EXTRA_PARAMS, &result)) == NULL)
     {
         return result;
     }
 
-    if ((result=query_binlog_info(&conn, ctx, &start_index,
+    if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
+                        ctx->master->cs->server), conn, "fstore",
+                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+    {
+        conn_pool_free_connection(conn);
+        return result;
+    }
+
+    if ((result=query_binlog_info(conn, ctx, &start_index,
                     &last_index, &last_size)) != 0)
     {
-        conn_pool_disconnect_server(&conn);
+        fc_server_destroy_connection(conn);
         return result;
     }
 
     for (binlog_index=start_index; binlog_index<=last_index; binlog_index++) {
         binlog_size = (binlog_index < last_index ? 0 : last_size);
-        if ((result=proto_sync_binlog(&conn, ctx, binlog_index,
+        if ((result=proto_sync_binlog(conn, ctx, binlog_index,
                         binlog_size)) != 0)
         {
             break;
@@ -264,7 +277,7 @@ static int do_sync_binlogs(DataRecoveryContext *ctx)
         }
     }
 
-    conn_pool_disconnect_server(&conn);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
@@ -276,10 +289,15 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
 
     ctx->arg = &sync_ctx;
     memset(&sync_ctx, 0, sizeof(sync_ctx));
-    sync_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
-            g_sf_global_vars.max_buff_size);
-    if (sync_ctx.mbuffer == NULL) {
-        return ENOMEM;
+
+    if (REPLICA_SERVER_GROUP->comm_type == fc_comm_type_sock) {
+        sync_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
+                g_sf_global_vars.max_buff_size);
+        if (sync_ctx.mbuffer == NULL) {
+            return ENOMEM;
+        }
+    } else {
+        sync_ctx.mbuffer = NULL;
     }
 
     replica_binlog_get_filename(ctx->ds->dg->id, 0,
@@ -287,6 +305,8 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
     if ((result=fc_delete_file_ex(filename, "replica binlog")) == 0) {
         result = do_sync_binlogs(ctx);
     }
-    sf_shared_mbuffer_release(sync_ctx.mbuffer);
+    if (sync_ctx.mbuffer != NULL) {
+        sf_shared_mbuffer_release(sync_ctx.mbuffer);
+    }
     return result;
 }
