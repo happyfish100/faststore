@@ -150,7 +150,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                                 __LINE__, replication->peer->server->id,
                                 REPLICA_GROUP_ADDRESS_FIRST_IP(
                                     replication->peer->server),
-                                CLUSTER_GROUP_ADDRESS_FIRST_PORT(
+                                REPLICA_GROUP_ADDRESS_FIRST_PORT(
                                     replication->peer->server));
                         break;
                     default:
@@ -884,7 +884,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
             "replication peer id: %d, %s:%u join in",
             __LINE__, replication->peer->server->id,
             REPLICA_GROUP_ADDRESS_FIRST_IP(replication->peer->server),
-            CLUSTER_GROUP_ADDRESS_FIRST_PORT(replication->peer->server));
+            REPLICA_GROUP_ADDRESS_FIRST_PORT(replication->peer->server));
     return 0;
 }
 

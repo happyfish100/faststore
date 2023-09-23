@@ -981,11 +981,6 @@ int server_load_config(const char *filename)
     }
     sf_service_set_smart_polling_ex(&REPLICA_SF_CTX,
             &REPLICA_SERVER_GROUP->smart_polling);
-    if ((result=conn_pool_set_rdma_extra_params(&REPLICA_CONN_EXTRA_PARAMS,
-                    &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX)) != 0)
-    {
-        return result;
-    }
 
     //fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
     if ((result=server_group_info_init(full_cluster_filename)) != 0) {
@@ -1184,7 +1179,17 @@ int server_load_config(const char *filename)
     load_local_host_ip_addrs();
     server_log_configs();
 
-    return server_init_client(filename);
+    if ((result=server_init_client(filename)) != 0) {
+        return result;
+    }
+
+    if ((result=conn_pool_set_rdma_extra_params(&REPLICA_CONN_EXTRA_PARAMS,
+                    &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
 }
 
 void fs_server_restart(const char *reason)

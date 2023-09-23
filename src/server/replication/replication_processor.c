@@ -298,6 +298,9 @@ int replication_processor_join_server(struct fast_task_info *task)
     FSReplication *replication;
 
     TASK_CTX.common.req_start_time = get_current_time_us();
+    /* set magic number for the first request */
+    SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+
     req = (FSProtoJoinServerReq *)(task->data + sizeof(FSProtoHeader));
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
