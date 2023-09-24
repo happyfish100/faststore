@@ -98,6 +98,7 @@ typedef struct server_global_vars {
 
         SFContext sf_context;  //for cluster communication
         FCServerGroupInfo *server_group;
+        ConnectionExtraParams conn_extra_params;
     } cluster;
 
     struct {
@@ -342,6 +343,7 @@ typedef struct server_global_vars {
 
 #define CLUSTER_SF_CTX            g_server_global_vars->cluster.sf_context
 #define CLUSTER_SERVER_GROUP      g_server_global_vars->cluster.server_group
+#define CLUSTER_CONN_EXTRA_PARAMS g_server_global_vars->cluster.conn_extra_params
 
 #define REPLICA_SF_CTX            g_server_global_vars->replica.sf_context
 #define REPLICA_SERVER_GROUP      g_server_global_vars->replica.server_group

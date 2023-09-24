@@ -1183,6 +1183,12 @@ int server_load_config(const char *filename)
         return result;
     }
 
+    if ((result=conn_pool_set_rdma_extra_params(&CLUSTER_CONN_EXTRA_PARAMS,
+                    &SERVER_CONFIG_CTX, CLUSTER_GROUP_INDEX)) != 0)
+    {
+        return result;
+    }
+
     if ((result=conn_pool_set_rdma_extra_params(&REPLICA_CONN_EXTRA_PARAMS,
                     &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX)) != 0)
     {
