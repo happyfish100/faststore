@@ -111,7 +111,7 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
     int count;
 
     task = replication->task;
-    if (!(task->offset == 0 && task->length == 0)) {
+    if (!sf_nio_task_send_done(task)) {
         return 0;
     }
 
@@ -123,11 +123,11 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
 
     count = 0;
     r = qinfo.head;
-    p = task->data + sizeof(FSProtoHeader) +
+    p = task->send.ptr->data + sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCRespBodyHeader);
     do {
-        if ((p - task->data) + sizeof(FSProtoReplicaRPCRespBodyPart) >
-                task->size)
+        if ((p - task->send.ptr->data) + sizeof(FSProtoReplicaRPCRespBodyPart) >
+                task->send.ptr->size)
         {
             qinfo.head = r;
             fc_queue_push_queue_to_head_ex(&replication->context.
@@ -152,12 +152,13 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
                 callee.result_allocator, deleted);
     } while (r != NULL);
 
-    int2buff(count, ((FSProtoReplicaRPCRespBodyHeader *)
-                (task->data + sizeof(FSProtoHeader)))->count);
+    int2buff(count, ((FSProtoReplicaRPCRespBodyHeader *)(task->send.
+                    ptr->data + sizeof(FSProtoHeader)))->count);
 
-    task->length = p - task->data;
-    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
-            FS_REPLICA_PROTO_RPC_RESP, task->length - sizeof(FSProtoHeader));
+    task->send.ptr->length = p - task->send.ptr->data;
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            FS_REPLICA_PROTO_RPC_RESP, task->send.ptr->length -
+            sizeof(FSProtoHeader));
     sf_send_add_event(task);
     return 0;
 }

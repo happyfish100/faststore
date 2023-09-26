@@ -112,8 +112,10 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
         replication->task = task;  \
         SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
         if (SF_CTX->realloc_task_buffer) { \
-            free_queue_set_max_buffer_size(task); \
-            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic); \
+            free_queue_set_send_max_buffer_size(task); \
+            free_queue_set_recv_max_buffer_size(task); \
+            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic); \
+            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->recv.ptr->data)->magic); \
         } \
         REPLICA_REPLICATION = replication;  \
     } while (0)
@@ -298,13 +300,14 @@ int replication_processor_join_server(struct fast_task_info *task)
     FSReplication *replication;
 
     TASK_CTX.common.req_start_time = get_current_time_us();
-    /* set magic number for the first request */
-    SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
 
-    req = (FSProtoJoinServerReq *)(task->data + sizeof(FSProtoHeader));
+    /* set magic number for the first request */
+    SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
+
+    req = (FSProtoJoinServerReq *)SF_PROTO_SEND_BODY(task);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
-    int2buff(task->size, req->buffer_size);
+    int2buff(task->send.ptr->size, req->buffer_size);
     int2buff(REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             req->replica_channels_between_two_servers);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
@@ -415,17 +418,17 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
     body_part = replication->rpc.body_parts;
     task = replication->task;
-    task->length = sizeof(FSProtoHeader) +
+    task->send.ptr->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCReqBodyHeader);
     iov = replication->rpc.io_vecs;
-    FC_SET_IOVEC(*iov, task->data, task->length);
+    FC_SET_IOVEC(*iov, task->send.ptr->data, task->send.ptr->length);
     ++iov;
 
     rb = (ReplicationRPCEntry *)qinfo.head;
     do {
-        pkg_len = task->length + sizeof(*body_part) +
+        pkg_len = task->send.ptr->length + sizeof(*body_part) +
             rb->op_ctx->info.body_len;
-        if (pkg_len > task->size || iov - replication->
+        if (pkg_len > task->send.ptr->size || iov - replication->
                 rpc.io_vecs > IOV_MAX - 2)
         {
             qinfo.head = rb;
@@ -441,7 +444,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
                 rb->op_ctx->info.body_len);
         ++iov;
 
-        body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
+        body_part->cmd = ((FSProtoHeader *)rb->task->send.ptr->data)->cmd;
 
         if (((FSServerTaskArg *)rb->task->arg)->context.service.
                 idempotency_request != NULL)
@@ -454,7 +457,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
             int2buff(0, body_part->inc_alloc);
         }
 
-        task->length = pkg_len;
+        task->send.ptr->length = pkg_len;
         long2buff(rb->op_ctx->info.data_version, body_part->data_version);
         int2buff(rb->op_ctx->info.body_len, body_part->body_len);
         ++body_part;
@@ -476,11 +479,11 @@ static int replication_rpc_from_queue(FSReplication *replication)
     task->iovec_array.iovs = replication->rpc.io_vecs;
     task->iovec_array.count = iov - replication->rpc.io_vecs;
     body_header = (FSProtoReplicaRPCReqBodyHeader *)
-        (task->data + sizeof(FSProtoHeader));
-    body_len = task->length - sizeof(FSProtoHeader);
+        (task->send.ptr->data + sizeof(FSProtoHeader));
+    body_len = task->send.ptr->length - sizeof(FSProtoHeader);
     int2buff(body_part - replication->rpc.body_parts, body_header->count);
 
-    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
             FS_REPLICA_PROTO_RPC_REQ, body_len);
     sf_send_add_event(task);
 
@@ -492,14 +495,14 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
 static inline void send_active_test_package(FSReplication *replication)
 {
-    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
+    if (!sf_nio_task_send_done(replication->task)) {
         return;
     }
 
     replication->last_net_comm_time = g_current_time;
-    replication->task->length = sizeof(FSProtoHeader);
-    SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
-            SF_PROTO_ACTIVE_TEST_REQ, 0);
+    replication->task->send.ptr->length = sizeof(FSProtoHeader);
+    SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->
+            send.ptr->data, SF_PROTO_ACTIVE_TEST_REQ, 0);
     sf_send_add_event(replication->task);
 }
 
@@ -521,7 +524,7 @@ static int deal_connected_replication(FSReplication *replication)
         return 0;
     }
 
-    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
+    if (!sf_nio_task_send_done(replication->task)) {
         return 0;
     }
 

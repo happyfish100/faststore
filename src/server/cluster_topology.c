@@ -224,7 +224,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     //int event_source;
     //int event_type;
 
-    if (!(ctx->task->offset == 0 && ctx->task->length == 0)) {
+    if (!sf_nio_task_send_done(ctx->task)) {
         return EBUSY;
     }
 
@@ -242,7 +242,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     event = (FSDataServerChangeEvent *)qinfo.head;
-    header = (FSProtoHeader *)ctx->task->data;
+    header = (FSProtoHeader *)ctx->task->send.ptr->data;
     req_header = (FSProtoPushDataServerStatusHeader *)(header + 1);
     bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
@@ -293,7 +293,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     body_len = (char *)body_part - (char *)req_header;
     SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
             body_len);
-    ctx->task->length = sizeof(FSProtoHeader) + body_len;
+    ctx->task->send.ptr->length = sizeof(FSProtoHeader) + body_len;
     return sf_send_add_event((struct fast_task_info *)ctx->task);
 }
 

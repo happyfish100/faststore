@@ -134,7 +134,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
         return result;
     }
 
-    resp = (FSProtoGetServerStatusResp *)REQUEST.body;
+    resp = (FSProtoGetServerStatusResp *)SF_PROTO_SEND_BODY(task);
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         if (req->is_leader) {
             FSClusterServerInfo *peer;
@@ -223,10 +223,10 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     if (SF_CTX->realloc_task_buffer) {
-        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
+        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
@@ -258,7 +258,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 
     cluster_topology_sync_all_data_servers(peer);
 
-    resp = (FSProtoJoinLeaderResp *)(task->data + sizeof(FSProtoHeader));
+    resp = (FSProtoJoinLeaderResp *)SF_PROTO_SEND_BODY(task);
     long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
     RESPONSE.header.body_len = sizeof(FSProtoJoinLeaderResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
@@ -706,7 +706,7 @@ static int cluster_deal_get_ds_status(struct fast_task_info *task)
         return ENOENT;
     }
 
-    resp = (FSProtoGetDSStatusResp *)REQUEST.body;
+    resp = (FSProtoGetDSStatusResp *)SF_PROTO_SEND_BODY(task);
     resp->is_master = FC_ATOMIC_GET(ds->is_master);
     resp->status = FC_ATOMIC_GET(ds->status);
     int2buff(FC_ATOMIC_GET(ds->master_dealing_count),
