@@ -344,10 +344,9 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
     }
 
     if (READ_DIRECT_IO_PATHS == 0) {
-        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     return 0;

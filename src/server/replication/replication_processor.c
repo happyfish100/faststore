@@ -112,10 +112,8 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
         replication->task = task;  \
         SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
         if (SF_CTX->realloc_task_buffer) { \
-            free_queue_set_send_max_buffer_size(task); \
-            free_queue_set_recv_max_buffer_size(task); \
-            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic); \
-            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->recv.ptr->data)->magic); \
+            sf_set_task_send_max_buffer_size(task); \
+            sf_set_task_recv_max_buffer_size(task); \
         } \
         REPLICA_REPLICATION = replication;  \
     } while (0)

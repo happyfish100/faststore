@@ -323,10 +323,9 @@ static int replica_fetch_binlog_next_output(struct fast_task_info *task)
     char *buff;
 
     if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
-        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     buff = SF_PROTO_SEND_BODY(task) + sizeof(
@@ -345,10 +344,9 @@ static int replica_fetch_binlog_inconsistent_output(struct fast_task_info
     char *buff;
 
     if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
-        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     body_header = (FSProtoReplicaFetchBinlogFirstRespBodyHeader *)
@@ -742,10 +740,9 @@ static int replica_deal_sync_binlog_next(struct fast_task_info *task)
     }
 
     if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
-        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     return sync_binlog_output(task);

@@ -371,12 +371,11 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
         return EOVERFLOW;
     }
     if (max_buffer_size > task->send.ptr->size) {
-        if ((result=free_queue_set_send_buffer_size(task,
+        if ((result=sf_set_task_send_buffer_size(task,
                         max_buffer_size)) != 0)
         {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     body_header = (FSProtoClusterStatRespBodyHeader *)SF_PROTO_SEND_BODY(task);

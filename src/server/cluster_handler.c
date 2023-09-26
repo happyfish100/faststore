@@ -223,10 +223,9 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     if (SF_CTX->realloc_task_buffer) {
-        if ((result=free_queue_set_send_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
     }
 
     if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
