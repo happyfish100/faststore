@@ -915,6 +915,7 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
 
 int server_load_config(const char *filename)
 {
+    const bool double_buffers = true;
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
@@ -1183,14 +1184,16 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if ((result=conn_pool_set_rdma_extra_params(&CLUSTER_CONN_EXTRA_PARAMS,
-                    &SERVER_CONFIG_CTX, CLUSTER_GROUP_INDEX)) != 0)
+    if ((result=conn_pool_set_rdma_extra_params_ex(
+                    &CLUSTER_CONN_EXTRA_PARAMS, &SERVER_CONFIG_CTX,
+                    CLUSTER_GROUP_INDEX, double_buffers)) != 0)
     {
         return result;
     }
 
-    if ((result=conn_pool_set_rdma_extra_params(&REPLICA_CONN_EXTRA_PARAMS,
-                    &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX)) != 0)
+    if ((result=conn_pool_set_rdma_extra_params_ex(
+                    &REPLICA_CONN_EXTRA_PARAMS, &SERVER_CONFIG_CTX,
+                    REPLICA_GROUP_INDEX, double_buffers)) != 0)
     {
         return result;
     }

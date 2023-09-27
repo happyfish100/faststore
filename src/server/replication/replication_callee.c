@@ -121,6 +121,13 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
         return 0;
     }
 
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (REPLICA_PUSH_RESULT_INPROGRESS) {
+            return 0;
+        }
+        REPLICA_PUSH_RESULT_INPROGRESS = true;
+    }
+
     count = 0;
     r = qinfo.head;
     p = task->send.ptr->data + sizeof(FSProtoHeader) +
@@ -157,7 +164,7 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
 
     task->send.ptr->length = p - task->send.ptr->data;
     SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
-            FS_REPLICA_PROTO_RPC_RESP, task->send.ptr->length -
+            FS_REPLICA_PROTO_PUSH_RESULT_REQ, task->send.ptr->length -
             sizeof(FSProtoHeader));
     sf_send_add_event(task);
     return 0;

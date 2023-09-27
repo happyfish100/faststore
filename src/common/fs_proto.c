@@ -130,8 +130,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "GET_DS_STATUS_REQ";
         case FS_CLUSTER_PROTO_GET_DS_STATUS_RESP:
             return "GET_DS_STATUS_RESP";
-        case FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS:
-            return "PUSH_DATA_SERVER_STATUS";
+        case FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ:
+            return "PUSH_DS_STATUS_REQ";
+        case FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP:
+            return "PUSH_DS_STATUS_RESP";
         case FS_REPLICA_PROTO_JOIN_SERVER_REQ:
             return "JOIN_SERVER_REQ";
         case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
@@ -154,10 +156,14 @@ const char *fs_get_cmd_caption(const int cmd)
             return "SYNC_BINLOG_NEXT_REQ";
         case FS_REPLICA_PROTO_SYNC_BINLOG_RESP:
             return "SYNC_BINLOG_RESP";
-        case FS_REPLICA_PROTO_RPC_REQ:
-            return "REPLICA_RPC_REQ";
-        case FS_REPLICA_PROTO_RPC_RESP:
-            return "REPLICA_RPC_RESP";
+        case FS_REPLICA_PROTO_RPC_CALL_REQ:
+            return "REPLICA_RPC_CALL_REQ";
+        case FS_REPLICA_PROTO_RPC_CALL_RESP:
+            return "REPLICA_RPC_CALL_RESP";
+        case FS_REPLICA_PROTO_PUSH_RESULT_REQ:
+            return "REPLICA_PUSH_RESULT_REQ";
+        case FS_REPLICA_PROTO_PUSH_RESULT_RESP:
+            return "REPLICA_PUSH_RESULT_RESP";
         case FS_REPLICA_PROTO_ACTIVE_CONFIRM_REQ:
             return "ACTIVE_CONFIRM_REQ";
         case FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP:

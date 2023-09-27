@@ -1104,7 +1104,7 @@ static int replica_deal_rpc_req(struct fast_task_info *task)
     return handle_rpc_req(task, count);
 }
 
-static int replica_deal_rpc_resp(struct fast_task_info *task)
+static int replica_deal_rpc_result(struct fast_task_info *task)
 {
     int result;
     int r;
@@ -1155,7 +1155,7 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
                     __LINE__, data_version, err_no);
         }
 
-        if ((r=replication_processors_deal_rpc_response(
+        if ((r=replication_processors_deal_rpc_result(
                         REPLICA_REPLICATION, data_group_id,
                         data_version, err_no)) != 0)
         {
@@ -1300,18 +1300,43 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
             case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
                 result = du_handler_deal_get_group_servers(task);
                 break;
-            case FS_REPLICA_PROTO_RPC_REQ:
+            case FS_REPLICA_PROTO_RPC_CALL_REQ:
                 if ((result=replica_deal_rpc_req(task)) == 0) {
+                    if (task->handler->comm_type == fc_comm_type_rdma) {
+                        RESPONSE.header.cmd = FS_REPLICA_PROTO_RPC_CALL_RESP;
+                    } else {
+                        TASK_CTX.common.need_response = false;
+                    }
+                } else {
+                    if (result > 0) {
+                        result *= -1;  //force close connection
+                    }
                     TASK_CTX.common.need_response = false;
-                } else if (result > 0) {
-                    result *= -1;  //force close connection
                 }
                 break;
-            case FS_REPLICA_PROTO_RPC_RESP:
-                if ((result=replica_deal_rpc_resp(task)) > 0) {
-                    result *= -1;  //force close connection
-                }
+            case FS_REPLICA_PROTO_RPC_CALL_RESP:
+                result = 0;
                 TASK_CTX.common.need_response = false;
+                REPLICA_RPC_CALL_INPROGRESS = false;
+                break;
+            case FS_REPLICA_PROTO_PUSH_RESULT_REQ:
+                if ((result=replica_deal_rpc_result(task)) == 0) {
+                    if (task->handler->comm_type == fc_comm_type_rdma) {
+                        RESPONSE.header.cmd = FS_REPLICA_PROTO_PUSH_RESULT_RESP;
+                    } else {
+                        TASK_CTX.common.need_response = false;
+                    }
+                } else {
+                    if (result > 0) {
+                        result *= -1;  //force close connection
+                    }
+                    TASK_CTX.common.need_response = false;
+                }
+                break;
+            case FS_REPLICA_PROTO_PUSH_RESULT_RESP:
+                result = 0;
+                TASK_CTX.common.need_response = false;
+                REPLICA_PUSH_RESULT_INPROGRESS = false;
                 break;
             case FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ:
                 result = replica_deal_fetch_binlog_first(task);

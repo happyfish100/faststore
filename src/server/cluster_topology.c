@@ -212,6 +212,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
 static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 {
     struct fc_queue_info qinfo;
+    struct fast_task_info *task;
     FSDataServerChangeEvent *event;
     FSClusterServerInfo *cs;
     FSClusterDataServerInfo *ds;
@@ -224,11 +225,19 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     //int event_source;
     //int event_type;
 
-    if (!sf_nio_task_send_done(ctx->task)) {
+    task = (struct fast_task_info *)ctx->task;
+    if (!sf_nio_task_send_done(task)) {
         return EBUSY;
     }
 
-    cs = ((FSServerTaskArg *)ctx->task->arg)->context.shared.cluster.peer;
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (CLUSTER_PUSH_EVENT_INPROGRESS) {
+            return 0;
+        }
+        CLUSTER_PUSH_EVENT_INPROGRESS = true;
+    }
+
+    cs = ((FSServerTaskArg *)task->arg)->context.shared.cluster.peer;
     if (FC_ATOMIC_GET(cs->status) != FS_SERVER_STATUS_ACTIVE) {
         logDebug("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",
@@ -242,7 +251,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     event = (FSDataServerChangeEvent *)qinfo.head;
-    header = (FSProtoHeader *)ctx->task->send.ptr->data;
+    header = (FSProtoHeader *)task->send.ptr->data;
     req_header = (FSProtoPushDataServerStatusHeader *)(header + 1);
     bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
@@ -291,10 +300,10 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
             req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;
-    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS,
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ,
             body_len);
-    ctx->task->send.ptr->length = sizeof(FSProtoHeader) + body_len;
-    return sf_send_add_event((struct fast_task_info *)ctx->task);
+    task->send.ptr->length = sizeof(FSProtoHeader) + body_len;
+    return sf_send_add_event(task);
 }
 
 int cluster_topology_process_notify_events(FSClusterNotifyContextPtrArray *

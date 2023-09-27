@@ -115,7 +115,9 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
             sf_set_task_send_max_buffer_size(task); \
             sf_set_task_recv_max_buffer_size(task); \
         } \
-        REPLICA_REPLICATION = replication;  \
+        REPLICA_REPLICATION = replication;      \
+        REPLICA_RPC_CALL_INPROGRESS = false;    \
+        REPLICA_PUSH_RESULT_INPROGRESS = false; \
     } while (0)
 
 void replication_processor_bind_task(FSReplication *replication,
@@ -414,8 +416,16 @@ static int replication_rpc_from_queue(FSReplication *replication)
         return 0;
     }
 
-    body_part = replication->rpc.body_parts;
     task = replication->task;
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (REPLICA_RPC_CALL_INPROGRESS) {
+            return 0;
+        }
+
+        REPLICA_RPC_CALL_INPROGRESS = true;
+    }
+
+    body_part = replication->rpc.body_parts;
     task->send.ptr->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCReqBodyHeader);
     iov = replication->rpc.io_vecs;
@@ -482,7 +492,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int2buff(body_part - replication->rpc.body_parts, body_header->count);
 
     SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
-            FS_REPLICA_PROTO_RPC_REQ, body_len);
+            FS_REPLICA_PROTO_RPC_CALL_REQ, body_len);
     sf_send_add_event(task);
 
     if (replication->last_net_comm_time != g_current_time) {
@@ -532,6 +542,7 @@ static int deal_connected_replication(FSReplication *replication)
         {
             return ETIMEDOUT;
         }
+
         return replication_rpc_from_queue(replication);
     }
 

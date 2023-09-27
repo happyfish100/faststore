@@ -44,7 +44,7 @@ int replication_processor_process(FSServerContext *server_ctx);
 
 void clean_connected_replications(FSServerContext *server_ctx);
 
-static inline int replication_processors_deal_rpc_response(
+static inline int replication_processors_deal_rpc_result(
         FSReplication *replication, const int data_group_id,
         const uint64_t data_version, const int err_no)
 {

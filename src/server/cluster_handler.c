@@ -245,6 +245,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     peer->key = key;
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
+    CLUSTER_PUSH_EVENT_INPROGRESS = false;
 
     if (FC_ATOMIC_GET(peer->status) == FS_SERVER_STATUS_ACTIVE) {
         logWarning("file: "__FILE__", line: %d, "
@@ -791,6 +792,11 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 break;
             case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ:
                 result = cluster_deal_report_disk_space(task);
+                break;
+            case FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP:
+                result = 0;
+                RESPONSE.header.cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP;
+                CLUSTER_PUSH_EVENT_INPROGRESS = false;
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,

@@ -75,7 +75,8 @@
 #define FS_CLUSTER_PROTO_UNSET_MASTER_RESP       76
 #define FS_CLUSTER_PROTO_GET_DS_STATUS_REQ       77
 #define FS_CLUSTER_PROTO_GET_DS_STATUS_RESP      78
-#define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
+#define FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ      79
+#define FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP     80
 
 //replication commands
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
@@ -98,8 +99,10 @@
 #define FS_REPLICA_PROTO_SYNC_BINLOG_RESP        96
 
 // master -> slave RPC
-#define FS_REPLICA_PROTO_RPC_REQ                 99
-#define FS_REPLICA_PROTO_RPC_RESP               100
+#define FS_REPLICA_PROTO_RPC_CALL_REQ            99
+#define FS_REPLICA_PROTO_RPC_CALL_RESP          100
+#define FS_REPLICA_PROTO_PUSH_RESULT_REQ        101
+#define FS_REPLICA_PROTO_PUSH_RESULT_RESP       102
 
 typedef SFCommonProtoHeader  FSProtoHeader;
 

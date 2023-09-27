@@ -100,7 +100,7 @@ static char *alloc_recv_buffer(struct fast_task_info *task,
 
     cmd = ((FSProtoHeader *)task->recv.ptr->data)->cmd;
     if (cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
-            cmd == FS_REPLICA_PROTO_RPC_REQ)
+            cmd == FS_REPLICA_PROTO_RPC_CALL_REQ)
     {
         *new_alloc = true;
         mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX, buff_size);
@@ -431,7 +431,7 @@ int main(int argc, char *argv[])
     } while (0);
 
     if (result != 0) {
-        lcrit("program exit abnomally with errno: %d", result);
+        lcrit("program exit abnormally with errno: %d", result);
         log_destroy();
         return result;
     }

@@ -172,7 +172,7 @@ static int do_slice_read(FSClientContext *client_ctx,
         get_connection_params(&client_ctx->cm, conn);
 
     if (conn->comm_type == fc_comm_type_rdma) {
-        buffer = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn);
+        buffer = G_RDMA_CONNECTION_CALLBACKS.get_recv_buffer(conn);
     } else {
         buffer = NULL;
     }
@@ -577,8 +577,8 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
                     FS_SERVICE_PROTO_CLUSTER_STAT_RESP)) == 0)
     {
         if (conn->comm_type == fc_comm_type_rdma) {
-            in_buff = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn)->buff +
-                + sizeof(FSProtoHeader);
+            in_buff = G_RDMA_CONNECTION_CALLBACKS.get_recv_buffer(conn)->
+                buff + sizeof(FSProtoHeader);
         } else {
             if (response.header.body_len > sizeof(fixed_buff)) {
                 in_buff = (char *)fc_malloc(response.header.body_len);

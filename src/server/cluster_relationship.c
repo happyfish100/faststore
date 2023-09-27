@@ -1838,8 +1838,28 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     cluster_relationship_on_master_change(ds->dg, old_master, new_master);
 }
 
-static int cluster_process_leader_push(SFResponseInfo *response,
-        char *body_buff, const int body_len)
+static int proto_response_leader_push(ConnectionInfo *conn)
+{
+    int result;
+    FSProtoHeader *header;
+    SFResponseInfo response;
+    char out_buff[sizeof(FSProtoHeader)];
+
+    header = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP, 0);
+    response.error.length = 0;
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
+                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP)) != 0)
+    {
+        fs_log_network_error(&response, conn, result);
+    }
+
+    return result;
+}
+
+static int cluster_process_leader_push(ConnectionInfo *conn,
+        SFResponseInfo *response, char *body_buff, const int body_len)
 {
     FSProtoPushDataServerStatusHeader *body_header;
     FSProtoPushDataServerStatusBodyPart *body_part;
@@ -1880,6 +1900,9 @@ static int cluster_process_leader_push(SFResponseInfo *response,
     }
 
     CLUSTER_CURRENT_VERSION = buff2long(body_header->current_version);
+    if (conn->comm_type == fc_comm_type_rdma) {
+        return proto_response_leader_push(conn);
+    }
     return 0;
 }
 
@@ -1933,7 +1956,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
             return result;
         }
 
-        buffer = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn);
+        buffer = G_RDMA_CONNECTION_CALLBACKS.get_recv_buffer(conn);
         if (buffer->length < sizeof(FSProtoHeader)) {
             response->error.length = sprintf(response->error.message,
                     "recv pkg length: %d < header size: %d",
@@ -2013,8 +2036,8 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
             header.ptr->cmd == FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)
     {
         return 0;
-    } else if (header.ptr->cmd == FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS) {
-        return cluster_process_leader_push(response, body, body_len);
+    } else if (header.ptr->cmd == FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ) {
+        return cluster_process_leader_push(conn, response, body, body_len);
     } else {
         response->error.length = sprintf(response->error.message,
                 "unexpect cmd: %d (%s)", header.ptr->cmd,

@@ -333,7 +333,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     }
 
     if (conn->comm_type == fc_comm_type_rdma) {
-        body = G_RDMA_CONNECTION_CALLBACKS.get_buffer(conn)->
+        body = G_RDMA_CONNECTION_CALLBACKS.get_recv_buffer(conn)->
             buff + sizeof(FSProtoHeader);
     } else {
         body = fetch_ctx->mbuffer->buff;
