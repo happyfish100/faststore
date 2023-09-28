@@ -1838,6 +1838,45 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     cluster_relationship_on_master_change(ds->dg, old_master, new_master);
 }
 
+static int cluster_recv_from_leader(ConnectionInfo *conn,
+        SFResponseInfo *response, const int timeout_ms,
+        const bool ignore_timeout);
+
+static inline int proto_send_data(ConnectionInfo *conn,
+        SFResponseInfo *response, char *buff, const int size,
+        const int network_timeout)
+{
+    const int timeout_ms = 100;
+    const int loop_count = 10;
+    int result;
+    int i;
+
+    if (conn->comm_type == fc_comm_type_rdma) {
+        if (!G_RDMA_CONNECTION_CALLBACKS.send_done(conn)) {
+            for (i=0; i<loop_count; i++) {
+                logInfo("%d. NOT send done#############################", i+1);
+                result = cluster_recv_from_leader(conn,
+                        response, timeout_ms, true);
+                if (result != 0) {
+                    return result;
+                }
+                if (G_RDMA_CONNECTION_CALLBACKS.send_done(conn)) {
+                    break;
+                }
+            }
+
+            if (i == loop_count) {
+                logError("file: "__FILE__", line: %d, "
+                        "send data timeout!", __LINE__);
+                return ETIMEDOUT;
+            }
+        }
+        return G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn, buff, size);
+    } else {
+        return tcpsenddata_nb(conn->sock, buff, size, network_timeout);
+    }
+}
+
 static int proto_response_leader_push(ConnectionInfo *conn)
 {
     int result;
@@ -1848,9 +1887,8 @@ static int proto_response_leader_push(ConnectionInfo *conn)
     header = (FSProtoHeader *)out_buff;
     SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP, 0);
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
-                    FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP)) != 0)
+    if ((result=proto_send_data(conn, &response, out_buff,
+                    sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
     {
         fs_log_network_error(&response, conn, result);
     }
@@ -1869,6 +1907,7 @@ static int cluster_process_leader_push(ConnectionInfo *conn,
     int calc_size;
     int data_group_id;
     int server_id;
+    int result;
 
     body_header = (FSProtoPushDataServerStatusHeader *)body_buff;
     data_server_count = buff2int(body_header->data_server_count);
@@ -1901,9 +1940,13 @@ static int cluster_process_leader_push(ConnectionInfo *conn,
 
     CLUSTER_CURRENT_VERSION = buff2long(body_header->current_version);
     if (conn->comm_type == fc_comm_type_rdma) {
+        if ((result=G_RDMA_CONNECTION_CALLBACKS.post_recv(conn)) != 0) {
+            return result;
+        }
         return proto_response_leader_push(conn);
+    } else {
+        return 0;
     }
-    return 0;
 }
 
 static inline int parse_body_length(FSProtoHeader *header,
@@ -1933,6 +1976,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         SFResponseInfo *response, const int timeout_ms,
         const bool ignore_timeout)
 {
+    const bool call_post_recv = false;
     BufferInfo *buffer;
     struct {
         FSProtoHeader holder;
@@ -1945,7 +1989,8 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     int body_len;
 
     if (conn->comm_type == fc_comm_type_rdma) {
-        result = G_RDMA_CONNECTION_CALLBACKS.recv_data(conn, timeout_ms);
+        result = G_RDMA_CONNECTION_CALLBACKS.recv_data(
+                conn, call_post_recv, timeout_ms);
         if (result != 0) {
             if (result == ETIMEDOUT && ignore_timeout) {
                 return 0;
@@ -2035,7 +2080,11 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     if (header.ptr->cmd == FS_CLUSTER_PROTO_PING_LEADER_RESP ||
             header.ptr->cmd == FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)
     {
-        return 0;
+        if (conn->comm_type == fc_comm_type_rdma) {
+            return G_RDMA_CONNECTION_CALLBACKS.post_recv(conn);
+        } else {
+            return 0;
+        }
     } else if (header.ptr->cmd == FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ) {
         return cluster_process_leader_push(conn, response, body, body_len);
     } else {
@@ -2076,14 +2125,9 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
         sizeof(FSProtoHeader));
 
     response.error.length = 0;
-    if (conn->comm_type == fc_comm_type_rdma) {
-        result = G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
-                NETWORK_BUFFER.data, NETWORK_BUFFER.length);
-    } else {
-        result = tcpsenddata_nb(conn->sock, NETWORK_BUFFER.data,
-                NETWORK_BUFFER.length, network_timeout);
-    }
-    if (result == 0) {
+    if ((result=proto_send_data(conn, &response, NETWORK_BUFFER.data,
+                    NETWORK_BUFFER.length, network_timeout)) == 0)
+    {
         result = cluster_recv_from_leader(conn, &response,
                 1000 * network_timeout, false);
     }
@@ -2123,14 +2167,9 @@ static int proto_report_disk_space(ConnectionInfo *conn,
     long2buff(stat->used, req->used);
 
     response.error.length = 0;
-    if (conn->comm_type == fc_comm_type_rdma) {
-        result = G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
-                out_buff, sizeof(out_buff));
-    } else {
-        result = tcpsenddata_nb(conn->sock, out_buff,
-                sizeof(out_buff), SF_G_NETWORK_TIMEOUT);
-    }
-    if (result == 0) {
+    if ((result=proto_send_data(conn, &response, out_buff,
+                    sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) == 0)
+    {
         result = cluster_recv_from_leader(conn, &response,
                 1000 * SF_G_NETWORK_TIMEOUT, false);
     }
@@ -2280,6 +2319,10 @@ static int follower_ping(FSClusterServerInfo *leader,
         {
             return result;
         }
+
+        logInfo("file: "__FILE__", line: %d, "
+                "connect to leader id: %d, %s:%u successfully", __LINE__,
+                leader->server->id, conn->ip_addr, conn->port);
     }
 
     if ((result=cluster_try_recv_push_data(leader, conn)) != 0) {

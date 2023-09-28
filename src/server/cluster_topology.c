@@ -170,7 +170,7 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
                 ioevent_notify_thread(task->thread_data);
             }
         } else {
-            logDebug("file: "__FILE__", line: %d, "
+            logWarning("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, alread in_queue: %d, "
                     "data version: %"PRId64", event {source: %c, type: %d}, "
@@ -222,24 +222,21 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     FSProtoPushDataServerStatusBodyPart *bp_start;
     FSProtoPushDataServerStatusBodyPart *body_part;
     int body_len;
+    static time_t last_log_time = 0;
     //int event_source;
     //int event_type;
 
     task = (struct fast_task_info *)ctx->task;
     if (!sf_nio_task_send_done(task)) {
-        return EBUSY;
-    }
-
-    if (task->handler->comm_type == fc_comm_type_rdma) {
-        if (CLUSTER_PUSH_EVENT_INPROGRESS) {
-            return 0;
+        if (ctx->queue.head != NULL) {
+            logInfo("Not send done!");
         }
-        CLUSTER_PUSH_EVENT_INPROGRESS = true;
+        return EBUSY;
     }
 
     cs = ((FSServerTaskArg *)task->arg)->context.shared.cluster.peer;
     if (FC_ATOMIC_GET(cs->status) != FS_SERVER_STATUS_ACTIVE) {
-        logDebug("file: "__FILE__", line: %d, "
+        logWarning("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",
                 __LINE__, cs->server->id);
         return EAGAIN;
@@ -247,7 +244,21 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
     fc_queue_try_pop_to_queue(&ctx->queue, &qinfo);
     if (qinfo.head == NULL) {
+        if (last_log_time != g_current_time) {
+            last_log_time = g_current_time;
+            logInfo("no events!");
+        }
         return 0;
+    }
+
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (CLUSTER_PUSH_EVENT_INPROGRESS) {
+            if (ctx->queue.head != NULL) {
+                logWarning("==== CLUSTER_PUSH_EVENT_INPROGRESS ==== %d!", CLUSTER_PUSH_EVENT_INPROGRESS);
+            }
+            return 0;
+        }
+        CLUSTER_PUSH_EVENT_INPROGRESS = true;
     }
 
     event = (FSDataServerChangeEvent *)qinfo.head;
@@ -294,6 +305,11 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
         qinfo.head = event;
         fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
+    }
+
+    if (last_log_time != g_current_time) {
+        last_log_time = g_current_time;
+        logInfo("push event count: %d!", (int)(body_part - bp_start));
     }
 
     long2buff(FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),

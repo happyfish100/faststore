@@ -751,6 +751,10 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             }
         }
     } else {
+        if (task->send.ptr->length > 0) {
+            logWarning("############### send length: %d > 0 !!!!!!!!!!!!",
+                    task->send.ptr->length);
+        }
         sf_proto_init_task_context(task, &TASK_CTX.common);
 
         switch (REQUEST.header.cmd) {
@@ -795,8 +799,8 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 break;
             case FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP:
                 result = 0;
-                RESPONSE.header.cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP;
                 CLUSTER_PUSH_EVENT_INPROGRESS = false;
+                TASK_CTX.common.need_response = false;
                 break;
             default:
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -864,8 +868,19 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
         }
         */
 
-        cluster_topology_process_notify_events(
-                &server_ctx->cluster.notify_ctx_ptr_array);
+        if (server_ctx->cluster.notify_ctx_ptr_array.count != 1) {
+            static time_t last_log_time = 0;
+            if (g_current_time - last_log_time > 5) {
+                last_log_time = g_current_time;
+                logWarning("############### notify_ctx_ptr_array.count %d != 1",
+                        server_ctx->cluster.notify_ctx_ptr_array.count);
+            }
+        }
+
+        if (server_ctx->cluster.notify_ctx_ptr_array.count > 0) {
+            cluster_topology_process_notify_events(
+                    &server_ctx->cluster.notify_ctx_ptr_array);
+        }
     }
     return 0;
 }

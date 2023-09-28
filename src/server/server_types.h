@@ -168,7 +168,7 @@
 #define RESPONSE_STATUS   RESPONSE.header.status
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
-#define CLUSTER_PEER         TASK_CTX.shared.cluster.peer
+#define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
 #define CLUSTER_PUSH_EVENT_INPROGRESS   \
     TASK_CTX.shared.cluster.push_event_inprogress
 #define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
