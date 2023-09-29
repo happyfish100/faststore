@@ -866,12 +866,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 result = EINVAL;
                 break;
         }
-    }
 
-    if (result == TASK_STATUS_CONTINUE) {
-        return 0;
-    } else {
-        RESPONSE_STATUS = (result > 0 ? -1 * result : result);
         if (!immediate_send) {
             if (result == 0 && TASK_CTX.common.need_response) {
                 FSProtoHeader *header;
@@ -898,6 +893,12 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
 
             fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);
         }
+    }
+
+    if (result == TASK_STATUS_CONTINUE) {
+        return 0;
+    } else {
+        RESPONSE_STATUS = (result > 0 ? -1 * result : result);
         return sf_proto_deal_task_done(task, "cluster", &TASK_CTX.common);
     }
 }
