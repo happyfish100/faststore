@@ -52,6 +52,7 @@ typedef struct server_global_vars {
         int task_padding_size;
         sf_init_connection_callback init_connection;
         struct ibv_pd *pd;
+        struct fast_mblock_man pending_send_allocator;
     } rdma;
 
     struct {
@@ -233,9 +234,10 @@ typedef struct server_global_vars {
 #define CMDLINE_PROGRAM_FILENAME g_server_global_vars->cmdline.program_filename
 #define CMDLINE_CONFIG_FILENAME  g_server_global_vars->cmdline.config_filename
 
-#define TASK_PADDING_SIZE        g_server_global_vars->rdma.task_padding_size
-#define RDMA_INIT_CONNECTION     g_server_global_vars->rdma.init_connection
-#define RDMA_PD                  g_server_global_vars->rdma.pd
+#define TASK_PADDING_SIZE      g_server_global_vars->rdma.task_padding_size
+#define RDMA_INIT_CONNECTION   g_server_global_vars->rdma.init_connection
+#define RDMA_PD                g_server_global_vars->rdma.pd
+#define PENDING_SEND_ALLOCATOR g_server_global_vars->rdma.pending_send_allocator
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars->cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars->cluster.config.ctx.server_cfg

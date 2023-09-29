@@ -110,10 +110,26 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                 __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
     }
 
+    if (CLUSTER_PENDING_SEND != NULL) {
+        if (CLUSTER_PENDING_SEND->next == NULL) {
+            fast_mblock_free_object(&PENDING_SEND_ALLOCATOR,
+                    CLUSTER_PENDING_SEND);
+            CLUSTER_PENDING_SEND = NULL;
+        } else {
+            FSPendingSendBuffer *pb;
+            do {
+                pb = CLUSTER_PENDING_SEND;
+                CLUSTER_PENDING_SEND = CLUSTER_PENDING_SEND->next;
+                fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);
+            } while (CLUSTER_PENDING_SEND != NULL);
+        }
+    }
+
     sf_task_finish_clean_up(task);
 }
 
-static int cluster_deal_get_server_status(struct fast_task_info *task)
+static int cluster_deal_get_server_status(struct fast_task_info *task,
+        char *resp_body)
 {
     int result;
     int server_id;
@@ -134,7 +150,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
         return result;
     }
 
-    resp = (FSProtoGetServerStatusResp *)SF_PROTO_SEND_BODY(task);
+    resp = (FSProtoGetServerStatusResp *)resp_body;
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         if (req->is_leader) {
             FSClusterServerInfo *peer;
@@ -173,7 +189,8 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     return 0;
 }
 
-static int cluster_deal_join_leader(struct fast_task_info *task)
+static int cluster_deal_join_leader(struct fast_task_info *task,
+        char *resp_body)
 {
     int result;
     int server_id;
@@ -223,8 +240,15 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
     }
 
     if (SF_CTX->realloc_task_buffer) {
+        bool set_resp_body;
+
+        set_resp_body = (resp_body == SF_PROTO_SEND_BODY(task));
         if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
+        }
+
+        if (set_resp_body) {
+            resp_body = SF_PROTO_SEND_BODY(task);
         }
     }
 
@@ -258,7 +282,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task)
 
     cluster_topology_sync_all_data_servers(peer);
 
-    resp = (FSProtoJoinLeaderResp *)SF_PROTO_SEND_BODY(task);
+    resp = (FSProtoJoinLeaderResp *)resp_body;
     long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
     RESPONSE.header.body_len = sizeof(FSProtoJoinLeaderResp);
     RESPONSE.header.cmd = FS_CLUSTER_PROTO_JOIN_LEADER_RESP;
@@ -581,7 +605,6 @@ static int cluster_deal_report_disk_space(struct fast_task_info *task)
     stat.total = buff2long(req->total);
     stat.avail = buff2long(req->avail);
     stat.used = buff2long(req->used);
-
     CLUSTER_PEER->space_stat = stat;
     return 0;
 }
@@ -684,7 +707,8 @@ static int cluster_deal_unset_master(struct fast_task_info *task)
     return 0;
 }
 
-static int cluster_deal_get_ds_status(struct fast_task_info *task)
+static int cluster_deal_get_ds_status(struct fast_task_info *task,
+        char *resp_body)
 {
     int result;
     int data_group_id;
@@ -706,7 +730,7 @@ static int cluster_deal_get_ds_status(struct fast_task_info *task)
         return ENOENT;
     }
 
-    resp = (FSProtoGetDSStatusResp *)SF_PROTO_SEND_BODY(task);
+    resp = (FSProtoGetDSStatusResp *)resp_body;
     resp->is_master = FC_ATOMIC_GET(ds->is_master);
     resp->status = FC_ATOMIC_GET(ds->status);
     int2buff(FC_ATOMIC_GET(ds->master_dealing_count),
@@ -735,9 +759,31 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
     return sf_proto_deal_task_done(task, "cluster-partly", &TASK_CTX.common);
 }
 
+int cluster_send_done_callback(struct fast_task_info *task, const int length)
+{
+    FSPendingSendBuffer *buffer;
+
+    if (CLUSTER_PENDING_SEND == NULL) {
+        return 0;
+    }
+
+    buffer = CLUSTER_PENDING_SEND;
+    CLUSTER_PENDING_SEND = CLUSTER_PENDING_SEND->next;
+
+    memcpy(task->send.ptr->data, buffer->data, buffer->length);
+    task->send.ptr->length = buffer->length;
+
+    fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, buffer);
+    sf_send_add_event(task);
+    return 0;
+}
+
 int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
 {
     int result;
+    bool immediate_send;
+    FSPendingSendBuffer *pb;
+    char *resp_body;
 
     if (stage == SF_NIO_STAGE_CONTINUE) {
         if (task->continue_callback != NULL) {
@@ -751,11 +797,23 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             }
         }
     } else {
-        if (task->send.ptr->length > 0) {
+        sf_proto_init_task_context(task, &TASK_CTX.common);
+        if (task->handler->comm_type == fc_comm_type_rdma &&
+                task->send.ptr->length > 0)
+        {
+            pb = fast_mblock_alloc_object(&PENDING_SEND_ALLOCATOR);
+            if (pb == NULL) {
+                return -ENOMEM;
+            }
             logWarning("############### send length: %d > 0 !!!!!!!!!!!!",
                     task->send.ptr->length);
+            immediate_send = false;
+            resp_body = pb->data + sizeof(FSProtoHeader);
+        } else {
+            pb = NULL;
+            immediate_send = true;
+            resp_body = SF_PROTO_SEND_BODY(task);
         }
-        sf_proto_init_task_context(task, &TASK_CTX.common);
 
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
@@ -767,7 +825,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 TASK_CTX.common.need_response = false;
                 break;
             case FS_CLUSTER_PROTO_GET_SERVER_STATUS_REQ:
-                result = cluster_deal_get_server_status(task);
+                result = cluster_deal_get_server_status(task, resp_body);
                 break;
             case FS_CLUSTER_PROTO_REPORT_DS_STATUS_REQ:
                 result = cluster_deal_report_ds_status(task);
@@ -783,10 +841,10 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
                 result = cluster_deal_unset_master(task);
                 break;
             case FS_CLUSTER_PROTO_GET_DS_STATUS_REQ:
-                result = cluster_deal_get_ds_status(task);
+                result = cluster_deal_get_ds_status(task, resp_body);
                 break;
             case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
-                result = cluster_deal_join_leader(task);
+                result = cluster_deal_join_leader(task, resp_body);
                 break;
             case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
                 result = cluster_deal_active_server(task);
@@ -814,6 +872,32 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = (result > 0 ? -1 * result : result);
+        if (!immediate_send) {
+            if (result == 0 && TASK_CTX.common.need_response) {
+                FSProtoHeader *header;
+                FSPendingSendBuffer *previous;
+
+                header = (FSProtoHeader *)pb->data;
+                short2buff(sf_unify_errno(result), header->status);
+                header->cmd = RESPONSE.header.cmd;
+                int2buff(RESPONSE.header.body_len, header->body_len);
+                pb->length = sizeof(FSProtoHeader) + RESPONSE.header.body_len;
+                pb->next = NULL;
+                if (CLUSTER_PENDING_SEND == NULL) {
+                    CLUSTER_PENDING_SEND = pb;
+                } else {
+                    previous = CLUSTER_PENDING_SEND;
+                    while (previous->next != NULL) {
+                        previous = previous->next;
+                    }
+                    previous->next = pb;
+                }
+
+                return 0;
+            }
+
+            fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);
+        }
         return sf_proto_deal_task_done(task, "cluster", &TASK_CTX.common);
     }
 }
