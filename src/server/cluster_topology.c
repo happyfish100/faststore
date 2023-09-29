@@ -48,7 +48,7 @@ static FSClusterDataServerInfo *find_data_group_server(
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *end;
 
-    ds_array = &CLUSTER_DATA_RGOUP_ARRAY.groups[gindex].data_server_array;
+    ds_array = &CLUSTER_DATA_GROUP_ARRAY.groups[gindex].data_server_array;
     end = ds_array->servers + ds_array->count;
     for (ds=ds_array->servers; ds<end; ds++) {
         if (ds->cs == cs) {
@@ -87,7 +87,7 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
         return result;
     }
 
-    count = CLUSTER_DATA_RGOUP_ARRAY.count * CLUSTER_SERVER_ARRAY.count;
+    count = CLUSTER_DATA_GROUP_ARRAY.count * CLUSTER_SERVER_ARRAY.count;
     bytes = sizeof(FSDataServerChangeEvent) * count;
     notify_ctx->events = (FSDataServerChangeEvent *)fc_malloc(bytes);
     if (notify_ctx->events == NULL) {
@@ -97,11 +97,11 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
 
     /*
     logInfo("data group count: %d, server count: %d\n",
-            CLUSTER_DATA_RGOUP_ARRAY.count, CLUSTER_SERVER_ARRAY.count);
-     */
+            CLUSTER_DATA_GROUP_ARRAY.count, CLUSTER_SERVER_ARRAY.count);
+            */
 
     end = CLUSTER_SERVER_ARRAY.servers + CLUSTER_SERVER_ARRAY.count;
-    for (gindex=0; gindex<CLUSTER_DATA_RGOUP_ARRAY.count; gindex++) {
+    for (gindex=0; gindex<CLUSTER_DATA_GROUP_ARRAY.count; gindex++) {
         for (cs=CLUSTER_SERVER_ARRAY.servers; cs<end; cs++) {
             index = gindex * CLUSTER_SERVER_ARRAY.count + cs->server_index;
             notify_ctx->events[index].ds =
@@ -192,8 +192,8 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
     FSDataServerChangeEvent *event;
     bool notify;
 
-    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+    gend = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<gend; group++) {
         ds_end = group->data_server_array.servers +
             group->data_server_array.count;
         for (ds=group->data_server_array.servers; ds<ds_end; ds++) {
@@ -272,7 +272,11 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         in_queue = &event->in_queue;
         ds = event->ds;
         event = event->next;
-        __sync_bool_compare_and_swap(in_queue, 1, 0);  //release event
+        if (!__sync_bool_compare_and_swap(in_queue, 1, 0)) {  //release event
+            logError("file: "__FILE__", line: %d, "
+                    "CAS in_queue fail, current in_queue: %d!",
+                    __LINE__, __sync_fetch_and_add(in_queue, 0));
+        }
 
         int2buff(ds->dg->id, body_part->data_group_id);
         int2buff(ds->cs->server->id, body_part->server_id);
@@ -302,7 +306,6 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
     if (event != NULL) {
         bool notify;
-
         qinfo.head = event;
         fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
     }
@@ -476,8 +479,8 @@ void cluster_topology_offline_all_data_servers(FSClusterServerInfo *leader)
     FSClusterDataServerInfo *ds;
     FSClusterDataServerInfo *send;
 
-    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+    gend = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<gend; group++) {
         group->election.start_time_ms = 0;
         group->election.retry_count = 0;
         send = group->data_server_array.servers +

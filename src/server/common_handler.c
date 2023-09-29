@@ -84,8 +84,8 @@ int common_handler_init()
                 REPLICA_SERVER_GROUP->comm_type == fc_comm_type_sock))
     {
         return fast_mblock_init_ex1(&PENDING_SEND_ALLOCATOR, "pending-sbuffer",
-                sizeof(FSPendingSendBuffer) + SERVER_CONFIG_CTX.buffer_size +
-                1024, 16, 0, (fast_mblock_object_init_func)init_pending_sbuffer,
+                sizeof(FSPendingSendBuffer) + g_sf_global_vars.max_pkg_size,
+                16, 0, (fast_mblock_object_init_func)init_pending_sbuffer,
                 NULL, true);
     }
     return 0;

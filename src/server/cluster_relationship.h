@@ -117,7 +117,7 @@ static inline int cluster_relationship_get_max_buffer_size()
     int buffer_size;
 
     bytes = sizeof(FSProtoHeader) + sizeof(FSProtoPingLeaderReqHeader) +
-        sizeof(FSProtoPingLeaderReqBodyPart) * CLUSTER_DATA_RGOUP_ARRAY.count;
+        sizeof(FSProtoPingLeaderReqBodyPart) * CLUSTER_DATA_GROUP_ARRAY.count;
     buffer_size = 4 * 1024;
     while (buffer_size < bytes) {
         buffer_size *= 2;

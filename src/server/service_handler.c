@@ -347,10 +347,10 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     filter.status = req->status;
     filter.is_master = req->is_master;
     if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP) == 0) {
-        gstart = CLUSTER_DATA_RGOUP_ARRAY.groups;
-        gend = CLUSTER_DATA_RGOUP_ARRAY.groups +
-            CLUSTER_DATA_RGOUP_ARRAY.count;
-        dg_count = CLUSTER_DATA_RGOUP_ARRAY.count;
+        gstart = CLUSTER_DATA_GROUP_ARRAY.groups;
+        gend = CLUSTER_DATA_GROUP_ARRAY.groups +
+            CLUSTER_DATA_GROUP_ARRAY.count;
+        dg_count = CLUSTER_DATA_GROUP_ARRAY.count;
     } else {
         filter.filter_by &= ~FS_CLUSTER_STAT_FILTER_BY_GROUP;
         filter.data_group_id = buff2int(req->data_group_id);

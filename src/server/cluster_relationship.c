@@ -796,8 +796,8 @@ static void unset_all_data_groups()
     FSClusterDataServerInfo *send;
     FSClusterDataServerInfo *master;
 
-    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+    gend = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<gend; group++) {
         master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
         if (master != NULL) {
             __sync_bool_compare_and_swap(&group->master, master, NULL);
@@ -2559,8 +2559,8 @@ static int init_my_data_group_array()
 
     for (i=0; i<id_array->count; i++) {
         group_id = id_array->ids[i];
-        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
+        group_index = group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_GROUP_ARRAY.groups + group_index;
         end = data_group->data_server_array.servers +
             data_group->data_server_array.count;
         for (ds=data_group->data_server_array.servers; ds<end; ds++) {

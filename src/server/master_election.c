@@ -44,12 +44,12 @@ int master_election_init()
     int result;
     int alloc_elements_once;
 
-    if (CLUSTER_DATA_RGOUP_ARRAY.count < 512) {
-        alloc_elements_once = CLUSTER_DATA_RGOUP_ARRAY.count * 4;
-    } else if (CLUSTER_DATA_RGOUP_ARRAY.count < 1024) {
-        alloc_elements_once = CLUSTER_DATA_RGOUP_ARRAY.count * 2;
+    if (CLUSTER_DATA_GROUP_ARRAY.count < 512) {
+        alloc_elements_once = CLUSTER_DATA_GROUP_ARRAY.count * 4;
+    } else if (CLUSTER_DATA_GROUP_ARRAY.count < 1024) {
+        alloc_elements_once = CLUSTER_DATA_GROUP_ARRAY.count * 2;
     } else {
-        alloc_elements_once = CLUSTER_DATA_RGOUP_ARRAY.count;
+        alloc_elements_once = CLUSTER_DATA_GROUP_ARRAY.count;
     }
     if ((result=common_blocked_queue_init_ex(&g_master_election_ctx.
                     queue, alloc_elements_once)) != 0)
@@ -147,8 +147,8 @@ void master_election_unset_all_masters()
 
     chain.head = chain.tail = NULL;
     dg_count = 0;
-    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+    end = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<end; group++) {
         master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
         if (master != NULL) {
             if (master_election_set_master(group, master, NULL)) {

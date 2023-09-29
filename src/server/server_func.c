@@ -213,8 +213,8 @@ static void calc_my_data_groups_quorum_vars()
             CLUSTER_MYSELF_PTR->server->id);
     for (i=0; i<id_array->count; i++) {
         group_id = id_array->ids[i];
-        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
+        group_index = group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_GROUP_ARRAY.groups + group_index;
 
         data_group->replica_quorum.need_majority = SF_REPLICATION_QUORUM_NEED_MAJORITY(
                 REPLICATION_QUORUM, data_group->data_server_array.count);

@@ -289,7 +289,7 @@ typedef struct server_global_vars {
         &CLUSTER_LEADER_PTR, 0))
 
 #define CLUSTER_SERVER_ARRAY  g_server_global_vars->cluster.server_array
-#define CLUSTER_DATA_RGOUP_ARRAY g_server_global_vars->cluster.data_group_array
+#define CLUSTER_DATA_GROUP_ARRAY g_server_global_vars->cluster.data_group_array
 #define CLUSTER_DG_SERVER_COUNT  g_server_global_vars->cluster.dg_server_count
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id

@@ -44,41 +44,41 @@ static inline FSClusterDataGroupInfo *fs_get_data_group(const int data_group_id)
 {
     int index;
 
-    index = data_group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-    if (index < 0 || index >= CLUSTER_DATA_RGOUP_ARRAY.count) {
+    index = data_group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+    if (index < 0 || index >= CLUSTER_DATA_GROUP_ARRAY.count) {
         logError("file: "__FILE__", line: %d, "
                 "data_group_id: %d out of bounds: [%d, %d]",
-                __LINE__, data_group_id, CLUSTER_DATA_RGOUP_ARRAY.base_id,
-                CLUSTER_DATA_RGOUP_ARRAY.base_id +
-                CLUSTER_DATA_RGOUP_ARRAY.count - 1);
+                __LINE__, data_group_id, CLUSTER_DATA_GROUP_ARRAY.base_id,
+                CLUSTER_DATA_GROUP_ARRAY.base_id +
+                CLUSTER_DATA_GROUP_ARRAY.count - 1);
         return NULL;
     }
 
-    if (CLUSTER_DATA_RGOUP_ARRAY.groups[index].id != data_group_id) {
+    if (CLUSTER_DATA_GROUP_ARRAY.groups[index].id != data_group_id) {
         logError("file: "__FILE__", line: %d, "
                 "data_group_id: %d != groups[%d].id: %d",
                 __LINE__, data_group_id, index,
-                CLUSTER_DATA_RGOUP_ARRAY.groups[index].id);
+                CLUSTER_DATA_GROUP_ARRAY.groups[index].id);
         return NULL;
     }
 
-    return CLUSTER_DATA_RGOUP_ARRAY.groups + index;
+    return CLUSTER_DATA_GROUP_ARRAY.groups + index;
 }
 
 static inline bool fs_is_my_data_group(const int data_group_id)
 {
     int index;
 
-    index = data_group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-    if (index < 0 || index >= CLUSTER_DATA_RGOUP_ARRAY.count) {
+    index = data_group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+    if (index < 0 || index >= CLUSTER_DATA_GROUP_ARRAY.count) {
         return false;
     }
 
-    if (CLUSTER_DATA_RGOUP_ARRAY.groups[index].id != data_group_id) {
+    if (CLUSTER_DATA_GROUP_ARRAY.groups[index].id != data_group_id) {
         return false;
     }
 
-    return (CLUSTER_DATA_RGOUP_ARRAY.groups[index].myself != NULL);
+    return (CLUSTER_DATA_GROUP_ARRAY.groups[index].myself != NULL);
 }
 
 static inline FSClusterDataServerInfo *fs_get_data_server(
