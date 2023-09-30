@@ -953,15 +953,6 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
         }
         */
 
-        if (server_ctx->cluster.notify_ctx_ptr_array.count != 1) {
-            static time_t last_log_time = 0;
-            if (g_current_time - last_log_time > 5) {
-                last_log_time = g_current_time;
-                logWarning("############### notify_ctx_ptr_array.count %d != 1",
-                        server_ctx->cluster.notify_ctx_ptr_array.count);
-            }
-        }
-
         if (server_ctx->cluster.notify_ctx_ptr_array.count > 0) {
             cluster_topology_process_notify_events(
                     &server_ctx->cluster.notify_ctx_ptr_array);

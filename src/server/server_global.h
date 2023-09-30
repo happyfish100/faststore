@@ -97,6 +97,13 @@ typedef struct server_global_vars {
         volatile time_t last_heartbeat_time;
         time_t last_shutdown_time;
 
+#ifdef FS_EVENT_DEBUG_FLAG
+        struct {
+            volatile int64_t produce;
+            volatile int64_t consume;
+        } event_stats;
+#endif
+
         SFContext sf_context;  //for cluster communication
         FCServerGroupInfo *server_group;
         ConnectionExtraParams conn_extra_params;
@@ -244,6 +251,9 @@ typedef struct server_global_vars {
 #define AUTH_CTX              g_server_global_vars->cluster.auth
 #define AUTH_CLIENT_CTX       AUTH_CTX.ctx
 #define AUTH_ENABLED          AUTH_CTX.enabled
+
+#define EVENT_STATS_PRODUCE   g_server_global_vars->cluster.event_stats.produce
+#define EVENT_STATS_CONSUME   g_server_global_vars->cluster.event_stats.consume
 
 #define MIGRATE_CLEAN_ENABLED  g_server_global_vars->cluster. \
     config.migrate_clean

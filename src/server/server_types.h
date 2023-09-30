@@ -33,6 +33,9 @@
 #include "common/fs_server_types.h"
 #include "storage/storage_types.h"
 
+//for event debug
+//#define FS_EVENT_DEBUG_FLAG
+
 #define FS_SPACE_ALIGN_SIZE  8
 #define FS_TRUNK_BINLOG_MAX_RECORD_SIZE    128
 #define FS_TRUNK_BINLOG_SUBDIR_NAME      "trunk"
@@ -212,6 +215,9 @@ typedef struct fs_data_server_change_event {
     struct fs_cluster_data_server_info *ds;
     short source;  //for hint/debug only
     short type;    //for hint/debug only
+#ifdef FS_EVENT_DEBUG_FLAG
+    int64_t sn;
+#endif
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;

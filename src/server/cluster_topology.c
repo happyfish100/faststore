@@ -112,6 +112,27 @@ int cluster_topology_init_notify_ctx(FSClusterTopologyNotifyContext *notify_ctx)
     return 0;
 }
 
+static inline void push_event_to_queue(FSClusterServerInfo *cs,
+        FSClusterDataServerInfo *ds, FSDataServerChangeEvent *event,
+        bool *notify)
+{
+#ifdef FS_EVENT_DEBUG_FLAG
+    event->sn = FC_ATOMIC_INC(EVENT_STATS_PRODUCE);
+    logInfo("file: "__FILE__", line: %d, "
+            "produce event count: %"PRId64", data group id: %d, "
+            "data server id: %d, is_master: %d, status: %d, "
+            "target server id: %d, push to in_queue: %d, "
+            "data version: %"PRId64", event {source: %c, type: %d}, "
+            "cs: %p, ds: %p", __LINE__, event->sn, ds->dg->id, ds->cs->
+            server->id, FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(
+                ds->status), cs->server->id, FC_ATOMIC_GET(event->
+                    in_queue), FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
+            event->source, event->type, cs, event->ds);
+#endif
+
+    fc_queue_push_ex(&cs->notify_ctx.queue, event, notify);
+}
+
 void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
         const int source, const int event_type, const bool notify_self)
 {
@@ -151,26 +172,14 @@ void cluster_topology_data_server_chg_notify(FSClusterDataServerInfo *ds,
         event = cs->notify_ctx.events + (ds->dg->index *
                 CLUSTER_SERVER_ARRAY.count + ds->cs->server_index);
         if (__sync_bool_compare_and_swap(&event->in_queue, 0, 1)) { //fetch event
-            /*
-            logInfo("file: "__FILE__", line: %d, "
-                    "data group id: %d, data server id: %d, is_master: %d, "
-                    "status: %d, target server id: %d, push to in_queue: %d, "
-                    "data version: %"PRId64", event {source: %c, type: %d}, "
-                    "ds: %p", __LINE__, ds->dg->id, ds->cs->server->id,
-                    FC_ATOMIC_GET(ds->is_master), FC_ATOMIC_GET(ds->status),
-                    cs->server->id, FC_ATOMIC_GET(event->in_queue),
-                    FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
-                    source, event_type, event->ds);
-                    */
-
             event->source = source;
             event->type = event_type;
-            fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
+            push_event_to_queue(cs, ds, event, &notify);
             if (notify) {
                 ioevent_notify_thread(task->thread_data);
             }
         } else {
-            logWarning("file: "__FILE__", line: %d, "
+            logDebug("file: "__FILE__", line: %d, "
                     "data group id: %d, data server id: %d, is_master: %d, "
                     "status: %d, target server id: %d, alread in_queue: %d, "
                     "data version: %"PRId64", event {source: %c, type: %d}, "
@@ -203,7 +212,7 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
                 event->source = FS_EVENT_SOURCE_CS_LEADER;
                 event->type = FS_EVENT_TYPE_STATUS_CHANGE |
                     FS_EVENT_TYPE_DV_CHANGE | FS_EVENT_TYPE_MASTER_CHANGE;
-                fc_queue_push_ex(&cs->notify_ctx.queue, event, &notify);
+                push_event_to_queue(cs, ds, event, &notify);
             }
         }
     }
@@ -222,42 +231,38 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     FSProtoPushDataServerStatusBodyPart *bp_start;
     FSProtoPushDataServerStatusBodyPart *body_part;
     int body_len;
-    static time_t last_log_time = 0;
-    //int event_source;
-    //int event_type;
+#ifdef FS_EVENT_DEBUG_FLAG
+    int event_source;
+    int event_type;
+    int64_t sn;
+    int64_t consume_count;
+#endif
 
     task = (struct fast_task_info *)ctx->task;
     if (!sf_nio_task_send_done(task)) {
-        if (ctx->queue.head != NULL) {
-            logInfo("Not send done!");
-        }
         return EBUSY;
     }
 
     cs = ((FSServerTaskArg *)task->arg)->context.shared.cluster.peer;
     if (FC_ATOMIC_GET(cs->status) != FS_SERVER_STATUS_ACTIVE) {
-        logWarning("file: "__FILE__", line: %d, "
+        logDebug("file: "__FILE__", line: %d, "
                 "server id: %d is not active, try again later",
                 __LINE__, cs->server->id);
         return EAGAIN;
     }
 
+    if (task->handler->comm_type == fc_comm_type_rdma &&
+            CLUSTER_PUSH_EVENT_INPROGRESS)
+    {
+        return 0;
+    }
+
     fc_queue_try_pop_to_queue(&ctx->queue, &qinfo);
     if (qinfo.head == NULL) {
-        if (last_log_time != g_current_time) {
-            last_log_time = g_current_time;
-            logInfo("no events!");
-        }
         return 0;
     }
 
     if (task->handler->comm_type == fc_comm_type_rdma) {
-        if (CLUSTER_PUSH_EVENT_INPROGRESS) {
-            if (ctx->queue.head != NULL) {
-                logWarning("==== CLUSTER_PUSH_EVENT_INPROGRESS ==== %d!", CLUSTER_PUSH_EVENT_INPROGRESS);
-            }
-            return 0;
-        }
         CLUSTER_PUSH_EVENT_INPROGRESS = true;
     }
 
@@ -267,16 +272,15 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     bp_start = (FSProtoPushDataServerStatusBodyPart *)(req_header + 1);
     body_part = bp_start;
     do {
-        //event_source = event->source;
-        //event_type = event->type;
+#ifdef FS_EVENT_DEBUG_FLAG
+        event_source = event->source;
+        event_type = event->type;
+        sn = event->sn;
+#endif
         in_queue = &event->in_queue;
         ds = event->ds;
         event = event->next;
-        if (!__sync_bool_compare_and_swap(in_queue, 1, 0)) {  //release event
-            logError("file: "__FILE__", line: %d, "
-                    "CAS in_queue fail, current in_queue: %d!",
-                    __LINE__, __sync_fetch_and_add(in_queue, 0));
-        }
+        __sync_bool_compare_and_swap(in_queue, 1, 0);  //release event
 
         int2buff(ds->dg->id, body_part->data_group_id);
         int2buff(ds->cs->server->id, body_part->server_id);
@@ -287,16 +291,18 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         long2buff(FC_ATOMIC_GET(ds->data.confirmed_version),
                 body_part->data_versions.confirmed);
 
-        /*
-           logInfo("push to target server id: %d (ctx: %p), event "
-           "source: %c, type: %d, {data group id: %d, "
-           "data server id: %d, is_master: %d, "
-           "status: %d, data_version: %"PRId64"}, "
-           "cluster version: %"PRId64, ctx->server_id, ctx,
-           event_source, event_type, ds->dg->id, ds->cs->server->id,
-           body_part->is_master, body_part->status,
-           ds->data.current_version, FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
-         */
+#ifdef FS_EVENT_DEBUG_FLAG
+        consume_count = FC_ATOMIC_INC(EVENT_STATS_CONSUME);
+        logInfo("file: "__FILE__", line: %d, consume event count: %"PRId64", "
+                "sn: %"PRId64", target server id: %d (ctx: %p), event source: "
+                "%c, type: %d, {data group id: %d, data server id: %d, "
+                "is_master: %d, status: %d, data_version: %"PRId64"}, "
+                "cluster version: %"PRId64, __LINE__, consume_count,
+                sn, ctx->server_id, ctx, event_source, event_type,
+                ds->dg->id, ds->cs->server->id, body_part->is_master,
+                body_part->status, ds->data.current_version,
+                FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION));
+#endif
 
         ++body_part;
         if (body_part - bp_start == max_events_per_pkg) {
@@ -305,14 +311,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     } while (event != NULL);
 
     if (event != NULL) {
-        bool notify;
         qinfo.head = event;
-        fc_queue_push_queue_to_head_ex(&ctx->queue, &qinfo, &notify);
-    }
-
-    if (last_log_time != g_current_time) {
-        last_log_time = g_current_time;
-        logInfo("push event count: %d!", (int)(body_part - bp_start));
+        fc_queue_push_queue_to_head_silence(&ctx->queue, &qinfo);
     }
 
     long2buff(FC_ATOMIC_GET(CLUSTER_CURRENT_VERSION),
