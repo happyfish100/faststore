@@ -212,6 +212,7 @@ typedef struct fs_proto_service_ob_slice_stat {
 } FSProtoServiceOBSliceStat;
 
 typedef struct fs_proto_service_stat_resp {
+    char up_time[4];
     char server_id[4];
     char is_leader;
     char auth_enabled;

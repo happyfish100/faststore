@@ -62,6 +62,7 @@ static void output(const ConnectionInfo *conn,
     double avg_slices;
     char server_group_ids[64];
     char storage_engine_buff[128];
+    char up_time_buff[32];
     int len;
 
     if (stat->data.ob.total_count > 0) {
@@ -77,6 +78,8 @@ static void output(const ConnectionInfo *conn,
         sprintf(storage_engine_buff + len, ", current_version: %"PRId64,
                 stat->storage_engine.current_version);
     }
+    formatDatetime(stat->up_time, "%Y-%m-%d %H:%M:%S",
+            up_time_buff, sizeof(up_time_buff));
 
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
@@ -84,6 +87,7 @@ static void output(const ConnectionInfo *conn,
             "\tis_leader: %s\n"
             "\tauth_enabled: %s\n"
             "\tstorage_engine: {%s}\n"
+            "\tup_time: %s\n"
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
             "\tbinlog : {current_version: %"PRId64", "
@@ -101,8 +105,8 @@ static void output(const ConnectionInfo *conn,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
             (stat->auth_enabled ?  "true" : "false"),
-            storage_engine_buff, get_server_group_ids(
-                    stat->server_id, server_group_ids),
+            storage_engine_buff, up_time_buff,
+            get_server_group_ids(stat->server_id, server_group_ids),
             stat->connection.current_count,
             stat->connection.max_count,
             stat->binlog.current_version,
