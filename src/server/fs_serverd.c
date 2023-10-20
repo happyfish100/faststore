@@ -232,6 +232,7 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 int main(int argc, char *argv[])
 {
     pthread_t schedule_tid;
+    bool double_buffers;
     int wait_count;
     int result;
 
@@ -325,14 +326,15 @@ int main(int argc, char *argv[])
             break;
         }
 
+        double_buffers = CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock;
         result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, NULL, CLUSTER_SERVER_GROUP->
                 comm_type != fc_comm_type_sock ? cluster_send_done_callback :
                 NULL, cluster_deal_task_partly, cluster_task_finish_cleanup,
                 cluster_recv_timeout_callback, 1000, sizeof(FSProtoHeader),
-                TASK_PADDING_SIZE, sizeof(FSServerTaskArg), true, true,
-                init_nio_task, NULL);
+                TASK_PADDING_SIZE, sizeof(FSServerTaskArg), double_buffers,
+                true, init_nio_task, NULL);
         if (result != 0) {
             break;
         }
@@ -376,6 +378,7 @@ int main(int argc, char *argv[])
                 cluster_thread_loop_callback);
         sf_set_deal_task_callback_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
+        double_buffers = REPLICA_SERVER_GROUP->comm_type != fc_comm_type_sock;
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
@@ -383,8 +386,8 @@ int main(int argc, char *argv[])
                 replica_deal_task, replica_task_finish_cleanup,
                 replica_recv_timeout_callback, 1000,
                 sizeof(FSProtoHeader), TASK_PADDING_SIZE,
-                sizeof(FSServerTaskArg), true, true, init_nio_task,
-                fs_release_task_send_buffer);
+                sizeof(FSServerTaskArg), double_buffers, true,
+                init_nio_task, fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }
