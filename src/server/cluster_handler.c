@@ -759,11 +759,13 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
     return sf_proto_deal_task_done(task, "cluster-partly", &TASK_CTX.common);
 }
 
-int cluster_send_done_callback(struct fast_task_info *task, const int length)
+int cluster_send_done_callback(struct fast_task_info *task,
+        const int length, int *next_stage)
 {
     FSPendingSendBuffer *buffer;
 
     if (CLUSTER_PENDING_SEND == NULL) {
+        *next_stage = SF_NIO_STAGE_RECV;
         return 0;
     }
 
@@ -775,6 +777,7 @@ int cluster_send_done_callback(struct fast_task_info *task, const int length)
 
     fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, buffer);
     sf_send_add_event(task);
+    *next_stage = SF_NIO_STAGE_SEND;
     return 0;
 }
 
