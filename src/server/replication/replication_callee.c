@@ -115,6 +115,12 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
         return 0;
     }
 
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (REPLICA_PUSH_RESULT_INPROGRESS) {
+            return 0;
+        }
+    }
+
     fc_queue_try_pop_to_queue(&replication->
             context.callee.done_queue, &qinfo);
     if (qinfo.head == NULL) {
@@ -122,9 +128,6 @@ int replication_callee_deal_rpc_result_queue(FSReplication *replication)
     }
 
     if (task->handler->comm_type == fc_comm_type_rdma) {
-        if (REPLICA_PUSH_RESULT_INPROGRESS) {
-            return 0;
-        }
         REPLICA_PUSH_RESULT_INPROGRESS = true;
     }
 

@@ -410,18 +410,20 @@ static int replication_rpc_from_queue(FSReplication *replication)
     bool notify;
     int result;
 
+    task = replication->task;
+    if (task->handler->comm_type == fc_comm_type_rdma) {
+        if (REPLICA_RPC_CALL_INPROGRESS) {
+            return 0;
+        }
+    }
+
     fc_queue_try_pop_to_queue(&replication->
             context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }
 
-    task = replication->task;
     if (task->handler->comm_type == fc_comm_type_rdma) {
-        if (REPLICA_RPC_CALL_INPROGRESS) {
-            return 0;
-        }
-
         REPLICA_RPC_CALL_INPROGRESS = true;
     }
 
