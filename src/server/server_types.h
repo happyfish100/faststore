@@ -172,9 +172,10 @@
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
 #define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
-#define CLUSTER_PENDING_SEND TASK_CTX.shared.cluster.pending_send
-#define CLUSTER_PUSH_EVENT_INPROGRESS   \
+#define TASK_PUSH_EVENT_INPROGRESS  \
     TASK_CTX.shared.cluster.push_event_inprogress
+#define TASK_PENDING_SEND_COUNT     \
+    TASK_CTX.shared.cluster.pending_send_count
 #define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
 
 #define REPLICA_RPC_CALL_INPROGRESS     \
@@ -190,7 +191,8 @@
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
 #define OP_CTX_NOTIFY_FUNC TASK_CTX.slice_op_ctx.notify_func
 
-#define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
+#define SERVER_CTX           ((FSServerContext *)task->thread_data->arg)
+#define CLUSTER_PENDING_SEND SERVER_CTX->cluster.pending_send
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -465,9 +467,10 @@ typedef struct fs_replication {
 } FSReplication;
 
 typedef struct fs_pending_send_buffer {
+    struct fast_task_info *task;
     char *data;
     int length;
-    struct fs_pending_send_buffer *next;
+    struct fc_list_head dlink;
 } FSPendingSendBuffer;
 
 typedef struct {
@@ -480,8 +483,8 @@ typedef struct {
 
         struct {
             FSClusterServerInfo *peer;   //the peer server in the cluster
-            FSPendingSendBuffer *pending_send;
             bool push_event_inprogress;  //for RDMA
+            int  pending_send_count;     //for RDMA
         } cluster;
 
         struct {
@@ -525,6 +528,7 @@ typedef struct fs_server_context {
 
         struct {
             FSClusterNotifyContextPtrArray notify_ctx_ptr_array;
+            struct fc_list_head pending_send;
         } cluster;
 
         struct {

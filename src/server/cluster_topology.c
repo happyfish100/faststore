@@ -252,7 +252,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     if (task->handler->comm_type == fc_comm_type_rdma &&
-            CLUSTER_PUSH_EVENT_INPROGRESS)
+            TASK_PUSH_EVENT_INPROGRESS)
     {
         return 0;
     }
@@ -263,7 +263,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
     }
 
     if (task->handler->comm_type == fc_comm_type_rdma) {
-        CLUSTER_PUSH_EVENT_INPROGRESS = true;
+        TASK_PUSH_EVENT_INPROGRESS = true;
     }
 
     event = (FSDataServerChangeEvent *)qinfo.head;

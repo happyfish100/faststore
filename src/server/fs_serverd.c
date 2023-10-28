@@ -329,9 +329,8 @@ int main(int argc, char *argv[])
         double_buffers = CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock;
         result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
-                sf_proto_set_body_length, NULL, CLUSTER_SERVER_GROUP->
-                comm_type != fc_comm_type_sock ? cluster_send_done_callback :
-                NULL, cluster_deal_task_partly, cluster_task_finish_cleanup,
+                sf_proto_set_body_length, NULL, NULL,
+                cluster_deal_task_partly, cluster_task_finish_cleanup,
                 cluster_recv_timeout_callback, 1000, sizeof(FSProtoHeader),
                 TASK_PADDING_SIZE, sizeof(FSServerTaskArg), double_buffers,
                 true, init_nio_task, NULL);
