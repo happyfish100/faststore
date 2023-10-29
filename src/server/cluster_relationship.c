@@ -98,6 +98,7 @@ typedef struct fs_cluster_relationship_context {
     FSClusterQuorumChains quorum_chains;
     time_t last_stat_time;
     volatile int immediate_report;
+    int pend_send_count;  //for RDMA
     FastBuffer buffer;
     ConnectionInfo vote_connection;
 } FSClusterRelationshipContext;
@@ -109,9 +110,10 @@ typedef struct fs_cluster_relationship_context {
 #define NETWORK_BUFFER relationship_ctx.buffer
 #define LEADER_ELECTION relationship_ctx.leader_election
 #define VOTE_CONNECTION relationship_ctx.vote_connection
+#define PEND_SEND_COUNT relationship_ctx.pend_send_count
 
 static FSClusterRelationshipContext relationship_ctx = {
-    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, {{NULL, NULL}}, 0, 0
+    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, {{NULL, NULL}}, 0, 0, 0
 };
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
@@ -1847,7 +1849,7 @@ static inline int proto_send_data(ConnectionInfo *conn,
         const int network_timeout)
 {
     const int timeout_ms = 100;
-    const int loop_count = 10;
+    const int loop_count = 1000;
     int result;
     int i;
 
@@ -1877,23 +1879,36 @@ static inline int proto_send_data(ConnectionInfo *conn,
     }
 }
 
-static int proto_response_leader_push(ConnectionInfo *conn)
+static inline int response_leader_push(ConnectionInfo *conn)
 {
     int result;
     FSProtoHeader *header;
-    SFResponseInfo response;
     char out_buff[sizeof(FSProtoHeader)];
 
     header = (FSProtoHeader *)out_buff;
     SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP, 0);
-    response.error.length = 0;
-    if ((result=proto_send_data(conn, &response, out_buff,
-                    sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
+    if ((result=G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
+                    out_buff, sizeof(out_buff))) != 0)
     {
-        fs_log_network_error(&response, conn, result);
+        logError("file: "__FILE__", line: %d, "
+                "communicate with server %s:%u fail, "
+                "errno: %d, error info: %s", __LINE__,
+                conn->ip_addr, conn->port,
+                result, STRERROR(result));
     }
 
     return result;
+}
+
+static inline int proto_response_leader_push(ConnectionInfo *conn)
+{
+    if (!G_RDMA_CONNECTION_CALLBACKS.send_done(conn)) {
+        ++PEND_SEND_COUNT;
+        logInfo(" ====== line: %d, pend_send_count: %d", __LINE__, PEND_SEND_COUNT);
+        return 0;
+    }
+
+    return response_leader_push(conn);
 }
 
 static int cluster_process_leader_push(ConnectionInfo *conn,
@@ -2191,8 +2206,22 @@ static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
     SFResponseInfo response;
 
     start_time = g_current_time;
-    timeout_ms = 100;
     do {
+        if (PEND_SEND_COUNT > 0) {
+            if (G_RDMA_CONNECTION_CALLBACKS.send_done(conn)) {
+                if ((result=response_leader_push(conn)) != 0) {
+                    return result;
+                }
+                --PEND_SEND_COUNT;
+                logInfo(" ====== line: %d, pend_send_count: %d", __LINE__, PEND_SEND_COUNT);
+                timeout_ms = (PEND_SEND_COUNT > 0 ? 10 : 100);
+            } else {
+                timeout_ms = 10;
+            }
+        } else {
+            timeout_ms = 100;
+        }
+
         response.error.length = 0;
         if ((result=cluster_recv_from_leader(conn, &response,
                         timeout_ms, true)) != 0)
@@ -2488,6 +2517,12 @@ static void *cluster_thread_entrance(void *arg)
                 sleep_seconds = 1 + (int)((double)rand()
                         * (double)MAX_SLEEP_SECONDS / RAND_MAX);
             } else {
+                if (mconn->comm_type == fc_comm_type_rdma) {
+                    //reset PEND_SEND_COUNT
+                    if (PEND_SEND_COUNT > 0) {
+                        PEND_SEND_COUNT = 0;
+                    }
+                }
                 fc_server_close_connection(mconn);
                 ping_start_time = g_current_time;
                 sleep_seconds = 1;
