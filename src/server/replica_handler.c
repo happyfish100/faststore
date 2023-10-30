@@ -47,8 +47,8 @@
 #include "server_replication.h"
 #include "cluster_topology.h"
 #include "cluster_relationship.h"
-#include "common_handler.h"
 #include "data_update_handler.h"
+#include "common_handler.h"
 #include "replica_handler.h"
 
 int replica_handler_init()
@@ -134,7 +134,9 @@ static inline void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     FSReplication *replication;
+    FSServerContext *server_ctx;
 
+    server_ctx = (FSServerContext *)task->thread_data->arg;
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION:
             replication = REPLICA_REPLICATION;
@@ -184,6 +186,10 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                 "mistake happen! task: %p, SERVER_TASK_TYPE: %d, "
                 "REPLICA_REPLICATION: %p != NULL", __LINE__, task,
                 SERVER_TASK_TYPE, REPLICA_REPLICATION);
+    }
+
+    if (TASK_PENDING_SEND_COUNT > 0) {
+        remove_from_pending_send_queue(&server_ctx->pending_send_head, task);
     }
 
     if (task->recv_body != NULL) {
@@ -913,7 +919,7 @@ static inline int replica_check_replication_task(struct fast_task_info *task)
     if (REPLICA_REPLICATION == NULL) {
         RESPONSE.error.length = sprintf(
                 RESPONSE.error.message,
-                "cluster replication ptr is null");
+                "replica replication ptr is null");
         return EINVAL;
     }
 
@@ -1247,6 +1253,8 @@ static int replica_deal_slice_read(struct fast_task_info *task)
 int replica_deal_task(struct fast_task_info *task, const int stage)
 {
     int result;
+    bool immediate_send;
+    FSPendingSendBuffer *pb;
 
     if (stage == SF_NIO_STAGE_HANDSHAKE) {
         result = replication_processor_join_server(task);
@@ -1263,6 +1271,37 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
         }
     } else {
         sf_proto_init_task_context(task, &TASK_CTX.common);
+        if (task->handler->comm_type == fc_comm_type_rdma &&
+                task->send.ptr->length > 0)
+        {
+            switch (REQUEST.header.cmd) {
+                case SF_PROTO_ACTIVE_TEST_REQ:
+                case SF_PROTO_ACTIVE_TEST_RESP:
+                case SF_PROTO_ACK:
+                case FS_REPLICA_PROTO_RPC_CALL_REQ:
+                case FS_REPLICA_PROTO_RPC_CALL_RESP:
+                case FS_REPLICA_PROTO_PUSH_RESULT_REQ:
+                case FS_REPLICA_PROTO_PUSH_RESULT_RESP:
+                    break;
+                default:
+                    logError("file: "__FILE__", line: %d, invalid "
+                            "cmd: %d, %s", __LINE__, REQUEST.header.cmd,
+                            fs_get_cmd_caption(REQUEST.header.cmd));
+                    return -EINVAL;
+            }
+
+            pb = fast_mblock_alloc_object(&PENDING_SEND_ALLOCATOR);
+            if (pb == NULL) {
+                return -ENOMEM;
+            }
+            logWarning("file: "__FILE__", line: %d, "
+                    "############### send length: %d > 0 !!!!!!!!!!!!",
+                    __LINE__, task->send.ptr->length);
+            immediate_send = false;
+        } else {
+            pb = NULL;
+            immediate_send = true;
+        }
 
         switch (REQUEST.header.cmd) {
             case SF_PROTO_ACTIVE_TEST_REQ:
@@ -1369,6 +1408,15 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
         if (task->recv_body != NULL) {
             sf_release_task_shared_mbuffer(task);
         }
+
+        if (!immediate_send) {
+            if (TASK_CTX.common.need_response && result == 0) {
+                push_to_pending_send_queue(&SERVER_PENDING_SEND_HEAD, task, pb);
+                return 0;
+            }
+
+            fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);
+        }
     }
 
     if (result == TASK_STATUS_CONTINUE) {
@@ -1381,21 +1429,22 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
 
 void *replica_alloc_thread_extra_data(const int thread_index)
 {
-    FSServerContext *server_context;
+    FSServerContext *server_ctx;
 
-    if ((server_context=du_handler_alloc_server_context()) == NULL) {
+    if ((server_ctx=du_handler_alloc_server_context()) == NULL) {
         return NULL;
     }
 
-    if (replication_alloc_connection_ptr_arrays(server_context) != 0) {
+    if (replication_alloc_connection_ptr_arrays(server_ctx) != 0) {
         return NULL;
     }
 
-    if (replication_callee_init_allocator(server_context) != 0) {
+    if (replication_callee_init_allocator(server_ctx) != 0) {
         return NULL;
     }
 
-    return server_context;
+    FC_INIT_LIST_HEAD(&server_ctx->pending_send_head);
+    return server_ctx;
 }
 
 int replica_thread_loop_callback(struct nio_thread_data *thread_data)
@@ -1404,6 +1453,9 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
     //static int count = 0;
 
     server_ctx = (FSServerContext *)thread_data->arg;
+    if (!fc_list_empty(&server_ctx->pending_send_head)) {
+        process_pending_send_queue(&server_ctx->pending_send_head);
+    }
 
     /*
     if (count++ % 100 == 0) {
@@ -1414,7 +1466,6 @@ int replica_thread_loop_callback(struct nio_thread_data *thread_data)
                 server_ctx->replica.connected.count);
     }
     */
-
     replication_processor_process(server_ctx);
     return 0;
 }

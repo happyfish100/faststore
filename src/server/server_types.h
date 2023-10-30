@@ -174,9 +174,8 @@
 #define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
 #define TASK_PUSH_EVENT_INPROGRESS  \
     TASK_CTX.shared.cluster.push_event_inprogress
-#define TASK_PENDING_SEND_COUNT     \
-    TASK_CTX.shared.cluster.pending_send_count
-#define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
+#define TASK_PENDING_SEND_COUNT TASK_CTX.pending_send_count
+#define REPLICA_REPLICATION     TASK_CTX.shared.replica.replication
 
 #define REPLICA_RPC_CALL_INPROGRESS     \
     TASK_CTX.shared.replica.rpc_call_inprogress
@@ -192,7 +191,7 @@
 #define OP_CTX_NOTIFY_FUNC TASK_CTX.slice_op_ctx.notify_func
 
 #define SERVER_CTX           ((FSServerContext *)task->thread_data->arg)
-#define CLUSTER_PENDING_SEND SERVER_CTX->cluster.pending_send
+#define SERVER_PENDING_SEND_HEAD SERVER_CTX->pending_send_head
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -476,6 +475,7 @@ typedef struct fs_pending_send_buffer {
 typedef struct {
     SFCommonTaskContext common;
     int task_type;
+    int pending_send_count;     //for RDMA (cluster and replica)
     union {
         struct {
             struct idempotency_channel *idempotency_channel;
@@ -484,7 +484,6 @@ typedef struct {
         struct {
             FSClusterServerInfo *peer;   //the peer server in the cluster
             bool push_event_inprogress;  //for RDMA
-            int  pending_send_count;     //for RDMA
         } cluster;
 
         struct {
@@ -521,6 +520,7 @@ typedef struct server_task_arg {
 
 
 typedef struct fs_server_context {
+    struct fc_list_head pending_send_head;  //for RDMA (cluster and replica)
     union {
         struct {
             struct fast_mblock_man request_allocator; //for idempotency_request
@@ -528,7 +528,6 @@ typedef struct fs_server_context {
 
         struct {
             FSClusterNotifyContextPtrArray notify_ctx_ptr_array;
-            struct fc_list_head pending_send;
         } cluster;
 
         struct {

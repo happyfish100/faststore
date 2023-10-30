@@ -71,40 +71,14 @@ int cluster_recv_timeout_callback(struct fast_task_info *task)
     return 0;
 }
 
-static inline void release_pending_send_buffer(FSPendingSendBuffer *buffer)
-{
-    struct fast_task_info *task;
-
-    task = buffer->task;
-    fc_list_del_init(&buffer->dlink);
-    fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, buffer);
-    TASK_PENDING_SEND_COUNT--;
-}
-
-static void cluster_remove_from_pending(struct fast_task_info *task)
-{
-    FSServerContext *server_ctx;
-    FSPendingSendBuffer *buffer;
-    FSPendingSendBuffer *tmp;
-
-    server_ctx = (FSServerContext *)task->thread_data->arg;
-    fc_list_for_each_entry_safe(buffer, tmp, &server_ctx->
-            cluster.pending_send, dlink)
-    {
-        if (buffer->task == task) {
-            release_pending_send_buffer(buffer);
-        }
-    }
-}
-
 void cluster_task_finish_cleanup(struct fast_task_info *task)
 {
     FSServerContext *server_ctx;
 
+    server_ctx = (FSServerContext *)task->thread_data->arg;
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_RELATIONSHIP:
             if (CLUSTER_PEER != NULL) {
-                server_ctx = (FSServerContext *)task->thread_data->arg;
                 cluster_topology_remove_notify_ctx(&server_ctx->cluster.
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
 
@@ -137,7 +111,7 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
     }
 
     if (TASK_PENDING_SEND_COUNT > 0) {
-        cluster_remove_from_pending(task);
+        remove_from_pending_send_queue(&server_ctx->pending_send_head, task);
     }
 
     sf_task_finish_clean_up(task);
@@ -774,27 +748,6 @@ int cluster_deal_task_partly(struct fast_task_info *task, const int stage)
     return sf_proto_deal_task_done(task, "cluster-partly", &TASK_CTX.common);
 }
 
-static void cluster_process_pending_send_queue(FSServerContext *server_ctx)
-{
-    FSPendingSendBuffer *buffer;
-    FSPendingSendBuffer *tmp;
-    struct fast_task_info *task;
-
-    fc_list_for_each_entry_safe(buffer, tmp, &server_ctx->
-            cluster.pending_send, dlink)
-    {
-        task = buffer->task;
-        if (task->canceled || !sf_nio_task_send_done(task)) {
-            continue;
-        }
-
-        memcpy(task->send.ptr->data, buffer->data, buffer->length);
-        task->send.ptr->length = buffer->length;
-        release_pending_send_buffer(buffer);
-        sf_send_add_event(task);
-    }
-}
-
 int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
 {
     int result;
@@ -822,8 +775,9 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             if (pb == NULL) {
                 return -ENOMEM;
             }
-            logWarning("############### send length: %d > 0 !!!!!!!!!!!!",
-                    task->send.ptr->length);
+            logWarning("file: "__FILE__", line: %d, "
+                    "############### send length: %d > 0 !!!!!!!!!!!!",
+                    __LINE__, task->send.ptr->length);
             immediate_send = false;
             resp_body = pb->data + sizeof(FSProtoHeader);
         } else {
@@ -885,19 +839,8 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
         }
 
         if (!immediate_send) {
-            if (TASK_CTX.common.need_response) {
-                FSProtoHeader *header;
-
-                pb->task = task;
-                header = (FSProtoHeader *)pb->data;
-                short2buff(sf_unify_errno(result), header->status);
-                header->cmd = RESPONSE.header.cmd;
-                int2buff(RESPONSE.header.body_len, header->body_len);
-                pb->length = sizeof(FSProtoHeader) + RESPONSE.header.body_len;
-                fc_list_add_tail(&pb->dlink, &CLUSTER_PENDING_SEND);
-                TASK_PENDING_SEND_COUNT++;
-                logWarning("line: %d, send length: %d, pending count: %d",
-                        __LINE__, task->send.ptr->length, TASK_PENDING_SEND_COUNT);
+            if (TASK_CTX.common.need_response && result == 0) {
+                push_to_pending_send_queue(&SERVER_PENDING_SEND_HEAD, task, pb);
                 return 0;
             }
 
@@ -945,7 +888,7 @@ void *cluster_alloc_thread_extra_data(const int thread_index)
         return NULL;
     }
 
-    FC_INIT_LIST_HEAD(&server_ctx->cluster.pending_send);
+    FC_INIT_LIST_HEAD(&server_ctx->pending_send_head);
     return server_ctx;
 }
 
@@ -954,8 +897,8 @@ int cluster_thread_loop_callback(struct nio_thread_data *thread_data)
     FSServerContext *server_ctx;
 
     server_ctx = (FSServerContext *)thread_data->arg;
-    if (!fc_list_empty(&server_ctx->cluster.pending_send)) {
-        cluster_process_pending_send_queue(server_ctx);
+    if (!fc_list_empty(&server_ctx->pending_send_head)) {
+        process_pending_send_queue(&server_ctx->pending_send_head);
     }
     if (CLUSTER_MYSELF_PTR == CLUSTER_LEADER_ATOM_PTR) {
         /*
