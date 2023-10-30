@@ -1282,6 +1282,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
                 case FS_REPLICA_PROTO_RPC_CALL_RESP:
                 case FS_REPLICA_PROTO_PUSH_RESULT_REQ:
                 case FS_REPLICA_PROTO_PUSH_RESULT_RESP:
+                case FS_REPLICA_PROTO_JOIN_SERVER_RESP:
                     break;
                 default:
                     logError("file: "__FILE__", line: %d, invalid "
@@ -1412,7 +1413,7 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
         if (!immediate_send) {
             if (TASK_CTX.common.need_response && result == 0) {
                 push_to_pending_send_queue(&SERVER_PENDING_SEND_HEAD, task, pb);
-                return 0;
+                return sf_set_read_event(task);
             }
 
             fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);

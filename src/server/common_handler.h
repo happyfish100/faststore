@@ -48,11 +48,9 @@ static inline void release_pending_send_buffer(FSPendingSendBuffer *buffer)
 static inline void remove_from_pending_send_queue(struct fc_list_head *head,
         struct fast_task_info *task)
 {
-    FSServerContext *server_ctx;
     FSPendingSendBuffer *buffer;
     FSPendingSendBuffer *tmp;
 
-    server_ctx = (FSServerContext *)task->thread_data->arg;
     fc_list_for_each_entry_safe(buffer, tmp, head, dlink) {
         if (buffer->task == task) {
             release_pending_send_buffer(buffer);

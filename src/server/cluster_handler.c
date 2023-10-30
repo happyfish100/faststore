@@ -841,7 +841,7 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
         if (!immediate_send) {
             if (TASK_CTX.common.need_response && result == 0) {
                 push_to_pending_send_queue(&SERVER_PENDING_SEND_HEAD, task, pb);
-                return 0;
+                return sf_set_read_event(task);
             }
 
             fast_mblock_free_object(&PENDING_SEND_ALLOCATOR, pb);
