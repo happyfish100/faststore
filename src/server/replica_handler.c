@@ -1295,9 +1295,6 @@ int replica_deal_task(struct fast_task_info *task, const int stage)
             if (pb == NULL) {
                 return -ENOMEM;
             }
-            logWarning("file: "__FILE__", line: %d, "
-                    "############### send length: %d > 0 !!!!!!!!!!!!",
-                    __LINE__, task->send.ptr->length);
             immediate_send = false;
         } else {
             pb = NULL;

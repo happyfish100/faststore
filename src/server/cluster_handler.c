@@ -775,9 +775,6 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             if (pb == NULL) {
                 return -ENOMEM;
             }
-            logWarning("file: "__FILE__", line: %d, "
-                    "############### send length: %d > 0 !!!!!!!!!!!!",
-                    __LINE__, task->send.ptr->length);
             immediate_send = false;
             resp_body = pb->data + sizeof(FSProtoHeader);
         } else {

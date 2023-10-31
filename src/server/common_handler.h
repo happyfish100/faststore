@@ -90,8 +90,6 @@ static inline void push_to_pending_send_queue(struct fc_list_head *head,
     pb->length = sizeof(FSProtoHeader) + RESPONSE.header.body_len;
     fc_list_add_tail(&pb->dlink, head);
     TASK_PENDING_SEND_COUNT++;
-    logWarning("line: %d, send length: %d, pending count: %d",
-            __LINE__, task->send.ptr->length, TASK_PENDING_SEND_COUNT);
 }
 
 #ifdef __cplusplus
