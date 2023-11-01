@@ -117,7 +117,6 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
         } \
         REPLICA_REPLICATION = replication;      \
         REPLICA_RPC_CALL_INPROGRESS = false;    \
-        REPLICA_PUSH_RESULT_INPROGRESS = false; \
     } while (0)
 
 void replication_processor_bind_task(FSReplication *replication,
@@ -159,12 +158,7 @@ int replication_processor_unbind(FSReplication *replication)
         replication_queue_discard_all(replication);
         rpc_result_ring_clear_all(&replication->
                 context.caller.rpc_result_ctx);
-        if (replication->is_client) {
-            result = replication_processor_bind_thread(replication);
-        } else {
-            set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
-            fs_server_release_replication(replication);
-        }
+        return replication_processor_bind_thread(replication);
     }
 
     return result;
@@ -572,31 +566,13 @@ static int deal_replication_connected(FSServerContext *server_ctx)
 
     for (i=0; i<server_ctx->replica.connected.count; i++) {
         replication = server_ctx->replica.connected.replications[i];
-        if ((result=deal_connected_replication(replication)) == 0) {
-            result = replication_callee_deal_rpc_result_queue(replication);
-        }
-        if (result != 0) {
+        if ((result=deal_connected_replication(replication)) != 0) {
             ioevent_add_to_deleted_list(replication->task);
             continue;
         }
 
-        if (replication->is_client) {
-            send_hb = g_current_time - replication->last_net_comm_time >=
-                g_server_global_vars->replica.active_test_interval;
-        } else {
-            send_hb = __sync_add_and_fetch(&replication->reverse_hb, 0) == 1;
-            if (send_hb) {
-                __sync_bool_compare_and_swap(&replication->reverse_hb, 1, 0);
-                logInfo("file: "__FILE__", line: %d, "
-                        "reverse send active test to peer: %d, %s:%u",
-                        __LINE__, replication->peer->server->id,
-                        REPLICA_GROUP_ADDRESS_FIRST_IP(
-                            replication->peer->server),
-                        REPLICA_GROUP_ADDRESS_FIRST_PORT(
-                            replication->peer->server));
-            }
-        }
-
+        send_hb = g_current_time - replication->last_net_comm_time >=
+            g_server_global_vars->replica.active_test_interval;
         if (send_hb) {
             send_active_test_package(replication);
         }

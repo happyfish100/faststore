@@ -179,8 +179,11 @@
 
 #define REPLICA_RPC_CALL_INPROGRESS     \
     TASK_CTX.shared.replica.rpc_call_inprogress
-#define REPLICA_PUSH_RESULT_INPROGRESS  \
-    TASK_CTX.shared.replica.push_result_inprogress
+#define REPLICA_RPC_WAITING_COUNT     \
+    TASK_CTX.shared.replica.rpc_waiting_count
+#define REPLICA_RPC_FAIL_COUNT     \
+    TASK_CTX.shared.replica.rpc_fail_count
+
 #define REPLICA_READER       TASK_CTX.shared.replica.reader
 #define REPLICA_UNTIL_OFFSET TASK_CTX.shared.replica.until_offset
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.shared.service.idempotency_channel
@@ -432,11 +435,6 @@ typedef struct fs_replication_context {
         struct fc_queue rpc_queue;
         FSReplicaRPCResultContext rpc_result_ctx;   //push result recv from peer
     } caller;  //master side
-
-    struct {
-        struct fc_queue done_queue;
-        struct fast_mblock_man result_allocator;
-    } callee;  //slave side
 } FSReplicationContext;
 
 typedef struct fs_replication {
@@ -444,9 +442,6 @@ typedef struct fs_replication {
     FSClusterServerInfo *peer;
     volatile uint32_t version;  //for ds ONLINE to ACTIVE check
     volatile char stage;
-    bool is_free;
-    bool is_client;
-    volatile char reverse_hb; //if server send active test immediately
     int thread_index;         //for nio thread
     int conn_index;           //for connect failover
     int last_net_comm_time;   //last network communication time
@@ -490,8 +485,9 @@ typedef struct {
             union {
                 struct {
                     FSReplication *replication;
+                    volatile int rpc_waiting_count;
+                    volatile int rpc_fail_count;
                     bool rpc_call_inprogress;     //for RDMA
-                    bool push_result_inprogress;  //for RDMA
                 };
 
                 struct {

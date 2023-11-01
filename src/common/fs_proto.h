@@ -101,8 +101,6 @@
 // master -> slave RPC
 #define FS_REPLICA_PROTO_RPC_CALL_REQ            99
 #define FS_REPLICA_PROTO_RPC_CALL_RESP          100
-#define FS_REPLICA_PROTO_PUSH_RESULT_REQ        101
-#define FS_REPLICA_PROTO_PUSH_RESULT_RESP       102
 
 typedef SFCommonProtoHeader  FSProtoHeader;
 

@@ -536,9 +536,11 @@ static void slave_data_update_done_notify(FSDataOperation *op)
 {
     FSSliceOpBufferContext *op_buffer_ctx;
     struct fast_task_info *task;
+    int rpc_fail_count;
 
     task = (struct fast_task_info *)op->arg;
     if (op->ctx->result != 0) {
+        FC_ATOMIC_INC(REPLICA_RPC_FAIL_COUNT);
         log_data_operation_error(task, op);
     } else {
         /*
@@ -550,23 +552,22 @@ static void slave_data_update_done_notify(FSDataOperation *op)
          */
     }
 
-    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
-            REPLICA_REPLICATION != NULL)
-    {
-        FSReplication *replication;
-        replication = REPLICA_REPLICATION;
-        if (replication != NULL) {
-            replication_callee_push_to_rpc_result_queue(replication,
-                    op->ctx->info.data_group_id, op->ctx->info.data_version,
-                    op->ctx->result);
-        }
-    }
-
     op_buffer_ctx = fc_list_entry(op->ctx, FSSliceOpBufferContext, op_ctx);
     if (op->operation == DATA_OPERATION_SLICE_WRITE) {
         sf_shared_mbuffer_release(op_buffer_ctx->op_ctx.mbuffer);
     }
     replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
+
+    if (__sync_sub_and_fetch(&REPLICA_RPC_WAITING_COUNT, 1) == 0) {
+        if ((rpc_fail_count=FC_ATOMIC_GET(REPLICA_RPC_FAIL_COUNT)) > 0) {
+            __sync_bool_compare_and_swap(&REPLICA_RPC_FAIL_COUNT,
+                    rpc_fail_count, 0);
+            RESPONSE_STATUS = EBUSY;
+        } else {
+            RESPONSE_STATUS = 0;
+        }
+        sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    }
     sf_release_task(task);
 }
 
