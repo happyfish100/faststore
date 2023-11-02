@@ -58,7 +58,8 @@
 #define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
 #define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
 #define FS_SERVER_TASK_TYPE_SYNC_BINLOG         3   //slave  -> master
-#define FS_SERVER_TASK_TYPE_REPLICATION         4
+#define FS_SERVER_TASK_TYPE_REPLICATION_CLIENT  4
+#define FS_SERVER_TASK_TYPE_REPLICATION_SERVER  5
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
@@ -177,12 +178,8 @@
 #define TASK_PENDING_SEND_COUNT TASK_CTX.pending_send_count
 #define REPLICA_REPLICATION     TASK_CTX.shared.replica.replication
 
-#define REPLICA_RPC_CALL_INPROGRESS     \
-    TASK_CTX.shared.replica.rpc_call_inprogress
-#define REPLICA_RPC_WAITING_COUNT     \
-    TASK_CTX.shared.replica.rpc_waiting_count
-#define REPLICA_RPC_FAIL_COUNT     \
-    TASK_CTX.shared.replica.rpc_fail_count
+#define REPLICA_RPC_WAITING_COUNT   TASK_CTX.shared.replica.rpc_waiting_count
+#define REPLICA_RPC_FAIL_COUNT      TASK_CTX.shared.replica.rpc_fail_count
 
 #define REPLICA_READER       TASK_CTX.shared.replica.reader
 #define REPLICA_UNTIL_OFFSET TASK_CTX.shared.replica.until_offset
@@ -399,41 +396,21 @@ typedef struct fs_cluster_data_group_array {
 } FSClusterDataGroupArray;
 
 typedef struct fs_rpc_result_entry {
+    int data_group_id;
     uint64_t data_version;
-    time_t expires;
     struct fast_task_info *waiting_task;
-    struct fs_rpc_result_entry *next;
 } FSReplicaRPCResultEntry;
 
-typedef struct fs_rpc_result_instance {
-    int data_group_id;
-    struct {
-        FSReplicaRPCResultEntry *entries;
-        FSReplicaRPCResultEntry *start; //for consumer
-        FSReplicaRPCResultEntry *end;   //for producer
-        int size;
-    } ring;
-
-    struct {
-        FSReplicaRPCResultEntry *head;
-        FSReplicaRPCResultEntry *tail;
-    } queue;   //for overflow exceptions
-
-} FSReplicaRPCResultInstance;
-
-typedef struct fs_rpc_result_context {
-    time_t last_check_timeout_time;
-    int dg_base_id;    //min data group id
-    int dg_count;
-    FSReplicaRPCResultInstance *instances;   //for my data groups
-    struct fs_replication *replication;
-    struct fast_mblock_man rentry_allocator; //element: FSReplicaRPCResultEntry
-} FSReplicaRPCResultContext;
+typedef struct fs_rpc_result_array {
+    FSReplicaRPCResultEntry *results;
+    int alloc;
+    int count;
+} FSReplicaRPCResultArray;
 
 typedef struct fs_replication_context {
     struct {
         struct fc_queue rpc_queue;
-        FSReplicaRPCResultContext rpc_result_ctx;   //push result recv from peer
+        FSReplicaRPCResultArray rpc_result_array;
     } caller;  //master side
 } FSReplicationContext;
 
@@ -487,7 +464,6 @@ typedef struct {
                     FSReplication *replication;
                     volatile int rpc_waiting_count;
                     volatile int rpc_fail_count;
-                    bool rpc_call_inprogress;     //for RDMA
                 };
 
                 struct {
@@ -513,7 +489,6 @@ typedef struct {
 typedef struct server_task_arg {
     FSServerTaskContext context;
 } FSServerTaskArg;
-
 
 typedef struct fs_server_context {
     struct fc_list_head pending_send_head;  //for RDMA (cluster and replica)

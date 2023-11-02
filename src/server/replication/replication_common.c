@@ -23,7 +23,6 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "replication_processor.h"
-#include "rpc_result_ring.h"
 #include "replication_common.h"
 
 typedef struct {
@@ -65,14 +64,15 @@ static int init_replication_context(FSReplication *replication)
         return result;
     }
 
-    replication->context.caller.rpc_result_ctx.replication = replication;
     alloc_size = 4 * g_sf_global_vars.max_pkg_size /
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
-    if ((result=rpc_result_ring_check_init(&replication->
-                    context.caller.rpc_result_ctx, alloc_size)) != 0)
+    bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
+    if ((replication->context.caller.rpc_result_array.results=
+                fc_malloc(bytes)) == NULL)
     {
-        return result;
+        return ENOMEM;
     }
+    replication->context.caller.rpc_result_array.alloc = alloc_size;
 
     bytes = sizeof(FSProtoReplicaRPCReqBodyPart) * (IOV_MAX / 2);
     if ((replication->rpc.body_parts=fc_malloc(bytes)) == NULL) {

@@ -110,13 +110,12 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
 #define REPLICATION_BIND_TASK(replication, task) \
     do { \
         replication->task = task;  \
-        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION_CLIENT; \
         if (SF_CTX->realloc_task_buffer) { \
             sf_set_task_send_max_buffer_size(task); \
             sf_set_task_recv_max_buffer_size(task); \
         } \
         REPLICA_REPLICATION = replication;      \
-        REPLICA_RPC_CALL_INPROGRESS = false;    \
     } while (0)
 
 void replication_processor_bind_task(FSReplication *replication,
@@ -156,8 +155,6 @@ int replication_processor_unbind(FSReplication *replication)
                 replica.connected, replication)) == 0)
     {
         replication_queue_discard_all(replication);
-        rpc_result_ring_clear_all(&replication->
-                context.caller.rpc_result_ctx);
         return replication_processor_bind_thread(replication);
     }
 
@@ -395,6 +392,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
     struct fc_queue_info qinfo;
     ReplicationRPCEntry *rb;
     ReplicationRPCEntry *deleted;
+    FSReplicaRPCResultEntry *rentry;
     struct fast_task_info *task;
     struct iovec *iov;
     FSProtoReplicaRPCReqBodyHeader *body_header;
@@ -402,13 +400,10 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int body_len;
     int pkg_len;
     bool notify;
-    int result;
 
     task = replication->task;
-    if (task->handler->comm_type == fc_comm_type_rdma) {
-        if (REPLICA_RPC_CALL_INPROGRESS) {
-            return 0;
-        }
+    if (TASK_PENDING_SEND_COUNT > 0) {
+        return 0;
     }
 
     fc_queue_try_pop_to_queue(&replication->
@@ -417,10 +412,8 @@ static int replication_rpc_from_queue(FSReplication *replication)
         return 0;
     }
 
-    if (task->handler->comm_type == fc_comm_type_rdma) {
-        REPLICA_RPC_CALL_INPROGRESS = true;
-    }
-
+    ++TASK_PENDING_SEND_COUNT;
+    rentry = replication->context.caller.rpc_result_array.results;
     body_part = replication->rpc.body_parts;
     task->send.ptr->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCReqBodyHeader);
@@ -432,8 +425,10 @@ static int replication_rpc_from_queue(FSReplication *replication)
     do {
         pkg_len = task->send.ptr->length + sizeof(*body_part) +
             rb->op_ctx->info.body_len;
-        if (pkg_len > task->send.ptr->size || iov - replication->
-                rpc.io_vecs > IOV_MAX - 2)
+        if (pkg_len > task->send.ptr->size || iov - replication->rpc.io_vecs >
+                IOV_MAX - 2 || rentry - replication->context.caller.
+                rpc_result_array.results == replication->context.
+                caller.rpc_result_array.alloc)
         {
             qinfo.head = rb;
             fc_queue_push_queue_to_head_ex(&replication->context.
@@ -466,19 +461,19 @@ static int replication_rpc_from_queue(FSReplication *replication)
         int2buff(rb->op_ctx->info.body_len, body_part->body_len);
         ++body_part;
 
-        if ((result=rpc_result_ring_add(&replication->context.caller.
-                        rpc_result_ctx, rb->op_ctx->info.data_group_id,
-                        rb->op_ctx->info.data_version, rb->task)) != 0)
-        {
-            sf_terminate_myself();
-            return result;
-        }
+        rentry->data_group_id = rb->op_ctx->info.data_group_id;
+        rentry->data_version = rb->op_ctx->info.data_version;
+        rentry->waiting_task = rb->task;
+        ++rentry;
 
         deleted = rb;
         rb = rb->nexts[replication->peer->link_index];
 
         replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
+
+    replication->context.caller.rpc_result_array.count = rentry -
+        replication->context.caller.rpc_result_array.results;
 
     task->iovec_array.iovs = replication->rpc.io_vecs;
     task->iovec_array.count = iov - replication->rpc.io_vecs;
@@ -499,15 +494,15 @@ static int replication_rpc_from_queue(FSReplication *replication)
 
 static inline void send_active_test_package(FSReplication *replication)
 {
-    if (!sf_nio_task_send_done(replication->task)) {
-        return;
-    }
+    struct fast_task_info *task;
 
+    task = replication->task;
+    ++TASK_PENDING_SEND_COUNT;
     replication->last_net_comm_time = g_current_time;
-    replication->task->send.ptr->length = sizeof(FSProtoHeader);
-    SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->
-            send.ptr->data, SF_PROTO_ACTIVE_TEST_REQ, 0);
-    sf_send_add_event(replication->task);
+    task->send.ptr->length = sizeof(FSProtoHeader);
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            SF_PROTO_ACTIVE_TEST_REQ, 0);
+    sf_send_add_event(task);
 }
 
 static int deal_connected_replication(FSReplication *replication)
@@ -528,17 +523,7 @@ static int deal_connected_replication(FSReplication *replication)
         return 0;
     }
 
-    if (!sf_nio_task_send_done(replication->task)) {
-        return 0;
-    }
-
     if (stage == FS_REPLICATION_STAGE_SYNCING) {
-        if (rpc_result_ring_clear_timeouts(&replication->
-                    context.caller.rpc_result_ctx) > 0)
-        {
-            return ETIMEDOUT;
-        }
-
         return replication_rpc_from_queue(replication);
     }
 

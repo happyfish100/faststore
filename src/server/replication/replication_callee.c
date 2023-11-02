@@ -37,7 +37,6 @@
 #include "../server_group_info.h"
 #include "../storage/slice_op.h"
 #include "replication_processor.h"
-#include "rpc_result_ring.h"
 #include "replication_callee.h"
 
 int replication_callee_init()
