@@ -491,7 +491,6 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
 {
     OP_CTX_INFO.deal_done = false;
     OP_CTX_INFO.is_update = true;
-
     if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
     {

@@ -85,9 +85,9 @@ static int init_replication_context(FSReplication *replication)
     }
 
     logDebug("file: "__FILE__", line: %d, "
-            "replication: %d, thread_index: %d", __LINE__,
+            "replication: %d, thread_index: %d, alloc_size: %d", __LINE__,
             (int)(replication - repl_ctx.repl_array.replications),
-            replication->thread_index);
+            replication->thread_index, alloc_size);
 
     return 0;
 }
@@ -150,6 +150,8 @@ static int init_replication_common_array()
                 cs->server->id), offset, cs->link_index);
 
         for (i=0; i<REPLICA_CHANNELS_BETWEEN_TWO_SERVERS; i++) {
+            replication->id = (replication - repl_ctx.
+                    repl_array.replications) + 1;
             replication->peer = cs;
             replication->thread_index = offset + i;
             if ((result=init_replication_context(replication)) != 0) {

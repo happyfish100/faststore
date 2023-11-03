@@ -174,15 +174,12 @@ static inline void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     FSReplication *replication;
-    FSServerContext *server_ctx;
 
-    server_ctx = (FSServerContext *)task->thread_data->arg;
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION_CLIENT:
             replication = REPLICA_REPLICATION;
             if (replication != NULL) {
-                desc_replication_waiting_rpc_count(
-                        REPLICA_REPLICATION, ENOTCONN);
+                desc_replication_waiting_rpc_count(replication, ENOTCONN);
                 switch (FC_ATOMIC_GET(replication->stage)) {
                     case FS_REPLICATION_STAGE_WAITING_JOIN_RESP:
                     case FS_REPLICATION_STAGE_SYNCING:
@@ -207,13 +204,13 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                         "REPLICA_REPLICATION is NULL", __LINE__, task,
                         SERVER_TASK_TYPE);
             }
+            if (TASK_PENDING_SEND_COUNT != 0) {
+                TASK_PENDING_SEND_COUNT = 0;
+            }
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         case FS_SERVER_TASK_TYPE_REPLICATION_SERVER:
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
-            if (TASK_PENDING_SEND_COUNT != 0) {
-                TASK_PENDING_SEND_COUNT = 0;
-            }
             break;
         case FS_SERVER_TASK_TYPE_FETCH_BINLOG:
         case FS_SERVER_TASK_TYPE_SYNC_BINLOG:
@@ -1008,7 +1005,8 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
         if (blen <= 0) {
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "rpc body length: %d <= 0, rpc count: %d", blen, count);
-            return EINVAL;
+            result = EINVAL;
+            break;
         }
         current_len += sizeof(*body_part) + blen;
         if (i < last_index) {
@@ -1016,21 +1014,24 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,
                         "body length: %d < %d, rpc count: %d, current: %d",
                         REQUEST.header.body_len, current_len, count, i + 1);
-                return EINVAL;
+                result = EINVAL;
+                break;
             }
         } else {
             if (REQUEST.header.body_len != current_len) {
                 RESPONSE.error.length = sprintf(RESPONSE.error.message,
                         "body length: %d != %d, rpc count: %d",
                         REQUEST.header.body_len, current_len, count);
-                return EINVAL;
+                result = EINVAL;
+                break;
             }
         }
 
         if ((op_buffer_ctx=replication_callee_alloc_op_buffer_ctx(
                         SERVER_CTX)) == NULL)
         {
-            return ENOMEM;
+            result = ENOMEM;
+            break;
         }
         op_ctx = &op_buffer_ctx->op_ctx;
 
@@ -1047,7 +1048,8 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
             RESPONSE.error.length = sprintf(RESPONSE.error.message,
                     "invalid data version: %"PRId64", rpc count: %d, "
                     "current: %d", op_ctx->info.data_version, count, i + 1);
-            return EINVAL;
+            result = EINVAL;
+            break;
         }
 
         op_ctx->info.body = (char *)(body_part + 1);
@@ -1080,8 +1082,10 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
                                 info.myself->dg->req_meta_ctx, &metadata,
                                 inc_alloc)) != 0)
                 {
-                    return result;
+                    break;
                 }
+            } else {
+                result = 0;
             }
         } else {
             ++finish_count;
@@ -1089,26 +1093,27 @@ static int handle_rpc_req(struct fast_task_info *task, const int count)
                 sf_shared_mbuffer_release(op_buffer_ctx->op_ctx.mbuffer);
             }
             replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
-
             if (result != 0) {
-                return result;
+                break;
             }
         }
     }
+
     sf_shared_mbuffer_release(mbuffer);
     task->recv_body = NULL;
+    if (result != 0) {
+        FC_ATOMIC_SET(REPLICA_RPC_WAITING_COUNT, 0);
+        return result;
+    }
 
     if (finish_count > 0) {
         if (__sync_sub_and_fetch(&REPLICA_RPC_WAITING_COUNT,
-                    finish_count) > 0)
+                    finish_count) == 0)
         {
-            return TASK_STATUS_CONTINUE;
-        } else {
             return 0;
         }
-    } else {
-        return TASK_STATUS_CONTINUE;
     }
+    return TASK_STATUS_CONTINUE;
 }
 
 static int replica_deal_rpc_req(struct fast_task_info *task)

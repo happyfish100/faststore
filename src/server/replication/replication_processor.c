@@ -402,7 +402,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
     bool notify;
 
     task = replication->task;
-    if (TASK_PENDING_SEND_COUNT > 0) {
+    if (task->canceled || TASK_PENDING_SEND_COUNT > 0) {
         return 0;
     }
 
@@ -496,7 +496,15 @@ static inline void send_active_test_package(FSReplication *replication)
 {
     struct fast_task_info *task;
 
+    if (replication->task->canceled) {
+        return;
+    }
+
     task = replication->task;
+    if (TASK_PENDING_SEND_COUNT > 0) {
+        return;
+    }
+
     ++TASK_PENDING_SEND_COUNT;
     replication->last_net_comm_time = g_current_time;
     task->send.ptr->length = sizeof(FSProtoHeader);
