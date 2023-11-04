@@ -55,11 +55,12 @@
 #define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
 #define FS_BINLOG_MAX_RECORD_SIZE  FS_SLICE_BINLOG_MAX_RECORD_SIZE
 
-#define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
-#define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
-#define FS_SERVER_TASK_TYPE_SYNC_BINLOG         3   //slave  -> master
-#define FS_SERVER_TASK_TYPE_REPLICATION_CLIENT  4
-#define FS_SERVER_TASK_TYPE_REPLICATION_SERVER  5
+#define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //follower -> leader
+#define FS_SERVER_TASK_TYPE_CLUSTER_PUSH        2   //leader -> follower
+#define FS_SERVER_TASK_TYPE_FETCH_BINLOG        3   //slave  -> master
+#define FS_SERVER_TASK_TYPE_SYNC_BINLOG         4   //slave  -> master
+#define FS_SERVER_TASK_TYPE_REPLICATION_CLIENT  5
+#define FS_SERVER_TASK_TYPE_REPLICATION_SERVER  6
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1

@@ -77,7 +77,7 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
 
     server_ctx = (FSServerContext *)task->thread_data->arg;
     switch (SERVER_TASK_TYPE) {
-        case FS_SERVER_TASK_TYPE_RELATIONSHIP:
+        case FS_SERVER_TASK_TYPE_CLUSTER_PUSH:
             if (CLUSTER_PEER != NULL) {
                 cluster_topology_remove_notify_ctx(&server_ctx->cluster.
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
@@ -92,22 +92,17 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
                     __sync_bool_compare_and_swap(&CLUSTER_PEER->
                             notify_ctx.task, task, NULL);
                 }
-                CLUSTER_PEER = NULL;
             } else {
                 logError("file: "__FILE__", line: %d, "
                         "mistake happen! SERVER_TASK_TYPE: %d, CLUSTER_PEER: %p",
                         __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
             }
+        case FS_SERVER_TASK_TYPE_RELATIONSHIP:
+            CLUSTER_PEER = NULL;
             SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_NONE;
             break;
         default:
             break;
-    }
-
-    if (CLUSTER_PEER != NULL) {
-        logError("file: "__FILE__", line: %d, "
-                "mistake happen! SERVER_TASK_TYPE: %d, CLUSTER_PEER: %p",
-                __LINE__, SERVER_TASK_TYPE, CLUSTER_PEER);
     }
 
     if (TASK_PENDING_SEND_COUNT > 0) {
@@ -183,11 +178,11 @@ static int cluster_deal_join_leader(struct fast_task_info *task,
 {
     int result;
     int server_id;
+    bool server_push;
     int64_t key;
     FSProtoJoinLeaderReq *req;
     FSProtoJoinLeaderResp *resp;
     FSClusterServerInfo *peer;
-    FSServerContext *server_ctx;
 
     if ((result=server_expect_body_length(sizeof(
                         FSProtoJoinLeaderReq))) != 0)
@@ -198,6 +193,7 @@ static int cluster_deal_join_leader(struct fast_task_info *task,
     req = (FSProtoJoinLeaderReq *)REQUEST.body;
     server_id = buff2int(req->server_id);
     key = buff2long(req->key);
+    server_push = (req->server_push != 0);
     peer = fs_get_server_by_id(server_id);
     if (peer == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
@@ -224,7 +220,8 @@ static int cluster_deal_join_leader(struct fast_task_info *task,
 
     if (CLUSTER_PEER != NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "peer server id: %d already joined", server_id);
+                "peer server id: %d already joined, server_push: %d",
+                server_id, server_push);
         return EEXIST;
     }
 
@@ -241,24 +238,30 @@ static int cluster_deal_join_leader(struct fast_task_info *task,
         }
     }
 
-    if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
-        RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "peer server id: %d already joined", server_id);
-        return EEXIST;
-    }
+    if (server_push) {
+        FSServerContext *server_ctx;
 
-    server_ctx = (FSServerContext *)task->thread_data->arg;
-    if ((result=cluster_topology_add_notify_ctx(&server_ctx->cluster.
-                    notify_ctx_ptr_array, &peer->notify_ctx)) != 0)
-    {
-        __sync_bool_compare_and_swap(&peer->notify_ctx.task, task, NULL);
-        return result;
+        if (!__sync_bool_compare_and_swap(&peer->notify_ctx.task, NULL, task)) {
+            RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                    "peer server id: %d already joined", server_id);
+            return EEXIST;
+        }
+
+        server_ctx = (FSServerContext *)task->thread_data->arg;
+        if ((result=cluster_topology_add_notify_ctx(&server_ctx->cluster.
+                        notify_ctx_ptr_array, &peer->notify_ctx)) != 0)
+        {
+            __sync_bool_compare_and_swap(&peer->notify_ctx.task, task, NULL);
+            return result;
+        }
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_CLUSTER_PUSH;
+        TASK_PUSH_EVENT_INPROGRESS = false;
+    } else {
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     }
 
     peer->key = key;
-    SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_RELATIONSHIP;
     CLUSTER_PEER = peer;
-    TASK_PUSH_EVENT_INPROGRESS = false;
 
     if (FC_ATOMIC_GET(peer->status) == FS_SERVER_STATUS_ACTIVE) {
         logWarning("file: "__FILE__", line: %d, "
@@ -269,7 +272,9 @@ static int cluster_deal_join_leader(struct fast_task_info *task,
                 peer, FS_SERVER_STATUS_OFFLINE);
     }
 
-    cluster_topology_sync_all_data_servers(peer);
+    if (server_push) {
+        cluster_topology_sync_all_data_servers(peer);
+    }
 
     resp = (FSProtoJoinLeaderResp *)resp_body;
     long2buff(CLUSTER_MYSELF_PTR->leader_version, resp->leader_version);
@@ -373,12 +378,12 @@ static int process_ping_leader_req(struct fast_task_info *task)
     return 0;
 }
 
-static int cluster_deal_ping_leader(struct fast_task_info *task)
+static int proto_deal_ping_leader(struct fast_task_info *task,
+        const int expect_server_type)
 {
     int result;
     FSClusterServerInfo *peer;
 
-    RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;
     if ((result=server_check_min_body_length(sizeof(
                         FSProtoPingLeaderReqHeader))) != 0)
     {
@@ -386,11 +391,11 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     }
 
     if (((peer=CLUSTER_PEER) == NULL) || (SERVER_TASK_TYPE !=
-                FS_SERVER_TASK_TYPE_RELATIONSHIP))
+                expect_server_type))
     {
-        RESPONSE.error.length = sprintf(
-                RESPONSE.error.message,
-                "please join first");
+        RESPONSE.error.length = sprintf(RESPONSE.error.message,
+                "please join first, server type: %d != expected: %d",
+                SERVER_TASK_TYPE, expect_server_type);
         return EINVAL;
     }
 
@@ -407,24 +412,32 @@ static int cluster_deal_ping_leader(struct fast_task_info *task)
     return result;
 }
 
+static inline int cluster_deal_ping_leader(struct fast_task_info *task)
+{
+    return proto_deal_ping_leader(task, FS_SERVER_TASK_TYPE_RELATIONSHIP);
+}
+
 static int cluster_deal_active_server(struct fast_task_info *task)
 {
     int result;
 
-    if ((result=cluster_deal_ping_leader(task)) == 0) {
-        if (cluster_topology_activate_server(CLUSTER_PEER)) {
-            logInfo("file: "__FILE__", line: %d, "
-                    "activate peer server id: %d.",
-                    __LINE__, CLUSTER_PEER->server->id);
-        } else {
-            RESPONSE.error.length = sprintf(
-                    RESPONSE.error.message,
-                    "i am not leader");
-            return EINVAL;
-        }
+    result = proto_deal_ping_leader(task, FS_SERVER_TASK_TYPE_CLUSTER_PUSH);
+    if (result != 0) {
+        return result;
     }
 
-    return result;
+    if (cluster_topology_activate_server(CLUSTER_PEER)) {
+        logInfo("file: "__FILE__", line: %d, "
+                "activate peer server id: %d.",
+                __LINE__, CLUSTER_PEER->server->id);
+    } else {
+        RESPONSE.error.length = sprintf(
+                RESPONSE.error.message,
+                "i am not leader");
+        return EINVAL;
+    }
+
+    return 0;
 }
 
 static int cluster_deal_report_ds_status(struct fast_task_info *task)
@@ -814,10 +827,12 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             case FS_CLUSTER_PROTO_JOIN_LEADER_REQ:
                 result = cluster_deal_join_leader(task, resp_body);
                 break;
-            case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
+            case FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ:
+                RESPONSE.header.cmd = FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP;
                 result = cluster_deal_active_server(task);
                 break;
             case FS_CLUSTER_PROTO_PING_LEADER_REQ:
+                RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;
                 result = cluster_deal_ping_leader(task);
                 break;
             case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ:

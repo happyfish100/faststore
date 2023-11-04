@@ -116,8 +116,10 @@ const char *fs_get_cmd_caption(const int cmd)
             return "REPORT_DISK_SPACE_REQ";
         case FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP:
             return "REPORT_DISK_SPACE_RESP";
-        case FS_CLUSTER_PROTO_ACTIVATE_SERVER:
-            return "ACTIVATE_SERVER";
+        case FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ:
+            return "ACTIVATE_SERVER_REQ";
+        case FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP:
+            return "ACTIVATE_SERVER_RESP";
         case FS_CLUSTER_PROTO_PRE_SET_NEXT_LEADER:
             return "PRE_SET_NEXT_LEADER";
         case FS_CLUSTER_PROTO_COMMIT_NEXT_LEADER:

@@ -64,7 +64,8 @@
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP   64
 #define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         65
 #define FS_CLUSTER_PROTO_JOIN_LEADER_RESP        66
-#define FS_CLUSTER_PROTO_ACTIVATE_SERVER         67
+#define FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ     67
+#define FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP    68
 #define FS_CLUSTER_PROTO_PING_LEADER_REQ         69
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ   71
@@ -321,7 +322,8 @@ typedef struct fs_proto_get_slaves_resp_body_part {
 typedef struct fs_proto_join_leader_req {
     char server_id[4];   //the follower server id
     char auth_enabled;
-    char padding[3];
+    char server_push;
+    char padding[2];
     char key[8];         //for leader call follower to unset master
     FSProtoConfigSigns config_signs;
 } FSProtoJoinLeaderReq;

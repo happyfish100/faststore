@@ -239,8 +239,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 #endif
 
     task = (struct fast_task_info *)ctx->task;
-    if (!sf_nio_task_send_done(task)) {
-        return EBUSY;
+    if (TASK_PUSH_EVENT_INPROGRESS) {
+        return 0;
     }
 
     cs = ((FSServerTaskArg *)task->arg)->context.shared.cluster.peer;
@@ -251,20 +251,12 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
         return EAGAIN;
     }
 
-    if (task->handler->comm_type == fc_comm_type_rdma &&
-            TASK_PUSH_EVENT_INPROGRESS)
-    {
-        return 0;
-    }
-
     fc_queue_try_pop_to_queue(&ctx->queue, &qinfo);
     if (qinfo.head == NULL) {
         return 0;
     }
 
-    if (task->handler->comm_type == fc_comm_type_rdma) {
-        TASK_PUSH_EVENT_INPROGRESS = true;
-    }
+    TASK_PUSH_EVENT_INPROGRESS = true;
 
     event = (FSDataServerChangeEvent *)qinfo.head;
     header = (FSProtoHeader *)task->send.ptr->data;
@@ -319,8 +311,8 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
             req_header->current_version);
     int2buff(body_part - bp_start, req_header->data_server_count);
     body_len = (char *)body_part - (char *)req_header;
-    SF_PROTO_SET_HEADER(header, FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ,
-            body_len);
+    header->cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ;
+    int2buff(body_len, header->body_len);
     task->send.ptr->length = sizeof(FSProtoHeader) + body_len;
     return sf_send_add_event(task);
 }
