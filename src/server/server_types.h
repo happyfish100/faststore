@@ -174,8 +174,6 @@
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
 #define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
-#define TASK_PUSH_EVENT_INPROGRESS  \
-    TASK_CTX.shared.cluster.push_event_inprogress
 #define TASK_PENDING_SEND_COUNT TASK_CTX.pending_send_count
 #define REPLICA_REPLICATION     TASK_CTX.shared.replica.replication
 
@@ -192,7 +190,6 @@
 #define OP_CTX_NOTIFY_FUNC TASK_CTX.slice_op_ctx.notify_func
 
 #define SERVER_CTX           ((FSServerContext *)task->thread_data->arg)
-#define SERVER_PENDING_SEND_HEAD SERVER_CTX->pending_send_head
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -256,6 +253,7 @@ typedef struct fs_cluster_server_info {
     int server_index;       //for offset
     int link_index;         //for next links
     time_t last_ping_time;  //for the leader
+    time_t last_net_comm_time;   //last network communication time for cluster
     int64_t leader_version; //for generation check
     int64_t key;            //for leader call follower to unset master
     FSClusterServerSpaceStat space_stat;
@@ -423,10 +421,10 @@ typedef struct fs_replication {
     int id;                    //for debug
     int thread_index;          //for nio thread
     int conn_index;            //for connect failover
-    int last_net_comm_time;    //last network communication time
+    time_t last_net_comm_time;    //last network communication time
     struct {
-        int start_time;
-        int next_connect_time;
+        time_t start_time;
+        time_t next_connect_time;
         int last_errno;
         int fail_count;
     } connection_info;  //for client to make connection
@@ -439,13 +437,6 @@ typedef struct fs_replication {
     FSReplicationContext context;
 } FSReplication;
 
-typedef struct fs_pending_send_buffer {
-    struct fast_task_info *task;
-    char *data;
-    int length;
-    struct fc_list_head dlink;
-} FSPendingSendBuffer;
-
 typedef struct {
     SFCommonTaskContext common;
     int task_type;
@@ -457,7 +448,6 @@ typedef struct {
 
         struct {
             FSClusterServerInfo *peer;   //the peer server in the cluster
-            bool push_event_inprogress;  //for RDMA
         } cluster;
 
         struct {
@@ -493,7 +483,6 @@ typedef struct server_task_arg {
 } FSServerTaskArg;
 
 typedef struct fs_server_context {
-    struct fc_list_head pending_send_head;  //for RDMA (cluster and replica)
     union {
         struct {
             struct fast_mblock_man request_allocator; //for idempotency_request

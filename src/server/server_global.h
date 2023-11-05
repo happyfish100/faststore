@@ -52,7 +52,6 @@ typedef struct server_global_vars {
         int task_padding_size;
         sf_init_connection_callback init_connection;
         struct ibv_pd *pd;
-        struct fast_mblock_man pending_send_allocator;
     } rdma;
 
     struct {
@@ -103,6 +102,10 @@ typedef struct server_global_vars {
             volatile int64_t consume;
         } event_stats;
 #endif
+        struct {
+            int max_events_per_pkg;
+            int active_test_interval;
+        } topology;
 
         SFContext sf_context;  //for cluster communication
         FCServerGroupInfo *server_group;
@@ -244,13 +247,17 @@ typedef struct server_global_vars {
 #define TASK_PADDING_SIZE      g_server_global_vars->rdma.task_padding_size
 #define RDMA_INIT_CONNECTION   g_server_global_vars->rdma.init_connection
 #define RDMA_PD                g_server_global_vars->rdma.pd
-#define PENDING_SEND_ALLOCATOR g_server_global_vars->rdma.pending_send_allocator
 
 #define CLUSTER_CONFIG_CTX    g_server_global_vars->cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars->cluster.config.ctx.server_cfg
 #define AUTH_CTX              g_server_global_vars->cluster.auth
 #define AUTH_CLIENT_CTX       AUTH_CTX.ctx
 #define AUTH_ENABLED          AUTH_CTX.enabled
+
+#define CT_MAX_EVENTS_PER_PKG   g_server_global_vars->cluster. \
+    topology.max_events_per_pkg
+#define CT_ACTIVE_TEST_INTERVAL g_server_global_vars->cluster. \
+    topology.active_test_interval
 
 #define EVENT_STATS_PRODUCE   g_server_global_vars->cluster.event_stats.produce
 #define EVENT_STATS_CONSUME   g_server_global_vars->cluster.event_stats.consume

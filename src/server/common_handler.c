@@ -55,16 +55,6 @@ static int fs_get_cmd_log_level(const int cmd)
     }
 }
 
-static int init_pending_sbuffer(FSPendingSendBuffer *buffer, void *arg)
-{
-    FSProtoHeader *header;
-
-    buffer->data = (char *)(buffer + 1);
-    header = (FSProtoHeader *)buffer->data;
-    SF_PROTO_SET_MAGIC(header->magic);
-    return 0;
-}
-
 int common_handler_init()
 {
     SFHandlerContext handler_ctx;
@@ -80,14 +70,6 @@ int common_handler_init()
     }
     sf_proto_set_handler_context(&handler_ctx);
 
-    if (!(CLUSTER_SERVER_GROUP->comm_type == fc_comm_type_sock &&
-                REPLICA_SERVER_GROUP->comm_type == fc_comm_type_sock))
-    {
-        return fast_mblock_init_ex1(&PENDING_SEND_ALLOCATOR, "pending-sbuffer",
-                sizeof(FSPendingSendBuffer) + g_sf_global_vars.max_pkg_size,
-                16, 0, (fast_mblock_object_init_func)init_pending_sbuffer,
-                NULL, true);
-    }
     return 0;
 }
 

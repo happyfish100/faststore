@@ -39,8 +39,6 @@
 #include "cluster_relationship.h"
 #include "cluster_topology.h"
 
-static int max_events_per_pkg;
-
 static FSClusterDataServerInfo *find_data_group_server(
         const int gindex, FSClusterServerInfo *cs)
 {
@@ -65,8 +63,12 @@ int cluster_topology_init()
 
     header_size = sizeof(FSProtoHeader) + sizeof(
             FSProtoPushDataServerStatusHeader);
-    max_events_per_pkg = (g_sf_global_vars.max_buff_size - header_size) /
+    CT_MAX_EVENTS_PER_PKG = (g_sf_global_vars.max_buff_size - header_size) /
         sizeof(FSProtoPushDataServerStatusBodyPart);
+    CT_ACTIVE_TEST_INTERVAL = SF_G_NETWORK_TIMEOUT / 2;
+    if (CT_ACTIVE_TEST_INTERVAL == 0) {
+        CT_ACTIVE_TEST_INTERVAL = 1;
+    }
 
     return 0;
 }
@@ -218,6 +220,14 @@ void cluster_topology_sync_all_data_servers(FSClusterServerInfo *cs)
     }
 }
 
+static inline void send_active_test_package(struct fast_task_info *task)
+{
+    task->send.ptr->length = sizeof(FSProtoHeader);
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            SF_PROTO_ACTIVE_TEST_REQ, 0);
+    sf_send_add_event(task);
+}
+
 static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 {
     struct fc_queue_info qinfo;
@@ -239,7 +249,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 #endif
 
     task = (struct fast_task_info *)ctx->task;
-    if (TASK_PUSH_EVENT_INPROGRESS) {
+    if (task->canceled || TASK_PENDING_SEND_COUNT > 0) {
         return 0;
     }
 
@@ -253,10 +263,23 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 
     fc_queue_try_pop_to_queue(&ctx->queue, &qinfo);
     if (qinfo.head == NULL) {
+        if (CLUSTER_PEER != NULL) {
+            if (g_current_time - CLUSTER_PEER->last_net_comm_time >=
+                    CT_ACTIVE_TEST_INTERVAL)
+            {
+                ++TASK_PENDING_SEND_COUNT;
+                CLUSTER_PEER->last_net_comm_time = g_current_time;
+                send_active_test_package(task);
+            }
+        }
+
         return 0;
     }
 
-    TASK_PUSH_EVENT_INPROGRESS = true;
+    ++TASK_PENDING_SEND_COUNT;
+    if (CLUSTER_PEER != NULL) {
+        CLUSTER_PEER->last_net_comm_time = g_current_time;
+    }
 
     event = (FSDataServerChangeEvent *)qinfo.head;
     header = (FSProtoHeader *)task->send.ptr->data;
@@ -297,7 +320,7 @@ static int process_notify_events(FSClusterTopologyNotifyContext *ctx)
 #endif
 
         ++body_part;
-        if (body_part - bp_start == max_events_per_pkg) {
+        if (body_part - bp_start == CT_MAX_EVENTS_PER_PKG) {
             break;
         }
     } while (event != NULL);

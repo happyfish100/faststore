@@ -99,6 +99,7 @@ typedef struct fs_cluster_relationship_context {
     FSClusterQuorumChains quorum_chains;
     time_t last_stat_time;
     volatile int leader_generation;
+    int server_network_timeout;
     FastBuffer send_buffer;
     FastBuffer recv_buffer;
     ConnectionInfo vote_connection;
@@ -109,8 +110,9 @@ typedef struct fs_cluster_relationship_context {
 #define QUORUM_CHAINS        relationship_ctx.quorum_chains
 #define NETWORK_SEND_BUFFER  relationship_ctx.send_buffer
 #define NETWORK_RECV_BUFFER  relationship_ctx.recv_buffer
-#define LEADER_ELECTION   relationship_ctx.leader_election
-#define LEADER_GENERATION relationship_ctx.leader_generation
+#define LEADER_ELECTION      relationship_ctx.leader_election
+#define LEADER_GENERATION    relationship_ctx.leader_generation
+#define SERVER_NETWORK_TIMEOUT relationship_ctx.server_network_timeout
 #define VOTE_CONNECTION   relationship_ctx.vote_connection
 
 static FSClusterRelationshipContext relationship_ctx = {
@@ -207,6 +209,7 @@ static int proto_join_leader(FSClusterServerInfo *leader,
                     (char *)&resp, sizeof(resp))) == 0)
     {
         leader->leader_version = buff2long(resp.leader_version);
+        SERVER_NETWORK_TIMEOUT = 2 * buff2int(resp.active_test_interval);
     } else {
         if (result != EOPNOTSUPP) {
             fs_log_network_error(&response, conn, result);
@@ -1927,6 +1930,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         FSProtoHeader holder;
         FSProtoHeader *ptr;
     } header;
+    unsigned char resp_cmd;
     char *body;
     char out_buff[sizeof(FSProtoHeader)];
     int recv_bytes;
@@ -1939,7 +1943,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
                 conn, call_post_recv, timeout_ms);
         if (result != 0) {
             if (result == ETIMEDOUT) {
-                return 0;
+                return result;
             }
             response->error.length = sprintf(response->error.message,
                     "recv data fail, errno: %d, error info: %s",
@@ -1970,7 +1974,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         {
             if (result == ETIMEDOUT) {
                 if (recv_bytes == 0) {
-                    return 0;
+                    return result;
                 }
             }
             response->error.length = sprintf(response->error.message,
@@ -2024,18 +2028,23 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 
     if (header.ptr->cmd == FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ) {
-        result = cluster_process_leader_push(conn, response, body, body_len);
+        if ((result=cluster_process_leader_push(conn, response,
+                        body, body_len)) != 0)
+        {
+            return result;
+        }
+        resp_cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP;
+    } else if (SF_PROTO_ACTIVE_TEST_REQ) {
+        resp_cmd = SF_PROTO_ACTIVE_TEST_RESP;
     } else {
         response->error.length = sprintf(response->error.message,
                 "unexpect cmd: %d (%s)", header.ptr->cmd,
                 fs_get_cmd_caption(header.ptr->cmd));
-        result = EINVAL;
+        return EINVAL;
     }
 
     header.ptr = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(header.ptr,
-            FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP,
-            result);
+    SF_PROTO_SET_HEADER(header.ptr, resp_cmd, result);
     if (conn->comm_type == fc_comm_type_rdma) {
         return  G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
                 out_buff, sizeof(out_buff));
@@ -2220,10 +2229,6 @@ static int check_make_connection(FSClusterServerInfo *leader,
     int network_timeout;
     int result;
 
-    if (G_COMMON_CONNECTION_CALLBACKS[conn->comm_type].is_connected(conn)) {
-        return 0;
-    }
-
     connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
     network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
@@ -2262,10 +2267,12 @@ static int follower_ping(FSClusterServerInfo *leader,
     int network_timeout;
     int result;
 
-    if ((result=check_make_connection(leader, conn,
-                    server_push, timeout)) != 0)
-    {
-        return result;
+    if (!G_COMMON_CONNECTION_CALLBACKS[conn->comm_type].is_connected(conn)) {
+        if ((result=check_make_connection(leader, conn,
+                        server_push, timeout)) != 0)
+        {
+            return result;
+        }
     }
 
     network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
@@ -2400,6 +2407,7 @@ static void server_push_handler_run(void *arg, void *thread_data)
     const int timeout_ms = 1000;
     int result;
     int leader_generation;
+    time_t last_net_comm_time;
     SFResponseInfo response;
     FSClusterServerInfo *leader;
     ConnectionInfo *mconn;
@@ -2416,18 +2424,35 @@ static void server_push_handler_run(void *arg, void *thread_data)
         return;
     }
 
+    last_net_comm_time = g_current_time;
     while (leader_generation == LEADER_GENERATION && SF_G_CONTINUE_FLAG) {
-        if (check_make_connection(leader, mconn, server_push,
-                    SF_G_CONNECT_TIMEOUT) != 0)
+        if (!G_COMMON_CONNECTION_CALLBACKS[mconn->comm_type].
+                is_connected(mconn))
         {
-            sleep(1);
-            continue;
+            if (check_make_connection(leader, mconn, server_push,
+                        SF_G_CONNECT_TIMEOUT) != 0)
+            {
+                sleep(1);
+                continue;
+            }
+
+            last_net_comm_time = g_current_time;
         }
 
         response.error.length = 0;
         if ((result=cluster_recv_from_leader(mconn, &response,
-                        timeout_ms)) != 0)
+                        timeout_ms)) == 0)
         {
+            last_net_comm_time = g_current_time;
+        } else {
+            if (result == ETIMEDOUT) {
+                if (g_current_time - last_net_comm_time <=
+                        SERVER_NETWORK_TIMEOUT)
+                {
+                    continue;
+                }
+            }
+
             fs_log_network_error(&response, mconn, result);
             fc_server_close_connection(mconn);
         }

@@ -330,6 +330,8 @@ typedef struct fs_proto_join_leader_req {
 
 typedef struct fs_proto_join_leader_resp {
     char leader_version[8];  //for check leader generation
+    char active_test_interval[4];
+    char padding[4];
 } FSProtoJoinLeaderResp;
 
 typedef struct fs_proto_join_server_req {
