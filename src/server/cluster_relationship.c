@@ -1858,7 +1858,6 @@ static int cluster_process_leader_push(ConnectionInfo *conn,
     int calc_size;
     int data_group_id;
     int server_id;
-    int result;
 
     body_header = (FSProtoPushDataServerStatusHeader *)body_buff;
     data_server_count = buff2int(body_header->data_server_count);
@@ -1890,11 +1889,6 @@ static int cluster_process_leader_push(ConnectionInfo *conn,
     }
 
     CLUSTER_CURRENT_VERSION = buff2long(body_header->current_version);
-    if (conn->comm_type == fc_comm_type_rdma) {
-        if ((result=G_RDMA_CONNECTION_CALLBACKS.post_recv(conn)) != 0) {
-            return result;
-        }
-    }
     return 0;
 }
 
@@ -1924,7 +1918,7 @@ static inline int parse_body_length(FSProtoHeader *header,
 static int cluster_recv_from_leader(ConnectionInfo *conn,
         SFResponseInfo *response, const int timeout_ms)
 {
-    const bool call_post_recv = false;
+    const bool call_post_recv = true;
     BufferInfo *buffer;
     struct {
         FSProtoHeader holder;
@@ -2034,7 +2028,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
             return result;
         }
         resp_cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP;
-    } else if (SF_PROTO_ACTIVE_TEST_REQ) {
+    } else if (header.ptr->cmd == SF_PROTO_ACTIVE_TEST_REQ) {
         resp_cmd = SF_PROTO_ACTIVE_TEST_RESP;
     } else {
         response->error.length = sprintf(response->error.message,
