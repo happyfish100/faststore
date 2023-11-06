@@ -166,6 +166,7 @@
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \
         sizeof(FSProtoReplicaRPCReqBodyPart))
 
+#define TASK_PENDING_SEND_COUNT task->pending_send_count
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.common.request
@@ -174,7 +175,6 @@
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
 #define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
-#define TASK_PENDING_SEND_COUNT TASK_CTX.pending_send_count
 #define REPLICA_REPLICATION     TASK_CTX.shared.replica.replication
 
 #define REPLICA_RPC_WAITING_COUNT   TASK_CTX.shared.replica.rpc_waiting_count
@@ -440,7 +440,6 @@ typedef struct fs_replication {
 typedef struct {
     SFCommonTaskContext common;
     int task_type;
-    int pending_send_count;     //for RDMA (cluster and replica)
     union {
         struct {
             struct idempotency_channel *idempotency_channel;

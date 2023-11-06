@@ -2044,7 +2044,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
     }
 
     header.ptr = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(header.ptr, resp_cmd, result);
+    SF_PROTO_SET_HEADER(header.ptr, resp_cmd, 0);
     if (conn->comm_type == fc_comm_type_rdma) {
         return  G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
                 out_buff, sizeof(out_buff));
