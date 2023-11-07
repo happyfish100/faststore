@@ -118,19 +118,6 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
         REPLICA_REPLICATION = replication;      \
     } while (0)
 
-void replication_processor_bind_task(FSReplication *replication,
-        struct fast_task_info *task)
-{
-    FSServerContext *server_ctx;
-
-    set_replication_stage(replication, FS_REPLICATION_STAGE_SYNCING);
-    REPLICATION_BIND_TASK(replication, task);
-
-    server_ctx = (FSServerContext *)task->thread_data->arg;
-    add_to_replication_ptr_array(&server_ctx->
-            replica.connected, replication);
-}
-
 int replication_processor_bind_thread(FSReplication *replication)
 {
     struct nio_thread_data *thread_data;
@@ -387,6 +374,15 @@ void clean_connected_replications(FSServerContext *server_ctx)
     }
 }
 
+static inline void send_active_test_package(struct fast_task_info *task)
+{
+    ++TASK_PENDING_SEND_COUNT;
+    task->send.ptr->length = sizeof(FSProtoHeader);
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            SF_PROTO_ACTIVE_TEST_REQ, 0);
+    sf_send_add_event(task);
+}
+
 static int replication_rpc_from_queue(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
@@ -409,6 +405,13 @@ static int replication_rpc_from_queue(FSReplication *replication)
     fc_queue_try_pop_to_queue(&replication->
             context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
+        if (g_current_time - replication->last_net_comm_time >=
+                g_server_global_vars->replica.active_test_interval)
+        {
+            replication->last_net_comm_time = g_current_time;
+            send_active_test_package(task);
+        }
+
         return 0;
     }
 
@@ -482,35 +485,14 @@ static int replication_rpc_from_queue(FSReplication *replication)
     body_len = task->send.ptr->length - sizeof(FSProtoHeader);
     int2buff(body_part - replication->rpc.body_parts, body_header->count);
 
-    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
-            FS_REPLICA_PROTO_RPC_CALL_REQ, body_len);
-    sf_send_add_event(task);
-
     if (replication->last_net_comm_time != g_current_time) {
         replication->last_net_comm_time = g_current_time;
     }
-    return 0;
-}
 
-static inline void send_active_test_package(FSReplication *replication)
-{
-    struct fast_task_info *task;
-
-    if (replication->task->canceled) {
-        return;
-    }
-
-    task = replication->task;
-    if (TASK_PENDING_SEND_COUNT > 0) {
-        return;
-    }
-
-    ++TASK_PENDING_SEND_COUNT;
-    replication->last_net_comm_time = g_current_time;
-    task->send.ptr->length = sizeof(FSProtoHeader);
     SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
-            SF_PROTO_ACTIVE_TEST_REQ, 0);
+            FS_REPLICA_PROTO_RPC_CALL_REQ, body_len);
     sf_send_add_event(task);
+    return 0;
 }
 
 static int deal_connected_replication(FSReplication *replication)
@@ -541,9 +523,7 @@ static int deal_connected_replication(FSReplication *replication)
 static int deal_replication_connected(FSServerContext *server_ctx)
 {
     FSReplication *replication;
-    int result;
     int i;
-    bool send_hb;
 
     /*
     static int count = 0;
@@ -559,15 +539,8 @@ static int deal_replication_connected(FSServerContext *server_ctx)
 
     for (i=0; i<server_ctx->replica.connected.count; i++) {
         replication = server_ctx->replica.connected.replications[i];
-        if ((result=deal_connected_replication(replication)) != 0) {
+        if (deal_connected_replication(replication) != 0) {
             ioevent_add_to_deleted_list(replication->task);
-            continue;
-        }
-
-        send_hb = g_current_time - replication->last_net_comm_time >=
-            g_server_global_vars->replica.active_test_interval;
-        if (send_hb) {
-            send_active_test_package(replication);
         }
     }
 

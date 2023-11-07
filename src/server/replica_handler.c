@@ -150,10 +150,15 @@ int replica_recv_timeout_callback(struct fast_task_info *task)
             REPLICA_REPLICATION != NULL)
     {
         logError("file: "__FILE__", line: %d, "
-                "client %s:%u, sock: %d, server id: %d, recv timeout",
-                __LINE__, task->client_ip, task->port, task->event.fd,
-                REPLICA_REPLICATION->peer->server->id);
+                "server id: %d, %s:%u, sock: %d, recv timeout",
+                __LINE__, REPLICA_REPLICATION->peer->server->id,
+                task->client_ip, task->port, task->event.fd);
         desc_replication_waiting_rpc_count(REPLICA_REPLICATION, ETIMEDOUT);
+        return ETIMEDOUT;
+    } else if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION_SERVER) {
+        logError("file: "__FILE__", line: %d, "
+                "client %s:%u, sock: %d, recv timeout", __LINE__,
+                task->client_ip, task->port, task->event.fd);
         return ETIMEDOUT;
     }
 
@@ -1158,7 +1163,9 @@ static int replica_deal_rpc_resp(struct fast_task_info *task)
 {
     int result;
 
-    if ((result=server_expect_body_length(0)) != 0) {
+    if (REQUEST.header.status != 0) {
+        sf_proto_deal_ack(task, &REQUEST, &RESPONSE);
+    } else if ((result=server_expect_body_length(0)) != 0) {
         return result;
     }
 
