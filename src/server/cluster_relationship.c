@@ -27,6 +27,7 @@
 #include "server_recovery.h"
 #include "master_election.h"
 #include "cluster_topology.h"
+#include "shared_thread_pool.h"
 #include "cluster_relationship.h"
 
 #define ALIGN_TIME(interval) (((interval) / 60) * 60)
@@ -97,21 +98,26 @@ typedef struct fs_cluster_relationship_context {
     FSClusterServerDetectArray inactive_server_array;
     FSClusterQuorumChains quorum_chains;
     time_t last_stat_time;
-    volatile int immediate_report;
-    FastBuffer buffer;
+    volatile int leader_generation;
+    int server_network_timeout;
+    FastBuffer send_buffer;
+    FastBuffer recv_buffer;
     ConnectionInfo vote_connection;
 } FSClusterRelationshipContext;
 
 #define MY_DATA_GROUP_ARRAY relationship_ctx.my_data_group_array
 #define INACTIVE_SERVER_ARRAY relationship_ctx.inactive_server_array
-#define QUORUM_CHAINS    relationship_ctx.quorum_chains
-#define IMMEDIATE_REPORT relationship_ctx.immediate_report
-#define NETWORK_BUFFER relationship_ctx.buffer
-#define LEADER_ELECTION relationship_ctx.leader_election
-#define VOTE_CONNECTION relationship_ctx.vote_connection
+#define QUORUM_CHAINS        relationship_ctx.quorum_chains
+#define NETWORK_SEND_BUFFER  relationship_ctx.send_buffer
+#define NETWORK_RECV_BUFFER  relationship_ctx.recv_buffer
+#define LEADER_ELECTION      relationship_ctx.leader_election
+#define LEADER_GENERATION    relationship_ctx.leader_generation
+#define SERVER_NETWORK_TIMEOUT relationship_ctx.server_network_timeout
+#define VOTE_CONNECTION   relationship_ctx.vote_connection
 
 static FSClusterRelationshipContext relationship_ctx = {
-    {0, 0, NULL}, {NULL, 0}, {NULL, 0}, {{NULL, NULL}}, 0, 0
+    {0, 0, NULL}, {NULL, 0}, {NULL, 0},
+    {{NULL, NULL}}, 0, 0
 };
 
 #define SET_SERVER_DETECT_ENTRY(entry, server) \
@@ -173,7 +179,8 @@ static int proto_get_server_status(ConnectionInfo *conn,
 }
 
 static int proto_join_leader(FSClusterServerInfo *leader,
-        ConnectionInfo *conn, const int network_timeout)
+        ConnectionInfo *conn, const bool server_push,
+        const int network_timeout)
 {
 	int result;
 	FSProtoHeader *header;
@@ -189,6 +196,7 @@ static int proto_join_leader(FSClusterServerInfo *leader,
     req = (FSProtoJoinLeaderReq *)(header + 1);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
+    req->server_push = (server_push ? 1 : 0);
     long2buff(CLUSTER_MYSELF_PTR->key, req->key);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);
@@ -201,6 +209,7 @@ static int proto_join_leader(FSClusterServerInfo *leader,
                     (char *)&resp, sizeof(resp))) == 0)
     {
         leader->leader_version = buff2long(resp.leader_version);
+        SERVER_NETWORK_TIMEOUT = 2 * buff2int(resp.active_test_interval);
     } else {
         if (result != EOPNOTSUPP) {
             fs_log_network_error(&response, conn, result);
@@ -273,12 +282,40 @@ static int proto_get_ds_status(FSClusterDataServerInfo *ds,
     return result;
 }
 
+static inline ConnectionInfo *cluster_make_connection_ex(FCServerInfo *server,
+        int *err_no, const bool log_connect_error)
+{
+    ConnectionInfo *conn;
+
+    if ((conn=conn_pool_alloc_connection(CLUSTER_SERVER_GROUP->comm_type,
+                    &CLUSTER_CONN_EXTRA_PARAMS, err_no)) == NULL)
+    {
+        return NULL;
+    }
+
+    if ((*err_no=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        server), conn, "fstore", SF_G_CONNECT_TIMEOUT,
+                    NULL, log_connect_error)) != 0)
+    {
+        conn_pool_free_connection(conn);
+        return NULL;
+    }
+
+    return conn;
+}
+
+static inline ConnectionInfo *cluster_make_connection(
+        FCServerInfo *server, int *err_no)
+{
+    const bool log_connect_error = true;
+    return cluster_make_connection_ex(server, err_no, log_connect_error);
+}
+
 static int cluster_get_ds_status(FSClusterDataServerInfo *ds,
         FSDataServerStatus *ds_status)
 {
-    const int connect_timeout = 2;
     const int network_timeout = 3;
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     int result;
 
     if (ds->cs == CLUSTER_MYSELF_PTR) {
@@ -290,23 +327,19 @@ static int cluster_get_ds_status(FSClusterDataServerInfo *ds,
         return 0;
     }
 
-    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        ds->cs->server), &conn, "fstore",
-                    connect_timeout)) != 0)
-    {
+    if ((conn=cluster_make_connection(ds->cs->server, &result)) == NULL) {
         return result;
     }
 
-    result = proto_get_ds_status(ds, &conn, network_timeout, ds_status);
-    conn_pool_disconnect_server(&conn);
+    result = proto_get_ds_status(ds, conn, network_timeout, ds_status);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
 static int cluster_unset_master(FSClusterDataServerInfo *master)
 {
-    const int connect_timeout = 2;
     const int network_timeout = 3;
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     int result;
 
     if (master->cs == CLUSTER_MYSELF_PTR) {
@@ -314,19 +347,17 @@ static int cluster_unset_master(FSClusterDataServerInfo *master)
         return 0;
     }
 
-    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        master->cs->server), &conn, "fstore",
-                    connect_timeout)) != 0)
-    {
+    if ((conn=cluster_make_connection(master->cs->server, &result)) == NULL) {
         return result;
     }
 
-    result = proto_unset_master(master, &conn, network_timeout);
-    conn_pool_disconnect_server(&conn);
+    result = proto_unset_master(master, conn, network_timeout);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
-static void pack_changed_data_versions(int *count, const bool report_all)
+static void pack_changed_data_versions(FastBuffer *buffer,
+        int *count, const bool report_all)
 {
     FSMyDataGroupInfo *group;
     FSMyDataGroupInfo *end;
@@ -337,8 +368,8 @@ static void pack_changed_data_versions(int *count, const bool report_all)
     } data_versions;
 
     *count = 0;
-    body_part = (FSProtoPingLeaderReqBodyPart *)(NETWORK_BUFFER.data +
-            NETWORK_BUFFER.length);
+    body_part = (FSProtoPingLeaderReqBodyPart *)(buffer->data +
+            buffer->length);
     end = MY_DATA_GROUP_ARRAY.groups + MY_DATA_GROUP_ARRAY.count;
     for (group=MY_DATA_GROUP_ARRAY.groups; group<end; group++) {
         data_versions.confirmed = FC_ATOMIC_GET(
@@ -365,7 +396,7 @@ static void pack_changed_data_versions(int *count, const bool report_all)
         }
     }
 
-    NETWORK_BUFFER.length = (char *)body_part - NETWORK_BUFFER.data;
+    buffer->length = (char *)body_part - buffer->data;
 }
 
 static void leader_deal_data_version_changes()
@@ -460,9 +491,8 @@ static int cluster_cmp_server_status(const void *p1, const void *p2)
 static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
         const bool log_connect_error)
 {
-    const int connect_timeout = 2;
     const int network_timeout = 3;
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     int result;
 
     if (server_status->cs == CLUSTER_MYSELF_PTR) {
@@ -478,16 +508,14 @@ static int cluster_get_server_status_ex(FSClusterServerStatus *server_status,
                 &CLUSTER_CURRENT_VERSION, 0);
         return 0;
     } else {
-        if ((result=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            server_status->cs->server), &conn, "fstore",
-                        connect_timeout, NULL, log_connect_error)) != 0)
+        if ((conn=cluster_make_connection_ex(server_status->cs->server,
+                        &result, log_connect_error)) == NULL)
         {
             return result;
         }
 
-        result = proto_get_server_status(&conn,
-                network_timeout, server_status);
-        conn_pool_disconnect_server(&conn);
+        result = proto_get_server_status(conn, network_timeout, server_status);
+        fc_server_destroy_connection(conn);
         return result;
     }
 }
@@ -637,35 +665,32 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
 		FSClusterServerInfo *leader, const char cmd, bool *bConnectFail)
 {
     char out_buff[sizeof(FSProtoHeader) + 4];
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     FSProtoHeader *header;
     SFResponseInfo response;
     int result;
 
-    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        cs->server), &conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT)) != 0)
-    {
+    if ((conn=cluster_make_connection(cs->server, &result)) == NULL) {
         *bConnectFail = true;
         return result;
     }
-    *bConnectFail = false;
 
+    *bConnectFail = false;
     header = (FSProtoHeader *)out_buff;
     SF_PROTO_SET_HEADER(header, cmd, sizeof(out_buff) -
             sizeof(FSProtoHeader));
     int2buff(leader->server->id, out_buff + sizeof(FSProtoHeader));
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     SF_PROTO_ACK)) != 0)
     {
         if (result != EOPNOTSUPP) {
-            fs_log_network_error(&response, &conn, result);
+            fs_log_network_error(&response, conn, result);
         }
     }
 
-    conn_pool_disconnect_server(&conn);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
@@ -676,7 +701,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     FSProtoHeader *header;
     FSProtoReportDSStatusReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReportDSStatusReq)];
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     SFResponseInfo response;
     int result;
 
@@ -685,10 +710,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
         return ENOENT;
     }
 
-    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        leader->server), &conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT)) != 0)
-    {
+    if ((conn=cluster_make_connection(leader->server, &result)) == NULL) {
         return result;
     }
 
@@ -701,16 +723,16 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     int2buff(ds->dg->id, req->data_group_id);
     req->status = status;
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
-            fs_log_network_error(&response, &conn, result);
+            fs_log_network_error(&response, conn, result);
         }
     }
 
-    conn_pool_disconnect_server(&conn);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
@@ -721,7 +743,7 @@ int cluster_relationship_report_reselect_master_to_leader(
     FSProtoHeader *header;
     FSProtoReselectMasterReq *req;
     char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoReselectMasterReq)];
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
     SFResponseInfo response;
     int result;
 
@@ -733,10 +755,7 @@ int cluster_relationship_report_reselect_master_to_leader(
         return ENOENT;
     }
 
-    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        leader->server), &conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT)) != 0)
-    {
+    if ((conn=cluster_make_connection(leader->server, &result)) == NULL) {
         return result;
     }
 
@@ -747,16 +766,16 @@ int cluster_relationship_report_reselect_master_to_leader(
     int2buff(ds->dg->id, req->data_group_id);
     int2buff(ds->cs->server->id, req->server_id);
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(&conn, out_buff,
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
                     sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_RESELECT_MASTER_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
-            fs_log_network_error(&response, &conn, result);
+            fs_log_network_error(&response, conn, result);
         }
     }
 
-    conn_pool_disconnect_server(&conn);
+    fc_server_destroy_connection(conn);
     return result;
 }
 
@@ -787,8 +806,8 @@ static void unset_all_data_groups()
     FSClusterDataServerInfo *send;
     FSClusterDataServerInfo *master;
 
-    gend = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<gend; group++) {
+    gend = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<gend; group++) {
         master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
         if (master != NULL) {
             __sync_bool_compare_and_swap(&group->master, master, NULL);
@@ -1651,7 +1670,6 @@ void cluster_relationship_trigger_report_ds_status(FSClusterDataServerInfo *ds)
 {
     ds->last_report_versions.current = -1;
     ds->last_report_versions.confirmed = -1;
-    __sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 0, 1);
 }
 
 int cluster_relationship_report_ds_status(FSClusterDataServerInfo *ds,
@@ -1829,8 +1847,8 @@ static void cluster_process_push_entry(FSClusterDataServerInfo *ds,
     cluster_relationship_on_master_change(ds->dg, old_master, new_master);
 }
 
-static int cluster_process_leader_push(SFResponseInfo *response,
-        char *body_buff, const int body_len)
+static int cluster_process_leader_push(ConnectionInfo *conn,
+        SFResponseInfo *response, char *body_buff, const int body_len)
 {
     FSProtoPushDataServerStatusHeader *body_header;
     FSProtoPushDataServerStatusBodyPart *body_part;
@@ -1874,65 +1892,119 @@ static int cluster_process_leader_push(SFResponseInfo *response,
     return 0;
 }
 
-static int cluster_recv_from_leader(ConnectionInfo *conn,
-        SFResponseInfo *response, const int timeout_ms,
-        const bool ignore_timeout)
+static inline int parse_body_length(FSProtoHeader *header,
+        SFResponseInfo *response, int *body_len)
 {
-    FSProtoHeader header_proto;
+    if (!SF_PROTO_CHECK_MAGIC(header->magic)) {
+        response->error.length = sprintf(response->error.message,
+                "magic "SF_PROTO_MAGIC_FORMAT" is invalid, expect: "
+                SF_PROTO_MAGIC_FORMAT, SF_PROTO_MAGIC_PARAMS(
+                    header->magic),
+                SF_PROTO_MAGIC_EXPECT_PARAMS);
+        return EINVAL;
+    }
+
+    *body_len = buff2int(header->body_len);
+    if (*body_len < 0 || *body_len > g_sf_global_vars.max_buff_size) {
+        response->error.length = sprintf(response->error.message,
+                "invalid body length: %d < 0 or > %d",
+                *body_len, g_sf_global_vars.max_buff_size);
+        return EINVAL;
+    }
+
+    return 0;
+}
+
+static int cluster_recv_from_leader(ConnectionInfo *conn,
+        SFResponseInfo *response, const int timeout_ms)
+{
+    const bool call_post_recv = true;
+    BufferInfo *buffer;
+    struct {
+        FSProtoHeader holder;
+        FSProtoHeader *ptr;
+    } header;
+    unsigned char resp_cmd;
+    char *body;
+    char out_buff[sizeof(FSProtoHeader)];
     int recv_bytes;
     int status;
     int result;
     int body_len;
 
-    if ((result=tcprecvdata_nb_ms(conn->sock, &header_proto,
-                    sizeof(FSProtoHeader), timeout_ms, &recv_bytes)) != 0)
-    {
-        if (result == ETIMEDOUT) {
-            if (recv_bytes == 0 && ignore_timeout) {
-                return 0;
+    if (conn->comm_type == fc_comm_type_rdma) {
+        result = G_RDMA_CONNECTION_CALLBACKS.recv_data(
+                conn, call_post_recv, timeout_ms);
+        if (result != 0) {
+            if (result == ETIMEDOUT) {
+                return result;
             }
+            response->error.length = sprintf(response->error.message,
+                    "recv data fail, errno: %d, error info: %s",
+                    result, STRERROR(result));
+            return result;
         }
-        response->error.length = sprintf(response->error.message,
-                "recv data fail, recv bytes: %d, "
-                "errno: %d, error info: %s",
-                recv_bytes, result, STRERROR(result));
-        return result;
-    }
 
-    if (!SF_PROTO_CHECK_MAGIC(header_proto.magic)) {
-        response->error.length = sprintf(response->error.message,
-                "magic "SF_PROTO_MAGIC_FORMAT" is invalid, expect: "
-                SF_PROTO_MAGIC_FORMAT, SF_PROTO_MAGIC_PARAMS(
-                    header_proto.magic), SF_PROTO_MAGIC_EXPECT_PARAMS);
-        return EINVAL;
-    }
+        buffer = G_RDMA_CONNECTION_CALLBACKS.get_recv_buffer(conn);
+        if (buffer->length < sizeof(FSProtoHeader)) {
+            response->error.length = sprintf(response->error.message,
+                    "recv pkg length: %d < header size: %d",
+                    buffer->length, (int)sizeof(FSProtoHeader));
+            return EINVAL;
+        }
 
-    body_len = buff2int(header_proto.body_len);
-    if (body_len < 0 || body_len > g_sf_global_vars.max_buff_size) {
-        response->error.length = sprintf(response->error.message,
-                "invalid body length: %d < 0 or > %d",
-                body_len, g_sf_global_vars.max_buff_size);
-        return EINVAL;
-    }
-    if ((result=fast_buffer_check_capacity(
-                    &NETWORK_BUFFER, body_len)) != 0)
-    {
-        return result;
-    }
-
-    if (body_len > 0) {
-        if ((result=tcprecvdata_nb_ms(conn->sock, NETWORK_BUFFER.data,
-                        body_len, timeout_ms, &recv_bytes)) != 0)
+        header.ptr = (FSProtoHeader *)buffer->buff;
+        body = (char *)(header.ptr + 1);
+        if ((result=parse_body_length(header.ptr,
+                        response, &body_len)) != 0)
         {
+            return result;
+        }
+    } else {
+        header.ptr = &header.holder;
+        if ((result=tcprecvdata_nb_ms(conn->sock, header.ptr,
+                        sizeof(FSProtoHeader), timeout_ms,
+                        &recv_bytes)) != 0)
+        {
+            if (result == ETIMEDOUT) {
+                if (recv_bytes == 0) {
+                    return result;
+                }
+            }
             response->error.length = sprintf(response->error.message,
                     "recv data fail, recv bytes: %d, "
                     "errno: %d, error info: %s",
                     recv_bytes, result, STRERROR(result));
             return result;
         }
+
+        if ((result=parse_body_length(header.ptr,
+                        response, &body_len)) != 0)
+        {
+            return result;
+        }
+
+        if ((result=fast_buffer_check_capacity(
+                        &NETWORK_RECV_BUFFER, body_len)) != 0)
+        {
+            return result;
+        }
+
+        body = NETWORK_RECV_BUFFER.data;
+        if (body_len > 0) {
+            if ((result=tcprecvdata_nb_ms(conn->sock, body, body_len,
+                            timeout_ms, &recv_bytes)) != 0)
+            {
+                response->error.length = sprintf(response->error.message,
+                        "recv data fail, recv bytes: %d, "
+                        "errno: %d, error info: %s",
+                        recv_bytes, result, STRERROR(result));
+                return result;
+            }
+        }
     }
 
-    status = buff2short(header_proto.status);
+    status = buff2short(header.ptr->status);
     if (status != 0) {
         if (body_len > 0) {
             if (body_len >= sizeof(response->error.message)) {
@@ -1941,7 +2013,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
                 response->error.length = body_len;
             }
 
-            memcpy(response->error.message, NETWORK_BUFFER.data,
+            memcpy(response->error.message, body,
                     response->error.length);
             *(response->error.message + response->error.length) = '\0';
         }
@@ -1949,23 +2021,36 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
         return status;
     }
 
-    if (header_proto.cmd == FS_CLUSTER_PROTO_PING_LEADER_RESP ||
-            header_proto.cmd == FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)
-    {
-        return 0;
-    } else if (header_proto.cmd == FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS) {
-        return cluster_process_leader_push(response,
-                NETWORK_BUFFER.data, body_len);
+    if (header.ptr->cmd == FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ) {
+        if ((result=cluster_process_leader_push(conn, response,
+                        body, body_len)) != 0)
+        {
+            return result;
+        }
+        resp_cmd = FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP;
+    } else if (header.ptr->cmd == SF_PROTO_ACTIVE_TEST_REQ) {
+        resp_cmd = SF_PROTO_ACTIVE_TEST_RESP;
     } else {
         response->error.length = sprintf(response->error.message,
-                "unexpect cmd: %d (%s)", header_proto.cmd,
-                fs_get_cmd_caption(header_proto.cmd));
+                "unexpect cmd: %d (%s)", header.ptr->cmd,
+                fs_get_cmd_caption(header.ptr->cmd));
         return EINVAL;
+    }
+
+    header.ptr = (FSProtoHeader *)out_buff;
+    SF_PROTO_SET_HEADER(header.ptr, resp_cmd, 0);
+    if (conn->comm_type == fc_comm_type_rdma) {
+        return  G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(conn,
+                out_buff, sizeof(out_buff));
+    } else {
+        return tcpsenddata_nb(conn->sock, out_buff,
+                sizeof(out_buff), SF_G_NETWORK_TIMEOUT);
     }
 }
 
 static int proto_ping_leader_ex(FSClusterServerInfo *leader,
-        ConnectionInfo *conn, const unsigned char cmd,
+        FastBuffer *buffer, ConnectionInfo *conn, const unsigned
+        char req_cmd, const unsigned char resp_cmd,
         const int network_timeout, const bool report_all)
 {
     FSProtoHeader *header;
@@ -1975,11 +2060,11 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
     int result;
     int log_level;
 
-    header = (FSProtoHeader *)NETWORK_BUFFER.data;
+    header = (FSProtoHeader *)buffer->data;
     req_header = (FSProtoPingLeaderReqHeader *)(header + 1);
-    NETWORK_BUFFER.length = sizeof(FSProtoHeader) +
+    buffer->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoPingLeaderReqHeader);
-    pack_changed_data_versions(&data_group_count, report_all);
+    pack_changed_data_versions(buffer, &data_group_count, report_all);
 
     if (data_group_count > 0) {
         logDebug("file: "__FILE__", line: %d, "
@@ -1990,32 +2075,34 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
 
     long2buff(leader->leader_version, req_header->leader_version);
     int2buff(data_group_count, req_header->data_group_count);
-    SF_PROTO_SET_HEADER(header, cmd, NETWORK_BUFFER.length -
+    SF_PROTO_SET_HEADER(header, req_cmd, buffer->length -
         sizeof(FSProtoHeader));
 
     response.error.length = 0;
-    if ((result=tcpsenddata_nb(conn->sock, NETWORK_BUFFER.data,
-                    NETWORK_BUFFER.length, network_timeout)) == 0)
+    if ((result=sf_send_and_recv_none_body_response(conn, buffer->
+                    data, buffer->length, &response,
+                    network_timeout, resp_cmd)) != 0)
     {
-        result = cluster_recv_from_leader(conn, &response,
-                1000 * network_timeout, false);
-    }
-
-    if (result != 0 && result != EOPNOTSUPP) {
-        log_level = (result == SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT
-                ? LOG_WARNING : LOG_ERR);
-        fs_log_network_error_ex(&response, conn, result, log_level);
+        if (result != EOPNOTSUPP) {
+            log_level = (result == SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT
+                    ? LOG_WARNING : LOG_ERR);
+            fs_log_network_error_ex(&response, conn, result, log_level);
+        }
     }
 
     return result;
 }
 
 #define proto_activate_server(leader, conn, network_timeout) \
-    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_ACTIVATE_SERVER, \
+    proto_ping_leader_ex(leader, &NETWORK_RECV_BUFFER, conn, \
+            FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ,  \
+            FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP, \
             network_timeout, true)
 
 #define proto_ping_leader(leader, conn, network_timeout) \
-    proto_ping_leader_ex(leader, conn, FS_CLUSTER_PROTO_PING_LEADER_REQ, \
+    proto_ping_leader_ex(leader, &NETWORK_SEND_BUFFER, conn, \
+            FS_CLUSTER_PROTO_PING_LEADER_REQ,  \
+            FS_CLUSTER_PROTO_PING_LEADER_RESP, \
             network_timeout, false)
 
 static int proto_report_disk_space(ConnectionInfo *conn,
@@ -2036,50 +2123,16 @@ static int proto_report_disk_space(ConnectionInfo *conn,
     long2buff(stat->used, req->used);
 
     response.error.length = 0;
-    if ((result=tcpsenddata_nb(conn->sock, out_buff, sizeof(out_buff),
-                    SF_G_NETWORK_TIMEOUT)) == 0)
+    if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
+                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)) != 0)
     {
-        result = cluster_recv_from_leader(conn, &response,
-                1000 * SF_G_NETWORK_TIMEOUT, false);
-    }
-
-    if (result != 0 && result != EOPNOTSUPP) {
-        fs_log_network_error(&response, conn, result);
+        if (result != EOPNOTSUPP) {
+            fs_log_network_error(&response, conn, result);
+        }
     }
 
     return result;
-}
-
-static int cluster_try_recv_push_data(FSClusterServerInfo *leader,
-        ConnectionInfo *conn)
-{
-    const int network_timeout = 3;
-    int result;
-    int start_time;
-    int timeout_ms;
-    SFResponseInfo response;
-
-    start_time = g_current_time;
-    timeout_ms = 100;
-    do {
-        response.error.length = 0;
-        if ((result=cluster_recv_from_leader(conn, &response,
-                        timeout_ms, true)) != 0)
-        {
-            fs_log_network_error(&response, conn, result);
-            return result;
-        }
-
-        if (__sync_bool_compare_and_swap(&IMMEDIATE_REPORT, 1, 0)) {
-            if ((result=proto_ping_leader(leader, conn,
-                            network_timeout)) != 0)
-            {
-                return result;
-            }
-        }
-    } while (start_time == g_current_time);
-
-    return 0;
 }
 
 static inline int vote_node_active_check()
@@ -2162,41 +2215,61 @@ static int leader_check()
     return 0;  //do not need ping myself
 }
 
-static int follower_ping(FSClusterServerInfo *leader,
-        ConnectionInfo *conn, const int timeout)
+static int check_make_connection(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, const bool server_push,
+        const int timeout)
 {
     int connect_timeout;
     int network_timeout;
     int result;
 
+    connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
     network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
-    if (conn->sock < 0) {
-        connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
-        if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                            leader->server), conn, "fstore",
-                        connect_timeout)) != 0)
-        {
-            return result;
-        }
-
-        if ((result=proto_join_leader(leader, conn, network_timeout)) != 0) {
-            conn_pool_disconnect_server(conn);
-            return result;
-        }
-
-        if ((result=proto_activate_server(leader, conn,
-                        network_timeout)) != 0)
-        {
-            conn_pool_disconnect_server(conn);
-            return result;
-        }
-    }
-
-    if ((result=cluster_try_recv_push_data(leader, conn)) != 0) {
-        conn_pool_disconnect_server(conn);
+    if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
+                        leader->server), conn, "fstore",
+                    connect_timeout)) != 0)
+    {
         return result;
     }
 
+    if ((result=proto_join_leader(leader, conn, server_push,
+                    network_timeout)) != 0)
+    {
+        fc_server_close_connection(conn);
+        return result;
+    }
+
+    if (server_push) {
+        if ((result=proto_activate_server(leader, conn,
+                        network_timeout)) != 0)
+        {
+            fc_server_close_connection(conn);
+            return result;
+        }
+
+        logInfo("file: "__FILE__", line: %d, "
+                "connect to leader id: %d, %s:%u successfully", __LINE__,
+                leader->server->id, conn->ip_addr, conn->port);
+    }
+    return 0;
+}
+
+static int follower_ping(FSClusterServerInfo *leader,
+        ConnectionInfo *conn, const int timeout)
+{
+    const bool server_push = false;
+    int network_timeout;
+    int result;
+
+    if (!G_COMMON_CONNECTION_CALLBACKS[conn->comm_type].is_connected(conn)) {
+        if ((result=check_make_connection(leader, conn,
+                        server_push, timeout)) != 0)
+        {
+            return result;
+        }
+    }
+
+    network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
     result = proto_ping_leader(leader, conn, network_timeout);
     if (result == 0) {
         if (g_current_time - relationship_ctx.last_stat_time >= 10) {
@@ -2206,8 +2279,6 @@ static int follower_ping(FSClusterServerInfo *leader,
             result = proto_report_disk_space(conn,
                     &CLUSTER_MYSELF_PTR->space_stat);
         }
-    } else {
-        conn_pool_disconnect_server(conn);
     }
 
     return result;
@@ -2297,6 +2368,7 @@ static void deal_quorum_cleanup_chain()
 static inline int cluster_ping_leader(FSClusterServerInfo *leader,
         ConnectionInfo *conn, const int timeout, bool *is_ping)
 {
+    int result;
     if (REPLICA_QUORUM_NEED_DETECT) {
         PTHREAD_MUTEX_LOCK(&QUORUM_CHAINS.lock);
         if (!fc_list_empty(&QUORUM_CHAINS.detect_head)) {
@@ -2314,8 +2386,73 @@ static inline int cluster_ping_leader(FSClusterServerInfo *leader,
         return leader_check();
     } else {
         *is_ping = true;
-        return follower_ping(leader, conn, timeout);
+        if ((result=follower_ping(leader, conn, timeout)) == 0) {
+            sleep(1);
+        } else {
+            fc_server_close_connection(conn);
+        }
+        return result;
     }
+}
+
+static void server_push_handler_run(void *arg, void *thread_data)
+{
+    const bool server_push = true;
+    const int timeout_ms = 1000;
+    int result;
+    int leader_generation;
+    time_t last_net_comm_time;
+    SFResponseInfo response;
+    FSClusterServerInfo *leader;
+    ConnectionInfo *mconn;
+
+    if ((leader=CLUSTER_LEADER_ATOM_PTR) == NULL) {
+        return;
+    }
+
+    leader_generation = (long)arg;
+    if ((mconn=conn_pool_alloc_connection(
+                    CLUSTER_SERVER_GROUP->comm_type,
+                    &CLUSTER_CONN_EXTRA_PARAMS, &result)) == NULL)
+    {
+        return;
+    }
+
+    last_net_comm_time = g_current_time;
+    while (leader_generation == LEADER_GENERATION && SF_G_CONTINUE_FLAG) {
+        if (!G_COMMON_CONNECTION_CALLBACKS[mconn->comm_type].
+                is_connected(mconn))
+        {
+            if (check_make_connection(leader, mconn, server_push,
+                        SF_G_CONNECT_TIMEOUT) != 0)
+            {
+                sleep(1);
+                continue;
+            }
+
+            last_net_comm_time = g_current_time;
+        }
+
+        response.error.length = 0;
+        if ((result=cluster_recv_from_leader(mconn, &response,
+                        timeout_ms)) == 0)
+        {
+            last_net_comm_time = g_current_time;
+        } else {
+            if (result == ETIMEDOUT) {
+                if (g_current_time - last_net_comm_time <=
+                        SERVER_NETWORK_TIMEOUT)
+                {
+                    continue;
+                }
+            }
+
+            fs_log_network_error(&response, mconn, result);
+            fc_server_close_connection(mconn);
+        }
+    }
+
+    fc_server_close_connection(mconn);
 }
 
 static void *cluster_thread_entrance(void *arg)
@@ -2328,18 +2465,25 @@ static void *cluster_thread_entrance(void *arg)
     int ping_remain_time;
     bool is_ping;
     time_t ping_start_time;
+    ConnectionInfo *mconn;
+    FSClusterServerInfo *last_leader;
     FSClusterServerInfo *leader;
-    ConnectionInfo mconn;  //leader connection
 
 #ifdef OS_LINUX
     prctl(PR_SET_NAME, "relationship");
 #endif
 
-    memset(&mconn, 0, sizeof(mconn));
-    mconn.sock = -1;
+    if ((mconn=conn_pool_alloc_connection(
+                    CLUSTER_SERVER_GROUP->comm_type,
+                    &CLUSTER_CONN_EXTRA_PARAMS, &result)) == NULL)
+    {
+        return NULL;
+    }
+
     da_storage_config_stat_path_spaces(&DA_CTX,
             &CLUSTER_MYSELF_PTR->space_stat);
 
+    last_leader = NULL;
     fail_count = 0;
     sleep_seconds = 1;
     ping_start_time = g_current_time;
@@ -2350,19 +2494,26 @@ static void *cluster_thread_entrance(void *arg)
                 sleep_seconds = 1 + (int)((double)rand()
                         * (double)MAX_SLEEP_SECONDS / RAND_MAX);
             } else {
-                if (mconn.sock >= 0) {
-                    conn_pool_disconnect_server(&mconn);
-                }
-                ping_start_time = g_current_time;
                 sleep_seconds = 1;
             }
         } else {
+            if (leader != last_leader) {
+                ++LEADER_GENERATION;
+                fc_server_close_connection(mconn);
+                if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
+                    shared_thread_pool_run(server_push_handler_run,
+                            (void *)((long)LEADER_GENERATION));
+                }
+                ping_start_time = g_current_time;
+                last_leader = leader;
+            }
+
             ping_remain_time = LEADER_ELECTION_LOST_TIMEOUT -
                 (g_current_time - ping_start_time);
             if (ping_remain_time < 2) {
                 ping_remain_time = 2;
             }
-            if ((result=cluster_ping_leader(leader, &mconn,
+            if ((result=cluster_ping_leader(leader, mconn,
                             ping_remain_time, &is_ping)) == 0)
             {
                 fail_count = 0;
@@ -2423,8 +2574,8 @@ static int init_my_data_group_array()
 
     for (i=0; i<id_array->count; i++) {
         group_id = id_array->ids[i];
-        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
+        group_index = group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_GROUP_ARRAY.groups + group_index;
         end = data_group->data_server_array.servers +
             data_group->data_server_array.count;
         for (ds=data_group->data_server_array.servers; ds<end; ds++) {
@@ -2474,7 +2625,10 @@ int cluster_relationship_init()
     }
 
     init_size = cluster_relationship_get_max_buffer_size();
-    if ((result=fast_buffer_init_ex(&NETWORK_BUFFER, init_size)) != 0) {
+    if ((result=fast_buffer_init_ex(&NETWORK_SEND_BUFFER, init_size)) != 0) {
+        return result;
+    }
+    if ((result=fast_buffer_init_ex(&NETWORK_RECV_BUFFER, init_size)) != 0) {
         return result;
     }
 

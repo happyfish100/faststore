@@ -45,11 +45,6 @@ static inline void replication_callee_free_op_buffer_ctx(
             op_ctx_allocator, op_buffer);
 }
 
-int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
-        const int data_group_id, const uint64_t data_version, const int err_no);
-
-int replication_callee_deal_rpc_result_queue(FSReplication *replication);
-
 #ifdef __cplusplus
 }
 #endif

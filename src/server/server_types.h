@@ -33,6 +33,9 @@
 #include "common/fs_server_types.h"
 #include "storage/storage_types.h"
 
+//for event debug
+//#define FS_EVENT_DEBUG_FLAG
+
 #define FS_SPACE_ALIGN_SIZE  8
 #define FS_TRUNK_BINLOG_MAX_RECORD_SIZE    128
 #define FS_TRUNK_BINLOG_SUBDIR_NAME      "trunk"
@@ -52,10 +55,12 @@
 #define FS_BINLOG_FILENAME_SUFFIX_SIZE      32
 #define FS_BINLOG_MAX_RECORD_SIZE  FS_SLICE_BINLOG_MAX_RECORD_SIZE
 
-#define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //slave  -> master
-#define FS_SERVER_TASK_TYPE_FETCH_BINLOG        2   //slave  -> master
-#define FS_SERVER_TASK_TYPE_SYNC_BINLOG         3   //slave  -> master
-#define FS_SERVER_TASK_TYPE_REPLICATION         4
+#define FS_SERVER_TASK_TYPE_RELATIONSHIP        1   //follower -> leader
+#define FS_SERVER_TASK_TYPE_CLUSTER_PUSH        2   //leader -> follower
+#define FS_SERVER_TASK_TYPE_FETCH_BINLOG        3   //slave  -> master
+#define FS_SERVER_TASK_TYPE_SYNC_BINLOG         4   //slave  -> master
+#define FS_SERVER_TASK_TYPE_REPLICATION_CLIENT  5
+#define FS_SERVER_TASK_TYPE_REPLICATION_SERVER  6
 
 #define FS_REPLICATION_STAGE_NONE               0
 #define FS_REPLICATION_STAGE_INITED             1
@@ -161,6 +166,7 @@
         4 * sizeof(FSProtoSliceWriteReqHeader) +  \
         sizeof(FSProtoReplicaRPCReqBodyPart))
 
+#define TASK_PENDING_SEND_COUNT task->pending_send_count
 #define TASK_ARG          ((FSServerTaskArg *)task->arg)
 #define TASK_CTX          TASK_ARG->context
 #define REQUEST           TASK_CTX.common.request
@@ -168,8 +174,12 @@
 #define RESPONSE_STATUS   RESPONSE.header.status
 #define REQUEST_STATUS    REQUEST.header.status
 #define RECORD            TASK_CTX.service.record
-#define CLUSTER_PEER         TASK_CTX.shared.cluster.peer
-#define REPLICA_REPLICATION  TASK_CTX.shared.replica.replication
+#define CLUSTER_PEER      TASK_CTX.shared.cluster.peer
+#define REPLICA_REPLICATION     TASK_CTX.shared.replica.replication
+
+#define REPLICA_RPC_WAITING_COUNT   TASK_CTX.shared.replica.rpc_waiting_count
+#define REPLICA_RPC_FAIL_COUNT      TASK_CTX.shared.replica.rpc_fail_count
+
 #define REPLICA_READER       TASK_CTX.shared.replica.reader
 #define REPLICA_UNTIL_OFFSET TASK_CTX.shared.replica.until_offset
 #define IDEMPOTENCY_CHANNEL  TASK_CTX.shared.service.idempotency_channel
@@ -179,7 +189,7 @@
 #define OP_CTX_INFO       TASK_CTX.slice_op_ctx.info
 #define OP_CTX_NOTIFY_FUNC TASK_CTX.slice_op_ctx.notify_func
 
-#define SERVER_CTX        ((FSServerContext *)task->thread_data->arg)
+#define SERVER_CTX           ((FSServerContext *)task->thread_data->arg)
 
 typedef void (*server_free_func)(void *ptr);
 typedef void (*server_free_func_ex)(void *ctx, void *ptr);
@@ -204,6 +214,9 @@ typedef struct fs_data_server_change_event {
     struct fs_cluster_data_server_info *ds;
     short source;  //for hint/debug only
     short type;    //for hint/debug only
+#ifdef FS_EVENT_DEBUG_FLAG
+    int64_t sn;
+#endif
     volatile int in_queue;
     struct fs_data_server_change_event *next;  //for queue
 } FSDataServerChangeEvent;
@@ -240,6 +253,7 @@ typedef struct fs_cluster_server_info {
     int server_index;       //for offset
     int link_index;         //for next links
     time_t last_ping_time;  //for the leader
+    time_t last_net_comm_time;   //last network communication time for cluster
     int64_t leader_version; //for generation check
     int64_t key;            //for leader call follower to unset master
     FSClusterServerSpaceStat space_stat;
@@ -381,66 +395,38 @@ typedef struct fs_cluster_data_group_array {
 } FSClusterDataGroupArray;
 
 typedef struct fs_rpc_result_entry {
+    int data_group_id;
     uint64_t data_version;
-    time_t expires;
     struct fast_task_info *waiting_task;
-    struct fs_rpc_result_entry *next;
 } FSReplicaRPCResultEntry;
 
-typedef struct fs_rpc_result_instance {
-    int data_group_id;
-    struct {
-        FSReplicaRPCResultEntry *entries;
-        FSReplicaRPCResultEntry *start; //for consumer
-        FSReplicaRPCResultEntry *end;   //for producer
-        int size;
-    } ring;
-
-    struct {
-        FSReplicaRPCResultEntry *head;
-        FSReplicaRPCResultEntry *tail;
-    } queue;   //for overflow exceptions
-
-} FSReplicaRPCResultInstance;
-
-typedef struct fs_rpc_result_context {
-    time_t last_check_timeout_time;
-    int dg_base_id;    //min data group id
-    int dg_count;
-    FSReplicaRPCResultInstance *instances;   //for my data groups
-    struct fs_replication *replication;
-    struct fast_mblock_man rentry_allocator; //element: FSReplicaRPCResultEntry
-} FSReplicaRPCResultContext;
+typedef struct fs_rpc_result_array {
+    FSReplicaRPCResultEntry *results;
+    int alloc;
+    int count;
+} FSReplicaRPCResultArray;
 
 typedef struct fs_replication_context {
     struct {
         struct fc_queue rpc_queue;
-        FSReplicaRPCResultContext rpc_result_ctx;   //push result recv from peer
+        FSReplicaRPCResultArray rpc_result_array;
     } caller;  //master side
-
-    struct {
-        struct fc_queue done_queue;
-        struct fast_mblock_man result_allocator;
-    } callee;  //slave side
 } FSReplicationContext;
 
 typedef struct fs_replication {
     struct fast_task_info *task;
     FSClusterServerInfo *peer;
-    volatile uint32_t version;  //for ds ONLINE to ACTIVE check
+    volatile uint32_t version; //for ds ONLINE to ACTIVE check
     volatile char stage;
-    bool is_free;
-    bool is_client;
-    volatile char reverse_hb; //if server send active test immediately
-    int thread_index;         //for nio thread
-    int conn_index;           //for connect failover
-    int last_net_comm_time;   //last network communication time
+    int id;                    //for debug
+    int thread_index;          //for nio thread
+    int conn_index;            //for connect failover
+    time_t last_net_comm_time;    //last network communication time
     struct {
-        int start_time;
-        int next_connect_time;
+        time_t start_time;
+        time_t next_connect_time;
         int last_errno;
         int fail_count;
-        ConnectionInfo conn;
     } connection_info;  //for client to make connection
 
     struct {
@@ -465,7 +451,12 @@ typedef struct {
 
         struct {
             union {
-                FSReplication *replication;
+                struct {
+                    FSReplication *replication;
+                    volatile int rpc_waiting_count;
+                    volatile int rpc_fail_count;
+                };
+
                 struct {
                     struct server_binlog_reader *reader; //for fetch/sync binlog
                     int64_t until_offset;  //for sync binlog only
@@ -489,7 +480,6 @@ typedef struct {
 typedef struct server_task_arg {
     FSServerTaskContext context;
 } FSServerTaskArg;
-
 
 typedef struct fs_server_context {
     union {

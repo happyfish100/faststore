@@ -213,8 +213,8 @@ static void calc_my_data_groups_quorum_vars()
             CLUSTER_MYSELF_PTR->server->id);
     for (i=0; i<id_array->count; i++) {
         group_id = id_array->ids[i];
-        group_index = group_id - CLUSTER_DATA_RGOUP_ARRAY.base_id;
-        data_group = CLUSTER_DATA_RGOUP_ARRAY.groups + group_index;
+        group_index = group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+        data_group = CLUSTER_DATA_GROUP_ARRAY.groups + group_index;
 
         data_group->replica_quorum.need_majority = SF_REPLICATION_QUORUM_NEED_MAJORITY(
                 REPLICATION_QUORUM, data_group->data_server_array.count);
@@ -323,13 +323,6 @@ static int load_cluster_config(IniContext *ini_context, const char *filename,
         return result;
     }
 
-    fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
-
-    if ((result=server_group_info_init(full_cluster_filename)) != 0) {
-        return result;
-    }
-
-    calc_my_data_groups_quorum_vars();
     return 0;
 }
 
@@ -652,8 +645,8 @@ static int init_net_retry_config(const char *config_filename)
 
 static int server_init_client(const char *config_filename)
 {
-    int result;
     const bool bg_thread_enabled = false;
+    int result;
 
     /* set read rule for store path rebuild */
     g_fs_client_vars.client_ctx.common_cfg.read_rule =
@@ -672,6 +665,14 @@ static int server_init_client(const char *config_filename)
     fs_set_file_block_size(&g_fs_client_vars.client_ctx, FILE_BLOCK_SIZE);
     if ((result=init_net_retry_config(config_filename)) != 0) {
         return result;
+    }
+
+    if (CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock ||
+            REPLICA_SERVER_GROUP->comm_type != fc_comm_type_sock)
+    {
+        if ((result=conn_pool_global_init_for_rdma()) != 0) {
+            return result;
+        }
     }
 
     if ((result=fs_simple_connection_manager_init(&g_fs_client_vars.
@@ -914,11 +915,14 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
 
 int server_load_config(const char *filename)
 {
+    const bool double_buffers = true;
     IniContext ini_context;
     IniFullContext full_ini_ctx;
     char full_cluster_filename[PATH_MAX];
     DADataConfig data_cfg;
     char *rebuild_threads;
+    FCServerGroupInfo *server_group;
+    SFNetworkHandler *rdma_handler;
     int result;
 
     if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
@@ -928,33 +932,89 @@ int server_load_config(const char *filename)
         return result;
     }
 
-    if ((result=sf_load_config("fs_serverd", filename, &ini_context,
-                    "service", FS_SERVER_DEFAULT_SERVICE_PORT,
-                    FS_SERVER_DEFAULT_SERVICE_PORT,
-                    FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
+    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
+    if ((result=sf_load_data_path_config(&full_ini_ctx, &DATA_PATH)) != 0) {
+        return result;
+    }
+
+    if ((result=load_cluster_config(&ini_context, filename,
+                    full_cluster_filename, sizeof(
+                        full_cluster_filename))) != 0)
     {
         return result;
     }
 
+    server_group = fc_server_get_group_by_index(
+            &SERVER_CONFIG_CTX, SERVICE_GROUP_INDEX);
+    if ((result=sf_load_config("fs_serverd", server_group->comm_type,
+                    filename, &ini_context, "service",
+                    FS_SERVER_DEFAULT_SERVICE_PORT,
+                    FS_SERVER_DEFAULT_SERVICE_PORT,
+                    SERVER_CONFIG_CTX.buffer_size,
+                    FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
+    {
+        return result;
+    }
+    sf_service_set_smart_polling(&server_group->smart_polling);
+
+    CLUSTER_SERVER_GROUP = fc_server_get_group_by_index(
+            &SERVER_CONFIG_CTX, CLUSTER_GROUP_INDEX);
     if ((result=sf_load_context_from_config(&CLUSTER_SF_CTX,
-                    filename, &ini_context, "cluster",
+                    CLUSTER_SERVER_GROUP->comm_type, filename,
+                    &ini_context, "cluster",
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
                     FS_SERVER_DEFAULT_CLUSTER_PORT)) != 0)
     {
         return result;
     }
+    sf_service_set_smart_polling_ex(&CLUSTER_SF_CTX,
+            &CLUSTER_SERVER_GROUP->smart_polling);
 
+    REPLICA_SERVER_GROUP = fc_server_get_group_by_index(
+            &SERVER_CONFIG_CTX, REPLICA_GROUP_INDEX);
     if ((result=sf_load_context_from_config(&REPLICA_SF_CTX,
-                    filename, &ini_context, "replica",
+                    REPLICA_SERVER_GROUP->comm_type, filename,
+                    &ini_context, "replica",
                     FS_SERVER_DEFAULT_REPLICA_PORT,
                     FS_SERVER_DEFAULT_REPLICA_PORT)) != 0)
     {
         return result;
     }
+    sf_service_set_smart_polling_ex(&REPLICA_SF_CTX,
+            &REPLICA_SERVER_GROUP->smart_polling);
 
-    FAST_INI_SET_FULL_CTX_EX(full_ini_ctx, filename, NULL, &ini_context);
-    if ((result=sf_load_data_path_config(&full_ini_ctx, &DATA_PATH)) != 0) {
+    //fs_cluster_cfg_to_log(&CLUSTER_CONFIG_CTX);
+    if ((result=server_group_info_init(full_cluster_filename)) != 0) {
         return result;
+    }
+    calc_my_data_groups_quorum_vars();
+
+    REPLICA_NET_HANDLER = sf_get_first_network_handler_ex(&REPLICA_SF_CTX);
+    if ((rdma_handler=sf_get_rdma_network_handler3(&g_sf_context,
+                    &CLUSTER_SF_CTX, &REPLICA_SF_CTX)) != NULL)
+    {
+        if ((result=sf_alloc_rdma_pd(&g_sf_context,
+                        &SERVICE_GROUP_ADDRESS_ARRAY(
+                            CLUSTER_MYSELF_PTR->server))) != 0)
+        {
+            return result;
+        }
+        if ((result=sf_alloc_rdma_pd(&CLUSTER_SF_CTX,
+                        &CLUSTER_GROUP_ADDRESS_ARRAY(
+                            CLUSTER_MYSELF_PTR->server))) != 0)
+        {
+            return result;
+        }
+        if ((result=sf_alloc_rdma_pd(&REPLICA_SF_CTX,
+                        &REPLICA_GROUP_ADDRESS_ARRAY(
+                            CLUSTER_MYSELF_PTR->server))) != 0)
+        {
+            return result;
+        }
+
+        TASK_PADDING_SIZE = rdma_handler->get_connection_size();
+        RDMA_INIT_CONNECTION = rdma_handler->init_connection;
+        RDMA_PD = rdma_handler->pd;
     }
 
     DATA_THREAD_COUNT = iniGetIntCorrectValue(&full_ini_ctx,
@@ -1019,13 +1079,6 @@ int server_load_config(const char *filename)
     }
 
     if ((result=load_binlog_buffer_size(&ini_context, filename)) != 0) {
-        return result;
-    }
-
-    if ((result=load_cluster_config(&ini_context, filename,
-                    full_cluster_filename, sizeof(
-                        full_cluster_filename))) != 0)
-    {
         return result;
     }
 
@@ -1127,7 +1180,25 @@ int server_load_config(const char *filename)
     load_local_host_ip_addrs();
     server_log_configs();
 
-    return server_init_client(filename);
+    if ((result=server_init_client(filename)) != 0) {
+        return result;
+    }
+
+    if ((result=conn_pool_set_rdma_extra_params_ex(
+                    &CLUSTER_CONN_EXTRA_PARAMS, &SERVER_CONFIG_CTX,
+                    CLUSTER_GROUP_INDEX, double_buffers)) != 0)
+    {
+        return result;
+    }
+
+    if ((result=conn_pool_set_rdma_extra_params_ex(
+                    &REPLICA_CONN_EXTRA_PARAMS, &SERVER_CONFIG_CTX,
+                    REPLICA_GROUP_INDEX, double_buffers)) != 0)
+    {
+        return result;
+    }
+
+    return 0;
 }
 
 void fs_server_restart(const char *reason)

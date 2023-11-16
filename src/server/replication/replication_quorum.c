@@ -242,8 +242,8 @@ static int init_all_contexts()
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
-                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_GROUP_ARRAY.base_id);
         if ((result=init_context(&group->repl_quorum_ctx,
                         group->myself)) != 0)
         {
@@ -760,8 +760,8 @@ static int check_rollback_data_groups()
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
-                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_GROUP_ARRAY.base_id);
         confirmed_version = FC_ATOMIC_GET(group->
                 myself->data.confirmed_version);
         if (confirmed_version < FC_ATOMIC_GET(group->
@@ -797,8 +797,8 @@ static int push_all_to_recovery_thread_queue()
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id -
-                CLUSTER_DATA_RGOUP_ARRAY.base_id);
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + (data_group_id -
+                CLUSTER_DATA_GROUP_ARRAY.base_id);
         master = (FSClusterDataServerInfo *)FC_ATOMIC_GET(group->master);
         if (master != NULL && group->myself != master) {
             recovery_thread_push_to_queue(group->myself);

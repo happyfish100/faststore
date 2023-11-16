@@ -260,17 +260,17 @@ static int init_cluster_data_group_array(const char *filename,
 
     count = (max_id - min_id) + 1;
     bytes = sizeof(FSClusterDataGroupInfo) * count;
-    CLUSTER_DATA_RGOUP_ARRAY.groups = fc_malloc(bytes);
-    if (CLUSTER_DATA_RGOUP_ARRAY.groups == NULL) {
+    CLUSTER_DATA_GROUP_ARRAY.groups = fc_malloc(bytes);
+    if (CLUSTER_DATA_GROUP_ARRAY.groups == NULL) {
         return ENOMEM;
     }
-    memset(CLUSTER_DATA_RGOUP_ARRAY.groups, 0, bytes);
+    memset(CLUSTER_DATA_GROUP_ARRAY.groups, 0, bytes);
 
     CLUSTER_DG_SERVER_COUNT = 0;
     for (i=0; i<assoc_gid_array->count; i++) {
         data_group_id = assoc_gid_array->ids[i];
         data_group_index = data_group_id - min_id;
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + data_group_index;
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + data_group_index;
         group->id = data_group_id;
         group->index = data_group_index;
         group->election.hash_code = i;
@@ -284,8 +284,8 @@ static int init_cluster_data_group_array(const char *filename,
 
         CLUSTER_DG_SERVER_COUNT += group->data_server_array.count;
     }
-    CLUSTER_DATA_RGOUP_ARRAY.count = count;
-    CLUSTER_DATA_RGOUP_ARRAY.base_id = min_id;
+    CLUSTER_DATA_GROUP_ARRAY.count = count;
+    CLUSTER_DATA_GROUP_ARRAY.base_id = min_id;
 
     if ((id_array=fs_cluster_cfg_get_my_data_group_ids(
                     &CLUSTER_CONFIG_CTX, server_id)) == NULL)
@@ -298,7 +298,7 @@ static int init_cluster_data_group_array(const char *filename,
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        group = CLUSTER_DATA_RGOUP_ARRAY.groups + (data_group_id - min_id);
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + (data_group_id - min_id);
         if ((group->myself=fs_get_data_server(data_group_id,
                         CLUSTER_MYSELF_PTR->server->id)) == NULL)
         {
@@ -336,22 +336,28 @@ static FCServerInfo *get_myself_in_cluster_cfg(
     } found;
     FCServerInfo *server;
     FCServerInfo *myself;
+    SFNetworkHandler *service_handler;
+    SFNetworkHandler *cluster_handler;
+    SFNetworkHandler *replica_handler;
     int ports[6];
     int count;
     int i;
 
+    service_handler = g_sf_context.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
+    cluster_handler = CLUSTER_SF_CTX.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
+    replica_handler = REPLICA_SF_CTX.handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
     count = 0;
-    ports[count++] = g_sf_context.inner_port;
-    if (g_sf_context.outer_port != g_sf_context.inner_port) {
-        ports[count++] = g_sf_context.outer_port;
+    ports[count++] = service_handler->inner.port;
+    if (service_handler->outer.port != service_handler->inner.port) {
+        ports[count++] = service_handler->outer.port;
     }
-    ports[count++] = CLUSTER_SF_CTX.inner_port;
-    if (CLUSTER_SF_CTX.outer_port != CLUSTER_SF_CTX.inner_port) {
-        ports[count++] = CLUSTER_SF_CTX.outer_port;
+    ports[count++] = cluster_handler->inner.port;
+    if (cluster_handler->outer.port != cluster_handler->inner.port) {
+        ports[count++] = cluster_handler->outer.port;
     }
-    ports[count++] = REPLICA_SF_CTX.inner_port;
-    if (REPLICA_SF_CTX.outer_port != REPLICA_SF_CTX.inner_port) {
-        ports[count++] = REPLICA_SF_CTX.outer_port;
+    ports[count++] = replica_handler->inner.port;
+    if (replica_handler->outer.port != replica_handler->inner.port) {
+        ports[count++] = replica_handler->outer.port;
     }
 
     myself = NULL;
@@ -832,8 +838,8 @@ static int load_server_groups()
     CLUSTER_CURRENT_VERSION = iniGetInt64Value(NULL,
             SERVER_GROUP_INFO_ITEM_VERSION, &ini_context, 0);
 
-    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+    end = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<end; group++) {
         if ((result=load_group_servers_from_ini(full_filename,
                         &ini_context, group)) != 0)
         {
@@ -920,8 +926,8 @@ static int server_group_info_write_to_file(const uint64_t current_version)
             CLUSTER_MYSELF_PTR->is_leader,
             SERVER_GROUP_INFO_ITEM_VERSION, current_version);
 
-    end = CLUSTER_DATA_RGOUP_ARRAY.groups + CLUSTER_DATA_RGOUP_ARRAY.count;
-    for (group=CLUSTER_DATA_RGOUP_ARRAY.groups; group<end; group++) {
+    end = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
+    for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<end; group++) {
         if ((result=server_group_info_to_file_buffer(group)) != 0) {
             return result;
         }

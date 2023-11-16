@@ -29,6 +29,8 @@
 #include "server_types.h"
 #include "storage/committed_version.h"
 
+struct ibv_pd;
+
 typedef enum {
     fs_sn_type_slice_loading = 0,  /* slice load */
     fs_sn_type_block_removing,     /* migrate clean */
@@ -45,6 +47,12 @@ typedef struct server_global_vars {
         const char *program_filename;
         const char *config_filename;
     } cmdline;
+
+    struct {
+        int task_padding_size;
+        sf_init_connection_callback init_connection;
+        struct ibv_pd *pd;
+    } rdma;
 
     struct {
         struct {
@@ -88,7 +96,20 @@ typedef struct server_global_vars {
         volatile time_t last_heartbeat_time;
         time_t last_shutdown_time;
 
+#ifdef FS_EVENT_DEBUG_FLAG
+        struct {
+            volatile int64_t produce;
+            volatile int64_t consume;
+        } event_stats;
+#endif
+        struct {
+            int max_events_per_pkg;
+            int active_test_interval;
+        } topology;
+
         SFContext sf_context;  //for cluster communication
+        FCServerGroupInfo *server_group;
+        ConnectionExtraParams conn_extra_params;
     } cluster;
 
     struct {
@@ -174,6 +195,9 @@ typedef struct server_global_vars {
 
         int64_t dedup_memory_limit; //memory limit for recovery dedup
         SFContext sf_context;       //for replica communication
+        FCServerGroupInfo *server_group;
+        SFNetworkHandler *network_handler;
+        ConnectionExtraParams conn_extra_params;
     } replica;
 
     struct {
@@ -220,11 +244,23 @@ typedef struct server_global_vars {
 #define CMDLINE_PROGRAM_FILENAME g_server_global_vars->cmdline.program_filename
 #define CMDLINE_CONFIG_FILENAME  g_server_global_vars->cmdline.config_filename
 
+#define TASK_PADDING_SIZE      g_server_global_vars->rdma.task_padding_size
+#define RDMA_INIT_CONNECTION   g_server_global_vars->rdma.init_connection
+#define RDMA_PD                g_server_global_vars->rdma.pd
+
 #define CLUSTER_CONFIG_CTX    g_server_global_vars->cluster.config.ctx
 #define SERVER_CONFIG_CTX     g_server_global_vars->cluster.config.ctx.server_cfg
 #define AUTH_CTX              g_server_global_vars->cluster.auth
 #define AUTH_CLIENT_CTX       AUTH_CTX.ctx
 #define AUTH_ENABLED          AUTH_CTX.enabled
+
+#define CT_MAX_EVENTS_PER_PKG   g_server_global_vars->cluster. \
+    topology.max_events_per_pkg
+#define CT_ACTIVE_TEST_INTERVAL g_server_global_vars->cluster. \
+    topology.active_test_interval
+
+#define EVENT_STATS_PRODUCE   g_server_global_vars->cluster.event_stats.produce
+#define EVENT_STATS_CONSUME   g_server_global_vars->cluster.event_stats.consume
 
 #define MIGRATE_CLEAN_ENABLED  g_server_global_vars->cluster. \
     config.migrate_clean
@@ -270,7 +306,7 @@ typedef struct server_global_vars {
         &CLUSTER_LEADER_PTR, 0))
 
 #define CLUSTER_SERVER_ARRAY  g_server_global_vars->cluster.server_array
-#define CLUSTER_DATA_RGOUP_ARRAY g_server_global_vars->cluster.data_group_array
+#define CLUSTER_DATA_GROUP_ARRAY g_server_global_vars->cluster.data_group_array
 #define CLUSTER_DG_SERVER_COUNT  g_server_global_vars->cluster.dg_server_count
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
@@ -324,8 +360,14 @@ typedef struct server_global_vars {
 #define SLAVE_BINLOG_CHECK_LAST_ROWS    g_server_global_vars->data. \
     slave_binlog_check_last_rows
 
-#define CLUSTER_SF_CTX        g_server_global_vars->cluster.sf_context
-#define REPLICA_SF_CTX        g_server_global_vars->replica.sf_context
+#define CLUSTER_SF_CTX            g_server_global_vars->cluster.sf_context
+#define CLUSTER_SERVER_GROUP      g_server_global_vars->cluster.server_group
+#define CLUSTER_CONN_EXTRA_PARAMS g_server_global_vars->cluster.conn_extra_params
+
+#define REPLICA_SF_CTX            g_server_global_vars->replica.sf_context
+#define REPLICA_SERVER_GROUP      g_server_global_vars->replica.server_group
+#define REPLICA_NET_HANDLER       g_server_global_vars->replica.network_handler
+#define REPLICA_CONN_EXTRA_PARAMS g_server_global_vars->replica.conn_extra_params
 
 #define OB_ELEMENT_SIZE       g_server_global_vars->storage.ob_element_size
 #define DA_CTX                g_server_global_vars->storage.da_ctx

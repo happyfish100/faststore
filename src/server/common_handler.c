@@ -55,7 +55,7 @@ static int fs_get_cmd_log_level(const int cmd)
     }
 }
 
-void common_handler_init()
+int common_handler_init()
 {
     SFHandlerContext handler_ctx;
 
@@ -69,6 +69,8 @@ void common_handler_init()
         handler_ctx.callbacks.get_cmd_log_level = NULL;
     }
     sf_proto_set_handler_context(&handler_ctx);
+
+    return 0;
 }
 
 static int handler_check_config_sign(struct fast_task_info *task,

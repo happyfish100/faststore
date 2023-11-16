@@ -556,17 +556,24 @@ static int active_confirm(DataRecoveryContext *ctx)
 #define ACTIVE_CONFIRM_RETRY_TIMES  3
     int result;
     int i;
-    ConnectionInfo conn;
+    ConnectionInfo *conn;
 
-    if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
-                        ctx->master->cs->server), &conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+    if ((conn=conn_pool_alloc_connection(REPLICA_SERVER_GROUP->comm_type,
+                    &REPLICA_CONN_EXTRA_PARAMS, &result)) == NULL)
     {
         return result;
     }
 
+    if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
+                        ctx->master->cs->server), conn, "fstore",
+                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+    {
+        conn_pool_free_connection(conn);
+        return result;
+    }
+
     i = 0;
-    while ((result=proto_active_confirm(&conn, ctx, i ==
+    while ((result=proto_active_confirm(conn, ctx, i ==
                     ACTIVE_CONFIRM_RETRY_TIMES)) == EAGAIN)
     {
         if (i++ == ACTIVE_CONFIRM_RETRY_TIMES) {
@@ -576,7 +583,7 @@ static int active_confirm(DataRecoveryContext *ctx)
         sleep(1);
     }
 
-    conn_pool_disconnect_server(&conn);
+    fc_server_destroy_connection(conn);
     return result;
 }
 

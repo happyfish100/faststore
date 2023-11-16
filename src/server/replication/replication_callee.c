@@ -37,7 +37,6 @@
 #include "../server_group_info.h"
 #include "../storage/slice_op.h"
 #include "replication_processor.h"
-#include "rpc_result_ring.h"
 #include "replication_callee.h"
 
 int replication_callee_init()
@@ -74,90 +73,5 @@ int replication_callee_init_allocator(FSServerContext *server_context)
         return result;
     }
 
-    return 0;
-}
-
-int replication_callee_push_to_rpc_result_queue(FSReplication *replication,
-        const int data_group_id, const uint64_t data_version, const int err_no)
-{
-    ReplicationRPCResult *r;
-    bool notify;
-
-    r = (ReplicationRPCResult *)fast_mblock_alloc_object(
-            &replication->context.callee.result_allocator);
-    if (r == NULL) {
-        return ENOMEM;
-    }
-
-    r->data_group_id = data_group_id;
-    r->data_version = data_version;
-    r->err_no = err_no;
-    fc_queue_push_ex(&replication->context.callee.done_queue, r, &notify);
-    if (notify) {
-        ioevent_notify_thread(replication->task->thread_data);
-    }
-
-    return 0;
-}
-
-int replication_callee_deal_rpc_result_queue(FSReplication *replication)
-{
-    struct fc_queue_info qinfo;
-    bool notify;
-    struct fast_task_info *task;
-    ReplicationRPCResult *r;
-    ReplicationRPCResult *deleted;
-    char *p;
-    int count;
-
-    task = replication->task;
-    if (!(task->offset == 0 && task->length == 0)) {
-        return 0;
-    }
-
-    fc_queue_try_pop_to_queue(&replication->
-            context.callee.done_queue, &qinfo);
-    if (qinfo.head == NULL) {
-        return 0;
-    }
-
-    count = 0;
-    r = qinfo.head;
-    p = task->data + sizeof(FSProtoHeader) +
-        sizeof(FSProtoReplicaRPCRespBodyHeader);
-    do {
-        if ((p - task->data) + sizeof(FSProtoReplicaRPCRespBodyPart) >
-                task->size)
-        {
-            qinfo.head = r;
-            fc_queue_push_queue_to_head_ex(&replication->context.
-                    callee.done_queue, &qinfo, &notify);
-            break;
-        }
-
-        int2buff(r->data_group_id, ((FSProtoReplicaRPCRespBodyPart *)
-                    p)->data_group_id);
-        long2buff(r->data_version, ((FSProtoReplicaRPCRespBodyPart *)
-                    p)->data_version);
-        short2buff(r->err_no, ((FSProtoReplicaRPCRespBodyPart *)p)->
-                err_no);
-        p += sizeof(FSProtoReplicaRPCRespBodyPart);
-
-        ++count;
-
-        deleted = r;
-        r = r->next;
-
-        fast_mblock_free_object(&replication->context.
-                callee.result_allocator, deleted);
-    } while (r != NULL);
-
-    int2buff(count, ((FSProtoReplicaRPCRespBodyHeader *)
-                (task->data + sizeof(FSProtoHeader)))->count);
-
-    task->length = p - task->data;
-    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
-            FS_REPLICA_PROTO_RPC_RESP, task->length - sizeof(FSProtoHeader));
-    sf_send_add_event(task);
     return 0;
 }

@@ -74,12 +74,22 @@ static char g_pid_filename[MAX_PATH_SIZE];
 static int init_nio_task(struct fast_task_info *task)
 {
     FSSliceSNPairArray *slice_sn_parray;
+    int result;
 
+    sf_proto_init_task_magic(task);
     task->connect_timeout = SF_G_CONNECT_TIMEOUT;
     task->network_timeout = SF_G_NETWORK_TIMEOUT;
     slice_sn_parray = &((FSServerTaskArg *)task->arg)->
         context.slice_op_ctx.update.sarray;
-    return fs_slice_array_init(slice_sn_parray);
+    if ((result=fs_slice_array_init(slice_sn_parray)) != 0) {
+        return result;
+    }
+
+    if (RDMA_INIT_CONNECTION != NULL) {
+        return RDMA_INIT_CONNECTION(task, RDMA_PD);
+    } else {
+        return 0;
+    }
 }
 
 static char *alloc_recv_buffer(struct fast_task_info *task,
@@ -88,9 +98,9 @@ static char *alloc_recv_buffer(struct fast_task_info *task,
     unsigned char cmd;
     SFSharedMBuffer *mbuffer;
 
-    cmd = ((FSProtoHeader *)task->data)->cmd;
+    cmd = ((FSProtoHeader *)task->recv.ptr->data)->cmd;
     if (cmd == FS_SERVICE_PROTO_SLICE_WRITE_REQ ||
-            cmd == FS_REPLICA_PROTO_RPC_REQ)
+            cmd == FS_REPLICA_PROTO_RPC_CALL_REQ)
     {
         *new_alloc = true;
         mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX, buff_size);
@@ -222,6 +232,7 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
 int main(int argc, char *argv[])
 {
     pthread_t schedule_tid;
+    bool double_buffers;
     int wait_count;
     int result;
 
@@ -311,12 +322,18 @@ int main(int argc, char *argv[])
             break;
         }
 
+        if ((result=common_handler_init()) != 0) {
+            break;
+        }
+
+        double_buffers = CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock;
         result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
-                sf_proto_set_body_length, NULL, NULL, cluster_deal_task_partly,
-                cluster_task_finish_cleanup, cluster_recv_timeout_callback,
-                1000, sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
-                init_nio_task, NULL);
+                sf_proto_set_body_length, NULL, NULL,
+                cluster_deal_task_partly, cluster_task_finish_cleanup,
+                cluster_recv_timeout_callback, 1000, sizeof(FSProtoHeader),
+                TASK_PADDING_SIZE, sizeof(FSServerTaskArg), double_buffers,
+                true, init_nio_task, NULL);
         if (result != 0) {
             break;
         }
@@ -352,27 +369,31 @@ int main(int argc, char *argv[])
         g_fs_client_vars.client_ctx.common_cfg.read_rule =
             sf_data_read_rule_master_only;
 
-        common_handler_init();
-
 #ifdef DEBUG_FLAG
         sched_print_all_entries();
 #endif
 
         sf_service_set_thread_loop_callback_ex(&CLUSTER_SF_CTX,
                 cluster_thread_loop_callback);
-        sf_set_deal_task_func_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
+        sf_set_deal_task_callback_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
+        double_buffers = REPLICA_SERVER_GROUP->comm_type != fc_comm_type_sock;
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,
                 sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 replica_deal_task, replica_task_finish_cleanup,
                 replica_recv_timeout_callback, 1000,
-                sizeof(FSProtoHeader), sizeof(FSServerTaskArg),
+                sizeof(FSProtoHeader), TASK_PADDING_SIZE,
+                sizeof(FSServerTaskArg), double_buffers, true,
                 init_nio_task, fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }
+
+        sf_set_connect_done_callback_ex(&REPLICA_SF_CTX,
+                replication_processor_connect_done);
+        sf_service_set_connect_need_log_ex(&REPLICA_SF_CTX, false);
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
         sf_accept_loop_ex(&REPLICA_SF_CTX, false);
@@ -381,8 +402,8 @@ int main(int argc, char *argv[])
                 service_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 service_deal_task, service_task_finish_cleanup,
-                NULL, 1000, sizeof(FSProtoHeader),
-                sizeof(FSServerTaskArg), init_nio_task,
+                NULL, 1000, sizeof(FSProtoHeader), TASK_PADDING_SIZE,
+                sizeof(FSServerTaskArg), false, false, init_nio_task,
                 fs_release_task_send_buffer);
         if (result != 0) {
             break;
@@ -416,7 +437,7 @@ int main(int argc, char *argv[])
     } while (0);
 
     if (result != 0) {
-        lcrit("program exit abnomally with errno: %d", result);
+        lcrit("program exit abnormally with errno: %d", result);
         log_destroy();
         return result;
     }

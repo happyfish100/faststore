@@ -35,7 +35,6 @@
 #include "../server_group_info.h"
 #include "../cluster_relationship.h"
 #include "replication_processor.h"
-#include "rpc_result_ring.h"
 #include "replication_caller.h"
 
 typedef struct {

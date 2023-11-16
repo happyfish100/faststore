@@ -64,7 +64,8 @@
 #define FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP   64
 #define FS_CLUSTER_PROTO_JOIN_LEADER_REQ         65
 #define FS_CLUSTER_PROTO_JOIN_LEADER_RESP        66
-#define FS_CLUSTER_PROTO_ACTIVATE_SERVER         67
+#define FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ     67
+#define FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP    68
 #define FS_CLUSTER_PROTO_PING_LEADER_REQ         69
 #define FS_CLUSTER_PROTO_PING_LEADER_RESP        70
 #define FS_CLUSTER_PROTO_REPORT_DISK_SPACE_REQ   71
@@ -75,7 +76,8 @@
 #define FS_CLUSTER_PROTO_UNSET_MASTER_RESP       76
 #define FS_CLUSTER_PROTO_GET_DS_STATUS_REQ       77
 #define FS_CLUSTER_PROTO_GET_DS_STATUS_RESP      78
-#define FS_CLUSTER_PROTO_PUSH_DATA_SERVER_STATUS 79
+#define FS_CLUSTER_PROTO_PUSH_DS_STATUS_REQ      79
+#define FS_CLUSTER_PROTO_PUSH_DS_STATUS_RESP     80
 
 //replication commands
 #define FS_REPLICA_PROTO_JOIN_SERVER_REQ         81
@@ -98,8 +100,8 @@
 #define FS_REPLICA_PROTO_SYNC_BINLOG_RESP        96
 
 // master -> slave RPC
-#define FS_REPLICA_PROTO_RPC_REQ                 99
-#define FS_REPLICA_PROTO_RPC_RESP               100
+#define FS_REPLICA_PROTO_RPC_CALL_REQ            99
+#define FS_REPLICA_PROTO_RPC_CALL_RESP          100
 
 typedef SFCommonProtoHeader  FSProtoHeader;
 
@@ -209,6 +211,7 @@ typedef struct fs_proto_service_ob_slice_stat {
 } FSProtoServiceOBSliceStat;
 
 typedef struct fs_proto_service_stat_resp {
+    char up_time[4];
     char server_id[4];
     char is_leader;
     char auth_enabled;
@@ -319,13 +322,16 @@ typedef struct fs_proto_get_slaves_resp_body_part {
 typedef struct fs_proto_join_leader_req {
     char server_id[4];   //the follower server id
     char auth_enabled;
-    char padding[3];
+    char server_push;
+    char padding[2];
     char key[8];         //for leader call follower to unset master
     FSProtoConfigSigns config_signs;
 } FSProtoJoinLeaderReq;
 
 typedef struct fs_proto_join_leader_resp {
     char leader_version[8];  //for check leader generation
+    char active_test_interval[4];
+    char padding[4];
 } FSProtoJoinLeaderResp;
 
 typedef struct fs_proto_join_server_req {

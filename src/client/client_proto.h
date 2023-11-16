@@ -23,6 +23,7 @@
 #include "client_types.h"
 
 typedef struct fs_client_service_stat {
+    time_t up_time;
     int server_id;
     bool is_leader;
     bool auth_enabled;

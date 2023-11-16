@@ -163,14 +163,14 @@ static int alloc_binlog_writer_array(const int my_data_group_count)
     }
     memset(REPLICA_BINLOG_WRITER_ARRAY.holders, 0, bytes);
 
-    bytes = sizeof(SFBinlogWriterInfo *) * CLUSTER_DATA_RGOUP_ARRAY.count;
+    bytes = sizeof(SFBinlogWriterInfo *) * CLUSTER_DATA_GROUP_ARRAY.count;
     REPLICA_BINLOG_WRITER_ARRAY.writers = (SFBinlogWriterInfo **)fc_malloc(bytes);
     if (REPLICA_BINLOG_WRITER_ARRAY.writers == NULL) {
         return ENOMEM;
     }
     memset(REPLICA_BINLOG_WRITER_ARRAY.writers, 0, bytes);
 
-    REPLICA_BINLOG_WRITER_ARRAY.count = CLUSTER_DATA_RGOUP_ARRAY.count;
+    REPLICA_BINLOG_WRITER_ARRAY.count = CLUSTER_DATA_GROUP_ARRAY.count;
     return 0;
 }
 

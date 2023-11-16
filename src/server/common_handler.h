@@ -29,7 +29,7 @@
 extern "C" {
 #endif
 
-void common_handler_init();
+int common_handler_init();
 
 int handler_check_config_signs(struct fast_task_info *task,
         const int server_id, const bool auth_enabled,

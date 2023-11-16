@@ -19,7 +19,6 @@
 #define _REPLICATION_PROCESSOR_H_
 
 #include "replication_types.h"
-#include "rpc_result_ring.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,12 +26,11 @@ extern "C" {
 
 int replication_alloc_connection_ptr_arrays(FSServerContext *server_context);
 
-//replication server side
-void replication_processor_bind_task(FSReplication *replication,
-        struct fast_task_info *task);
-
 //replication client side
 int replication_processor_bind_thread(FSReplication *replication);
+void replication_processor_connect_done(struct fast_task_info *task,
+        const int err_no);
+int replication_processor_join_server(struct fast_task_info *task);
 
 //replication server and client
 int replication_processor_unbind(FSReplication *replication);
@@ -40,20 +38,6 @@ int replication_processor_unbind(FSReplication *replication);
 int replication_processor_process(FSServerContext *server_ctx);
 
 void clean_connected_replications(FSServerContext *server_ctx);
-
-static inline int replication_processors_deal_rpc_response(
-        FSReplication *replication, const int data_group_id,
-        const uint64_t data_version, const int err_no)
-{
-    if (__sync_add_and_fetch(&replication->stage, 0) ==
-            FS_REPLICATION_STAGE_SYNCING)
-    {
-        return rpc_result_ring_remove(&replication->context.caller.
-                rpc_result_ctx, data_group_id, data_version, err_no);
-    } else {
-        return 0;
-    }
-}
 
 static inline bool replication_channel_is_ready(FSReplication *replication)
 {

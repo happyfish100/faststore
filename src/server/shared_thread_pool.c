@@ -36,7 +36,7 @@ int shared_thread_pool_init()
 
     limit1 = RECOVERY_CONCURRENT * (2 +
             RECOVERY_THREADS_PER_DATA_GROUP +
-            CLUSTER_SERVER_ARRAY.count) + 4;
+            CLUSTER_SERVER_ARRAY.count) + 8;
     limit2 = 2 * SYSTEM_CPU_COUNT;
     limit = FC_MAX(limit1, limit2);
     if ((result=fc_thread_pool_init(&THREAD_POOL, "shared-pool", limit,

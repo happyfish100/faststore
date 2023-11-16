@@ -110,44 +110,23 @@ static int remove_from_replication_ptr_array(FSReplicationPtrArray *
 #define REPLICATION_BIND_TASK(replication, task) \
     do { \
         replication->task = task;  \
-        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION; \
+        SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION_CLIENT; \
         if (SF_CTX->realloc_task_buffer) { \
-            free_queue_set_max_buffer_size(task); \
-            SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic); \
+            sf_set_task_send_max_buffer_size(task); \
+            sf_set_task_recv_max_buffer_size(task); \
         } \
-        REPLICA_REPLICATION = replication;  \
+        REPLICA_REPLICATION = replication;      \
     } while (0)
-
-void replication_processor_bind_task(FSReplication *replication,
-        struct fast_task_info *task)
-{
-    FSServerContext *server_ctx;
-
-    set_replication_stage(replication, FS_REPLICATION_STAGE_SYNCING);
-    REPLICATION_BIND_TASK(replication, task);
-
-    server_ctx = (FSServerContext *)task->thread_data->arg;
-    add_to_replication_ptr_array(&server_ctx->
-            replica.connected, replication);
-}
 
 int replication_processor_bind_thread(FSReplication *replication)
 {
-    struct fast_task_info *task;
+    struct nio_thread_data *thread_data;
     FSServerContext *server_ctx;
 
-    if ((task=sf_alloc_init_task(&REPLICA_SF_CTX, -1)) == NULL) {
-        return ENOMEM;
-    }
-
-    task->thread_data = REPLICA_SF_CTX.thread_data +
-        replication->thread_index % REPLICA_SF_CTX.work_threads;
-
     set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
-    REPLICATION_BIND_TASK(replication, task);
-
-    server_ctx = (FSServerContext *)task->thread_data->arg;
-    replication->connection_info.conn.sock = -1;
+    thread_data = REPLICA_SF_CTX.thread_data + replication->
+        thread_index % REPLICA_SF_CTX.work_threads;
+    server_ctx = (FSServerContext *)thread_data->arg;
     add_to_replication_ptr_array(&server_ctx->
             replica.connectings, replication);
     return 0;
@@ -163,14 +142,7 @@ int replication_processor_unbind(FSReplication *replication)
                 replica.connected, replication)) == 0)
     {
         replication_queue_discard_all(replication);
-        rpc_result_ring_clear_all(&replication->
-                context.caller.rpc_result_ctx);
-        if (replication->is_client) {
-            result = replication_processor_bind_thread(replication);
-        } else {
-            set_replication_stage(replication, FS_REPLICATION_STAGE_NONE);
-            fs_server_release_replication(replication);
-        }
+        return replication_processor_bind_thread(replication);
     }
 
     return result;
@@ -204,113 +176,137 @@ static void calc_next_connect_time(FSReplication *replication)
     replication->connection_info.next_connect_time = g_current_time + interval;
 }
 
-static int check_and_make_replica_connection(FSReplication *replication)
+void replication_processor_connect_done(struct fast_task_info *task,
+        const int err_no)
 {
-    int result;
-    int polled;
-    socklen_t len;
-    struct pollfd pollfds;
+    FSReplication *replication;
 
-    if (replication->connection_info.conn.sock < 0) {
-        FCAddressPtrArray *addr_array;
-        FCAddressInfo *addr;
-
-        if (replication->connection_info.next_connect_time > g_current_time) {
-            return EAGAIN;
-        }
-
-        addr_array = &REPLICA_GROUP_ADDRESS_ARRAY(replication->peer->server);
-        addr = addr_array->addrs[replication->conn_index++];
-        if (replication->conn_index >= addr_array->count) {
-            replication->conn_index = 0;
-        }
-
-        replication->connection_info.start_time = g_current_time;
-        replication->connection_info.conn = addr->conn;
-        calc_next_connect_time(replication);
-        if ((result=conn_pool_async_connect_server(&replication->
-                        connection_info.conn)) == 0)
-        {
-            return 0;
-        }
-        if (result != EINPROGRESS) {
-            return result;
-        }
+    if ((replication=REPLICA_REPLICATION) == NULL) {
+        return;
     }
 
-    pollfds.fd = replication->connection_info.conn.sock;
-    pollfds.events = POLLIN | POLLOUT;
-    polled = poll(&pollfds, 1, 0);
-    if (polled == 0) {  //timeout
-        if (g_current_time - replication->connection_info.start_time >
-                SF_G_CONNECT_TIMEOUT)
-        {
-            result = ETIMEDOUT;
-        } else {
-            result = EINPROGRESS;
-        }
-    } else if (polled < 0) {   //error
-        result = errno != 0 ? errno : EIO;
-    } else {
-        len = sizeof(result);
-        if (getsockopt(replication->connection_info.conn.sock, SOL_SOCKET,
-                    SO_ERROR, &result, &len) < 0)
-        {
-            result = errno != 0 ? errno : EACCES;
-        }
+    if (err_no == 0) {
+        return;
     }
 
-    /*
-    logInfo("file: "__FILE__", line: %d, func: %s, "
-            "replication: %p, peer id: %d, sock: %d, result: %d",
-            __LINE__, __FUNCTION__, replication, replication->peer->server->id,
-            replication->connection_info.conn.sock, result);
-            */
-
-    if (!(result == 0 || result == EINPROGRESS)) {
-        close(replication->connection_info.conn.sock);
-        replication->connection_info.conn.sock = -1;
+    set_replication_stage(replication, FS_REPLICATION_STAGE_INITED);
+    if (err_no != replication->connection_info.last_errno
+            || replication->connection_info.fail_count % 10 == 0)
+    {
+        replication->connection_info.last_errno = err_no;
+        logError("file: "__FILE__", line: %d, "
+                "%dth connect to replication peer: %d, %s:%u fail, "
+                "time used: %ds, errno: %d, error info: %s",
+                __LINE__, replication->connection_info.fail_count + 1,
+                replication->peer->server->id,
+                task->server_ip, task->port,
+                (int)(g_current_time - replication->connection_info.
+                    start_time), err_no, STRERROR(err_no));
     }
-    return result;
+    replication->connection_info.fail_count++;
 }
 
-static int send_join_server_package(FSReplication *replication)
+static void check_and_make_replica_connection(FSReplication *replication)
 {
-	int result;
-	FSProtoHeader *header;
+    struct fast_task_info *task;
+    FCAddressPtrArray *addr_array;
+    FCAddressInfo *addr;
+
+    if (FC_ATOMIC_GET(replication->stage) != FS_REPLICATION_STAGE_INITED) {
+        return;
+    }
+
+    if (replication->connection_info.next_connect_time > g_current_time) {
+        return;
+    }
+
+    if ((task=sf_alloc_init_task(REPLICA_NET_HANDLER, -1)) == NULL) {
+        return;
+    }
+    task->thread_data = REPLICA_SF_CTX.thread_data + replication->
+        thread_index % REPLICA_SF_CTX.work_threads;
+    REPLICATION_BIND_TASK(replication, task);
+
+    addr_array = &REPLICA_GROUP_ADDRESS_ARRAY(replication->peer->server);
+    addr = addr_array->addrs[replication->conn_index++];
+    if (replication->conn_index >= addr_array->count) {
+        replication->conn_index = 0;
+    }
+
+    replication->connection_info.start_time = g_current_time;
+    calc_next_connect_time(replication);
+    snprintf(task->server_ip, sizeof(task->server_ip),
+            "%s", addr->conn.ip_addr);
+    task->port = addr->conn.port;
+    if (sf_nio_notify(task, SF_NIO_STAGE_CONNECT) == 0) {
+        set_replication_stage(replication, FS_REPLICATION_STAGE_CONNECTING);
+    }
+}
+
+static void on_connect_success(FSReplication *replication)
+{
+    char prompt[128];
+    FSServerContext *server_ctx;
+
+    server_ctx = (FSServerContext *)replication->task->thread_data->arg;
+    if (replication->connection_info.fail_count > 0) {
+        sprintf(prompt, " after %d retries",
+                replication->connection_info.fail_count);
+    } else {
+        *prompt = '\0';
+    }
+    logInfo("file: "__FILE__", line: %d, "
+            "connect to replication peer id: %d, %s:%u successfully%s",
+            __LINE__, replication->peer->server->id, replication->
+            task->server_ip, replication->task->port, prompt);
+
+    if (remove_from_replication_ptr_array(&server_ctx->
+                replica.connectings, replication) == 0)
+    {
+        set_replication_stage(replication,
+                FS_REPLICATION_STAGE_WAITING_JOIN_RESP);
+        add_to_replication_ptr_array(&server_ctx->
+                replica.connected, replication);
+    }
+
+    replication->connection_info.fail_count = 0;
+}
+
+int replication_processor_join_server(struct fast_task_info *task)
+{
     FSProtoJoinServerReq *req;
-	char out_buff[sizeof(FSProtoHeader) + sizeof(FSProtoJoinServerReq)];
+    FSReplication *replication;
 
-    header = (FSProtoHeader *)out_buff;
-    SF_PROTO_SET_HEADER(header, FS_REPLICA_PROTO_JOIN_SERVER_REQ,
-            sizeof(out_buff) - sizeof(FSProtoHeader));
+    TASK_CTX.common.req_start_time = get_current_time_us();
 
-    req = (FSProtoJoinServerReq *)(out_buff + sizeof(FSProtoHeader));
+    /* set magic number for the first request */
+    SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->send.ptr->data)->magic);
+
+    req = (FSProtoJoinServerReq *)SF_PROTO_SEND_BODY(task);
     int2buff(CLUSTER_MY_SERVER_ID, req->server_id);
     req->auth_enabled = (AUTH_ENABLED ? 1 : 0);
-    int2buff(replication->task->size, req->buffer_size);
+    int2buff(task->send.ptr->size, req->buffer_size);
     int2buff(REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             req->replica_channels_between_two_servers);
     memcpy(req->config_signs.servers, SERVERS_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);
     memcpy(req->config_signs.cluster, CLUSTER_CONFIG_SIGN_BUF,
             SF_CLUSTER_CONFIG_SIGN_LEN);
-    if ((result=tcpsenddata_nb(replication->connection_info.conn.sock,
-                    out_buff, sizeof(out_buff), SF_G_NETWORK_TIMEOUT)) != 0)
-    {
-        logError("file: "__FILE__", line: %d, "
-                "send data to server %s:%u fail, "
-                "errno: %d, error info: %s", __LINE__,
-                replication->connection_info.conn.ip_addr,
-                replication->connection_info.conn.port,
-                result, STRERROR(result));
-        close(replication->connection_info.conn.sock);
-        replication->connection_info.conn.sock = -1;
-    } else {
-        replication->last_net_comm_time = g_current_time;
+
+    RESPONSE.error.length = 0;
+    RESPONSE.header.cmd = FS_REPLICA_PROTO_JOIN_SERVER_REQ;
+    TASK_CTX.common.need_response = true;
+    TASK_CTX.common.log_level = LOG_ERR;
+    if ((replication=REPLICA_REPLICATION) == NULL) {
+        TASK_CTX.common.response_done = false;
+        return ENOENT;
     }
 
-    return result;
+    on_connect_success(replication);
+    RESPONSE.header.body_len = sizeof(FSProtoJoinServerReq);
+    TASK_CTX.common.response_done = true;
+    replication->last_net_comm_time = g_current_time;
+    return 0;
 }
 
 static void decrease_task_waiting_rpc_count(ReplicationRPCEntry *rb)
@@ -350,98 +346,20 @@ static void replication_queue_discard_all(FSReplication *replication)
     }
 }
 
-static int deal_connecting_replication(FSReplication *replication)
-{
-    int result;
-
-    result = check_and_make_replica_connection(replication);
-    if (result == 0) {
-        result = send_join_server_package(replication);
-    }
-
-    return result;
-}
-
 static int deal_replication_connectings(FSServerContext *server_ctx)
 {
-#define SUCCESS_ARRAY_ELEMENT_MAX  64
-
-    int result;
     int i;
-    char prompt[128];
-    struct {
-        int count;
-        FSReplication *replications[SUCCESS_ARRAY_ELEMENT_MAX];
-    } success_array;
     FSReplication *replication;
 
     if (server_ctx->replica.connectings.count == 0) {
         return 0;
     }
 
-    success_array.count = 0;
     for (i=0; i<server_ctx->replica.connectings.count; i++) {
         replication = server_ctx->replica.connectings.replications[i];
-        result = deal_connecting_replication(replication);
-        if (result == 0) {
-            if (success_array.count < SUCCESS_ARRAY_ELEMENT_MAX) {
-                success_array.replications[success_array.count++] = replication;
-            }
-            set_replication_stage(replication,
-                    FS_REPLICATION_STAGE_WAITING_JOIN_RESP);
-        } else if (result == EINPROGRESS) {
-            set_replication_stage(replication,
-                    FS_REPLICATION_STAGE_CONNECTING);
-        } else if (result != EAGAIN) {
-            if (result != replication->connection_info.last_errno
-                    || replication->connection_info.fail_count % 100 == 0)
-            {
-                replication->connection_info.last_errno = result;
-                logError("file: "__FILE__", line: %d, "
-                        "%dth connect to replication peer: %d, %s:%u fail, "
-                        "time used: %ds, errno: %d, error info: %s",
-                        __LINE__, replication->connection_info.fail_count + 1,
-                        replication->peer->server->id,
-                        replication->connection_info.conn.ip_addr,
-                        replication->connection_info.conn.port, (int)
-                        (g_current_time - replication->connection_info.start_time),
-                        result, STRERROR(result));
-            }
-            replication->connection_info.fail_count++;
-        }
+        check_and_make_replica_connection(replication);
     }
 
-    for (i=0; i<success_array.count; i++) {
-        replication = success_array.replications[i];
-
-        if (replication->connection_info.fail_count > 0) {
-            sprintf(prompt, " after %d retries",
-                    replication->connection_info.fail_count);
-        } else {
-            *prompt = '\0';
-        }
-        logInfo("file: "__FILE__", line: %d, "
-                "connect to replication peer id: %d, %s:%u successfully%s",
-                __LINE__, replication->peer->server->id,
-                replication->connection_info.conn.ip_addr,
-                replication->connection_info.conn.port, prompt);
-
-        if (remove_from_replication_ptr_array(&server_ctx->
-                    replica.connectings, replication) == 0)
-        {
-            add_to_replication_ptr_array(&server_ctx->
-                    replica.connected, replication);
-        }
-
-        replication->connection_info.fail_count = 0;
-        replication->task->event.fd = replication->
-            connection_info.conn.sock;
-        snprintf(replication->task->client_ip,
-                sizeof(replication->task->client_ip), "%s",
-                replication->connection_info.conn.ip_addr);
-        replication->task->port = replication->connection_info.conn.port;
-        sf_nio_notify(replication->task, SF_NIO_STAGE_INIT);
-    }
     return 0;
 }
 
@@ -456,11 +374,21 @@ void clean_connected_replications(FSServerContext *server_ctx)
     }
 }
 
+static inline void send_active_test_package(struct fast_task_info *task)
+{
+    ++TASK_PENDING_SEND_COUNT;
+    task->send.ptr->length = sizeof(FSProtoHeader);
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            SF_PROTO_ACTIVE_TEST_REQ, 0);
+    sf_send_add_event(task);
+}
+
 static int replication_rpc_from_queue(FSReplication *replication)
 {
     struct fc_queue_info qinfo;
     ReplicationRPCEntry *rb;
     ReplicationRPCEntry *deleted;
+    FSReplicaRPCResultEntry *rentry;
     struct fast_task_info *task;
     struct iovec *iov;
     FSProtoReplicaRPCReqBodyHeader *body_header;
@@ -468,28 +396,42 @@ static int replication_rpc_from_queue(FSReplication *replication)
     int body_len;
     int pkg_len;
     bool notify;
-    int result;
+
+    task = replication->task;
+    if (task->canceled || TASK_PENDING_SEND_COUNT > 0) {
+        return 0;
+    }
 
     fc_queue_try_pop_to_queue(&replication->
             context.caller.rpc_queue, &qinfo);
     if (qinfo.head == NULL) {
+        if (g_current_time - replication->last_net_comm_time >=
+                g_server_global_vars->replica.active_test_interval)
+        {
+            replication->last_net_comm_time = g_current_time;
+            send_active_test_package(task);
+        }
+
         return 0;
     }
 
+    ++TASK_PENDING_SEND_COUNT;
+    rentry = replication->context.caller.rpc_result_array.results;
     body_part = replication->rpc.body_parts;
-    task = replication->task;
-    task->length = sizeof(FSProtoHeader) +
+    task->send.ptr->length = sizeof(FSProtoHeader) +
         sizeof(FSProtoReplicaRPCReqBodyHeader);
     iov = replication->rpc.io_vecs;
-    FC_SET_IOVEC(*iov, task->data, task->length);
+    FC_SET_IOVEC(*iov, task->send.ptr->data, task->send.ptr->length);
     ++iov;
 
     rb = (ReplicationRPCEntry *)qinfo.head;
     do {
-        pkg_len = task->length + sizeof(*body_part) +
+        pkg_len = task->send.ptr->length + sizeof(*body_part) +
             rb->op_ctx->info.body_len;
-        if (pkg_len > task->size || iov - replication->
-                rpc.io_vecs > IOV_MAX - 2)
+        if (pkg_len > task->send.ptr->size || iov - replication->rpc.io_vecs >
+                IOV_MAX - 2 || rentry - replication->context.caller.
+                rpc_result_array.results == replication->context.
+                caller.rpc_result_array.alloc)
         {
             qinfo.head = rb;
             fc_queue_push_queue_to_head_ex(&replication->context.
@@ -504,7 +446,7 @@ static int replication_rpc_from_queue(FSReplication *replication)
                 rb->op_ctx->info.body_len);
         ++iov;
 
-        body_part->cmd = ((FSProtoHeader *)rb->task->data)->cmd;
+        body_part->cmd = ((FSProtoHeader *)rb->task->send.ptr->data)->cmd;
 
         if (((FSServerTaskArg *)rb->task->arg)->context.service.
                 idempotency_request != NULL)
@@ -517,18 +459,15 @@ static int replication_rpc_from_queue(FSReplication *replication)
             int2buff(0, body_part->inc_alloc);
         }
 
-        task->length = pkg_len;
+        task->send.ptr->length = pkg_len;
         long2buff(rb->op_ctx->info.data_version, body_part->data_version);
         int2buff(rb->op_ctx->info.body_len, body_part->body_len);
         ++body_part;
 
-        if ((result=rpc_result_ring_add(&replication->context.caller.
-                        rpc_result_ctx, rb->op_ctx->info.data_group_id,
-                        rb->op_ctx->info.data_version, rb->task)) != 0)
-        {
-            sf_terminate_myself();
-            return result;
-        }
+        rentry->data_group_id = rb->op_ctx->info.data_group_id;
+        rentry->data_version = rb->op_ctx->info.data_version;
+        rentry->waiting_task = rb->task;
+        ++rentry;
 
         deleted = rb;
         rb = rb->nexts[replication->peer->link_index];
@@ -536,41 +475,31 @@ static int replication_rpc_from_queue(FSReplication *replication)
         replication_caller_release_rpc_entry(deleted);
     } while (rb != NULL);
 
+    replication->context.caller.rpc_result_array.count = rentry -
+        replication->context.caller.rpc_result_array.results;
+
     task->iovec_array.iovs = replication->rpc.io_vecs;
     task->iovec_array.count = iov - replication->rpc.io_vecs;
     body_header = (FSProtoReplicaRPCReqBodyHeader *)
-        (task->data + sizeof(FSProtoHeader));
-    body_len = task->length - sizeof(FSProtoHeader);
+        (task->send.ptr->data + sizeof(FSProtoHeader));
+    body_len = task->send.ptr->length - sizeof(FSProtoHeader);
     int2buff(body_part - replication->rpc.body_parts, body_header->count);
-
-    SF_PROTO_SET_HEADER((FSProtoHeader *)task->data,
-            FS_REPLICA_PROTO_RPC_REQ, body_len);
-    sf_send_add_event(task);
 
     if (replication->last_net_comm_time != g_current_time) {
         replication->last_net_comm_time = g_current_time;
     }
+
+    SF_PROTO_SET_HEADER((FSProtoHeader *)task->send.ptr->data,
+            FS_REPLICA_PROTO_RPC_CALL_REQ, body_len);
+    sf_send_add_event(task);
     return 0;
-}
-
-static inline void send_active_test_package(FSReplication *replication)
-{
-    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
-        return;
-    }
-
-    replication->last_net_comm_time = g_current_time;
-    replication->task->length = sizeof(FSProtoHeader);
-    SF_PROTO_SET_HEADER((FSProtoHeader *)replication->task->data,
-            SF_PROTO_ACTIVE_TEST_REQ, 0);
-    sf_send_add_event(replication->task);
 }
 
 static int deal_connected_replication(FSReplication *replication)
 {
     int stage;
 
-    stage = __sync_add_and_fetch(&replication->stage, 0);
+    stage = FC_ATOMIC_GET(replication->stage);
     /*
     logInfo("replication stage: %d, task offset: %d, length: %d",
             stage, replication->task->offset, replication->task->length);
@@ -584,16 +513,7 @@ static int deal_connected_replication(FSReplication *replication)
         return 0;
     }
 
-    if (!(replication->task->offset == 0 && replication->task->length == 0)) {
-        return 0;
-    }
-
     if (stage == FS_REPLICATION_STAGE_SYNCING) {
-        if (rpc_result_ring_clear_timeouts(&replication->
-                    context.caller.rpc_result_ctx) > 0)
-        {
-            return ETIMEDOUT;
-        }
         return replication_rpc_from_queue(replication);
     }
 
@@ -603,9 +523,7 @@ static int deal_connected_replication(FSReplication *replication)
 static int deal_replication_connected(FSServerContext *server_ctx)
 {
     FSReplication *replication;
-    int result;
     int i;
-    bool send_hb;
 
     /*
     static int count = 0;
@@ -621,33 +539,8 @@ static int deal_replication_connected(FSServerContext *server_ctx)
 
     for (i=0; i<server_ctx->replica.connected.count; i++) {
         replication = server_ctx->replica.connected.replications[i];
-        if ((result=deal_connected_replication(replication)) == 0) {
-            result = replication_callee_deal_rpc_result_queue(replication);
-        }
-        if (result != 0) {
+        if (deal_connected_replication(replication) != 0) {
             ioevent_add_to_deleted_list(replication->task);
-            continue;
-        }
-
-        if (replication->is_client) {
-            send_hb = g_current_time - replication->last_net_comm_time >=
-                g_server_global_vars->replica.active_test_interval;
-        } else {
-            send_hb = __sync_add_and_fetch(&replication->reverse_hb, 0) == 1;
-            if (send_hb) {
-                __sync_bool_compare_and_swap(&replication->reverse_hb, 1, 0);
-                logInfo("file: "__FILE__", line: %d, "
-                        "reverse send active test to peer: %d, %s:%u",
-                        __LINE__, replication->peer->server->id,
-                        REPLICA_GROUP_ADDRESS_FIRST_IP(
-                            replication->peer->server),
-                        REPLICA_GROUP_ADDRESS_FIRST_PORT(
-                            replication->peer->server));
-            }
-        }
-
-        if (send_hb) {
-            send_active_test_package(replication);
         }
     }
 

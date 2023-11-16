@@ -53,7 +53,7 @@ void du_handler_fill_slice_update_response(struct fast_task_info *task,
         const int inc_alloc)
 {
     FSProtoSliceUpdateResp *resp;
-    resp = (FSProtoSliceUpdateResp *)SF_PROTO_RESP_BODY(task);
+    resp = (FSProtoSliceUpdateResp *)SF_PROTO_SEND_BODY(task);
     int2buff(inc_alloc, resp->inc_alloc);
     RESPONSE.header.body_len = sizeof(FSProtoSliceUpdateResp);
     TASK_CTX.common.response_done = true;
@@ -326,7 +326,7 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
 {
     int result;
 
-    if (OP_CTX_INFO.bs_key.slice.length <= task->size -
+    if (OP_CTX_INFO.bs_key.slice.length <= task->send.ptr->size -
             sizeof(FSProtoHeader))
     {
         return 0;
@@ -344,11 +344,9 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
     }
 
     if (READ_DIRECT_IO_PATHS == 0) {
-        if ((result=free_queue_set_max_buffer_size(task)) != 0) {
+        if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
-        REQUEST.body = task->data + sizeof(FSProtoHeader);
     }
 
     return 0;
@@ -370,7 +368,7 @@ static int buffer_to_iovec_array(struct fast_task_info *task)
     }
 
     iov = SLICE_OP_CTX.iovec_array.iovs;
-    FC_SET_IOVEC(*iov, task->data, sizeof(FSProtoHeader));
+    FC_SET_IOVEC(*iov, task->send.ptr->data, sizeof(FSProtoHeader));
     iov++;
 
     //total = 0;
@@ -538,9 +536,11 @@ static void slave_data_update_done_notify(FSDataOperation *op)
 {
     FSSliceOpBufferContext *op_buffer_ctx;
     struct fast_task_info *task;
+    int rpc_fail_count;
 
     task = (struct fast_task_info *)op->arg;
     if (op->ctx->result != 0) {
+        FC_ATOMIC_INC(REPLICA_RPC_FAIL_COUNT);
         log_data_operation_error(task, op);
     } else {
         /*
@@ -552,23 +552,22 @@ static void slave_data_update_done_notify(FSDataOperation *op)
          */
     }
 
-    if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION &&
-            REPLICA_REPLICATION != NULL)
-    {
-        FSReplication *replication;
-        replication = REPLICA_REPLICATION;
-        if (replication != NULL) {
-            replication_callee_push_to_rpc_result_queue(replication,
-                    op->ctx->info.data_group_id, op->ctx->info.data_version,
-                    op->ctx->result);
-        }
-    }
-
     op_buffer_ctx = fc_list_entry(op->ctx, FSSliceOpBufferContext, op_ctx);
     if (op->operation == DATA_OPERATION_SLICE_WRITE) {
         sf_shared_mbuffer_release(op_buffer_ctx->op_ctx.mbuffer);
     }
     replication_callee_free_op_buffer_ctx(SERVER_CTX, op_buffer_ctx);
+
+    if (__sync_sub_and_fetch(&REPLICA_RPC_WAITING_COUNT, 1) == 0) {
+        if ((rpc_fail_count=FC_ATOMIC_GET(REPLICA_RPC_FAIL_COUNT)) > 0) {
+            __sync_bool_compare_and_swap(&REPLICA_RPC_FAIL_COUNT,
+                    rpc_fail_count, 0);
+            RESPONSE_STATUS = EBUSY;
+        } else {
+            RESPONSE_STATUS = 0;
+        }
+        sf_nio_notify(task, SF_NIO_STAGE_CONTINUE);
+    }
     sf_release_task(task);
 }
 
@@ -881,7 +880,7 @@ int du_handler_deal_client_join(struct fast_task_info *task)
         SERVER_TASK_TYPE = SF_SERVER_TASK_TYPE_CHANNEL_USER;
     }
 
-    join_resp = (FSProtoClientJoinResp *)SF_PROTO_RESP_BODY(task);
+    join_resp = (FSProtoClientJoinResp *)SF_PROTO_SEND_BODY(task);
     int2buff(g_sf_global_vars.max_buff_size -
             FS_TASK_BUFFER_FRONT_PADDING_SIZE,
             join_resp->buffer_size);
@@ -991,7 +990,7 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
+    resp = (FSProtoGetServerResp *)SF_PROTO_SEND_BODY(task);
     addr = fc_server_get_address_by_peer(&(ds->cs->server->
                 group_addrs[group_index].address_array), task->client_ip);
 
@@ -1032,7 +1031,7 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
     }
 
     body_header = (SFProtoGetGroupServersRespBodyHeader *)
-        SF_PROTO_RESP_BODY(task);
+        SF_PROTO_SEND_BODY(task);
     body_part = (SFProtoGetGroupServersRespBodyPart *)(body_header + 1);
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++, body_part++) {
@@ -1043,7 +1042,7 @@ int du_handler_deal_get_group_servers(struct fast_task_info *task)
     }
     int2buff(group->data_server_array.count, body_header->count);
 
-    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_SEND_BODY(task);
     RESPONSE.header.cmd = SF_SERVICE_PROTO_GET_GROUP_SERVERS_RESP;
     TASK_CTX.common.response_done = true;
     return 0;

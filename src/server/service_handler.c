@@ -161,7 +161,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
 
     ob_index_get_ob_and_slice_stats(&ob, &slice);
 
-    stat_resp = (FSProtoServiceStatResp *)SF_PROTO_RESP_BODY(task);
+    stat_resp = (FSProtoServiceStatResp *)SF_PROTO_SEND_BODY(task);
     stat_resp->is_leader  = CLUSTER_MYSELF_PTR == CLUSTER_LEADER_PTR ? 1 : 0;
     stat_resp->auth_enabled = AUTH_ENABLED ? 1 : 0;
 
@@ -174,6 +174,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
         long2buff(0, stat_resp->storage_engine.current_version);
     }
 
+    int2buff(SF_G_UP_TIME, stat_resp->up_time);
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
     stat_resp->version.len = sprintf(stat_resp->version.str, "%d.%d.%d",
             g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
@@ -224,7 +225,7 @@ static int service_deal_slice_read(struct fast_task_info *task)
 
     sf_hold_task(task);
     OP_CTX_INFO.source = BINLOG_SOURCE_RPC_MASTER;
-    OP_CTX_INFO.buff = SF_PROTO_RESP_BODY(task);
+    OP_CTX_INFO.buff = SF_PROTO_SEND_BODY(task);
     SLICE_OP_CTX.rw_done_callback = (fs_rw_done_callback_func)
         du_handler_slice_read_done_callback;
     SLICE_OP_CTX.arg = task;
@@ -265,7 +266,7 @@ static int service_deal_get_master(struct fast_task_info *task)
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
+    resp = (FSProtoGetServerResp *)SF_PROTO_SEND_BODY(task);
     addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
                 master->cs->server), task->client_ip);
 
@@ -299,7 +300,7 @@ static int service_deal_get_leader(struct fast_task_info *task)
         return SF_RETRIABLE_ERROR_NO_SERVER;
     }
 
-    resp = (FSProtoGetServerResp *)SF_PROTO_RESP_BODY(task);
+    resp = (FSProtoGetServerResp *)SF_PROTO_SEND_BODY(task);
     addr = fc_server_get_address_by_peer(&SERVICE_GROUP_ADDRESS_ARRAY(
                 leader->server), task->client_ip);
 
@@ -347,10 +348,10 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
     filter.status = req->status;
     filter.is_master = req->is_master;
     if ((filter.filter_by & FS_CLUSTER_STAT_FILTER_BY_GROUP) == 0) {
-        gstart = CLUSTER_DATA_RGOUP_ARRAY.groups;
-        gend = CLUSTER_DATA_RGOUP_ARRAY.groups +
-            CLUSTER_DATA_RGOUP_ARRAY.count;
-        dg_count = CLUSTER_DATA_RGOUP_ARRAY.count;
+        gstart = CLUSTER_DATA_GROUP_ARRAY.groups;
+        gend = CLUSTER_DATA_GROUP_ARRAY.groups +
+            CLUSTER_DATA_GROUP_ARRAY.count;
+        dg_count = CLUSTER_DATA_GROUP_ARRAY.count;
     } else {
         filter.filter_by &= ~FS_CLUSTER_STAT_FILTER_BY_GROUP;
         filter.data_group_id = buff2int(req->data_group_id);
@@ -370,14 +371,15 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
                 g_sf_global_vars.max_buff_size);
         return EOVERFLOW;
     }
-    if (max_buffer_size > task->size) {
-        if ((result=free_queue_set_buffer_size(task, max_buffer_size)) != 0) {
+    if (max_buffer_size > task->send.ptr->size) {
+        if ((result=sf_set_task_send_buffer_size(task,
+                        max_buffer_size)) != 0)
+        {
             return result;
         }
-        SF_PROTO_SET_MAGIC(((FSProtoHeader *)task->data)->magic);
     }
 
-    body_header = (FSProtoClusterStatRespBodyHeader *)SF_PROTO_RESP_BODY(task);
+    body_header = (FSProtoClusterStatRespBodyHeader *)SF_PROTO_SEND_BODY(task);
     p = (char *)(body_header + 1);
     for (group=gstart; group<gend; group++) {
         int2buff(group->id, p);
@@ -438,7 +440,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 
     int2buff(dg_count, body_header->dg_count);
     int2buff(body_part - part_start, body_header->ds_count);
-    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_SEND_BODY(task);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_CLUSTER_STAT_RESP;
     TASK_CTX.common.response_done = true;
     return 0;
@@ -458,7 +460,7 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
     }
 
     body_header = (FSProtoDiskSpaceStatRespBodyHeader *)
-        SF_PROTO_RESP_BODY(task);
+        SF_PROTO_SEND_BODY(task);
     part_start = (FSProtoDiskSpaceStatRespBodyPart *)(body_header + 1);
     body_part = part_start;
 
@@ -478,7 +480,7 @@ static int service_deal_disk_space_stat(struct fast_task_info *task)
     }
 
     int2buff(body_part - part_start, body_header->count);
-    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_RESP_BODY(task);
+    RESPONSE.header.body_len = (char *)body_part - SF_PROTO_SEND_BODY(task);
     RESPONSE.header.cmd = FS_SERVICE_PROTO_DISK_SPACE_STAT_RESP;
     TASK_CTX.common.response_done = true;
     return 0;
@@ -489,7 +491,6 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
 {
     OP_CTX_INFO.deal_done = false;
     OP_CTX_INFO.is_update = true;
-
     if (SERVER_TASK_TYPE == SF_SERVER_TASK_TYPE_CHANNEL_USER &&
             IDEMPOTENCY_CHANNEL != NULL)
     {
@@ -719,7 +720,7 @@ int service_deal_task(struct fast_task_info *task, const int stage)
         return 0;
     } else {
         RESPONSE_STATUS = result;
-        return sf_proto_deal_task_done(task, &TASK_CTX.common);
+        return sf_proto_deal_task_done(task, "service", &TASK_CTX.common);
     }
 }
 

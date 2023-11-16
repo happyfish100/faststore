@@ -81,6 +81,9 @@ typedef struct fs_client_context {
 #define FS_FILE_BLOCK_MASK  g_fs_client_vars.client_ctx.  \
     cluster_cfg.ptr->file_block.mask
 
+#define FS_CLUSTER_SERVER_CFG(client_ctx)  \
+    (client_ctx)->cluster_cfg.ptr->server_cfg
+
 #define FS_CFG_SERVICE_INDEX(client_ctx)  \
     (client_ctx)->cluster_cfg.group_index
 
