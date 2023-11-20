@@ -35,6 +35,7 @@ Multi-Arch: foreign
 Depends: libfastcommon (>= ${libfastcommon:Version}),
          libserverframe (>= ${libserverframe:Version}),
          libfsstorage (>= ${libfsstorage:Version}),
+         libfastrdma (>= ${libfastrdma:Version}),
          fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
          fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
          fastcfs-vote-client (>= ${fastcfs-vote-client:Version}),
@@ -49,6 +50,7 @@ Architecture: any
 Multi-Arch: foreign
 Depends: libfastcommon (>= ${libfastcommon:Version}),
          libserverframe (>= ${libserverframe:Version}),
+         libfastrdma (>= ${libfastrdma:Version}),
          fastcfs-auth-client (>= ${fastcfs-auth-client:Version}),
          fastcfs-auth-config (>= ${fastcfs-auth-config:Version}),
          faststore-config (>= ${faststore-config:Version}),
