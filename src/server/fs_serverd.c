@@ -512,13 +512,15 @@ static int setup_server_env(const char *config_filename)
     int result;
     int max_pkg_size;
 
-    sf_set_current_time();
-    if ((result=server_load_config(config_filename)) != 0) {
+    if ((result=sf_global_init("fs_serverd")) != 0) {
         return result;
     }
-
     if (daemon_mode) {
         daemon_init(false);
+    }
+
+    if ((result=server_load_config(config_filename)) != 0) {
+        return result;
     }
     umask(0);
 

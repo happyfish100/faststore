@@ -946,7 +946,7 @@ int server_load_config(const char *filename)
 
     server_group = fc_server_get_group_by_index(
             &SERVER_CONFIG_CTX, SERVICE_GROUP_INDEX);
-    if ((result=sf_load_config("fs_serverd", server_group->comm_type,
+    if ((result=sf_load_config(NULL, server_group->comm_type,
                     filename, &ini_context, "service",
                     FS_SERVER_DEFAULT_SERVICE_PORT,
                     FS_SERVER_DEFAULT_SERVICE_PORT,
