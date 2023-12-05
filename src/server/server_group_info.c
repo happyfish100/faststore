@@ -343,7 +343,7 @@ static FCServerInfo *get_myself_in_cluster_cfg(
     int count;
     int i;
 
-    service_handler = g_sf_context.handlers[SF_IPV4_ADDRESS_FAMILY_INDEX].
+    service_handler = SERVICE_SF_CTX.handlers[SF_IPV4_ADDRESS_FAMILY_INDEX].
         handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;
     cluster_handler = CLUSTER_SF_CTX.handlers[SF_IPV4_ADDRESS_FAMILY_INDEX].
         handlers + SF_SOCKET_NETWORK_HANDLER_INDEX;

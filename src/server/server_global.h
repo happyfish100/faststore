@@ -360,6 +360,7 @@ typedef struct server_global_vars {
 #define SLAVE_BINLOG_CHECK_LAST_ROWS    g_server_global_vars->data. \
     slave_binlog_check_last_rows
 
+#define SERVICE_SF_CTX            g_sf_context
 #define CLUSTER_SF_CTX            g_server_global_vars->cluster.sf_context
 #define CLUSTER_SERVER_GROUP      g_server_global_vars->cluster.server_group
 #define CLUSTER_CONN_EXTRA_PARAMS g_server_global_vars->cluster.conn_extra_params

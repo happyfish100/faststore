@@ -398,7 +398,7 @@ int main(int argc, char *argv[])
         sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
         sf_accept_loop_ex(&REPLICA_SF_CTX, false);
 
-        result = sf_service_init_ex2(&g_sf_context, "service",
+        result = sf_service_init_ex2(&SERVICE_SF_CTX, "service",
                 service_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 service_deal_task, service_task_finish_cleanup,
@@ -408,8 +408,8 @@ int main(int argc, char *argv[])
         if (result != 0) {
             break;
         }
-        sf_enable_thread_notify_ex(&g_sf_context, true);
-        sf_set_remove_from_ready_list_ex(&g_sf_context, false);
+        sf_enable_thread_notify_ex(&SERVICE_SF_CTX, true);
+        sf_set_remove_from_ready_list_ex(&SERVICE_SF_CTX, false);
 
         if ((result=cluster_relationship_start()) != 0) {
             break;
