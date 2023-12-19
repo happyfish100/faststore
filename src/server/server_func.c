@@ -73,8 +73,67 @@ static void log_cluster_server_config()
     fc_server_to_config_string(&SERVER_CONFIG_CTX, &buffer);
     log_it1(LOG_INFO, buffer.data, buffer.length);
     fast_buffer_destroy(&buffer);
+}
 
-    //fc_server_to_log(&SERVER_CONFIG_CTX);
+#define APPEND_DATA_GROUPS_TO_BUFFER()  \
+    do {  \
+        if ((current_len=current - buff) > front_len) { \
+            if (sizeof(buff) - current_len < 32) { \
+                logError("file: "__FILE__", line: %d, " \
+                        "buff size: %d is too small",   \
+                        __LINE__, (int)sizeof(buff));   \
+                return; \
+            } \
+            *current++ = ','; \
+            *current++ = ' '; \
+        } \
+        if (last_group_id == first_group_id) { \
+            current += sprintf(current, "%d", first_group_id); \
+        } else { \
+            current += sprintf(current, "[%d, %d]", \
+                    first_group_id, last_group_id); \
+        } \
+    } while (0)
+
+
+static void log_data_group_config()
+{
+    FSIdArray *id_array;
+    int i;
+    int front_len;
+    int current_len;
+    int first_group_id;
+    int last_group_id;
+    char buff[8 * 1024];
+    char *current;
+
+    if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+                    CLUSTER_MY_SERVER_ID)) == NULL)
+    {
+        logError("file: "__FILE__", line: %d, "
+                "cluster config file no data group",
+                __LINE__);
+        return;
+    }
+
+    front_len = sprintf(buff, "my data group count: %d, "
+            "data group ids: ", id_array->count);
+    current = buff + front_len;
+    first_group_id = last_group_id = id_array->ids[0];
+    i = 1;
+    while (i < id_array->count) {
+        if (id_array->ids[i] == last_group_id + 1) {
+            last_group_id = id_array->ids[i];
+        } else {
+            APPEND_DATA_GROUPS_TO_BUFFER();
+            first_group_id = last_group_id = id_array->ids[i];
+        }
+
+        i++;
+    }
+
+    APPEND_DATA_GROUPS_TO_BUFFER();
+    log_it1(LOG_INFO, buff, current - buff);
 }
 
 static int load_master_election_config(IniFullContext *ini_ctx)
@@ -594,6 +653,7 @@ static void server_log_configs()
 
     log_local_host_ip_addrs();
     log_cluster_server_config();
+    log_data_group_config();
 }
 
 static int load_binlog_buffer_size(IniContext *ini_context,
