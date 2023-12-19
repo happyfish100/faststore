@@ -37,6 +37,11 @@ typedef struct {
 } BinlogDataGroupVersionArray;
 
 typedef struct {
+    int data_group_id;
+    SFBinlogFilePosition position;
+} ReplicaBinlogFilePosition;
+
+typedef struct {
     time_t from_timestamp;
 
     struct {
@@ -45,9 +50,8 @@ typedef struct {
     } version_arrays;
 
     struct {
-        int base_dg_id;
         int dg_count;
-        SFBinlogFilePosition *replicas;
+        ReplicaBinlogFilePosition *replicas;
         SFBinlogFilePosition slice;
     } positions;
 } BinlogConsistencyContext;

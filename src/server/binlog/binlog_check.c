@@ -106,9 +106,10 @@ static int binlog_check_get_last_timestamp(time_t *last_timestamp)
 int binlog_consistency_init(BinlogConsistencyContext *ctx)
 {
     FSIdArray *id_array;
-    int min_dg_id;
-    int max_dg_id;
     int bytes;
+    int *id;
+    ReplicaBinlogFilePosition *replica;
+    ReplicaBinlogFilePosition *end;
 
     memset(ctx, 0, sizeof(*ctx));
     if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
@@ -117,16 +118,21 @@ int binlog_consistency_init(BinlogConsistencyContext *ctx)
         return ENOENT;
     }
 
-    min_dg_id = fs_cluster_cfg_get_min_data_group_id(id_array);
-    max_dg_id = fs_cluster_cfg_get_max_data_group_id(id_array);
-    ctx->positions.dg_count = max_dg_id - min_dg_id + 1;
-    bytes = sizeof(SFBinlogFilePosition) * ctx->positions.dg_count;
+    ctx->positions.dg_count = id_array->count;
+    bytes = sizeof(ReplicaBinlogFilePosition) * ctx->positions.dg_count;
     ctx->positions.replicas = fc_malloc(bytes);
     if (ctx->positions.replicas == NULL) {
         return ENOMEM;
     }
     memset(ctx->positions.replicas, 0, bytes);
-    ctx->positions.base_dg_id = min_dg_id;
+
+    end = ctx->positions.replicas + ctx->positions.dg_count;
+    for (replica=ctx->positions.replicas, id=id_array->ids;
+            replica<end; replica++, id++)
+    {
+        replica->data_group_id = *id;
+    }
+
     return 0;
 }
 
@@ -312,21 +318,17 @@ static inline void sort_version_array(BinlogDataGroupVersionArray *varray)
 static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
 {
     int result;
-    int data_group_id;
-    int index;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    SFBinlogFilePosition *replica;
-    SFBinlogFilePosition *end;
+    ReplicaBinlogFilePosition *replica;
+    ReplicaBinlogFilePosition *end;
 
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
-        index = replica - ctx->positions.replicas;
-        data_group_id = ctx->positions.base_dg_id + index;
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id);
+                replica->data_group_id);
         if ((result=do_load_data_versions(subdir_name,
-                        replica_binlog_get_writer(data_group_id),
-                        ctx->from_timestamp, replica,
+                        replica_binlog_get_writer(replica->data_group_id),
+                        ctx->from_timestamp, &replica->position,
                         binlog_unpack_replica_common_fields,
                         &ctx->version_arrays.replica)) != 0)
         {

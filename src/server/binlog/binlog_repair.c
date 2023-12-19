@@ -602,14 +602,12 @@ static void repair_context_destroy(BinlogRepairContext *ctx)
 int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
 {
     int result;
-    int data_group_id;
-    int index;
     int64_t total_keep_count;
     int64_t total_delete_count;
     BinlogRepairContext repair_ctx;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
-    SFBinlogFilePosition *replica;
-    SFBinlogFilePosition *end;
+    ReplicaBinlogFilePosition *replica;
+    ReplicaBinlogFilePosition *end;
 
     if ((result=repair_context_init(&repair_ctx,
                     &ctx->version_arrays.slice)) != 0)
@@ -622,15 +620,14 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     total_delete_count = 0;
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
-        index = replica - ctx->positions.replicas;
-        data_group_id = ctx->positions.base_dg_id + index;
         sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id);
+                replica->data_group_id);
 
-        repair_ctx.input.data_group_id = data_group_id;
+        repair_ctx.input.data_group_id = replica->data_group_id;
         repair_ctx.input.subdir_name = subdir_name;
-        repair_ctx.input.writer = replica_binlog_get_writer(data_group_id);
-        repair_ctx.input.pos = replica;
+        repair_ctx.input.writer = replica_binlog_get_writer(
+                replica->data_group_id);
+        repair_ctx.input.pos = &replica->position;
         repair_ctx.input.unpack_common_fields =
             binlog_unpack_replica_common_fields;
         if ((result=binlog_repair(&repair_ctx)) != 0) {
@@ -643,7 +640,7 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
             logInfo("file: "__FILE__", line: %d, "
                     "repair replica binlog for data group id: %d, "
                     "keep count: %"PRId64", delete count: %"PRId64,
-                    __LINE__, data_group_id, repair_ctx.keep_count,
+                    __LINE__, replica->data_group_id, repair_ctx.keep_count,
                     repair_ctx.delete_count);
         }
     }
