@@ -24,6 +24,10 @@
 #define FILE_BLOCK_MIN_SIZE        (256 * 1024)
 #define FILE_BLOCK_MAX_SIZE        (8 * 1024 * 1024)
 
+#define SERVER_GROUP_SECTION_PREFIX_STR  "server-group-"
+#define SERVER_GROUP_SECTION_PREFIX_LEN  \
+    (sizeof(SERVER_GROUP_SECTION_PREFIX_STR) - 1)
+
 #define INIT_ID_ARRAY(array) \
     do {  \
         (array).alloc = (array).count = 0; \
@@ -34,6 +38,18 @@ static int compare_server_data_mapping(const void *p1, const void *p2)
 {
     return ((FSServerDataMapping *)p1)->server_id -
         ((FSServerDataMapping *)p2)->server_id;
+}
+
+static int compare_server_group(const void *p1, const void *p2)
+{
+    return ((FSServerGroup *)p1)->server_group_id -
+        ((FSServerGroup *)p2)->server_group_id;
+}
+
+static int compare_server_group_ptr(const void *p1, const void *p2)
+{
+    return (*((FSServerGroup **)p1))->server_group_id -
+        (*((FSServerGroup **)p2))->server_group_id;
 }
 
 static int alloc_server_data_mappings(FSClusterConfig *cluster_cfg)
@@ -72,25 +88,25 @@ static int alloc_server_data_mappings(FSClusterConfig *cluster_cfg)
 static int load_server_group_count(FSClusterConfig *cluster_cfg,
         const char *cluster_filename, IniContext *ini_context)
 {
-    int server_group_count;
     int bytes;
+    int count;
 
-    server_group_count = iniGetIntValue(NULL, "server_group_count",
-            ini_context, 0);
-    if (server_group_count <= 0) {
+    if ((count=iniGetSectionCountByPrefix(ini_context,
+                    SERVER_GROUP_SECTION_PREFIX_STR)) == 0)
+    {
         logError("file: "__FILE__", line: %d, "
-                "config file: %s, item \"server_group_count\" "
-                "not exist or is invalid", __LINE__, cluster_filename);
-        return EINVAL;
+                "config file: %s, no server group sections!",
+                __LINE__, cluster_filename);
+        return ENOENT;
     }
 
-    bytes = sizeof(FSServerGroup) * server_group_count;
+    bytes = sizeof(FSServerGroup) * count;
     cluster_cfg->server_groups.groups = (FSServerGroup *)fc_malloc(bytes);
     if (cluster_cfg->server_groups.groups == NULL) {
         return ENOMEM;
     }
     memset(cluster_cfg->server_groups.groups, 0, bytes);
-    cluster_cfg->server_groups.count = server_group_count;
+    cluster_cfg->server_groups.count = count;
     return 0;
 }
 
@@ -522,8 +538,8 @@ static int get_ids(const char *cluster_filename, IniContext *ini_context,
 }
 
 static int set_server_group(FSClusterConfig *cluster_cfg,
-        const char *cluster_filename, const int server_group_id,
-        FSServerGroup *server_group, const FSIdArray *server_ids)
+        const char *cluster_filename, FSServerGroup *server_group,
+        const FSIdArray *server_ids)
 {
     int i;
     int bytes;
@@ -541,9 +557,9 @@ static int set_server_group(FSClusterConfig *cluster_cfg,
                         server_ids->ids[i])) == NULL)
         {
             logError("file: "__FILE__", line: %d, "
-                    "config file: %s, server group: %d, "
-                    "server id: %d not exist", __LINE__,
-                    cluster_filename, server_group_id, server_ids->ids[i]);
+                    "config file: %s, server group: %d, server id: %d "
+                    "not exist", __LINE__, cluster_filename, server_group->
+                    server_group_id, server_ids->ids[i]);
             return ENOENT;
         }
 
@@ -555,8 +571,7 @@ static int set_server_group(FSClusterConfig *cluster_cfg,
 }
 
 static int set_data_group(FSClusterConfig *cluster_cfg,
-        const char *cluster_filename, const int server_group_id,
-        FSServerGroup *server_group)
+        const char *cluster_filename, FSServerGroup *server_group)
 {
     int result;
     int i;
@@ -590,7 +605,7 @@ static int set_data_group(FSClusterConfig *cluster_cfg,
     if (result != 0) {
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, server group id: %d, %s", __LINE__,
-                cluster_filename, server_group_id, err_msg);
+                cluster_filename, server_group->server_group_id, err_msg);
     }
 
     return result;
@@ -621,8 +636,7 @@ static int add_to_id_array(FSIdArray *dest, const FSIdArray *src)
 }
 
 static int set_server_data_mappings(FSClusterConfig *cluster_cfg,
-        const char *cluster_filename, const int server_group_id,
-        FSServerGroup *server_group)
+        const char *cluster_filename, FSServerGroup *server_group)
 {
     FCServerInfo **pp;
     FCServerInfo **end;
@@ -641,9 +655,9 @@ static int set_server_data_mappings(FSClusterConfig *cluster_cfg,
                 compare_server_data_mapping);
         if (mapping == NULL) {
             logError("file: "__FILE__", line: %d, "
-                    "config file: %s, server group id: %d, "
-                    "can't found server id: %d", __LINE__,
-                    cluster_filename, server_group_id, (*pp)->id);
+                    "config file: %s, server group id: %d, can't found "
+                    "server id: %d", __LINE__, cluster_filename,
+                    server_group->server_group_id, (*pp)->id);
             return ENOENT;
         }
 
@@ -658,7 +672,8 @@ static int set_server_data_mappings(FSClusterConfig *cluster_cfg,
                     "config file: %s, server group id: %d, "
                     "server id: %d, too many group data ids: %d "
                     "exceeds %d", __LINE__, cluster_filename,
-                    server_group_id, (*pp)->id, mapping->data_group.count,
+                    server_group->server_group_id, (*pp)->id,
+                    mapping->data_group.count,
                     FS_MAX_DATA_GROUPS_PER_SERVER);
             return EOVERFLOW;
         }
@@ -669,15 +684,12 @@ static int set_server_data_mappings(FSClusterConfig *cluster_cfg,
 
 static int load_one_server_group(FSClusterConfig *cluster_cfg,
         const char *cluster_filename, IniContext *ini_context,
-        const int server_group_id, FSServerGroup *server_group,
-        FSIdArray *server_ids)
+        FSServerGroup *server_group, FSIdArray *server_ids)
 {
     char section_name[32];
     int result;
 
-    server_group->server_group_id = server_group_id;
-    sprintf(section_name, "server-group-%d", server_group_id);
-
+    sprintf(section_name, "server-group-%d", server_group->server_group_id);
     server_ids->count = 0;
     if ((result=get_ids(cluster_filename, ini_context,
                     section_name, "server_ids", server_ids)) != 0)
@@ -695,36 +707,44 @@ static int load_one_server_group(FSClusterConfig *cluster_cfg,
     if (server_group->data_group.count > FS_MAX_DATA_GROUPS_PER_SERVER) {
         logError("file: "__FILE__", line: %d, "
                 "config file: %s, server group id: %d, "
-                "too many group data ids: %d exceeds %d",
-                __LINE__, cluster_filename, server_group_id,
+                "too many group data ids: %d exceeds %d", __LINE__,
+                cluster_filename, server_group->server_group_id,
                 server_group->data_group.count,
                 FS_MAX_DATA_GROUPS_PER_SERVER);
         return EOVERFLOW;
     }
 
     if ((result=set_server_group(cluster_cfg, cluster_filename,
-                    server_group_id, server_group, server_ids)) != 0)
+                    server_group, server_ids)) != 0)
     {
         return result;
     }
 
     if ((result=set_data_group(cluster_cfg, cluster_filename,
-                    server_group_id, server_group)) != 0)
+                    server_group)) != 0)
     {
         return result;
     }
 
-    return set_server_data_mappings(cluster_cfg, cluster_filename,
-            server_group_id, server_group);
+    return set_server_data_mappings(cluster_cfg,
+            cluster_filename, server_group);
 }
 
 static int load_groups(FSClusterConfig *cluster_cfg,
         const char *cluster_filename, IniContext *ini_context)
 {
+#define FIXED_SERVER_GROUP_SECTION_SIZE   128
     int result;
-    int i;
-    int server_group_id;
     FSIdArray server_ids;
+    struct {
+        IniSectionInfo holders[FIXED_SERVER_GROUP_SECTION_SIZE];
+        IniSectionInfo *ptr;
+        int size;
+        int count;
+    } sections;
+    FSServerGroup *server_group;
+    FSServerGroup *end;
+    IniSectionInfo *section;
 
     if ((result=load_server_group_count(cluster_cfg, cluster_filename,
                     ini_context)) != 0)
@@ -738,12 +758,45 @@ static int load_groups(FSClusterConfig *cluster_cfg,
         return result;
     }
 
+    if (cluster_cfg->server_groups.count <= FIXED_SERVER_GROUP_SECTION_SIZE) {
+        sections.size = FIXED_SERVER_GROUP_SECTION_SIZE;
+        sections.ptr = sections.holders;
+    } else {
+        sections.size = cluster_cfg->server_groups.count;
+        sections.ptr = fc_malloc(sizeof(IniSectionInfo) * sections.size);
+        if (sections.ptr == NULL) {
+            return ENOMEM;
+        }
+    }
+
+    if ((result=iniGetSectionNamesByPrefix(ini_context,
+                    SERVER_GROUP_SECTION_PREFIX_STR,
+                    sections.ptr, sections.size,
+                    &sections.count)) != 0)
+    {
+        return result;
+    }
+
     INIT_ID_ARRAY(server_ids);
-    for (i=0; i<cluster_cfg->server_groups.count; i++) {
-        server_group_id = i + 1;
+    end = cluster_cfg->server_groups.groups +
+        cluster_cfg->server_groups.count;
+    for (server_group=cluster_cfg->server_groups.groups,
+            section=sections.ptr; server_group<end;
+            server_group++, section++)
+    {
+        server_group->server_group_id = strtol(section->section_name +
+                SERVER_GROUP_SECTION_PREFIX_LEN, NULL, 10);
+    }
+    if (cluster_cfg->server_groups.count > 1) {
+        qsort(cluster_cfg->server_groups.groups, cluster_cfg->server_groups.
+                count, sizeof(FSServerGroup), compare_server_group);
+    }
+
+    for (server_group=cluster_cfg->server_groups.groups;
+            server_group<end; server_group++)
+    {
         if ((result=load_one_server_group(cluster_cfg, cluster_filename,
-                        ini_context, server_group_id, cluster_cfg->
-                        server_groups.groups + i, &server_ids)) != 0)
+                        ini_context, server_group, &server_ids)) != 0)
         {
             return result;
         }
@@ -751,6 +804,9 @@ static int load_groups(FSClusterConfig *cluster_cfg,
 
     if (server_ids.ids != NULL) {
         free(server_ids.ids);
+    }
+    if (sections.ptr != sections.holders) {
+        free(sections.ptr);
     }
 
     if ((result=check_data_groups(cluster_cfg, cluster_filename)) != 0) {
@@ -1029,12 +1085,6 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
     return 0;
 }
 
-static int compare_server_group(const void *p1, const void *p2)
-{
-    return (*((FSServerGroup **)p1))->server_group_id -
-        (*((FSServerGroup **)p2))->server_group_id;
-}
-
 int fs_cluster_cfg_add_one_server(FCServerInfo *svr,
         FCServerInfo **servers, const int size, int *count)
 {
@@ -1097,7 +1147,7 @@ static int get_unique_servers(FSServerGroup **server_groups,
     }
     if (sgroup_count > 1) {
         qsort(server_groups, sgroup_count, sizeof(FSServerGroup *),
-                compare_server_group);
+                compare_server_group_ptr);
     }
 
     if ((result=fs_cluster_cfg_add_servers(server_groups[0],
@@ -1403,11 +1453,10 @@ int fs_cluster_cfg_get_my_server_groups(FSClusterConfig *cluster_cfg,
 const FSServerGroup *fs_cluster_cfg_get_server_group_by_id(
         FSClusterConfig *cluster_cfg, const int server_group_id)
 {
-    if (!(server_group_id > 0 && server_group_id <=
-                cluster_cfg->server_groups.count))
-    {
-        return NULL;
-    }
+    FSServerGroup target;
 
-    return cluster_cfg->server_groups.groups + (server_group_id - 1);
+    target.server_group_id = server_group_id;
+    return bsearch(&target, cluster_cfg->server_groups.groups,
+            cluster_cfg->server_groups.count, sizeof(FSServerGroup),
+            compare_server_group);
 }
