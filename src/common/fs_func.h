@@ -26,10 +26,21 @@ extern "C" {
 #endif
 
     static inline void fs_calc_block_hashcode(FSBlockKey *bkey,
-            const int file_block_size)
+            const int file_block_size, const bool use_hash_func)
     {
-        bkey->hash_code = bkey->oid + bkey->offset +
-            (bkey->offset / file_block_size);
+        if (use_hash_func) {
+            struct {
+                int64_t oid;
+                int64_t offset;
+            } hkey;
+
+            hkey.oid = bkey->oid;
+            hkey.offset = bkey->offset;
+            bkey->hash_code = fc_simple_hash(&hkey, sizeof(hkey));
+        } else {
+            bkey->hash_code = bkey->oid + bkey->offset +
+                (bkey->offset / file_block_size);
+        }
     }
 
     static inline void fs_fill_padding_bkey(const int data_group_id,

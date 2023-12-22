@@ -81,6 +81,12 @@ typedef struct fs_client_context {
 #define FS_FILE_BLOCK_MASK  g_fs_client_vars.client_ctx.  \
     cluster_cfg.ptr->file_block.mask
 
+#define FS_USE_HASH_FUNC  g_fs_client_vars.client_ctx.    \
+    cluster_cfg.ptr->use_hash_func
+
+#define FS_CALC_BLOCK_HASHCODE(bkey) fs_calc_block_hashcode( \
+        bkey, FS_FILE_BLOCK_SIZE, FS_USE_HASH_FUNC)
+
 #define FS_CLUSTER_SERVER_CFG(client_ctx)  \
     (client_ctx)->cluster_cfg.ptr->server_cfg
 

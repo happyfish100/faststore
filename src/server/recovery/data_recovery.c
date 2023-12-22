@@ -362,7 +362,7 @@ static int deal_binlog_buffer(BinlogReadThreadContext *rdthread_ctx,
             break;
         }
 
-        fs_calc_block_hashcode(&record.bs_key.block, FILE_BLOCK_SIZE);
+        CALC_BLOCK_HASHCODE(&record.bs_key.block);
         switch (record.op_type) {
             case BINLOG_OP_TYPE_WRITE_SLICE:
             case BINLOG_OP_TYPE_ALLOC_SLICE:

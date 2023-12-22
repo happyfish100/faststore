@@ -778,8 +778,7 @@ static int deal_binlog_buffer(DataRecoveryContext *ctx)
             return EINTR;
         }
 
-        fs_calc_block_hashcode(&replay_ctx->record.
-                bs_key.block, FILE_BLOCK_SIZE);
+        CALC_BLOCK_HASHCODE(&replay_ctx->record.bs_key.block);
         task->op_type = replay_ctx->record.op_type;
         task->op_ctx.info.data_group_id = ctx->ds->dg->id;
         task->op_ctx.info.myself = ctx->master->dg->myself;

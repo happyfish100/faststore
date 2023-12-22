@@ -907,6 +907,8 @@ int fs_cluster_cfg_load(FSClusterConfig *cluster_cfg,
     }
     fs_cluster_cfg_set_file_block_size(cluster_cfg, file_block_size);
 
+    cluster_cfg->use_hash_func = iniGetBoolValue(ini_ctx.section_name,
+            "use_hash_func", ini_ctx.context, false);
     if ((result=fc_server_load_from_ini_context_ex(&cluster_cfg->
                     server_cfg, &ini_context, cluster_filename,
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
@@ -991,7 +993,9 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
 
     logInfo("file_block_size = %d kB", cluster_cfg->file_block.size / 1024);
     logInfo("server_group_count = %d", cluster_cfg->server_groups.count);
-    logInfo("data_group_count = %d", cluster_cfg->data_groups.count);
+    logInfo("data_group_count = %d, use_hash_func = %d",
+            cluster_cfg->data_groups.count,
+            cluster_cfg->use_hash_func);
 
     buff_end = server_id_buff + sizeof(server_id_buff);
     send = cluster_cfg->server_groups.groups +
@@ -1037,10 +1041,12 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
     if ((result=fast_buffer_append(buffer,
                     "file_block_size = %d\n"
                     "server_group_count = %d\n"
-                    "data_group_count = %d\n",
+                    "data_group_count = %d\n"
+                    "use_hash_func = %d\n",
                     cluster_cfg->file_block.size,
                     cluster_cfg->server_groups.count,
-                    cluster_cfg->data_groups.count)) != 0)
+                    cluster_cfg->data_groups.count,
+                    cluster_cfg->use_hash_func)) != 0)
     {
         return result;
     }
@@ -1065,8 +1071,8 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
         *p = '\0';
         sid_buff.len = p - sid_buff.str;
 
-        if ((result=id_array_to_string_ex(&sgroup->data_group, &gid_buff,
-                        sizeof(group_id_buff))) != 0)
+        if ((result=id_array_to_string_ex(&sgroup->data_group,
+                        &gid_buff, sizeof(group_id_buff))) != 0)
         {
             return result;
         }

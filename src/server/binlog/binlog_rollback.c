@@ -273,7 +273,7 @@ static int do_rollback(DataRollbackContext *rollback_ctx,
     uint64_t sn;
     struct fc_queue_info space_chain;
 
-    fs_calc_block_hashcode(&record->bs_key.block, FILE_BLOCK_SIZE);
+    CALC_BLOCK_HASHCODE(&record->bs_key.block);
     rollback_ctx->op_ctx.info.bs_key.block = record->bs_key.block;
     if (record->op_type == BINLOG_OP_TYPE_DEL_BLOCK) {
         rollback_ctx->op_ctx.info.bs_key.slice.offset = 0;

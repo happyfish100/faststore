@@ -158,7 +158,7 @@ static int parse_check_block_key(struct fast_task_info *task,
         return EINVAL;
     }
 
-    fs_calc_block_hashcode(&op_ctx->info.bs_key.block, FILE_BLOCK_SIZE);
+    CALC_BLOCK_HASHCODE(&op_ctx->info.bs_key.block);
     op_ctx->info.data_group_id = FS_DATA_GROUP_ID(op_ctx->info.bs_key.block);
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {

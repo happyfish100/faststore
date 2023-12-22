@@ -44,7 +44,7 @@ static inline void fs_set_block_key(FSBlockKey *bkey,
 {
     bkey->oid = oid;
     bkey->offset = FS_FILE_BLOCK_ALIGN(offset);
-    fs_calc_block_hashcode(bkey, FS_FILE_BLOCK_SIZE);
+    FS_CALC_BLOCK_HASHCODE(bkey);
 }
 
 static inline void fs_set_slice_size(FSBlockSliceKeyInfo *bs_key,
@@ -68,7 +68,7 @@ static inline void fs_set_block_slice(FSBlockSliceKeyInfo *bs_key,
 static inline void fs_next_block_key(FSBlockKey *bkey)
 {
     bkey->offset += FS_FILE_BLOCK_SIZE;
-    fs_calc_block_hashcode(bkey, FS_FILE_BLOCK_SIZE);
+    FS_CALC_BLOCK_HASHCODE(bkey);
 }
 
 static inline void fs_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,

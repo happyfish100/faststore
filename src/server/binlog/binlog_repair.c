@@ -349,7 +349,7 @@ static int binlog_filter_buffer(BinlogRepairContext *repair_ctx,
         {
             keep = true;
         } else {
-            fs_calc_block_hashcode(&fields.bkey, FILE_BLOCK_SIZE);
+            CALC_BLOCK_HASHCODE(&fields.bkey);
             dg_version.data_version = fields.data_version;
             dg_version.data_group_id = FS_DATA_GROUP_ID(fields.bkey);
             keep = bsearch(&dg_version, repair_ctx->input.varray->versions,

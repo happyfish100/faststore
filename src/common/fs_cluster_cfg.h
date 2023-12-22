@@ -68,6 +68,7 @@ typedef struct {
         int size;
         int mask;  //(~(FS_FILE_BLOCK_SIZE - 1))
     } file_block;
+    bool use_hash_func;
     int unused_server_count;
     int cluster_group_index;
     int replica_group_index;

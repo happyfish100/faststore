@@ -400,7 +400,7 @@ static int unpack_one_block(SFSerializerIterator *it,
                 it->error_no, it->error_info);
         return it->error_no;
     }
-    fs_calc_block_hashcode(&entry->bkey, FILE_BLOCK_SIZE);
+    CALC_BLOCK_HASHCODE(&entry->bkey);
 
     ctx->array.count++;
     return 0;

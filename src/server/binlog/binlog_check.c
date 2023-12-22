@@ -221,7 +221,7 @@ static int binlog_parse_buffer(ServerBinlogReader *reader,
         if ((fields.timestamp >= from_timestamp) &&
                 FS_BINLOG_CHECKED_BY_SOURCE(fields.source))
         {
-            fs_calc_block_hashcode(&fields.bkey, FILE_BLOCK_SIZE);
+            CALC_BLOCK_HASHCODE(&fields.bkey);
             if ((result=check_alloc_version_array(varray)) != 0) {
                 sprintf(error_info, "out of memory");
                 break;

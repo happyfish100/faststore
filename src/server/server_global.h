@@ -379,8 +379,12 @@ typedef struct server_global_vars {
     storage.cfg.write_to_cache
 #define CACHE_FLUSH_MAX_DELAY     g_server_global_vars->  \
     storage.cfg.cache_flush_max_delay
-#define FILE_BLOCK_SIZE           g_server_global_vars->  \
-    cluster.config.ctx.file_block.size
+
+#define FILE_BLOCK_SIZE g_server_global_vars->cluster.config.ctx.file_block.size
+#define USE_HASH_FUNC   g_server_global_vars->cluster.config.ctx.use_hash_func
+#define CALC_BLOCK_HASHCODE(bkey) fs_calc_block_hashcode( \
+        bkey, FILE_BLOCK_SIZE, USE_HASH_FUNC)
+
 #define OB_HASHTABLE_CAPACITY     g_server_global_vars->  \
     storage.cfg.object_block.hashtable_capacity
 #define OB_SHARED_LOCK_COUNT      g_server_global_vars->  \

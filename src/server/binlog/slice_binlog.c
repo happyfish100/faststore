@@ -903,7 +903,7 @@ int slice_binlog_record_unpack(const string_t *line,
             ((record->op_type == BINLOG_OP_TYPE_DEL_BLOCK ||
               record->op_type == BINLOG_OP_TYPE_NO_OP) ?
              '\n' : ' '), 0);
-    fs_calc_block_hashcode(&record->bs_key.block, FILE_BLOCK_SIZE);
+    CALC_BLOCK_HASHCODE(&record->bs_key.block);
 
     switch (record->op_type) {
         case BINLOG_OP_TYPE_WRITE_SLICE:
@@ -1014,7 +1014,7 @@ static int slice_binlog_get_first_record(const char *filename,
             }
 
             if (FS_IS_BINLOG_SOURCE_RPC(record->source)) {
-                fs_calc_block_hashcode(&record->bkey, FILE_BLOCK_SIZE);
+                CALC_BLOCK_HASHCODE(&record->bkey);
                 if (FS_DATA_GROUP_ID(record->bkey) == data_group_id) {
                     pos->offset += (line.str - buff);
                     found = true;
@@ -1120,7 +1120,7 @@ static int find_position_by_dv(const char *filename, const int data_group_id,
             }
 
             if (FS_IS_BINLOG_SOURCE_RPC(record.source)) {
-                fs_calc_block_hashcode(&record.bkey, FILE_BLOCK_SIZE);
+                CALC_BLOCK_HASHCODE(&record.bkey);
                 if (FS_DATA_GROUP_ID(record.bkey) == data_group_id &&
                         record.data_version > last_data_version)
                 {
@@ -1405,7 +1405,7 @@ static int slice_parse_to_array(const int data_group_id,
         if (FS_IS_BINLOG_SOURCE_RPC(record->source) ||
                 record->source == BINLOG_SOURCE_ROLLBACK)
         {
-            fs_calc_block_hashcode(&record->bkey, FILE_BLOCK_SIZE);
+            CALC_BLOCK_HASHCODE(&record->bkey);
             if (FS_DATA_GROUP_ID(record->bkey) == data_group_id) {
                 array->count++;
             }
@@ -1483,7 +1483,7 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     se.bs_key.slice.offset = field->extra;
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
-    fs_calc_block_hashcode(&se.bs_key.block, FILE_BLOCK_SIZE);
+    CALC_BLOCK_HASHCODE(&se.bs_key.block);
     slice_type = ((DATrunkSpaceLogRecord *)space_chain->tail)->slice_type;
     if ((result=ob_index_update_slice(&se, &space, &update_count,
                     record, slice_type, call_by_reclaim)) != 0)

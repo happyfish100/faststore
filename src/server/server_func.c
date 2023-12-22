@@ -298,8 +298,10 @@ int fs_write_to_sys_file()
     snprintf(filename, sizeof(filename), "%s/%s",
             DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
     len = sprintf(buff, "file_block_size=%d\n"
-            "slice_remove_files=%u\n",
-            FILE_BLOCK_SIZE, SLICE_REMOVE_FILES);
+            "slice_remove_files=%u\n"
+            "use_hash_func=%s\n",
+            FILE_BLOCK_SIZE, SLICE_REMOVE_FILES,
+            USE_HASH_FUNC ? "true" : "false");
     return safeWriteToFile(filename, buff, len);
 }
 
@@ -308,6 +310,9 @@ static int load_from_sys_file()
     char filename[PATH_MAX];
     IniContext ini_context;
     int file_block_size;
+    bool use_hash_func;
+    const char *new_caption;
+    const char *old_caption;
     int result;
 
     snprintf(filename, sizeof(filename), "%s/%s",
@@ -339,6 +344,18 @@ static int load_from_sys_file()
                 "new: %d KB, you must restore file_block_size to %d KB",
                 __LINE__, file_block_size / 1024, FILE_BLOCK_SIZE / 1024,
                 file_block_size / 1024);
+        return EINVAL;
+    }
+
+    use_hash_func = iniGetBoolValue(NULL,
+            "use_hash_func", &ini_context, false);
+    old_caption = (use_hash_func ? "true" : "false");
+    new_caption = (USE_HASH_FUNC ? "true" : "false");
+    if (strcmp(old_caption, new_caption) != 0) {
+        logError("file: "__FILE__", line: %d, "
+                "use_hash_func in cluster.conf changed, old: %s, "
+                "new: %s, you must restore use_hash_func to %s",
+                __LINE__, old_caption, new_caption, old_caption);
         return EINVAL;
     }
 
