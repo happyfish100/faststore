@@ -24,9 +24,9 @@
 #define MEMORY_LIMIT_LEVEL0_RATIO  0.60
 #define MEMORY_LIMIT_LEVEL1_RATIO  (1.00 - MEMORY_LIMIT_LEVEL0_RATIO)
 
-
 typedef int (*fs_storage_engine_init_func)(IniFullContext *ini_ctx,
         const int my_server_id, const int file_block_size,
+        const bool use_hash_func,
         const FSStorageEngineConfig *db_cfg,
         const DADataConfig *data_cfg);
 

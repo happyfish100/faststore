@@ -1247,8 +1247,8 @@ int server_load_config(const char *filename)
     data_cfg.trunk_index_dump_base_time = TRUNK_INDEX_DUMP_BASE_TIME;
     if (STORAGE_ENABLED) {
         if ((result=STORAGE_ENGINE_INIT_API(&full_ini_ctx, CLUSTER_MY_SERVER_ID,
-                        FILE_BLOCK_SIZE, &g_server_global_vars->slice_storage.cfg,
-                        &data_cfg)) != 0)
+                        FILE_BLOCK_SIZE, USE_HASH_FUNC, &g_server_global_vars->
+                        slice_storage.cfg, &data_cfg)) != 0)
         {
             return result;
         }
