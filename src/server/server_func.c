@@ -858,8 +858,8 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
             FS_DEFAULT_BATCH_STORE_INTERVAL);
 
     TRUNK_INDEX_DUMP_INTERVAL = iniGetIntCorrectValue(ini_ctx,
-            "trunk_index_dump_interval", 1, 86400,
-            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+            "trunk_index_dump_interval",
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL, 1, 86400);
 
     if ((result=get_time_item_from_conf_ex(ini_ctx,
                     "trunk_index_dump_base_time",
@@ -918,8 +918,8 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
     DATA_CFG.binlog_buffer_size = BINLOG_BUFFER_SIZE;
     DATA_CFG.binlog_subdirs = 0;
     DATA_CFG.trunk_index_dump_interval = iniGetIntCorrectValue(
-            &ini_ctx, "trunk_index_dump_interval", 1, 86400,
-            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL);
+            &ini_ctx, "trunk_index_dump_interval",
+            FS_DEFAULT_TRUNK_INDEX_DUMP_INTERVAL, 1, 86400);
     if ((result=get_time_item_from_conf_ex(&ini_ctx,
                     "trunk_index_dump_base_time",
                     &DATA_CFG.trunk_index_dump_base_time,
