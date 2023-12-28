@@ -864,7 +864,7 @@ static int load_storage_engine_parames(IniFullContext *ini_ctx)
     if ((result=get_time_item_from_conf_ex(ini_ctx,
                     "trunk_index_dump_base_time",
                     &TRUNK_INDEX_DUMP_BASE_TIME,
-                    0, 30, false)) != 0)
+                    1, 30, false)) != 0)
     {
         return result;
     }
@@ -923,7 +923,7 @@ static int load_storage_cfg(IniContext *ini_context, const char *filename)
     if ((result=get_time_item_from_conf_ex(&ini_ctx,
                     "trunk_index_dump_base_time",
                     &DATA_CFG.trunk_index_dump_base_time,
-                    1, 30, false)) != 0)
+                    0, 30, false)) != 0)
     {
         return result;
     }
