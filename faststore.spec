@@ -31,7 +31,7 @@ commit version: %{CommitVersion}
 %package -n %{FastStoreServer}
 Requires: libaio
 Requires: libserverframe >= 1.2.1
-Requires: libfastrdma >= 1.0.0
+Requires: libfastrdma >= 1.0.1
 Requires: libfsstorage >= 1.1.5
 Requires: FastCFS-auth-client >= 5.0.0
 Requires: FastCFS-auth-config >= 2.0.0
@@ -42,7 +42,7 @@ Summary: FastStore server
 
 %package -n %{FastStoreClient}
 Requires: libserverframe >= 1.2.1
-Requires: libfastrdma >= 1.0.0
+Requires: libfastrdma >= 1.0.1
 Requires: FastCFS-auth-client >= 5.0.0
 Requires: FastCFS-auth-config >= 2.0.0
 Requires: %{FastStoreConfig} >= 1.0.0
