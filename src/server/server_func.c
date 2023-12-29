@@ -576,7 +576,8 @@ static void server_log_configs()
 
     len = snprintf(sz_server_config, sizeof(sz_server_config),
             "my server id = %d, cluster server group id = %d, "
-            "file_block_size: %d KB, data_path = %s, data_threads = %d, "
+            "file_block_size: %d KB, use_hash_func: %d, "
+            "data_path = %s, data_threads = %d, "
             "replica_channels_between_two_servers = %d, "
             "recovery_concurrent = %d, "
             "recovery_threads_per_data_group = %d, "
@@ -602,7 +603,7 @@ static void server_log_configs()
             "max_shutdown_duration: %ds}, "
             "storage-engine { enabled: %d",
             CLUSTER_MY_SERVER_ID, CLUSTER_SERVER_GROUP_ID,
-            FILE_BLOCK_SIZE / 1024,
+            FILE_BLOCK_SIZE / 1024, USE_HASH_FUNC,
             DATA_PATH_STR, DATA_THREAD_COUNT,
             REPLICA_CHANNELS_BETWEEN_TWO_SERVERS,
             RECOVERY_CONCURRENT,
