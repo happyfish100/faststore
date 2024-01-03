@@ -297,9 +297,11 @@ int fs_write_to_sys_file()
 
     snprintf(filename, sizeof(filename), "%s/%s",
             DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
-    len = sprintf(buff, "file_block_size=%d\n"
+    len = sprintf(buff, "data_group_count=%d\n"
+            "file_block_size=%d\n"
             "slice_remove_files=%u\n"
             "use_hash_func=%s\n",
+            FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX),
             FILE_BLOCK_SIZE, SLICE_REMOVE_FILES,
             USE_HASH_FUNC ? "true" : "false");
     return safeWriteToFile(filename, buff, len);
@@ -310,6 +312,7 @@ static int load_from_sys_file()
     char filename[PATH_MAX];
     IniContext ini_context;
     int file_block_size;
+    int data_group_count;
     bool use_hash_func;
     const char *new_caption;
     const char *old_caption;
@@ -334,6 +337,19 @@ static int load_from_sys_file()
                 "load conf file \"%s\" fail, ret code: %d",
                 __LINE__, filename, result);
         return result;
+    }
+
+    data_group_count = iniGetIntValue(NULL,
+            "data_group_count", &ini_context, 0);
+    if (data_group_count != 0 && data_group_count !=
+            FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX))
+    {
+        logError("file: "__FILE__", line: %d, "
+                "data_group_count in cluster.conf changed, old: %d, new: %d, "
+                "you must restore data_group_count to %d", __LINE__,
+                data_group_count, FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX),
+                data_group_count);
+        return EINVAL;
     }
 
     file_block_size = iniGetIntValue(NULL,
@@ -369,7 +385,12 @@ static int load_from_sys_file()
     }
 
     iniFreeContext(&ini_context);
-    return 0;
+
+    if (data_group_count == 0) {
+        return fs_write_to_sys_file();
+    } else {
+        return 0;
+    }
 }
 
 static int load_cluster_config(IniContext *ini_context, const char *filename,
