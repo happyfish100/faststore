@@ -189,6 +189,10 @@ static int service_deal_service_stat(struct fast_task_info *task)
     int2buff(writer_stat.waiting_count, stat_resp->binlog.writer.waiting_count);
     int2buff(writer_stat.max_waitings, stat_resp->binlog.writer.max_waitings);
 
+    long2buff(CLUSTER_MYSELF_PTR->space_stat.total, stat_resp->space.total);
+    long2buff(CLUSTER_MYSELF_PTR->space_stat.used, stat_resp->space.used);
+    long2buff(CLUSTER_MYSELF_PTR->space_stat.avail, stat_resp->space.avail);
+
     output_ob_slice_stat(&ob, &stat_resp->data.ob);
     output_ob_slice_stat(&slice, &stat_resp->data.slice);
 

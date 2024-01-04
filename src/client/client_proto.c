@@ -832,6 +832,10 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->binlog.writer.max_waitings = buff2int(
             stat_resp.binlog.writer.max_waitings);
 
+    stat->space.total = buff2long(stat_resp.space.total);
+    stat->space.used = buff2long(stat_resp.space.used);
+    stat->space.avail = buff2long(stat_resp.space.avail);
+
     parse_ob_slice_stat(&stat_resp.data.ob, &stat->data.ob);
     parse_ob_slice_stat(&stat_resp.data.slice, &stat->data.slice);
     return 0;

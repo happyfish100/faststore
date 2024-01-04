@@ -247,6 +247,12 @@ typedef struct fs_proto_service_stat_resp {
         FSProtoServiceOBSliceStat slice;
     } data;
 
+    struct {
+        char total[8];
+        char used[8];
+        char avail[8];
+    } space;
+
 } FSProtoServiceStatResp;
 
 typedef struct fs_proto_cluster_stat_req {

@@ -63,6 +63,11 @@ static void output(const ConnectionInfo *conn,
     char server_group_ids[64];
     char storage_engine_buff[128];
     char up_time_buff[32];
+    struct {
+        char total[32];
+        char used[32];
+        char avail[32];
+    } space_buffs;
     int len;
 
     if (stat->data.ob.total_count > 0) {
@@ -80,6 +85,12 @@ static void output(const ConnectionInfo *conn,
     }
     formatDatetime(stat->up_time, "%Y-%m-%d %H:%M:%S",
             up_time_buff, sizeof(up_time_buff));
+    long_to_comma_str(stat->space.total / 1024 /
+            1024 / 1024, space_buffs.total);
+    long_to_comma_str(stat->space.used / 1024 /
+            1024 / 1024, space_buffs.used);
+    long_to_comma_str((stat->space.total - stat->space.used) /
+            1024 / 1024 / 1024, space_buffs.avail);
 
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
@@ -100,7 +111,8 @@ static void output(const ConnectionInfo *conn,
             "\t\tslice : {total_count: %"PRId64", "
             "cached_count: %"PRId64", "
             "element_used: %"PRId64"},\n"
-            "\t\tavg slices/OB: %.2f}\n\n",
+            "\t\tavg slices/OB: %.2f}\n"
+            "\tspace : {total: %s GB, used: %s GB, avail: %s GB}\n\n",
             stat->server_id, conn->ip_addr, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
@@ -120,7 +132,8 @@ static void output(const ConnectionInfo *conn,
             stat->data.slice.total_count,
             stat->data.slice.cached_count,
             stat->data.slice.element_used,
-            avg_slices);
+            avg_slices, space_buffs.total,
+            space_buffs.used, space_buffs.avail);
 }
 
 int main(int argc, char *argv[])

@@ -50,6 +50,8 @@ typedef struct fs_client_service_stat {
         FSServiceOBSliceStat slice;
     } data;
 
+    FSClusterSpaceStat space;
+
 } FSClientServiceStat;
 
 #ifdef __cplusplus
