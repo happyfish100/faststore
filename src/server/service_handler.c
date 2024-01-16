@@ -125,12 +125,14 @@ static inline void output_ob_slice_stat(const FSServiceOBSliceStat *stat,
 
 static int service_deal_service_stat(struct fast_task_info *task)
 {
+    const bool include_indexes = true;
     int result;
     int data_group_id;
     int64_t current_version;
     FSServiceOBSliceStat ob;
     FSServiceOBSliceStat slice;
     FSBinlogWriterStat writer_stat;
+    SFSpaceStat space_stat;
     FSClusterDataGroupInfo *group;
     FSProtoServiceStatReq *req;
     FSProtoServiceStatResp *stat_resp;
@@ -169,10 +171,17 @@ static int service_deal_service_stat(struct fast_task_info *task)
         stat_resp->storage_engine.enabled = 1;
         long2buff(event_dealer_get_last_data_version(),
                 stat_resp->storage_engine.current_version);
+        STORAGE_ENGINE_SPACES_STAT_API(&space_stat, include_indexes);
     } else {
         stat_resp->storage_engine.enabled = 0;
         long2buff(0, stat_resp->storage_engine.current_version);
+        space_stat.total = 0;
+        space_stat.used = 0;
+        space_stat.avail = 0;
     }
+    long2buff(space_stat.total, stat_resp->storage_engine.space.total);
+    long2buff(space_stat.used, stat_resp->storage_engine.space.used);
+    long2buff(space_stat.avail, stat_resp->storage_engine.space.avail);
 
     int2buff(SF_G_UP_TIME, stat_resp->up_time);
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);

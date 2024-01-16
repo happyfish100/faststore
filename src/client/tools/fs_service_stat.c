@@ -56,18 +56,42 @@ static const char *get_server_group_ids(const int server_id,
     return server_group_ids;
 }
 
-static void output(const ConnectionInfo *conn,
-        const FSClientServiceStat *stat)
+static void format_space_buff(const FSClusterSpaceStat *space, char *space_buff)
 {
-    double avg_slices;
-    char server_group_ids[64];
-    char storage_engine_buff[128];
-    char up_time_buff[32];
     struct {
         char total[32];
         char used[32];
         char avail[32];
     } space_buffs;
+    int unit_value;
+    char *unit_caption;
+
+    if (space->used > 0 && space->used < 1024 * 1024 * 1024)
+    {
+        unit_value = 1024 * 1024;
+        unit_caption = "MB";
+    } else {
+        unit_value = 1024 * 1024 * 1024;
+        unit_caption = "GB";
+    }
+
+    long_to_comma_str(space->total / unit_value, space_buffs.total);
+    long_to_comma_str(space->used / unit_value, space_buffs.used);
+    long_to_comma_str((space->total - space->used) /
+            unit_value, space_buffs.avail);
+    sprintf(space_buff, "total: %s %s, used: %s %s, avail: %s %s",
+            space_buffs.total, unit_caption, space_buffs.used,
+            unit_caption, space_buffs.avail, unit_caption);
+}
+
+static void output(const ConnectionInfo *conn,
+        const FSClientServiceStat *stat)
+{
+    double avg_slices;
+    char server_group_ids[64];
+    char storage_engine_buff[256];
+    char space_buff[256];
+    char up_time_buff[32];
     int len;
 
     if (stat->data.ob.total_count > 0) {
@@ -80,24 +104,22 @@ static void output(const ConnectionInfo *conn,
     len = sprintf(storage_engine_buff, "enabled: %s", stat->
             storage_engine.enabled ? "true" : "false");
     if (stat->storage_engine.enabled) {
-        sprintf(storage_engine_buff + len, ", current_version: %"PRId64,
-                stat->storage_engine.current_version);
+        format_space_buff(&stat->storage_engine.space, space_buff);
+        sprintf(storage_engine_buff + len, ", current_version: %"PRId64",\n"
+                "\t\tspace : {%s}", stat->storage_engine.current_version,
+                space_buff);
     }
+
     formatDatetime(stat->up_time, "%Y-%m-%d %H:%M:%S",
             up_time_buff, sizeof(up_time_buff));
-    long_to_comma_str(stat->space.total / 1024 /
-            1024 / 1024, space_buffs.total);
-    long_to_comma_str(stat->space.used / 1024 /
-            1024 / 1024, space_buffs.used);
-    long_to_comma_str((stat->space.total - stat->space.used) /
-            1024 / 1024 / 1024, space_buffs.avail);
+    format_space_buff(&stat->space, space_buff);
 
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
             "\tversion: %.*s\n"
             "\tis_leader: %s\n"
             "\tauth_enabled: %s\n"
-            "\tstorage_engine: {%s}\n"
+            "\tslice storage engine: {%s}\n"
             "\tup_time: %s\n"
             "\tserver_group_id: %s\n"
             "\tconnection : {current: %d, max: %d}\n"
@@ -112,7 +134,7 @@ static void output(const ConnectionInfo *conn,
             "cached_count: %"PRId64", "
             "element_used: %"PRId64"},\n"
             "\t\tavg slices/OB: %.2f}\n"
-            "\tspace : {total: %s GB, used: %s GB, avail: %s GB}\n\n",
+            "\tspace : {%s}\n\n",
             stat->server_id, conn->ip_addr, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
@@ -132,8 +154,7 @@ static void output(const ConnectionInfo *conn,
             stat->data.slice.total_count,
             stat->data.slice.cached_count,
             stat->data.slice.element_used,
-            avg_slices, space_buffs.total,
-            space_buffs.used, space_buffs.avail);
+            avg_slices, space_buff);
 }
 
 int main(int argc, char *argv[])

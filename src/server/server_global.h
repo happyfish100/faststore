@@ -431,7 +431,8 @@ typedef struct server_global_vars {
 #define STORAGE_ENGINE_REDO_API      g_server_global_vars->slice_storage.api.redo
 #define STORAGE_ENGINE_FETCH_API     g_server_global_vars->slice_storage.api.fetch
 #define STORAGE_ENGINE_WALK_API      g_server_global_vars->slice_storage.api.walk
-
+#define STORAGE_ENGINE_SPACES_STAT_API   \
+    g_server_global_vars->slice_storage.api.spaces_stat
 
 #define SLOW_LOG              g_server_global_vars->slow_log
 #define SLOW_LOG_CFG          SLOW_LOG.cfg

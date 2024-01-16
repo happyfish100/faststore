@@ -219,6 +219,11 @@ typedef struct fs_proto_service_stat_resp {
     struct {
         char enabled;
         char current_version[8];
+        struct {
+            char total[8];
+            char used[8];
+            char avail[8];
+        } space;
     } storage_engine;
 
     char padding2[5];

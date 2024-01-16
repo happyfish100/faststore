@@ -812,6 +812,13 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->storage_engine.enabled = stat_resp.storage_engine.enabled;
     stat->storage_engine.current_version = buff2long(
             stat_resp.storage_engine.current_version);
+    stat->storage_engine.space.total = buff2long(
+            stat_resp.storage_engine.space.total);
+    stat->storage_engine.space.used = buff2long(
+            stat_resp.storage_engine.space.used);
+    stat->storage_engine.space.avail = buff2long(
+            stat_resp.storage_engine.space.avail);
+
     stat->up_time = (uint32_t)buff2int(stat_resp.up_time);
     stat->server_id = buff2int(stat_resp.server_id);
     memcpy(stat->version.str, stat_resp.version.str, stat->version.len);
