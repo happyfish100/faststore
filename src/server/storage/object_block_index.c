@@ -750,12 +750,11 @@ static int init_ob_shared_segment_array(
         }
 
         if (STORAGE_ENABLED) {
-            if ((result=da_init_read_context(&segment->
-                            db_fetch_ctx.read_ctx)) != 0)
+            if ((result=db_fetch_context_init(&segment->
+                            db_fetch_ctx)) != 0)
             {
                 return result;
             }
-            sf_serializer_iterator_init(&segment->db_fetch_ctx.it);
             FC_INIT_LIST_HEAD(&segment->lru);
         }
     }
@@ -2358,6 +2357,7 @@ void ob_index_get_ob_and_slice_stats(FSServiceOBSliceStat *ob,
 
 typedef struct {
     SFBufferedWriter *writer;
+    FSDBFetchContext db_fetch_ctx;
     short is_my_data_group;
     short exclude_path_index;
     int source;
@@ -2370,7 +2370,6 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
 {
     DumpSlicesContext *dump_ctx;
     int result;
-    OBSegment *segment;
     const SFSerializerFieldValue *fv;
     string_t *s;
     string_t *end;
@@ -2390,8 +2389,7 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
         }
     }
 
-    segment = ob_shared_ctx.segment_array.segments;
-    if ((result=block_serializer_fetch_and_unpack(&segment->
+    if ((result=block_serializer_fetch_and_unpack(&dump_ctx->
                     db_fetch_ctx, bkey, &fv)) != 0)
     {
         return result;
@@ -2473,11 +2471,16 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
             dump_ctx.current_time = current_time;
             dump_ctx.current_sn = 0;
             dump_ctx.total_slice_count = 0;
+
+            if ((result=db_fetch_context_init(&dump_ctx.db_fetch_ctx)) != 0) {
+                return result;
+            }
             if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
                             &dump_ctx)) == 0)
             {
                 *slice_count = dump_ctx.total_slice_count;
             }
+            db_fetch_context_destroy(&dump_ctx.db_fetch_ctx);
         }
     } else {
         end = htable->buckets + end_index;
@@ -2529,7 +2532,7 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
         }
     }
 
-    if (!SF_G_CONTINUE_FLAG) {
+    if (!SF_G_CONTINUE_FLAG && result == 0) {
         result = EINTR;
     }
 
@@ -2586,6 +2589,7 @@ static int realloc_slice_parray(OBSlicePtrArray *array)
 }
 
 typedef struct {
+    FSDBFetchContext db_fetch_ctx;
     short is_my_data_group;
     short rebuild_path_index;
     int source;
@@ -2687,7 +2691,6 @@ static int walk_callback_for_remove_slices(const FSBlockKey *bkey, void *arg)
 {
     int result;
     RemoveSliceContext *ctx;
-    OBSegment *segment;
     const SFSerializerFieldValue *fv;
     string_t *s;
     string_t *end;
@@ -2717,8 +2720,7 @@ static int walk_callback_for_remove_slices(const FSBlockKey *bkey, void *arg)
         return 0;
     }
 
-    segment = ob_shared_ctx.segment_array.segments;
-    if ((result=block_serializer_fetch_and_unpack(&segment->
+    if ((result=block_serializer_fetch_and_unpack(&ctx->
                     db_fetch_ctx, bkey, &fv)) != 0)
     {
         return result;
@@ -2804,11 +2806,16 @@ int ob_index_remove_slices_to_file_ex(OBHashtable *htable,
             }
             ctx.source = source;
             ctx.total_slice_count = 0;
+
+            if ((result=db_fetch_context_init(&ctx.db_fetch_ctx)) != 0) {
+                return result;
+            }
             if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_remove_slices,
                             &ctx)) == 0)
             {
                 *slice_count = ctx.total_slice_count;
             }
+            db_fetch_context_destroy(&ctx.db_fetch_ctx);
         }
     } else {
         ctx.slice_parray.alloc = 16 * 1024;
@@ -2935,11 +2942,16 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
         dump_ctx.current_time = current_time;
         dump_ctx.current_sn = 0;
         dump_ctx.total_slice_count = 0;
+
+        if ((result=db_fetch_context_init(&dump_ctx.db_fetch_ctx)) != 0) {
+            return result;
+        }
         if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_slices,
                         &dump_ctx)) == 0)
         {
             *slice_count = dump_ctx.total_slice_count;
         }
+        db_fetch_context_destroy(&dump_ctx.db_fetch_ctx);
     } else {
         sn = 0;
         end = htable->buckets + htable->capacity;
@@ -3074,6 +3086,39 @@ static int dump_replica_binlog_to_file(OBEntry *ob, SFBufferedWriter
     return 0;
 }
 
+typedef struct {
+    OBHashtable *htable;
+    SFBufferedWriter *writer;
+    int data_group_id;
+    int64_t total_slice_count;
+    int64_t total_replica_count;
+} DumpReplicaContext;
+
+static int walk_callback_for_dump_replica(const FSBlockKey *bkey, void *arg)
+{
+    DumpReplicaContext *dump_ctx;
+    int result;
+    OBEntry *ob;
+
+    dump_ctx = arg;
+    if (FS_DATA_GROUP_ID(*bkey) != dump_ctx->data_group_id) {
+        return 0;
+    }
+
+    OB_INDEX_SET_BUCKET_AND_SEGMENT(dump_ctx->htable, *bkey);
+    PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    ob = get_ob_entry(segment, dump_ctx->htable, bucket, bkey, true);
+    if (ob != NULL) {
+        result = dump_replica_binlog_to_file(ob, dump_ctx->writer, &dump_ctx->
+                total_slice_count, &dump_ctx->total_replica_count);
+    } else {
+        result = 0;
+    }
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+
+    return result;
+}
+
 int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
         const int data_group_id, const int64_t padding_data_version,
         const char *filename, int64_t *total_slice_count,
@@ -3092,36 +3137,52 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
         return result;
     }
 
-    end = htable->buckets + htable->capacity;
-    for (bucket=htable->buckets; result == 0 &&
-            bucket<end && SF_G_CONTINUE_FLAG; bucket++)
-    {
-        segment = ob_shared_ctx.segment_array.segments +
-            (bucket - htable->buckets) %
-            ob_shared_ctx.segment_array.count;
-        PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
+    if (STORAGE_ENABLED) {
+        DumpReplicaContext dump_ctx;
 
-        if (*bucket == NULL) {
-            PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
-            continue;
+        dump_ctx.htable = htable;
+        dump_ctx.writer = &writer;
+        dump_ctx.data_group_id = data_group_id;
+        dump_ctx.total_slice_count = 0;
+        dump_ctx.total_replica_count = 0;
+        if ((result=STORAGE_ENGINE_WALK_API(walk_callback_for_dump_replica,
+                        &dump_ctx)) == 0)
+        {
+            *total_slice_count = dump_ctx.total_slice_count;
+            *total_replica_count = dump_ctx.total_replica_count;
         }
+    } else {
+        end = htable->buckets + htable->capacity;
+        for (bucket=htable->buckets; result == 0 &&
+                bucket<end && SF_G_CONTINUE_FLAG; bucket++)
+        {
+            segment = ob_shared_ctx.segment_array.segments +
+                (bucket - htable->buckets) %
+                ob_shared_ctx.segment_array.count;
+            PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
 
-        ob = *bucket;
-        do {
-            if (FS_DATA_GROUP_ID(ob->bkey) == data_group_id) {
-                if ((result=dump_replica_binlog_to_file(ob, &writer,
-                                total_slice_count, total_replica_count)) != 0)
-                {
-                    break;
-                }
+            if (*bucket == NULL) {
+                PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+                continue;
             }
-            ob = ob->next;
-        } while (ob != NULL && result == 0);
 
-        PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+            ob = *bucket;
+            do {
+                if (FS_DATA_GROUP_ID(ob->bkey) == data_group_id) {
+                    if ((result=dump_replica_binlog_to_file(ob, &writer,
+                                    total_slice_count, total_replica_count)) != 0)
+                    {
+                        break;
+                    }
+                }
+                ob = ob->next;
+            } while (ob != NULL && result == 0);
+
+            PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
+        }
     }
 
-    if (!SF_G_CONTINUE_FLAG) {
+    if (!SF_G_CONTINUE_FLAG && result == 0) {
         result = EINTR;
     }
 
@@ -3285,12 +3346,12 @@ static int walk_callback_for_dump_slice(const FSBlockKey *bkey, void *arg)
     OB_INDEX_SET_BUCKET_AND_SEGMENT(&G_OB_HASHTABLE, *bkey);
     PTHREAD_MUTEX_LOCK(&segment->lcp.lock);
     ob = get_ob_entry(segment, &G_OB_HASHTABLE, bucket, bkey, true);
-    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
     if (ob != NULL) {
         result = dump_slice_index_to_file(ob, dump_ctx);
     } else {
         result = ENOMEM;
     }
+    PTHREAD_MUTEX_UNLOCK(&segment->lcp.lock);
 
     return result;
 }

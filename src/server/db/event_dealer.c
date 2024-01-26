@@ -117,12 +117,9 @@ int event_dealer_init()
             return result;
         }
 
-        if ((result=da_init_read_context(&thread->
-                        db_fetch_ctx.read_ctx)) != 0)
-        {
+        if ((result=db_fetch_context_init(&thread->db_fetch_ctx)) != 0) {
             return result;
         }
-        sf_serializer_iterator_init(&thread->db_fetch_ctx.it);
 
         if ((result=init_pthread_lock_cond_pair(&thread->lcp)) != 0) {
             return result;

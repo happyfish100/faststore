@@ -102,6 +102,23 @@ extern "C" {
                 &slice->type, &slice->ssize, &slice->space);
     }
 
+    static inline int db_fetch_context_init(FSDBFetchContext *db_fetch_ctx)
+    {
+        int result;
+
+        if ((result=da_init_read_context(&db_fetch_ctx->read_ctx)) != 0) {
+            return result;
+        }
+        sf_serializer_iterator_init(&db_fetch_ctx->it);
+        return 0;
+    }
+
+    static inline void db_fetch_context_destroy(FSDBFetchContext *db_fetch_ctx)
+    {
+        da_destroy_read_context(&DA_CTX, &db_fetch_ctx->read_ctx);
+        sf_serializer_iterator_destroy(&db_fetch_ctx->it);
+    }
+
 #ifdef __cplusplus
 }
 #endif
