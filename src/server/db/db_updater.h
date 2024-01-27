@@ -23,8 +23,8 @@ typedef struct fs_db_updater_context {
     FSDBUpdateBlockArray array;
     struct {
         struct {
-            int64_t prepare;
-            int64_t commit;
+            volatile int64_t prepare;
+            volatile int64_t commit;
         } block; //for check with slice sn
 
         volatile int64_t field;   //for check internal storage engine

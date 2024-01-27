@@ -24,6 +24,7 @@
 #include "../server_global.h"
 #include "../server_group_info.h"
 #include "../shared_thread_pool.h"
+#include "../db/change_notify.h"
 #include "binlog_func.h"
 #include "binlog_loader.h"
 #include "replica_binlog.h"
@@ -1084,6 +1085,11 @@ static int replica_binlog_dump(const int data_group_id,
 
     start_time_ms = get_current_time_ms();
     current_data_version = fs_get_my_ds_data_version(data_group_id);
+    if (STORAGE_ENABLED) {
+        if ((result=change_notify_waiting_consume_done()) != 0) {
+            return result;
+        }
+    }
     for (i=0; i<=30; i++) {
         if ((result=replica_binlog_get_last_dv(data_group_id,
                         &last_data_version)) != 0)
@@ -1105,7 +1111,6 @@ static int replica_binlog_dump(const int data_group_id,
                 current_data_version, last_data_version);
         return EBUSY;
     }
-
 
     replica_binlog_get_dump_filename(data_group_id, slave_id,
             dump_filename, sizeof(dump_filename));

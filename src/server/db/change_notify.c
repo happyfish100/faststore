@@ -242,7 +242,7 @@ void change_notify_load_done_signal()
     {
         pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
         fc_sleep_us(sleep_us);
-        if (sleep_us < 10 * 1000) {
+        if (sleep_us < 16 * 1000) {
             sleep_us *= 2;
         }
     }
@@ -251,4 +251,48 @@ void change_notify_load_done_signal()
 void change_notify_signal_to_deal()
 {
     pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
+}
+
+int change_notify_waiting_consume_done()
+{
+    int64_t last_data_version;
+    int64_t current_version;
+    int64_t start_time_ms;
+    int sleep_ms;
+    char time_buff[32];
+
+    last_data_version = event_dealer_get_last_data_version();
+    current_version = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+    if (last_data_version >= current_version) {
+        return 0;
+    }
+
+    logInfo("file: "__FILE__", line: %d, "
+            "db last data version: %"PRId64" < slice data version: %"PRId64
+            ", waiting slice storage engine consume ...", __LINE__,
+            last_data_version, current_version);
+
+    start_time_ms = get_current_time_ms();
+    sleep_ms = 10;
+    do {
+        pthread_cond_signal(&change_notify_ctx.queue.lcp.cond);
+        fc_sleep_ms(sleep_ms);
+        if (sleep_ms < 1000) {
+            sleep_ms *= 2;
+            if (sleep_ms > 500) {
+                sleep_ms = 500;
+            }
+        }
+    } while (event_dealer_get_last_data_version() <
+            current_version && SF_G_CONTINUE_FLAG);
+
+    if (SF_G_CONTINUE_FLAG) {
+        long_to_comma_str(get_current_time_ms() - start_time_ms, time_buff);
+        logInfo("file: "__FILE__", line: %d, "
+                "waiting slice storage engine consume done, "
+                "time used: %s ms", __LINE__, time_buff);
+        return 0;
+    } else {
+        return EINTR;
+    }
 }
