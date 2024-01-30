@@ -24,11 +24,22 @@
 #include "fastcommon/logger.h"
 #include "faststore/client/fs_client.h"
 
+static bool include_block_space = false;
+
 static void usage(char *argv[])
 {
-    fprintf(stderr, "Usage: %s [-c config_filename=%s] "
-            "[-s server_id] [-G server_group_id=0] [-g data_group_id=0] "
-            "host[:port]|all\n", argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
+    fprintf(stderr, "Usage: %s [options] [host[:port]|all]\n"
+            "    options:\n"
+            "\t-c <client config filename>: default %s\n"
+            "\t-s <server id>\n"
+            "\t-G <server group id>\n"
+            "\t-g <data group id>\n"
+            "\t-I: used space include spaces occupied by "
+            "blocks when storage engine enabled\n"
+            "\t-h: help for usage\n\n"
+            "    eg: %s -c %s all\n\n",
+            argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME,
+            argv[0], FS_CLIENT_DEFAULT_CONFIG_FILENAME);
 }
 
 static const char *get_server_group_ids(const int server_id,
@@ -56,32 +67,90 @@ static const char *get_server_group_ids(const int server_id,
     return server_group_ids;
 }
 
-static void format_space_buff(const FSClusterSpaceStat *space, char *space_buff)
+static void format_space_buff(const FSClientSpaceInfo *space,
+        char *space_buff)
 {
+    SFSpaceStat ss;
     struct {
         char total[32];
         char used[32];
         char avail[32];
-    } space_buffs;
+    } space_buffs, trunk_buffs;
+    double space_used_ratio;
+    double trunk_used_ratio;
+    string_t padding_strings[6];
+    char tmp_buff[32];
     int unit_value;
+    int max_len;
+    int padding_len;
+    int i;
     char *unit_caption;
 
-    if (space->used > 0 && space->used < 1024 * 1024 * 1024)
-    {
+    if (space->trunk.used > 0 && space->trunk.used < 1024 * 1024 * 1024) {
         unit_value = 1024 * 1024;
         unit_caption = "MB";
     } else {
         unit_value = 1024 * 1024 * 1024;
         unit_caption = "GB";
     }
+    ss.total = space->trunk.total + space->disk_avail;
+    ss.used = space->trunk.used + space->block_used_space;
+    if (ss.total <= 0) {
+        ss.total = 0;
+        space_used_ratio = 0.00;
+    } else {
+        space_used_ratio = (double)ss.used / (double)ss.total;
+    }
+    ss.avail = ss.total - ss.used;
+    if (ss.avail < 0) {
+        ss.avail = 0;
+    }
+    long_to_comma_str(ss.total / unit_value, space_buffs.total);
+    long_to_comma_str(ss.used / unit_value, space_buffs.used);
+    long_to_comma_str(ss.avail / unit_value, space_buffs.avail);
 
-    long_to_comma_str(space->total / unit_value, space_buffs.total);
-    long_to_comma_str(space->used / unit_value, space_buffs.used);
-    long_to_comma_str((space->total - space->used) /
-            unit_value, space_buffs.avail);
-    sprintf(space_buff, "total: %s %s, used: %s %s, avail: %s %s",
-            space_buffs.total, unit_caption, space_buffs.used,
-            unit_caption, space_buffs.avail, unit_caption);
+    long_to_comma_str(space->trunk.total / unit_value, trunk_buffs.total);
+    long_to_comma_str(space->trunk.used / unit_value, trunk_buffs.used);
+    long_to_comma_str((space->trunk.total - space->trunk.used) /
+            unit_value, trunk_buffs.avail);
+    if (space->trunk.total <= 0) {
+        trunk_used_ratio = 0.00;
+    } else {
+        trunk_used_ratio = (double)space->trunk.used /
+            (double)space->trunk.total;
+    }
+
+    FC_SET_STRING(padding_strings[0], space_buffs.total);
+    FC_SET_STRING(padding_strings[1], space_buffs.used);
+    FC_SET_STRING(padding_strings[2], space_buffs.avail);
+    FC_SET_STRING(padding_strings[3], trunk_buffs.total);
+    FC_SET_STRING(padding_strings[4], trunk_buffs.used);
+    FC_SET_STRING(padding_strings[5], trunk_buffs.avail);
+    max_len = padding_strings[0].len;
+    for (i=1; i<6; i++) {
+        if (padding_strings[i].len > max_len) {
+            max_len = padding_strings[i].len;
+        }
+    }
+    for (i=0; i<6; i++) {
+        padding_len = max_len - padding_strings[i].len;
+        if (padding_len > 0) {
+            memcpy(tmp_buff, padding_strings[i].str,
+                    padding_strings[i].len + 1);
+            memset(padding_strings[i].str, ' ', padding_len);
+            memcpy(padding_strings[i].str + padding_len,
+                    tmp_buff, padding_strings[i].len + 1);
+        }
+    }
+
+    sprintf(space_buff, "\t\tspace summary: {total: %s %s, used: %s %s "
+            "(%.2f%%), avail: %s %s},\n\t\t  trunk space: {total: %s %s, "
+            "used: %s %s (%.2f%%), avail: %s %s}", space_buffs.total,
+            unit_caption, space_buffs.used, unit_caption,
+            space_used_ratio * 100.00, space_buffs.avail,
+            unit_caption, trunk_buffs.total, unit_caption,
+            trunk_buffs.used, unit_caption, trunk_used_ratio * 100.00,
+            trunk_buffs.avail, unit_caption);
 }
 
 static void output(const ConnectionInfo *conn,
@@ -106,7 +175,7 @@ static void output(const ConnectionInfo *conn,
     if (stat->storage_engine.enabled) {
         format_space_buff(&stat->storage_engine.space, space_buff);
         sprintf(storage_engine_buff + len, ", current_version: %"PRId64",\n"
-                "\t\tspace : {%s}", stat->storage_engine.current_version,
+                "%s", stat->storage_engine.current_version,
                 space_buff);
     }
 
@@ -134,7 +203,7 @@ static void output(const ConnectionInfo *conn,
             "cached_count: %"PRId64", "
             "element_used: %"PRId64"},\n"
             "\t\tavg slices/OB: %.2f}\n"
-            "\tspace : {%s}\n\n",
+            "%s\n\n",
             stat->server_id, conn->ip_addr, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
@@ -192,7 +261,7 @@ int main(int argc, char *argv[])
     server_id = 0;
     server_group_id = 0;
     data_group_id = 0;
-    while ((ch=getopt(argc, argv, "hc:s:G:g:")) != -1) {
+    while ((ch=getopt(argc, argv, "hc:s:G:g:I")) != -1) {
         switch (ch) {
             case 'h':
                 usage(argv);
@@ -208,6 +277,9 @@ int main(int argc, char *argv[])
                 break;
             case 'g':
                 data_group_id = strtol(optarg, NULL, 10);
+                break;
+            case 'I':
+                include_block_space = true;
                 break;
             default:
                 usage(argv);
@@ -299,7 +371,8 @@ int main(int argc, char *argv[])
 
     for (i=0; i<count; i++) {
         if ((result=fs_client_proto_service_stat(&g_fs_client_vars.client_ctx,
-                        connections.ptr[i], data_group_id, &stat)) == 0)
+                        connections.ptr[i], data_group_id, include_block_space,
+                        &stat)) == 0)
         {
             output(connections.ptr[i], &stat);
         }

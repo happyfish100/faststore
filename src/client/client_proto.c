@@ -754,9 +754,19 @@ static inline void parse_ob_slice_stat(
     stat->element_used = buff2long(proto->element_used);
 }
 
+static inline void parse_space_info(FSProtoSpaceInfo *proto_space,
+        FSClientSpaceInfo *space_info)
+{
+    space_info->disk_avail = buff2long(proto_space->disk_avail);
+    space_info->block_used_space = buff2long(proto_space->block_used_space);
+    space_info->trunk.total = buff2long(proto_space->trunk.total);
+    space_info->trunk.used = buff2long(proto_space->trunk.used);
+    space_info->trunk.avail = buff2long(proto_space->trunk.avail);
+}
+
 int fs_client_proto_service_stat(FSClientContext *client_ctx,
         const ConnectionInfo *spec_conn, const int data_group_id,
-        FSClientServiceStat *stat)
+        const bool include_block_space, FSClientServiceStat *stat)
 {
     FSProtoHeader *header;
     ConnectionInfo *conn;
@@ -777,9 +787,9 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
 
     SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff,
             header, req, 0, out_bytes);
-    SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_SERVICE_STAT_REQ,
-            out_bytes - sizeof(FSProtoHeader));
-
+    SF_PROTO_SET_HEADER_EX(header, FS_SERVICE_PROTO_SERVICE_STAT_REQ,
+            (include_block_space ? FS_SERVICE_STAT_FLAGS_INCLUDE_BLOCK_SPACE
+             : 0), out_bytes - sizeof(FSProtoHeader));
     int2buff(data_group_id, req->data_group_id);
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff, out_bytes,
@@ -812,12 +822,8 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->storage_engine.enabled = stat_resp.storage_engine.enabled;
     stat->storage_engine.current_version = buff2long(
             stat_resp.storage_engine.current_version);
-    stat->storage_engine.space.total = buff2long(
-            stat_resp.storage_engine.space.total);
-    stat->storage_engine.space.used = buff2long(
-            stat_resp.storage_engine.space.used);
-    stat->storage_engine.space.avail = buff2long(
-            stat_resp.storage_engine.space.avail);
+    parse_space_info(&stat_resp.storage_engine.space,
+            &stat->storage_engine.space);
 
     stat->up_time = (uint32_t)buff2int(stat_resp.up_time);
     stat->server_id = buff2int(stat_resp.server_id);
@@ -839,9 +845,7 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->binlog.writer.max_waitings = buff2int(
             stat_resp.binlog.writer.max_waitings);
 
-    stat->space.total = buff2long(stat_resp.space.total);
-    stat->space.used = buff2long(stat_resp.space.used);
-    stat->space.avail = buff2long(stat_resp.space.avail);
+    parse_space_info(&stat_resp.space, &stat->space);
 
     parse_ob_slice_stat(&stat_resp.data.ob, &stat->data.ob);
     parse_ob_slice_stat(&stat_resp.data.slice, &stat->data.slice);

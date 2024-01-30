@@ -22,6 +22,12 @@
 #include "fs_proto.h"
 #include "client_types.h"
 
+typedef struct fs_client_space_info {
+    int64_t disk_avail;
+    int64_t block_used_space;
+    SFSpaceStat trunk;
+} FSClientSpaceInfo;
+
 typedef struct fs_client_service_stat {
     time_t up_time;
     int server_id;
@@ -31,7 +37,7 @@ typedef struct fs_client_service_stat {
      struct {
         bool enabled;
         int64_t current_version;
-        FSClusterSpaceStat space;
+        FSClientSpaceInfo space;
     } storage_engine;
     char version_holder[12];
     string_t version;
@@ -51,7 +57,7 @@ typedef struct fs_client_service_stat {
         FSServiceOBSliceStat slice;
     } data;
 
-    FSClusterSpaceStat space;
+    FSClientSpaceInfo space;
 
 } FSClientServiceStat;
 
@@ -121,7 +127,7 @@ extern "C" {
 
     int fs_client_proto_service_stat(FSClientContext *client_ctx,
             const ConnectionInfo *spec_conn, const int data_group_id,
-            FSClientServiceStat *stat);
+            const bool include_block_space, FSClientServiceStat *stat);
 
 #ifdef __cplusplus
 }

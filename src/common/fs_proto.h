@@ -210,6 +210,16 @@ typedef struct fs_proto_service_ob_slice_stat {
     char element_used[8];
 } FSProtoServiceOBSliceStat;
 
+typedef struct fs_proto_space_info {
+    char block_used_space[8];
+    char disk_avail[8];
+    struct {
+        char total[8];
+        char used[8];
+        char avail[8];
+    } trunk;
+} FSProtoSpaceInfo;
+
 typedef struct fs_proto_service_stat_resp {
     char up_time[4];
     char server_id[4];
@@ -219,11 +229,7 @@ typedef struct fs_proto_service_stat_resp {
     struct {
         char enabled;
         char current_version[8];
-        struct {
-            char total[8];
-            char used[8];
-            char avail[8];
-        } space;
+        FSProtoSpaceInfo space;
     } storage_engine;
 
     char padding2[5];
@@ -252,12 +258,7 @@ typedef struct fs_proto_service_stat_resp {
         FSProtoServiceOBSliceStat slice;
     } data;
 
-    struct {
-        char total[8];
-        char used[8];
-        char avail[8];
-    } space;
-
+    FSProtoSpaceInfo space;
 } FSProtoServiceStatResp;
 
 typedef struct fs_proto_cluster_stat_req {

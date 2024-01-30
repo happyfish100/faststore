@@ -44,8 +44,8 @@ typedef int (*fs_storage_engine_fetch_func)(const struct sf_block_key *bkey,
 typedef int (*fs_storage_engine_walk_func)(
         fs_storage_engine_walk_callback callback, void *arg);
 
-typedef void (*fs_storage_engine_spaces_stat_func)(SFSpaceStat *ss,
-        const bool include_indexes);
+typedef void (*fs_storage_engine_spaces_stat_func)(DASpaceStat *ss,
+        int64_t *block_used_space, const bool include_indexes);
 
 typedef struct fs_storage_engine_interface {
     fs_storage_engine_init_func init;

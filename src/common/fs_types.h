@@ -42,6 +42,8 @@
 
 #define FS_CLIENT_JOIN_FLAGS_IDEMPOTENCY_REQUEST    1
 
+#define FS_SERVICE_STAT_FLAGS_INCLUDE_BLOCK_SPACE  (1 << 1)
+
 #define FS_BLOCK_KEY_EQUAL(bkey1, bkey2) \
     ((bkey1).oid == (bkey2).oid && (bkey1).offset == (bkey2).offset)
 
