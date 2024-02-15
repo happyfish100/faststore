@@ -2420,10 +2420,10 @@ static int walk_callback_for_dump_slices(const FSBlockKey *bkey, void *arg)
                 return result;
             }
         }
-        dump_ctx->writer->buffer.current += slice_binlog_log_add_slice_to_buff1(
+        dump_ctx->writer->buffer.data_end += slice_binlog_log_add_slice_to_buff1(
                 slice_type, bkey, &ssize, &space, dump_ctx->current_time,
                 ++(dump_ctx->current_sn), data_version, dump_ctx->source,
-                dump_ctx->writer->buffer.current);
+                dump_ctx->writer->buffer.data_end);
     }
 
     dump_ctx->total_slice_count += (dump_ctx->current_sn - old_sn);
@@ -2518,9 +2518,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                         }
                     }
 
-                    writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                    writer.buffer.data_end += slice_binlog_log_add_slice_to_buff_ex(
                             slice, current_time, ++current_sn, slice->data_version,
-                            source, writer.buffer.current);
+                            source, writer.buffer.data_end);
                 }
 
                 ob = ob->next;
@@ -2552,9 +2552,9 @@ int ob_index_dump_slices_to_file_ex(OBHashtable *htable,
                 }
             }
 
-            writer.buffer.current += slice_binlog_log_no_op_to_buff_ex(
+            writer.buffer.data_end += slice_binlog_log_no_op_to_buff_ex(
                     &bkey, current_time + i, ++current_sn, data_version,
-                    source, writer.buffer.current);
+                    source, writer.buffer.data_end);
         }
     }
 
@@ -2612,11 +2612,11 @@ static inline int write_slice_index_to_file(const FSBlockKey *bkey,
         }
     }
 
-    writer->buffer.current += rebuild_binlog_log_to_buff(
+    writer->buffer.data_end += rebuild_binlog_log_to_buff(
             slice_type == DA_SLICE_TYPE_FILE ?
             BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE,
-            bkey, ssize, writer->buffer.current);
+            bkey, ssize, writer->buffer.data_end);
     return 0;
 }
 
@@ -2641,9 +2641,9 @@ static inline int remove_trunk_to_file(const FSBlockKey *bkey,
 
     ssize.offset = 0;
     ssize.length = FILE_BLOCK_SIZE;
-    ctx->writer.buffer.current += rebuild_binlog_log_to_buff(
+    ctx->writer.buffer.data_end += rebuild_binlog_log_to_buff(
             BINLOG_OP_TYPE_WRITE_SLICE, bkey, &ssize,
-            ctx->writer.buffer.current);
+            ctx->writer.buffer.data_end);
     return 0;
 }
 
@@ -2982,9 +2982,9 @@ int ob_index_remove_slices_to_file_for_reclaim_ex(OBHashtable *htable,
                             return result;
                         }
                     }
-                    writer.buffer.current += slice_binlog_log_add_slice_to_buff_ex(
+                    writer.buffer.data_end += slice_binlog_log_add_slice_to_buff_ex(
                             slice, g_current_time, ++sn, slice->data_version,
-                            source, writer.buffer.current);
+                            source, writer.buffer.data_end);
                     ++(*slice_count);
                 }
 
@@ -3030,10 +3030,10 @@ static int do_write_replica_binlog(OBEntry *ob, const int slice_type,
 
     bs_key.block = ob->bkey;
     bs_key.slice = *ssize;
-    writer->buffer.current += replica_binlog_log_slice_to_buff(
+    writer->buffer.data_end += replica_binlog_log_slice_to_buff(
             g_current_time, data_version, &bs_key, BINLOG_SOURCE_DUMP,
             slice_type == DA_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
-            BINLOG_OP_TYPE_ALLOC_SLICE, writer->buffer.current);
+            BINLOG_OP_TYPE_ALLOC_SLICE, writer->buffer.data_end);
     return 0;
 }
 
@@ -3194,10 +3194,10 @@ int ob_index_dump_replica_binlog_to_file_ex(OBHashtable *htable,
         if (result == 0 && padding_data_version > *total_replica_count) {
             FSBlockKey bkey;
             fs_fill_padding_bkey(data_group_id, &bkey);
-            writer.buffer.current += replica_binlog_log_block_to_buff(
+            writer.buffer.data_end += replica_binlog_log_block_to_buff(
                     g_current_time, padding_data_version, &bkey,
                     BINLOG_SOURCE_DUMP, BINLOG_OP_TYPE_NO_OP,
-                    writer.buffer.current);
+                    writer.buffer.data_end);
             result = sf_buffered_writer_save(&writer);
         }
     }
@@ -3278,8 +3278,8 @@ static int do_write_slice_index(OBEntry *ob, const int slice_type,
         }
     }
 
-    dump_ctx->writer.buffer.current += sprintf(dump_ctx->writer.buffer.
-            current, "%c %"PRId64" %"PRId64" %d %d %d %u\n",
+    dump_ctx->writer.buffer.data_end += sprintf(dump_ctx->writer.buffer.
+            data_end, "%c %"PRId64" %"PRId64" %d %d %d %u\n",
             slice_type == DA_SLICE_TYPE_FILE ? BINLOG_OP_TYPE_WRITE_SLICE :
             BINLOG_OP_TYPE_ALLOC_SLICE, ob->bkey.oid, ob->bkey.offset,
             ssize->offset, ssize->length, dump_ctx->bctx.op_ctx.done_bytes,

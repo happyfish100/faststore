@@ -95,7 +95,7 @@ static int open_readable_binlog(ServerBinlogReader *reader)
         }
     }
 
-    reader->binlog_buffer.current = reader->binlog_buffer.end =
+    reader->binlog_buffer.current = reader->binlog_buffer.data_end =
         reader->binlog_buffer.buff;
     return 0;
 }
@@ -129,28 +129,29 @@ static int do_binlog_read(ServerBinlogReader *reader)
     int read_bytes;
 
     if (reader->binlog_buffer.current != reader->binlog_buffer.buff) {
-        remain = SF_BINLOG_BUFFER_REMAIN(reader->binlog_buffer);
+        remain = SF_BINLOG_BUFFER_CONSUMER_DATA_REMAIN(reader->binlog_buffer);
         if (remain > 0) {
-            memmove(reader->binlog_buffer.buff, reader->binlog_buffer.current,
-                    remain);
+            memmove(reader->binlog_buffer.buff, reader->
+                    binlog_buffer.current, remain);
         }
 
         reader->binlog_buffer.current = reader->binlog_buffer.buff;
-        reader->binlog_buffer.end = reader->binlog_buffer.buff + remain;
+        reader->binlog_buffer.data_end = reader->binlog_buffer.buff + remain;
     }
 
     read_bytes = reader->binlog_buffer.size -
-        SF_BINLOG_BUFFER_LENGTH(reader->binlog_buffer);
+        SF_BINLOG_BUFFER_PRODUCER_DATA_LENGTH(
+                reader->binlog_buffer);
     if (read_bytes == 0) {
         return ENOSPC;
     }
-    if ((result=do_read_to_buffer(reader, reader->binlog_buffer.end,
-                    read_bytes, &read_bytes)) != 0)
+    if ((result=do_read_to_buffer(reader, reader->binlog_buffer.
+                    data_end, read_bytes, &read_bytes)) != 0)
     {
         return result;
     }
 
-    reader->binlog_buffer.end += read_bytes;
+    reader->binlog_buffer.data_end += read_bytes;
     return 0;
 }
 

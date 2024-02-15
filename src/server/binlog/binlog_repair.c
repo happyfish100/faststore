@@ -264,7 +264,7 @@ static int do_write_to_file(BinlogRepairContext *ctx, const int len)
     }
 
     ctx->out_writer.file_size += len;
-    ctx->out_writer.buffer.end = ctx->out_writer.buffer.buff;
+    ctx->out_writer.buffer.data_end = ctx->out_writer.buffer.buff;
     return 0;
 }
 
@@ -273,7 +273,7 @@ static int binlog_write_to_file(BinlogRepairContext *ctx)
     int result;
     int len;
 
-    len = SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer);
+    len = SF_BINLOG_BUFFER_PRODUCER_DATA_LENGTH(ctx->out_writer.buffer);
     if (ctx->out_writer.file_size + len <= SF_BINLOG_DEFAULT_ROTATE_SIZE) {
         return do_write_to_file(ctx, len);
     }
@@ -290,13 +290,13 @@ static inline int write_one_line(BinlogRepairContext *ctx, string_t *line)
 {
     int result;
 
-    if (ctx->out_writer.file_size + SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.
-                buffer) + line->len > SF_BINLOG_DEFAULT_ROTATE_SIZE)
+    if (ctx->out_writer.file_size + SF_BINLOG_BUFFER_PRODUCER_DATA_LENGTH(ctx->
+                out_writer.buffer) + line->len > SF_BINLOG_DEFAULT_ROTATE_SIZE)
     {
         if ((result=binlog_write_to_file(ctx)) != 0) {
             return result;
         }
-    } else if (ctx->out_writer.buffer.size - SF_BINLOG_BUFFER_LENGTH(
+    } else if (ctx->out_writer.buffer.size - SF_BINLOG_BUFFER_PRODUCER_DATA_LENGTH(
                 ctx->out_writer.buffer) < line->len)
     {
         if ((result=binlog_write_to_file(ctx)) != 0) {
@@ -304,8 +304,8 @@ static inline int write_one_line(BinlogRepairContext *ctx, string_t *line)
         }
     }
 
-    memcpy(ctx->out_writer.buffer.end, line->str, line->len);
-    ctx->out_writer.buffer.end += line->len;
+    memcpy(ctx->out_writer.buffer.data_end, line->str, line->len);
+    ctx->out_writer.buffer.data_end += line->len;
     return 0;
 }
 
@@ -415,7 +415,9 @@ static int binlog_filter(BinlogRepairContext *ctx)
         result = 0;
     }
     
-    if (result == 0 && SF_BINLOG_BUFFER_LENGTH(ctx->out_writer.buffer) > 0) {
+    if (result == 0 && SF_BINLOG_BUFFER_PRODUCER_DATA_LENGTH(
+                ctx->out_writer.buffer) > 0)
+    {
         result = binlog_write_to_file(ctx);
     }
 

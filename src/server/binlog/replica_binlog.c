@@ -566,9 +566,9 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
     char *line_end;
     ReplicaBinlogRecord record;
 
-    while (reader->binlog_buffer.current < reader->binlog_buffer.end) {
+    while (reader->binlog_buffer.current < reader->binlog_buffer.data_end) {
         line_end = (char *)memchr(reader->binlog_buffer.current, '\n',
-                reader->binlog_buffer.end - reader->binlog_buffer.current);
+                reader->binlog_buffer.data_end - reader->binlog_buffer.current);
         if (line_end == NULL) {
             return EAGAIN;
         }
@@ -582,8 +582,8 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
             int64_t file_offset;
             int64_t line_count;
 
-            file_offset = reader->position.offset - (reader->
-                    binlog_buffer.end - reader->binlog_buffer.current);
+            file_offset = reader->position.offset - (reader-> binlog_buffer.
+                    data_end - reader->binlog_buffer.current);
             fc_get_file_line_count_ex(reader->filename,
                     file_offset, &line_count);
             logError("file: "__FILE__", line: %d, "
@@ -594,8 +594,8 @@ static int find_position_by_buffer(ServerBinlogReader *reader,
 
         if (data_version < record.data_version) {
             pos->index = reader->position.index;
-            pos->offset = reader->position.offset - (reader->
-                    binlog_buffer.end - reader->binlog_buffer.current);
+            pos->offset = reader->position.offset - (reader->binlog_buffer.
+                    data_end - reader->binlog_buffer.current);
             return 0;
         }
 
