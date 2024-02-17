@@ -367,7 +367,7 @@ static int do_split(BinlogSpliterContext *ctx,
     return (SF_G_CONTINUE_FLAG ? 0 : EINTR);
 }
 
-int binlog_spliter_do(ServerBinlogReaderArray *rda, const int read_threads,
+int rebuild_binlog_spliter_do(ServerBinlogReaderArray *rda, const int read_threads,
         const int split_count, int64_t *slice_count)
 {
     int result;

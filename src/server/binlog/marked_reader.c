@@ -22,8 +22,7 @@
 #include "../binlog/slice_binlog.h"
 #include "../storage/slice_op.h"
 #include "../server_global.h"
-#include "rebuild_binlog.h"
-#include "binlog_reader.h"
+#include "marked_reader.h"
 
 #define BINLOG_POSITION_FILENAME  "position.mark"
 
@@ -38,7 +37,7 @@ static const char *get_position_filename(const char *subdir_name,
     return filename;
 }
 
-int rebuild_binlog_reader_save_position(ServerBinlogReader *reader)
+int marked_reader_save_position(ServerBinlogReader *reader)
 {
     char filename[PATH_MAX];
     char buff[256];
@@ -100,7 +99,7 @@ static int get_position_from_file(const char *subdir_name,
     return 0;
 }
 
-int rebuild_binlog_reader_init(ServerBinlogReader *reader,
+int marked_reader_init(ServerBinlogReader *reader,
         const char *subdir_name)
 {
     int result;
@@ -121,7 +120,7 @@ int rebuild_binlog_reader_init(ServerBinlogReader *reader,
             write_index, &position);
 }
 
-int rebuild_binlog_reader_unlink_subdir(const char *subdir_name)
+int marked_reader_unlink_subdir(const char *subdir_name)
 {
     int result;
     int write_index;

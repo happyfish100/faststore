@@ -21,10 +21,10 @@
 #include "../../common/fs_func.h"
 #include "../../client/fs_client.h"
 #include "../binlog/slice_binlog.h"
+#include "../binlog/marked_reader.h"
 #include "../storage/slice_op.h"
 #include "../server_global.h"
 #include "rebuild_binlog.h"
-#include "binlog_reader.h"
 #include "rebuild_thread.h"
 
 typedef struct data_rebuild_thread_info {
@@ -222,7 +222,7 @@ static inline int do_rebuild(DataRebuildThreadInfo *thread)
             fc_sleep_ms(1);
         }
 
-        if ((result=rebuild_binlog_reader_save_position(
+        if ((result=marked_reader_save_position(
                         &thread->reader)) != 0)
         {
             return result;
@@ -265,7 +265,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
 
     rebuild_binlog_get_subdir_name(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
             thread->thread_index, subdir_name, sizeof(subdir_name));
-    if ((result=rebuild_binlog_reader_init(&thread->reader,
+    if ((result=marked_reader_init(&thread->reader,
                     subdir_name)) != 0)
     {
         return result;
@@ -383,7 +383,7 @@ int rebuild_cleanup(const char *dirname, const int thread_count)
     for (thread_index=0; thread_index<thread_count; thread_index++) {
         rebuild_binlog_get_subdir_name(dirname, thread_index,
                 subdir_name, sizeof(subdir_name));
-        if ((result=rebuild_binlog_reader_unlink_subdir(subdir_name)) != 0) {
+        if ((result=marked_reader_unlink_subdir(subdir_name)) != 0) {
             return result;
         }
     }

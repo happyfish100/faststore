@@ -27,11 +27,11 @@
 #include "../shared_thread_pool.h"
 #include "../binlog/slice_binlog.h"
 #include "../binlog/slice_dump.h"
+#include "../binlog/marked_reader.h"
 #include "../binlog/db_remove.h"
 #include "../storage/object_block_index.h"
 #include "rebuild_binlog.h"
 #include "binlog_spliter.h"
-#include "binlog_reader.h"
 #include "rebuild_thread.h"
 #include "store_path_rebuild.h"
 
@@ -378,7 +378,7 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
     rda.count = redo_ctx->binlog_file_count;
     split_count = DATA_REBUILD_THREADS;
     read_threads = FC_MIN(SYSTEM_CPU_COUNT, split_count);
-    if ((result=binlog_spliter_do(&rda, read_threads,
+    if ((result=rebuild_binlog_spliter_do(&rda, read_threads,
                     split_count, &slice_count)) == 0)
     {
         logInfo("file: "__FILE__", line: %d, "
@@ -447,7 +447,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
         thread_index = reader - rda.readers;
         rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
                 thread_index, subdir_name, sizeof(subdir_name));
-        if ((result=rebuild_binlog_reader_init(reader,
+        if ((result=marked_reader_init(reader,
                         subdir_name)) != 0)
         {
             return result;
@@ -456,7 +456,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
 
     rda.count = old_rebuild_threads;
     read_threads = FC_MIN(SYSTEM_CPU_COUNT, new_rebuild_threads);
-    if ((result=binlog_spliter_do(&rda, read_threads,
+    if ((result=rebuild_binlog_spliter_do(&rda, read_threads,
                     new_rebuild_threads, &slice_count)) == 0)
     {
         redo_ctx->rebuild_threads = new_rebuild_threads;
@@ -467,7 +467,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
         for (thread_index=0; thread_index<old_rebuild_threads; thread_index++) {
             rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
                     thread_index, subdir_name, sizeof(subdir_name));
-            rebuild_binlog_reader_unlink_subdir(subdir_name);
+            marked_reader_unlink_subdir(subdir_name);
         }
         fs_rmdir(input_path);
 

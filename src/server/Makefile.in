@@ -28,6 +28,7 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               binlog/slice_dedup.o binlog/binlog_rollback.o \
               binlog/slice_dump.o binlog/trunk_migrate.o \
               binlog/slice_space_migrate.o binlog/db_remove.o  \
+              binlog/marked_reader.o  \
               replication/replication_processor.o \
               replication/replication_common.o    \
               replication/replication_caller.o    \
@@ -40,7 +41,6 @@ SERVER_OBJS = server_func.o service_handler.o cluster_handler.o \
               recovery/data_recovery.o recovery/recovery_thread.o \
               rebuild/store_path_rebuild.o rebuild/rebuild_binlog.o \
               rebuild/binlog_spliter.o rebuild/rebuild_thread.o \
-              rebuild/binlog_reader.o  \
               db/change_notify.o db/block_serializer.o db/event_dealer.o \
               db/db_updater.o
 

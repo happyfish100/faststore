@@ -14,21 +14,22 @@
  */
 
 
-#ifndef _FS_REBUILD_BINLOG_READER_H
-#define _FS_REBUILD_BINLOG_READER_H
+#ifndef _FS_MARKED_READER_H
+#define _FS_MARKED_READER_H
 
 #include "../server_types.h"
+#include "binlog_reader.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-    int rebuild_binlog_reader_init(ServerBinlogReader *reader,
+    int marked_reader_init(ServerBinlogReader *reader,
             const char *subdir_name);
 
-    int rebuild_binlog_reader_save_position(ServerBinlogReader *reader);
+    int marked_reader_save_position(ServerBinlogReader *reader);
 
-    int rebuild_binlog_reader_unlink_subdir(const char *subdir_name);
+    int marked_reader_unlink_subdir(const char *subdir_name);
 
 #ifdef __cplusplus
 }
