@@ -394,11 +394,11 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 
     max_buffer_size = sizeof(FSProtoHeader) + sizeof(*body_header) +
         dg_count * 4 + CLUSTER_DG_SERVER_COUNT * sizeof(*body_part);
-    if (max_buffer_size > g_sf_global_vars.max_buff_size) {
+    if (max_buffer_size > SF_CTX->net_buffer_cfg.max_buff_size) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "too many data groups: %d, expect buffer size exceeds "
                 "task max buffer size: %d", dg_count,
-                g_sf_global_vars.max_buff_size);
+                SF_CTX->net_buffer_cfg.max_buff_size);
         return EOVERFLOW;
     }
     if (max_buffer_size > task->send.ptr->size) {

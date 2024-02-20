@@ -53,7 +53,7 @@ static int check_last_binlog(const int last_index)
         return (errno != 0 ? errno : EPERM);
     }
 
-    return (stbuf.st_size >= g_sf_global_vars.
+    return (stbuf.st_size >= g_sf_global_vars.net_buffer_cfg.
             max_buff_size ? 0 : ECANCELED);
 }
 

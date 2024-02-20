@@ -63,9 +63,9 @@ int cluster_topology_init()
 
     header_size = sizeof(FSProtoHeader) + sizeof(
             FSProtoPushDataServerStatusHeader);
-    CT_MAX_EVENTS_PER_PKG = (g_sf_global_vars.max_buff_size - header_size) /
-        sizeof(FSProtoPushDataServerStatusBodyPart);
-    CT_ACTIVE_TEST_INTERVAL = SF_G_NETWORK_TIMEOUT / 2;
+    CT_MAX_EVENTS_PER_PKG = (CLUSTER_SF_CTX.net_buffer_cfg.max_buff_size -
+            header_size) / sizeof(FSProtoPushDataServerStatusBodyPart);
+    CT_ACTIVE_TEST_INTERVAL = CLUSTER_NETWORK_TIMEOUT / 2;
     if (CT_ACTIVE_TEST_INTERVAL == 0) {
         CT_ACTIVE_TEST_INTERVAL = 1;
     }

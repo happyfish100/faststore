@@ -370,6 +370,12 @@ typedef struct server_global_vars {
 #define REPLICA_NET_HANDLER       g_server_global_vars->replica.network_handler
 #define REPLICA_CONN_EXTRA_PARAMS g_server_global_vars->replica.conn_extra_params
 
+#define CLUSTER_CONNECT_TIMEOUT   CLUSTER_SF_CTX.net_buffer_cfg.connect_timeout
+#define CLUSTER_NETWORK_TIMEOUT   CLUSTER_SF_CTX.net_buffer_cfg.network_timeout
+
+#define REPLICA_CONNECT_TIMEOUT   REPLICA_SF_CTX.net_buffer_cfg.connect_timeout
+#define REPLICA_NETWORK_TIMEOUT   REPLICA_SF_CTX.net_buffer_cfg.network_timeout
+
 #define OB_ELEMENT_SIZE       g_server_global_vars->storage.ob_element_size
 #define DA_CTX                g_server_global_vars->storage.da_ctx
 #define STORAGE_CFG           DA_CTX.storage.cfg

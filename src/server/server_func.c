@@ -752,9 +752,9 @@ static int server_init_client(const char *config_filename)
         sf_data_read_rule_any_available;
 
     g_fs_client_vars.client_ctx.common_cfg.connect_timeout =
-        SF_G_CONNECT_TIMEOUT;
+        REPLICA_SF_CTX.net_buffer_cfg.connect_timeout;
     g_fs_client_vars.client_ctx.common_cfg.network_timeout =
-        SF_G_NETWORK_TIMEOUT;
+        REPLICA_SF_CTX.net_buffer_cfg.network_timeout;
     snprintf(g_fs_client_vars.base_path,
             sizeof(g_fs_client_vars.base_path),
             "%s", SF_G_BASE_PATH_STR);
@@ -1063,7 +1063,9 @@ int server_load_config(const char *filename)
                     CLUSTER_SERVER_GROUP->comm_type, filename,
                     &ini_context, "cluster",
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
-                    FS_SERVER_DEFAULT_CLUSTER_PORT)) != 0)
+                    FS_SERVER_DEFAULT_CLUSTER_PORT,
+                    SERVER_CONFIG_CTX.buffer_size,
+                    FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
     }
@@ -1076,7 +1078,9 @@ int server_load_config(const char *filename)
                     REPLICA_SERVER_GROUP->comm_type, filename,
                     &ini_context, "replica",
                     FS_SERVER_DEFAULT_REPLICA_PORT,
-                    FS_SERVER_DEFAULT_REPLICA_PORT)) != 0)
+                    FS_SERVER_DEFAULT_REPLICA_PORT,
+                    SERVER_CONFIG_CTX.buffer_size,
+                    FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
     }
@@ -1278,7 +1282,7 @@ int server_load_config(const char *filename)
     }
 
     g_server_global_vars->replica.active_test_interval = (int)
-        ceil(SF_G_NETWORK_TIMEOUT / 2.00);
+        ceil(REPLICA_SF_CTX.net_buffer_cfg.network_timeout / 2.00);
     if (g_server_global_vars->replica.active_test_interval == 0) {
         g_server_global_vars->replica.active_test_interval = 1;
     }

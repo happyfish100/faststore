@@ -24,7 +24,7 @@
 extern "C" {
 #endif
 
-int binlog_replay_init(const char *config_filename);
+int binlog_replay_init();
 void binlog_replay_destroy();
 
 DataReplayTaskAllocatorInfo *binlog_replay_get_task_allocator();

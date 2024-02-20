@@ -68,7 +68,7 @@ int data_recovery_init(const char *config_filename)
 {
     int result;
 
-    if ((result=binlog_replay_init(config_filename)) != 0) {
+    if ((result=binlog_replay_init()) != 0) {
         return result;
     }
 
@@ -536,7 +536,7 @@ static int proto_active_confirm(ConnectionInfo *conn,
 
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, REPLICA_NETWORK_TIMEOUT,
                     FS_REPLICA_PROTO_ACTIVE_CONFIRM_RESP)) != 0)
     {
         int log_level;
@@ -566,7 +566,7 @@ static int active_confirm(DataRecoveryContext *ctx)
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
                         ctx->master->cs->server), conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+                    REPLICA_CONNECT_TIMEOUT, NULL, true)) != 0)
     {
         conn_pool_free_connection(conn);
         return result;

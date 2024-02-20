@@ -301,7 +301,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     header = (FSProtoHeader *)out_buff;
     SF_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
     if ((result=sf_send_and_check_response_header(conn, out_buff, out_bytes,
-                    &response, SF_G_NETWORK_TIMEOUT, resp_cmd)) != 0)
+                    &response, REPLICA_NETWORK_TIMEOUT, resp_cmd)) != 0)
     {
         int log_level;
         if (result == EOVERFLOW) {
@@ -323,12 +323,14 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
                 conn->port, response.header.body_len, bheader_size);
         return EINVAL;
     }
-    if (response.header.body_len > g_sf_global_vars.max_buff_size) {
+    if (response.header.body_len > REPLICA_SF_CTX.
+            net_buffer_cfg.max_buff_size)
+    {
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too large, "
                 "the max body length is %d", __LINE__, conn->ip_addr,
                 conn->port, response.header.body_len,
-                g_sf_global_vars.max_buff_size);
+                REPLICA_SF_CTX.net_buffer_cfg.max_buff_size);
         return EOVERFLOW;
     }
 
@@ -338,7 +340,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     } else {
         body = fetch_ctx->mbuffer->buff;
         if ((result=tcprecvdata_nb(conn->sock, body, response.header.
-                        body_len, SF_G_NETWORK_TIMEOUT)) != 0)
+                        body_len, REPLICA_NETWORK_TIMEOUT)) != 0)
         {
             response.error.length = snprintf(response.error.message,
                     sizeof(response.error.message),
@@ -595,7 +597,7 @@ static int do_fetch_binlog(DataRecoveryContext *ctx)
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
                         ctx->master->cs->server), conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+                    REPLICA_CONNECT_TIMEOUT, NULL, true)) != 0)
     {
         conn_pool_free_connection(conn);
         return result;
@@ -688,7 +690,7 @@ int data_recovery_fetch_binlog(DataRecoveryContext *ctx, int64_t *binlog_size)
 
     if (REPLICA_SERVER_GROUP->comm_type == fc_comm_type_sock) {
         fetch_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
-                g_sf_global_vars.max_buff_size);
+                REPLICA_SF_CTX.net_buffer_cfg.max_buff_size);
         if (fetch_ctx.mbuffer == NULL) {
             close(fetch_ctx.fd);
             return ENOMEM;

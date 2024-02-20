@@ -332,13 +332,13 @@ int du_handler_check_size_for_read(struct fast_task_info *task)
         return 0;
     }
 
-    if (OP_CTX_INFO.bs_key.slice.length > g_sf_global_vars.
+    if (OP_CTX_INFO.bs_key.slice.length > SF_CTX->net_buffer_cfg.
             max_buff_size - sizeof(FSProtoHeader))
     {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "read slice length: %d > task max buffer size: %d",
                 OP_CTX_INFO.bs_key.slice.length, (int)(
-                    g_sf_global_vars.max_buff_size -
+                    SF_CTX->net_buffer_cfg.max_buff_size -
                     sizeof(FSProtoHeader)));
         return EOVERFLOW;
     }
@@ -881,7 +881,7 @@ int du_handler_deal_client_join(struct fast_task_info *task)
     }
 
     join_resp = (FSProtoClientJoinResp *)SF_PROTO_SEND_BODY(task);
-    int2buff(g_sf_global_vars.max_buff_size -
+    int2buff(SF_CTX->net_buffer_cfg.max_buff_size -
             FS_TASK_BUFFER_FRONT_PADDING_SIZE,
             join_resp->buffer_size);
     RESPONSE.header.body_len = sizeof(FSProtoClientJoinResp);

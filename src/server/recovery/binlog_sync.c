@@ -66,7 +66,7 @@ static int query_binlog_info(ConnectionInfo *conn, DataRecoveryContext *ctx,
             sizeof(out_buff) - sizeof(FSProtoHeader));
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff,
-            sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+            sizeof(out_buff), &response, REPLICA_NETWORK_TIMEOUT,
             FS_REPLICA_PROTO_QUERY_BINLOG_INFO_RESP,
             (char *)&resp, sizeof(resp))) != 0)
     {
@@ -95,7 +95,7 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
     SF_PROTO_SET_HEADER(header, req_cmd, out_bytes - sizeof(FSProtoHeader));
     response.error.length = 0;
     if ((result=sf_send_and_check_response_header(conn, out_buff,
-            out_bytes, &response, SF_G_NETWORK_TIMEOUT,
+            out_bytes, &response, REPLICA_NETWORK_TIMEOUT,
             FS_REPLICA_PROTO_SYNC_BINLOG_RESP)) != 0)
     {
         fs_log_network_error_ex(&response, conn, result, LOG_ERR);
@@ -107,12 +107,14 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
         return 0;
     }
 
-    if (response.header.body_len > g_sf_global_vars.max_buff_size) {
+    if (response.header.body_len > REPLICA_SF_CTX.
+            net_buffer_cfg.max_buff_size)
+    {
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too large, "
                 "the max body length is %d", __LINE__, conn->ip_addr,
                 conn->port, response.header.body_len,
-                g_sf_global_vars.max_buff_size);
+                REPLICA_SF_CTX.net_buffer_cfg.max_buff_size);
         return EOVERFLOW;
     }
 
@@ -122,7 +124,7 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
     } else {
         body = sync_ctx->mbuffer->buff;
         if ((result=tcprecvdata_nb(conn->sock, body, response.header.
-                        body_len, SF_G_NETWORK_TIMEOUT)) != 0)
+                        body_len, REPLICA_NETWORK_TIMEOUT)) != 0)
         {
             response.error.length = snprintf(response.error.message,
                     sizeof(response.error.message),
@@ -246,7 +248,7 @@ static int do_sync_binlogs(DataRecoveryContext *ctx)
 
     if ((result=fc_server_make_connection_ex(&REPLICA_GROUP_ADDRESS_ARRAY(
                         ctx->master->cs->server), conn, "fstore",
-                    SF_G_CONNECT_TIMEOUT, NULL, true)) != 0)
+                    REPLICA_CONNECT_TIMEOUT, NULL, true)) != 0)
     {
         conn_pool_free_connection(conn);
         return result;
@@ -292,7 +294,7 @@ int data_recovery_sync_binlog(DataRecoveryContext *ctx)
 
     if (REPLICA_SERVER_GROUP->comm_type == fc_comm_type_sock) {
         sync_ctx.mbuffer = sf_shared_mbuffer_alloc(&SHARED_MBUFFER_CTX,
-                g_sf_global_vars.max_buff_size);
+                REPLICA_SF_CTX.net_buffer_cfg.max_buff_size);
         if (sync_ctx.mbuffer == NULL) {
             return ENOMEM;
         }

@@ -374,7 +374,7 @@ static int replica_fetch_binlog_next_output(struct fast_task_info *task)
     int result;
     char *buff;
 
-    if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
+    if (task->send.ptr->size < SF_CTX->net_buffer_cfg.max_buff_size) {
         if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
@@ -395,7 +395,7 @@ static int replica_fetch_binlog_inconsistent_output(struct fast_task_info
     FSProtoReplicaFetchBinlogFirstRespBodyHeader *body_header;
     char *buff;
 
-    if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
+    if (task->send.ptr->size < SF_CTX->net_buffer_cfg.max_buff_size) {
         if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
@@ -791,7 +791,7 @@ static int replica_deal_sync_binlog_next(struct fast_task_info *task)
         return EINVAL;
     }
 
-    if (task->send.ptr->size < g_sf_global_vars.max_buff_size) {
+    if (task->send.ptr->size < SF_CTX->net_buffer_cfg.max_buff_size) {
         if ((result=sf_set_task_send_max_buffer_size(task)) != 0) {
             return result;
         }
@@ -887,10 +887,10 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     buffer_size = buff2int(req->buffer_size);
     replica_channels_between_two_servers = buff2int(
             req->replica_channels_between_two_servers);
-    if (buffer_size != g_sf_global_vars.max_buff_size) {
+    if (buffer_size != SF_CTX->net_buffer_cfg.max_buff_size) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
                 "peer task buffer size: %d != mine: %d",
-                buffer_size, g_sf_global_vars.max_buff_size);
+                buffer_size, SF_CTX->net_buffer_cfg.max_buff_size);
         return EINVAL;
     }
     if (replica_channels_between_two_servers !=

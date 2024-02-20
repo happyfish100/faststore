@@ -214,7 +214,7 @@ void binlog_replay_release_task_allocator(DataReplayTaskAllocatorInfo *ai)
     __sync_bool_compare_and_swap(&ai->used, 1, 0);
 }
 
-int binlog_replay_init(const char *config_filename)
+int binlog_replay_init()
 {
     return init_task_allocator_array(&replay_global_vars.
             allocator_array, RECOVERY_CONCURRENT,

@@ -77,8 +77,6 @@ static int init_nio_task(struct fast_task_info *task)
     int result;
 
     sf_proto_init_task_magic(task);
-    task->connect_timeout = SF_G_CONNECT_TIMEOUT;
-    task->network_timeout = SF_G_NETWORK_TIMEOUT;
     slice_sn_parray = &((FSServerTaskArg *)task->arg)->
         context.slice_op_ctx.update.sarray;
     if ((result=fs_slice_array_init(slice_sn_parray)) != 0) {
@@ -524,8 +522,10 @@ static int setup_server_env(const char *config_filename)
     }
     umask(0);
 
-    max_pkg_size = g_sf_global_vars.max_pkg_size -
-        g_sf_global_vars.task_buffer_extra_size;
+    max_pkg_size = FC_MAX(g_sf_context.net_buffer_cfg.max_pkg_size,
+            CLUSTER_SF_CTX.net_buffer_cfg.max_pkg_size);
+    max_pkg_size = FC_MAX(max_pkg_size, REPLICA_SF_CTX.net_buffer_cfg.
+            max_pkg_size) - g_sf_global_vars.task_buffer_extra_size;
     if ((result=sf_shared_mbuffer_init(&SHARED_MBUFFER_CTX, "net-mbuffer",
                     g_sf_global_vars.task_buffer_extra_size,
                     1024, max_pkg_size, min_alloc_once,

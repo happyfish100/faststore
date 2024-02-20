@@ -64,7 +64,7 @@ static int init_replication_context(FSReplication *replication)
         return result;
     }
 
-    alloc_size = 4 * g_sf_global_vars.max_pkg_size /
+    alloc_size = 4 * REPLICA_SF_CTX.net_buffer_cfg.max_pkg_size /
         FS_REPLICA_BINLOG_MAX_RECORD_SIZE;
     bytes = sizeof(FSReplicaRPCResultEntry) * alloc_size;
     if ((replication->context.caller.rpc_result_array.results=

@@ -294,7 +294,7 @@ static inline ConnectionInfo *cluster_make_connection_ex(FCServerInfo *server,
     }
 
     if ((*err_no=fc_server_make_connection_ex(&CLUSTER_GROUP_ADDRESS_ARRAY(
-                        server), conn, "fstore", SF_G_CONNECT_TIMEOUT,
+                        server), conn, "fstore", CLUSTER_CONNECT_TIMEOUT,
                     NULL, log_connect_error)) != 0)
     {
         conn_pool_free_connection(conn);
@@ -682,7 +682,7 @@ static int do_notify_leader_changed(FSClusterServerInfo *cs,
     int2buff(leader->server->id, out_buff + sizeof(FSProtoHeader));
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, CLUSTER_NETWORK_TIMEOUT,
                     SF_PROTO_ACK)) != 0)
     {
         if (result != EOPNOTSUPP) {
@@ -724,7 +724,7 @@ static int report_ds_status_to_leader(FSClusterDataServerInfo *ds,
     req->status = status;
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, CLUSTER_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_REPORT_DS_STATUS_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
@@ -767,7 +767,7 @@ int cluster_relationship_report_reselect_master_to_leader(
     int2buff(ds->cs->server->id, req->server_id);
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, CLUSTER_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_RESELECT_MASTER_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
@@ -1905,10 +1905,12 @@ static inline int parse_body_length(FSProtoHeader *header,
     }
 
     *body_len = buff2int(header->body_len);
-    if (*body_len < 0 || *body_len > g_sf_global_vars.max_buff_size) {
+    if (*body_len < 0 || *body_len > CLUSTER_SF_CTX.
+            net_buffer_cfg.max_buff_size)
+    {
         response->error.length = sprintf(response->error.message,
-                "invalid body length: %d < 0 or > %d",
-                *body_len, g_sf_global_vars.max_buff_size);
+                "invalid body length: %d < 0 or > %d", *body_len,
+                CLUSTER_SF_CTX.net_buffer_cfg.max_buff_size);
         return EINVAL;
     }
 
@@ -2044,7 +2046,7 @@ static int cluster_recv_from_leader(ConnectionInfo *conn,
                 out_buff, sizeof(out_buff));
     } else {
         return tcpsenddata_nb(conn->sock, out_buff,
-                sizeof(out_buff), SF_G_NETWORK_TIMEOUT);
+                sizeof(out_buff), CLUSTER_NETWORK_TIMEOUT);
     }
 }
 
@@ -2124,7 +2126,7 @@ static int proto_report_disk_space(ConnectionInfo *conn,
 
     response.error.length = 0;
     if ((result=sf_send_and_recv_none_body_response(conn, out_buff,
-                    sizeof(out_buff), &response, SF_G_NETWORK_TIMEOUT,
+                    sizeof(out_buff), &response, CLUSTER_NETWORK_TIMEOUT,
                     FS_CLUSTER_PROTO_REPORT_DISK_SPACE_RESP)) != 0)
     {
         if (result != EOPNOTSUPP) {
@@ -2223,8 +2225,8 @@ static int check_make_connection(FSClusterServerInfo *leader,
     int network_timeout;
     int result;
 
-    connect_timeout = FC_MIN(SF_G_CONNECT_TIMEOUT, timeout);
-    network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
+    connect_timeout = FC_MIN(CLUSTER_CONNECT_TIMEOUT, timeout);
+    network_timeout = FC_MIN(CLUSTER_NETWORK_TIMEOUT, timeout);
     if ((result=fc_server_make_connection(&CLUSTER_GROUP_ADDRESS_ARRAY(
                         leader->server), conn, "fstore",
                     connect_timeout)) != 0)
@@ -2269,7 +2271,7 @@ static int follower_ping(FSClusterServerInfo *leader,
         }
     }
 
-    network_timeout = FC_MIN(SF_G_NETWORK_TIMEOUT, timeout);
+    network_timeout = FC_MIN(CLUSTER_NETWORK_TIMEOUT, timeout);
     result = proto_ping_leader(leader, conn, network_timeout);
     if (result == 0) {
         if (g_current_time - relationship_ctx.last_stat_time >= 10) {
@@ -2424,7 +2426,7 @@ static void server_push_handler_run(void *arg, void *thread_data)
                 is_connected(mconn))
         {
             if (check_make_connection(leader, mconn, server_push,
-                        SF_G_CONNECT_TIMEOUT) != 0)
+                        CLUSTER_CONNECT_TIMEOUT) != 0)
             {
                 sleep(1);
                 continue;
