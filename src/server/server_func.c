@@ -1050,7 +1050,7 @@ int server_load_config(const char *filename)
                     filename, &ini_context, "service",
                     FS_SERVER_DEFAULT_SERVICE_PORT,
                     FS_SERVER_DEFAULT_SERVICE_PORT,
-                    SERVER_CONFIG_CTX.buffer_size,
+                    server_group->buffer_size,
                     FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
@@ -1064,7 +1064,7 @@ int server_load_config(const char *filename)
                     &ini_context, "cluster",
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
                     FS_SERVER_DEFAULT_CLUSTER_PORT,
-                    SERVER_CONFIG_CTX.buffer_size,
+                    CLUSTER_SERVER_GROUP->buffer_size,
                     FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
@@ -1079,7 +1079,7 @@ int server_load_config(const char *filename)
                     &ini_context, "replica",
                     FS_SERVER_DEFAULT_REPLICA_PORT,
                     FS_SERVER_DEFAULT_REPLICA_PORT,
-                    SERVER_CONFIG_CTX.buffer_size,
+                    REPLICA_SERVER_GROUP->buffer_size,
                     FS_TASK_BUFFER_FRONT_PADDING_SIZE)) != 0)
     {
         return result;
