@@ -226,6 +226,7 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                         SERVER_TASK_TYPE);
             }
             replica_release_reader(task, true);
+            REPLICA_UNTIL_OFFSET = 0;
             break;
         default:
             break;

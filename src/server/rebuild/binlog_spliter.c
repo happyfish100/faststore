@@ -166,9 +166,9 @@ static int init_binlog_writer(SFBinlogWriterInfo *writer,
     char filename[PATH_MAX];
     SFBinlogFilePosition position;
 
-    if ((result=sf_binlog_writer_init_by_version(writer,
-                    DATA_PATH_STR, subdir_name, next_version,
-                    BINLOG_BUFFER_SIZE, ring_size)) != 0)
+    if ((result=sf_binlog_writer_init_by_version(writer, DATA_PATH_STR,
+                    subdir_name, FS_REBUILD_BINLOG_MAX_RECORD_SIZE,
+                    next_version, BINLOG_BUFFER_SIZE, ring_size)) != 0)
     {
         return result;
     }
@@ -194,7 +194,8 @@ static int init_binlog_writer(SFBinlogWriterInfo *writer,
     }
 
     return sf_binlog_writer_init_by_version(writer, DATA_PATH_STR,
-            subdir_name, next_version, BINLOG_BUFFER_SIZE, ring_size);
+            subdir_name, FS_REBUILD_BINLOG_MAX_RECORD_SIZE,
+            next_version, BINLOG_BUFFER_SIZE, ring_size);
 }
 
 static int check_unlink_subdir(const char *subdir_name)

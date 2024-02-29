@@ -21,6 +21,8 @@
 #include "../binlog/binlog_reader.h"
 #include "rebuild_types.h"
 
+#define FS_REBUILD_BINLOG_MAX_RECORD_SIZE  128
+
 typedef struct rebuild_binlog_record {
     char op_type;
     FSBlockSliceKeyInfo bs_key;

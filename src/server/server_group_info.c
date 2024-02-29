@@ -485,6 +485,7 @@ static int init_cluster_server_array(const char *filename)
             svr->id, &assoc_gid_array, servers, FS_MAX_GROUP_SERVERS,
             &count)) != 0)
     {
+        return result;
     }
     qsort(servers, count, sizeof(FCServerInfo *), compare_server_ptr);
 
