@@ -138,6 +138,8 @@ static int service_deal_service_stat(struct fast_task_info *task)
     bool include_indexes;
     int result;
     int data_group_id;
+    int64_t slice_current_version;
+    int64_t db_last_version;
     int64_t current_version;
     FSServiceOBSliceStat ob;
     FSServiceOBSliceStat slice;
@@ -154,10 +156,11 @@ static int service_deal_service_stat(struct fast_task_info *task)
         return result;
     }
 
+    slice_current_version = FC_ATOMIC_GET(SLICE_BINLOG_SN);
     req = (FSProtoServiceStatReq *)REQUEST.body;
     data_group_id = buff2int(req->data_group_id);
     if (data_group_id == 0) {
-        current_version = FC_ATOMIC_GET(SLICE_BINLOG_SN);
+        current_version = slice_current_version;
         slice_binlog_writer_stat(&writer_stat);
     } else {
         if ((group=fs_get_data_group(data_group_id)) == NULL ||
@@ -179,9 +182,11 @@ static int service_deal_service_stat(struct fast_task_info *task)
     stat_resp->auth_enabled = AUTH_ENABLED ? 1 : 0;
 
     if (STORAGE_ENABLED) {
+        db_last_version = event_dealer_get_last_data_version();
         stat_resp->storage_engine.enabled = 1;
-        long2buff(event_dealer_get_last_data_version(),
-                stat_resp->storage_engine.current_version);
+        long2buff(db_last_version, stat_resp->storage_engine.current_version);
+        long2buff(slice_current_version - db_last_version,
+                stat_resp->storage_engine.version_delay);
         include_indexes = (REQUEST.header.flags &
                 FS_SERVICE_STAT_FLAGS_INCLUDE_BLOCK_SPACE) != 0;
         STORAGE_ENGINE_SPACES_STAT_API(&space_stat,
@@ -189,6 +194,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     } else {
         stat_resp->storage_engine.enabled = 0;
         long2buff(0, stat_resp->storage_engine.current_version);
+        long2buff(0, stat_resp->storage_engine.version_delay);
         space_stat.disk.total = 0;
         space_stat.disk.used = 0;
         space_stat.disk.avail = 0;

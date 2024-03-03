@@ -229,6 +229,7 @@ typedef struct fs_proto_service_stat_resp {
     struct {
         char enabled;
         char current_version[8];
+        char version_delay[8];
         FSProtoSpaceInfo space;
     } storage_engine;
 

@@ -174,8 +174,9 @@ static void output(const ConnectionInfo *conn,
             storage_engine.enabled ? "true" : "false");
     if (stat->storage_engine.enabled) {
         format_space_buff(&stat->storage_engine.space, space_buff);
-        sprintf(storage_engine_buff + len, ", current_version: %"PRId64",\n"
-                "%s", stat->storage_engine.current_version,
+        sprintf(storage_engine_buff + len, ", data version {current: "
+                "%"PRId64", delay: %"PRId64"},\n%s", stat->storage_engine.
+                current_version, stat->storage_engine.version_delay,
                 space_buff);
     }
 

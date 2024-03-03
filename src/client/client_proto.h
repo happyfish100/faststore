@@ -37,6 +37,7 @@ typedef struct fs_client_service_stat {
      struct {
         bool enabled;
         int64_t current_version;
+        int64_t version_delay;
         FSClientSpaceInfo space;
     } storage_engine;
     char version_holder[12];
@@ -77,6 +78,22 @@ extern "C" {
             conn, 0, FS_SERVICE_PROTO_SLICE_READ_REQ, \
             FS_SERVICE_PROTO_SLICE_READ_RESP,  \
             bs_key, iov, iovcnt, read_bytes)
+
+    static inline void fs_client_proto_pack_block_key(
+            const FSBlockKey *bkey, FSProtoBlockKey *proto_bkey)
+    {
+        long2buff(bkey->oid, proto_bkey->oid);
+        long2buff(bkey->offset, proto_bkey->offset);
+    }
+
+    static inline void fs_client_proto_pack_block_slice_key(
+            const FSBlockSliceKeyInfo *bs_key,
+            FSProtoBlockSlice *proto_bs)
+    {
+        fs_client_proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
+        int2buff(bs_key->slice.offset, proto_bs->slice_size.offset);
+        int2buff(bs_key->slice.length, proto_bs->slice_size.length);
+    }
 
     int fs_client_proto_slice_write(FSClientContext *client_ctx,
             ConnectionInfo *conn, const uint64_t req_id,

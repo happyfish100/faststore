@@ -25,13 +25,6 @@
 #include "client_global.h"
 #include "client_proto.h"
 
-static inline void proto_pack_block_key(const FSBlockKey *
-        bkey, FSProtoBlockKey *proto_bkey)
-{
-    long2buff(bkey->oid, proto_bkey->oid);
-    long2buff(bkey->offset, proto_bkey->offset);
-}
-
 static int do_slice_write(FSClientContext *client_ctx,
         ConnectionInfo *conn, const uint64_t req_id,
         const FSBlockSliceKeyInfo *bs_key, tcpsenddatafunc send_func,
@@ -49,7 +42,7 @@ static int do_slice_write(FSClientContext *client_ctx,
 
     SF_PROTO_CLIENT_SET_REQ(client_ctx, out_buff, proto_header,
             req_header, req_id, front_bytes);
-    proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
+    fs_client_proto_pack_block_key(&bs_key->block, &req_header->bs.bkey);
 
     response.error.length = 0;
     do {
@@ -166,7 +159,7 @@ static int do_slice_read(FSClientContext *client_ctx,
     }
     SF_PROTO_SET_HEADER(header, req_cmd,
             out_bytes - sizeof(FSProtoHeader));
-    proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
+    fs_client_proto_pack_block_key(&bs_key->block, &proto_bs->bkey);
 
     connection_params = client_ctx->cm.ops.
         get_connection_params(&client_ctx->cm, conn);
@@ -344,7 +337,7 @@ int fs_client_proto_bs_operate(FSClientContext *client_ctx,
             out_bytes - sizeof(FSProtoHeader));
 
     bs_key = (const FSBlockSliceKeyInfo *)key;
-    proto_pack_block_key(&bs_key->block, &req->bs.bkey);
+    fs_client_proto_pack_block_key(&bs_key->block, &req->bs.bkey);
     int2buff(bs_key->slice.offset, req->bs.slice_size.offset);
     int2buff(bs_key->slice.length, req->bs.slice_size.length);
 
@@ -383,7 +376,7 @@ int fs_client_proto_block_delete(FSClientContext *client_ctx,
             header, req, req_id, out_bytes);
     SF_PROTO_SET_HEADER(header, FS_SERVICE_PROTO_BLOCK_DELETE_REQ,
             out_bytes - sizeof(FSProtoHeader));
-    proto_pack_block_key(bkey, &req->bkey);
+    fs_client_proto_pack_block_key(bkey, &req->bkey);
 
     response.error.length = 0;
     if ((result=sf_send_and_recv_response(conn, out_buff, out_bytes,
@@ -822,6 +815,8 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     stat->storage_engine.enabled = stat_resp.storage_engine.enabled;
     stat->storage_engine.current_version = buff2long(
             stat_resp.storage_engine.current_version);
+    stat->storage_engine.version_delay = buff2long(
+            stat_resp.storage_engine.version_delay);
     parse_space_info(&stat_resp.storage_engine.space,
             &stat->storage_engine.space);
 
