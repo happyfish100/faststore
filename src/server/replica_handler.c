@@ -709,12 +709,15 @@ static int sync_binlog_output(struct fast_task_info *task)
     }
 
     if (REPLICA_UNTIL_OFFSET > 0 && REPLICA_READER->
-            position.offset > REPLICA_UNTIL_OFFSET)
+            position.offset >= REPLICA_UNTIL_OFFSET)
     {
         RESPONSE.header.body_len = read_bytes - (REPLICA_READER->
                 position.offset - REPLICA_UNTIL_OFFSET);
+        RESPONSE.header.flags = FS_COMMON_PROTO_FLAGS_LAST_PKG;
     } else {
         RESPONSE.header.body_len = read_bytes;
+        RESPONSE.header.flags = (read_bytes > 0 ? 0 :
+                FS_COMMON_PROTO_FLAGS_LAST_PKG);
     }
     RESPONSE.header.cmd = FS_REPLICA_PROTO_SYNC_BINLOG_RESP;
     TASK_CTX.common.response_done = true;

@@ -103,6 +103,8 @@
 #define FS_REPLICA_PROTO_RPC_CALL_REQ            99
 #define FS_REPLICA_PROTO_RPC_CALL_RESP          100
 
+#define FS_COMMON_PROTO_FLAGS_LAST_PKG     (1 << 1)
+
 typedef SFCommonProtoHeader  FSProtoHeader;
 
 typedef struct fs_proto_client_join_req {

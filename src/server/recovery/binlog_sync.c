@@ -102,8 +102,8 @@ static int sync_binlog_to_local(ConnectionInfo *conn,
         return result;
     }
 
+    *is_last = (response.header.flags & FS_COMMON_PROTO_FLAGS_LAST_PKG) != 0;
     if (response.header.body_len == 0) {
-        *is_last = true;
         return 0;
     }
 
