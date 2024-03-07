@@ -49,6 +49,7 @@ static void output(FSClientClusterStatEntry *stats, const int count)
 {
     FSClientClusterStatEntry *stat;
     FSClientClusterStatEntry *end;
+    char formatted_ip[FORMATTED_IP_SIZE];
     int prev_data_group_id;
 
     if (count == 0) {
@@ -62,6 +63,8 @@ static void output(FSClientClusterStatEntry *stats, const int count)
             printf("\ndata_group_id: %d\n", stat->data_group_id);
             prev_data_group_id = stat->data_group_id;
         }
+
+        format_ip_address(stat->ip_addr, formatted_ip);
         printf( "\tsid: %d, host: %s:%u, "
                 "status: %d (%s), "
                 "is_preseted: %d, "
@@ -69,7 +72,7 @@ static void output(FSClientClusterStatEntry *stats, const int count)
                 "versions: {current: %"PRId64", "
                 "confirmed: %"PRId64"}\n",
                 stat->server_id,
-                stat->ip_addr, stat->port,
+                formatted_ip, stat->port,
                 stat->status,
                 fs_get_server_status_caption(stat->status),
                 stat->is_preseted, stat->is_master,

@@ -289,6 +289,7 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     char *body;
     FSProtoReplicaFetchBinlogRespBodyHeader *common_bheader;
     SFResponseInfo response;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     if (req_cmd == FS_REPLICA_PROTO_FETCH_BINLOG_FIRST_REQ) {
         bheader_size = sizeof(FSProtoReplicaFetchBinlogFirstRespBodyHeader);
@@ -317,18 +318,20 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     }
 
     if (response.header.body_len < bheader_size) {
+        format_ip_address(conn->ip_addr, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too short, "
-                "the min body length is %d", __LINE__, conn->ip_addr,
+                "the min body length is %d", __LINE__, formatted_ip,
                 conn->port, response.header.body_len, bheader_size);
         return EINVAL;
     }
     if (response.header.body_len > REPLICA_SF_CTX.
             net_buffer_cfg.max_buff_size)
     {
+        format_ip_address(conn->ip_addr, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d is too large, "
-                "the max body length is %d", __LINE__, conn->ip_addr,
+                "the max body length is %d", __LINE__, formatted_ip,
                 conn->port, response.header.body_len,
                 REPLICA_SF_CTX.net_buffer_cfg.max_buff_size);
         return EOVERFLOW;
@@ -355,9 +358,10 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
     binlog.len = buff2int(common_bheader->binlog_length);
     *is_last = common_bheader->is_last;
     if (response.header.body_len != bheader_size + binlog.len) {
+        format_ip_address(conn->ip_addr, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "server %s:%u, response body length: %d != body header "
-                "size: %d + binlog_length: %d ", __LINE__, conn->ip_addr,
+                "size: %d + binlog_length: %d ", __LINE__, formatted_ip,
                 conn->port, response.header.body_len, bheader_size, binlog.len);
         return EINVAL;
     }
@@ -374,10 +378,11 @@ static int fetch_binlog_to_local(ConnectionInfo *conn,
             if (!first_bheader->is_online) {
                 int old_status;
                 old_status = FC_ATOMIC_GET(ctx->ds->status);
+                format_ip_address(conn->ip_addr, formatted_ip);
                 logWarning("file: "__FILE__", line: %d, "
                         "server %s:%u, data group id: %d, "
                         "my status: %d (%s), unexpect is_online: %d",
-                        __LINE__, conn->ip_addr, conn->port, ctx->ds->dg->id,
+                        __LINE__, formatted_ip, conn->port, ctx->ds->dg->id,
                         old_status, fs_get_server_status_caption(old_status),
                         first_bheader->is_online);
                 return EBUSY;

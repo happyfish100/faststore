@@ -180,6 +180,7 @@ void replication_processor_connect_done(struct fast_task_info *task,
         const int err_no)
 {
     FSReplication *replication;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     if ((replication=REPLICA_REPLICATION) == NULL) {
         return;
@@ -194,12 +195,12 @@ void replication_processor_connect_done(struct fast_task_info *task,
             || replication->connection_info.fail_count % 10 == 0)
     {
         replication->connection_info.last_errno = err_no;
+        format_ip_address(task->server_ip, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "%dth connect to replication peer: %d, %s:%u fail, "
                 "time used: %ds, errno: %d, error info: %s",
                 __LINE__, replication->connection_info.fail_count + 1,
-                replication->peer->server->id,
-                task->server_ip, task->port,
+                replication->peer->server->id, formatted_ip, task->port,
                 (int)(g_current_time - replication->connection_info.
                     start_time), err_no, STRERROR(err_no));
     }
@@ -247,6 +248,7 @@ static void on_connect_success(FSReplication *replication)
 {
     char prompt[128];
     FSServerContext *server_ctx;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     server_ctx = (FSServerContext *)replication->task->thread_data->arg;
     if (replication->connection_info.fail_count > 0) {
@@ -255,10 +257,11 @@ static void on_connect_success(FSReplication *replication)
     } else {
         *prompt = '\0';
     }
+    format_ip_address(replication->task->server_ip, formatted_ip);
     logInfo("file: "__FILE__", line: %d, "
             "connect to replication peer id: %d, %s:%u successfully%s",
-            __LINE__, replication->peer->server->id, replication->
-            task->server_ip, replication->task->port, prompt);
+            __LINE__, replication->peer->server->id, formatted_ip,
+            replication->task->port, prompt);
 
     if (remove_from_replication_ptr_array(&server_ctx->
                 replica.connectings, replication) == 0)

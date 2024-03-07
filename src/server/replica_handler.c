@@ -146,19 +146,22 @@ static inline void desc_replication_waiting_rpc_count(
 
 int replica_recv_timeout_callback(struct fast_task_info *task)
 {
+    char formatted_ip[FORMATTED_IP_SIZE];
     if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION_CLIENT &&
             REPLICA_REPLICATION != NULL)
     {
+        format_ip_address(task->client_ip, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "server id: %d, %s:%u, sock: %d, recv timeout",
                 __LINE__, REPLICA_REPLICATION->peer->server->id,
-                task->client_ip, task->port, task->event.fd);
+                formatted_ip, task->port, task->event.fd);
         desc_replication_waiting_rpc_count(REPLICA_REPLICATION, ETIMEDOUT);
         return ETIMEDOUT;
     } else if (SERVER_TASK_TYPE == FS_SERVER_TASK_TYPE_REPLICATION_SERVER) {
+        format_ip_address(task->client_ip, formatted_ip);
         logError("file: "__FILE__", line: %d, "
                 "client %s:%u, sock: %d, recv timeout", __LINE__,
-                task->client_ip, task->port, task->event.fd);
+                formatted_ip, task->port, task->event.fd);
         return ETIMEDOUT;
     }
 
@@ -179,6 +182,7 @@ static inline void replica_offline_slave_data_servers(FSClusterServerInfo *peer)
 void replica_task_finish_cleanup(struct fast_task_info *task)
 {
     FSReplication *replication;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     switch (SERVER_TASK_TYPE) {
         case FS_SERVER_TASK_TYPE_REPLICATION_CLIENT:
@@ -191,12 +195,12 @@ void replica_task_finish_cleanup(struct fast_task_info *task)
                         replication_processor_unbind(replication);
                         replica_offline_slave_data_servers(replication->peer);
 
+                        format_ip_address(REPLICA_GROUP_ADDRESS_FIRST_IP(
+                                    replication->peer->server), formatted_ip);
                         logInfo("file: "__FILE__", line: %d, "
                                 "replication peer id: %d, %s:%u disconnected",
                                 __LINE__, replication->peer->server->id,
-                                REPLICA_GROUP_ADDRESS_FIRST_IP(
-                                    replication->peer->server),
-                                REPLICA_GROUP_ADDRESS_FIRST_PORT(
+                                formatted_ip, REPLICA_GROUP_ADDRESS_FIRST_PORT(
                                     replication->peer->server));
                         break;
                     default:
@@ -879,6 +883,7 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     int replica_channels_between_two_servers;
     FSProtoJoinServerReq *req;
     FSClusterServerInfo *peer;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     if ((result=server_expect_body_length(sizeof(
                         FSProtoJoinServerReq))) != 0)
@@ -928,10 +933,11 @@ static int replica_deal_join_server_req(struct fast_task_info *task)
     SERVER_TASK_TYPE = FS_SERVER_TASK_TYPE_REPLICATION_SERVER;
     RESPONSE.header.cmd = FS_REPLICA_PROTO_JOIN_SERVER_RESP;
 
+    format_ip_address(REPLICA_GROUP_ADDRESS_FIRST_IP(
+                peer->server), formatted_ip);
     logInfo("file: "__FILE__", line: %d, "
             "replication peer id: %d, %s:%u join in",
-            __LINE__, server_id,
-            REPLICA_GROUP_ADDRESS_FIRST_IP(peer->server),
+            __LINE__, server_id, formatted_ip,
             REPLICA_GROUP_ADDRESS_FIRST_PORT(peer->server));
     return 0;
 }

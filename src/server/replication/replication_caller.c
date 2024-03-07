@@ -106,6 +106,7 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
     FSClusterDataServerInfo **ds;
     FSClusterDataServerInfo **end;
     FSReplication *replication;
+    char formatted_ip[FORMATTED_IP_SIZE];
     int status;
     int inactive_count;
 
@@ -142,12 +143,14 @@ static int push_to_slave_queues(FSClusterDataGroupInfo *group,
             }
             data_version = ((FSServerTaskArg *)rpc->task->arg)->
                 context.slice_op_ctx.info.data_version;
+            format_ip_address(REPLICA_GROUP_ADDRESS_FIRST_IP(
+                        (*ds)->cs->server), formatted_ip);
             logWarning("file: "__FILE__", line: %d, "
                     "the replica connection for peer id %d %s:%u "
-                    "NOT established, skip the RPC call: %"PRId64, __LINE__,
-                    (*ds)->cs->server->id, REPLICA_GROUP_ADDRESS_FIRST_IP(
-                        (*ds)->cs->server), REPLICA_GROUP_ADDRESS_FIRST_PORT(
-                            (*ds)->cs->server), data_version);
+                    "NOT established, skip the RPC call: %"PRId64,
+                    __LINE__, (*ds)->cs->server->id, formatted_ip,
+                    REPLICA_GROUP_ADDRESS_FIRST_PORT((*ds)->cs->server),
+                    data_version);
 
             inactive_count++;
             continue;

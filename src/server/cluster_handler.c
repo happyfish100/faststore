@@ -118,6 +118,7 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
     int server_id;
     FSProtoGetServerStatusReq *req;
     FSProtoGetServerStatusResp *resp;
+    char formatted_ip[FORMATTED_IP_SIZE];
 
     if ((result=server_expect_body_length(sizeof(
                         FSProtoGetServerStatusReq))) != 0)
@@ -146,11 +147,13 @@ static int cluster_deal_get_server_status(struct fast_task_info *task)
                 return ENOENT;
             }
 
+            format_ip_address(CLUSTER_GROUP_ADDRESS_FIRST_IP(
+                        peer->server), formatted_ip);
             logError("file: "__FILE__", line: %d, "
-                    "two leaders occurs, anonther leader id: %d, ip %s:%u, "
+                    "two leaders occurs, anonther leader id: %d, %s:%u, "
                     "trigger re-select leader ...", __LINE__, server_id,
-                    CLUSTER_GROUP_ADDRESS_FIRST_IP(peer->server),
-                    CLUSTER_GROUP_ADDRESS_FIRST_PORT(peer->server));
+                    formatted_ip, CLUSTER_GROUP_ADDRESS_FIRST_PORT(
+                        peer->server));
             cluster_relationship_trigger_reselect_leader();
         }
         resp->is_leader = 1;

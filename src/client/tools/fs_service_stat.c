@@ -161,6 +161,7 @@ static void output(const ConnectionInfo *conn,
     char storage_engine_buff[256];
     char space_buff[256];
     char up_time_buff[32];
+    char formatted_ip[FORMATTED_IP_SIZE];
     int len;
 
     if (stat->data.ob.total_count > 0) {
@@ -183,6 +184,7 @@ static void output(const ConnectionInfo *conn,
     formatDatetime(stat->up_time, "%Y-%m-%d %H:%M:%S",
             up_time_buff, sizeof(up_time_buff));
     format_space_buff(&stat->space, space_buff);
+    format_ip_address(conn->ip_addr, formatted_ip);
 
     printf( "\tserver_id: %d\n"
             "\thost: %s:%u\n"
@@ -205,7 +207,7 @@ static void output(const ConnectionInfo *conn,
             "element_used: %"PRId64"},\n"
             "\t\tavg slices/OB: %.2f}\n"
             "%s\n\n",
-            stat->server_id, conn->ip_addr, conn->port,
+            stat->server_id, formatted_ip, conn->port,
             stat->version.len, stat->version.str,
             (stat->is_leader ?  "true" : "false"),
             (stat->auth_enabled ?  "true" : "false"),

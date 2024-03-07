@@ -339,6 +339,8 @@ static FCServerInfo *get_myself_in_cluster_cfg(
     SFNetworkHandler *service_handler;
     SFNetworkHandler *cluster_handler;
     SFNetworkHandler *replica_handler;
+    char formatted_found_ip[FORMATTED_IP_SIZE];
+    char formatted_local_ip[FORMATTED_IP_SIZE];
     int ports[6];
     int count;
     int i;
@@ -375,12 +377,15 @@ static FCServerInfo *get_myself_in_cluster_cfg(
                 if (myself == NULL) {
                     myself = server;
                 } else if (myself != server) {
+                    format_ip_address(found.ip_addr, formatted_found_ip);
+                    format_ip_address(local_ip, formatted_local_ip);
                     logError("file: "__FILE__", line: %d, "
                             "cluster config file: %s, my ip and port "
                             "in more than one servers, %s:%u in "
                             "server id %d, and %s:%u in server id %d",
-                            __LINE__, filename, found.ip_addr, found.port,
-                            myself->id, local_ip, ports[i], server->id);
+                            __LINE__, filename, formatted_found_ip,
+                            found.port, myself->id, formatted_local_ip,
+                            ports[i], server->id);
                     *err_no = EEXIST;
                     return NULL;
                 }

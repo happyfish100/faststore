@@ -447,9 +447,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
         thread_index = reader - rda.readers;
         rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
                 thread_index, subdir_name, sizeof(subdir_name));
-        if ((result=marked_reader_init(reader,
-                        subdir_name)) != 0)
-        {
+        if ((result=marked_reader_init(reader, subdir_name)) != 0) {
             return result;
         }
     }
@@ -467,9 +465,13 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
         for (thread_index=0; thread_index<old_rebuild_threads; thread_index++) {
             rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
                     thread_index, subdir_name, sizeof(subdir_name));
-            marked_reader_unlink_subdir(subdir_name);
+            if ((result=marked_reader_unlink_subdir(subdir_name)) != 0) {
+                return result;
+            }
         }
-        fs_rmdir(input_path);
+        if ((result=fs_rmdir(input_path)) != 0) {
+            return result;
+        }
 
         logInfo("file: "__FILE__", line: %d, "
                 "re-split slice binlog done, slice count: %"PRId64", "

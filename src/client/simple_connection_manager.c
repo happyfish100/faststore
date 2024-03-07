@@ -26,6 +26,7 @@
 static int connect_done_callback(ConnectionInfo *conn, void *args)
 {
     SFConnectionParameters *params;
+    char formatted_ip[FORMATTED_IP_SIZE];
     int result;
 
     params = (SFConnectionParameters *)conn->args;
@@ -34,9 +35,10 @@ static int connect_done_callback(ConnectionInfo *conn, void *args)
                 conn->ip_addr, conn->port, ((FSClientContext *)args)->
                 common_cfg.connect_timeout, &result);
         if (params->channel == NULL) {
+            format_ip_address(conn->ip_addr, formatted_ip);
             logError("file: "__FILE__", line: %d, "
                     "server %s:%u, idempotency channel get fail, "
-                    "result: %d, error info: %s", __LINE__, conn->ip_addr,
+                    "result: %d, error info: %s", __LINE__, formatted_ip,
                     conn->port, result, STRERROR(result));
             return result;
         }
