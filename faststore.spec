@@ -100,6 +100,7 @@ rm -rf %{buildroot}
 %post -n %{FastStoreServer}
 mkdir -p /opt/fastcfs/fstore
 mkdir -p /opt/faststore/data
+systemctl enable faststore
 
 %post -n %{FastStoreClient}
 mkdir -p /opt/fastcfs/fstore
