@@ -833,6 +833,9 @@ int cluster_deal_task_fully(struct fast_task_info *task, const int stage)
             case FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ:
                 RESPONSE.header.cmd = FS_CLUSTER_PROTO_ACTIVATE_SERVER_RESP;
                 result = cluster_deal_active_server(task);
+                if (task->handler->comm_type == fc_comm_type_rdma) {
+                    TASK_CTX.common.need_response = false;
+                }
                 break;
             case FS_CLUSTER_PROTO_PING_LEADER_REQ:
                 RESPONSE.header.cmd = FS_CLUSTER_PROTO_PING_LEADER_RESP;

@@ -2096,10 +2096,18 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
         sizeof(FSProtoHeader));
 
     response.error.length = 0;
-    if ((result=sf_send_and_recv_none_body_response(conn, buffer->
-                    data, buffer->length, &response,
-                    network_timeout, resp_cmd)) != 0)
+    if (req_cmd == FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ &&
+            conn->comm_type == fc_comm_type_rdma)
     {
+        /* do NOT need response */
+        result = G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(
+                conn, buffer->data, buffer->length);
+    } else {
+        result = sf_send_and_recv_none_body_response(conn,
+                buffer->data, buffer->length, &response,
+                network_timeout, resp_cmd);
+    }
+    if (result != 0) {
         if (result != EOPNOTSUPP) {
             log_level = (result == SF_CLUSTER_ERROR_LEADER_VERSION_INCONSISTENT
                     ? LOG_WARNING : LOG_ERR);
