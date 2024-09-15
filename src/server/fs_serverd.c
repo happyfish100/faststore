@@ -71,7 +71,7 @@ static int setup_mblock_stat_task();
 static bool daemon_mode = true;
 static char g_pid_filename[MAX_PATH_SIZE];
 
-static int init_nio_task(struct fast_task_info *task)
+static int init_nio_task(struct fast_task_info *task, void *arg)
 {
     FSSliceSNPairArray *slice_sn_parray;
     int result;
@@ -83,8 +83,8 @@ static int init_nio_task(struct fast_task_info *task)
         return result;
     }
 
-    if (RDMA_INIT_CONNECTION != NULL) {
-        return RDMA_INIT_CONNECTION(task, RDMA_PD);
+    if (RDMA_INIT_CONNECTION != NULL && arg != NULL) {
+        return RDMA_INIT_CONNECTION(task, arg);
     } else {
         return 0;
     }
@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
                 cluster_deal_task_partly, cluster_task_finish_cleanup,
                 cluster_recv_timeout_callback, 1000, sizeof(FSProtoHeader),
                 TASK_PADDING_SIZE, sizeof(FSServerTaskArg), double_buffers,
-                true, init_nio_task, NULL);
+                true, init_nio_task, CLUSTER_RDMA_PD, NULL);
         if (result != 0) {
             break;
         }
@@ -384,7 +384,8 @@ int main(int argc, char *argv[])
                 replica_recv_timeout_callback, 1000,
                 sizeof(FSProtoHeader), TASK_PADDING_SIZE,
                 sizeof(FSServerTaskArg), double_buffers, true,
-                init_nio_task, fs_release_task_send_buffer);
+                init_nio_task, REPLICA_RDMA_PD,
+                fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }
@@ -402,7 +403,7 @@ int main(int argc, char *argv[])
                 service_deal_task, service_task_finish_cleanup,
                 NULL, 1000, sizeof(FSProtoHeader), TASK_PADDING_SIZE,
                 sizeof(FSServerTaskArg), false, false, init_nio_task,
-                fs_release_task_send_buffer);
+                SERVICE_RDMA_PD, fs_release_task_send_buffer);
         if (result != 0) {
             break;
         }
