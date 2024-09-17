@@ -1023,6 +1023,7 @@ int server_load_config(const char *filename)
     char *rebuild_threads;
     FCServerGroupInfo *server_group;
     SFNetworkHandler *rdma_handler;
+    SFNetworkHandler *net_handler;
     int result;
 
     if ((result=iniLoadFromFile(filename, &ini_context)) != 0) {
@@ -1127,10 +1128,10 @@ int server_load_config(const char *filename)
         RDMA_INIT_CONNECTION = rdma_handler->init_connection;
         REPLICA_RDMA_PD = REPLICA_NET_HANDLER->pd;
 
-        rdma_handler = sf_get_first_network_handler_ex(&CLUSTER_SF_CTX);
-        CLUSTER_RDMA_PD = rdma_handler->pd;
-        rdma_handler = sf_get_first_network_handler_ex(&SERVICE_SF_CTX);
-        SERVICE_RDMA_PD = rdma_handler->pd;
+        net_handler = sf_get_first_network_handler_ex(&CLUSTER_SF_CTX);
+        CLUSTER_RDMA_PD = net_handler->pd;
+        net_handler = sf_get_first_network_handler_ex(&SERVICE_SF_CTX);
+        SERVICE_RDMA_PD = net_handler->pd;
     }
 
     DATA_THREAD_COUNT = iniGetIntCorrectValue(&full_ini_ctx,
