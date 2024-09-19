@@ -596,7 +596,7 @@ int fs_client_slice_readv_ex(FSClientContext *client_ctx,
 }
 
 int fs_client_bs_operate(FSClientContext *client_ctx,
-        const void *key, const uint32_t hash_code,
+        const void *key, const uint64_t hash_code,
         const int req_cmd, const int resp_cmd,
         const int enoent_log_level, int *inc_alloc)
 {

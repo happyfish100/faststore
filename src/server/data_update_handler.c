@@ -163,8 +163,10 @@ static int parse_check_block_key(struct fast_task_info *task,
     op_ctx->info.myself = fs_get_my_data_server(op_ctx->info.data_group_id);
     if (op_ctx->info.myself == NULL) {
         RESPONSE.error.length = sprintf(RESPONSE.error.message,
-                "data group id: %d NOT belongs to me",
-                op_ctx->info.data_group_id);
+                "data group id: %d NOT belongs to me, "
+                "block {oid: %"PRId64", offset: %"PRId64"}",
+                op_ctx->info.data_group_id, op_ctx->info.bs_key.block.oid,
+                op_ctx->info.bs_key.block.offset);
         return ENOENT;
     }
 
