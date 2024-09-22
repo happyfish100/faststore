@@ -167,7 +167,7 @@ static int parse_check_block_key(struct fast_task_info *task,
                 "block {oid: %"PRId64", offset: %"PRId64"}",
                 op_ctx->info.data_group_id, op_ctx->info.bs_key.block.oid,
                 op_ctx->info.bs_key.block.offset);
-        return ENOENT;
+        return EINVAL;
     }
 
     if (master_only) {
@@ -482,7 +482,6 @@ static void master_data_update_done_notify(FSDataOperation *op)
     struct fast_task_info *task;
 
     task = (struct fast_task_info *)op->arg;
-
     FC_ATOMIC_DEC(op->ctx->info.myself->master_dealing_count);
     if (op->ctx->result != 0) {
         RESPONSE.error.length = snprintf(RESPONSE.error.message,
