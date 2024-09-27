@@ -91,6 +91,7 @@ typedef struct server_global_vars {
         FSClusterServerArray server_array;
         FSClusterDataGroupArray data_group_array;
         int dg_server_count;
+        int my_data_group_count;
 
         volatile uint64_t current_version;
 
@@ -119,6 +120,7 @@ typedef struct server_global_vars {
         int thread_count;
         int binlog_buffer_size;
         bool binlog_call_fsync;
+        bool all_groups_have_data;
         int local_binlog_check_last_seconds;
         int slave_binlog_check_last_rows;
     } data;
@@ -314,6 +316,7 @@ typedef struct server_global_vars {
 #define CLUSTER_DG_SERVER_COUNT  g_server_global_vars->cluster.dg_server_count
 
 #define CLUSTER_MY_SERVER_ID  CLUSTER_MYSELF_PTR->server->id
+#define MY_DATA_GROUP_COUNT   g_server_global_vars->cluster.my_data_group_count
 
 #define CLUSTER_SERVER_GROUP_ID  g_server_global_vars->cluster. \
     config.min_server_group_id
@@ -409,6 +412,7 @@ typedef struct server_global_vars {
 #define DATA_THREAD_COUNT     g_server_global_vars->data.thread_count
 #define BINLOG_BUFFER_SIZE    g_server_global_vars->data.binlog_buffer_size
 #define BINLOG_CALL_FSYNC     g_server_global_vars->data.binlog_call_fsync
+#define ALL_GROUPS_HAVE_DATA  g_server_global_vars->data.all_groups_have_data
 #define DATA_PATH             g_server_global_vars->data.path
 #define DATA_PATH_STR         DATA_PATH.str
 #define DATA_PATH_LEN         DATA_PATH.len

@@ -324,6 +324,7 @@ static int init_cluster_data_group_array(const char *filename,
                 */
     }
 
+    MY_DATA_GROUP_COUNT = id_array->count;
     return 0;
 }
 
@@ -1049,4 +1050,35 @@ int server_group_info_setup_sync_to_file_task()
     schedule_array.count = 1;
     schedule_array.entries = &schedule_entry;
     return sched_add_entries(&schedule_array);
+}
+
+int fs_have_data_group_count()
+{
+    FSIdArray *id_array;
+    FSClusterDataGroupInfo *group;
+    int group_id;
+    int group_index;
+    int have_data_count;
+    int i;
+
+    if (ALL_GROUPS_HAVE_DATA) {
+        return MY_DATA_GROUP_COUNT;
+    }
+
+    id_array = fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
+            CLUSTER_MYSELF_PTR->server->id);
+    have_data_count = 0;
+    for (i=0; i<id_array->count; i++) {
+        group_id = id_array->ids[i];
+        group_index = group_id - CLUSTER_DATA_GROUP_ARRAY.base_id;
+        group = CLUSTER_DATA_GROUP_ARRAY.groups + group_index;
+        if (FC_ATOMIC_GET(group->myself->data.current_version) > 0) {
+            ++have_data_count;
+        }
+    }
+
+    if (have_data_count == MY_DATA_GROUP_COUNT) {
+        ALL_GROUPS_HAVE_DATA = true;
+    }
+    return have_data_count;
 }
