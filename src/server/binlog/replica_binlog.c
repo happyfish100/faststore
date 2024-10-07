@@ -297,6 +297,7 @@ static int replica_binlog_delete_mark_filenames(const int data_group_id)
 
 int replica_binlog_init()
 {
+    const int write_interval_ms = 0;
     const bool use_fixed_buffer_size = true;
     const bool passive_write = false;
     FSIdArray *id_array;
@@ -347,7 +348,8 @@ int replica_binlog_init()
     writer = REPLICA_BINLOG_WRITER_ARRAY.holders;
     if ((result=sf_binlog_writer_init_thread_ex(&REPLICA_BINLOG_WRITER_THREAD,
                     "replica", writer, SF_BINLOG_THREAD_ORDER_MODE_VARY,
-                    max_delay, FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
+                    write_interval_ms, max_delay,
+                    FS_REPLICA_BINLOG_MAX_RECORD_SIZE,
                     use_fixed_buffer_size, passive_write)) != 0)
     {
         return result;

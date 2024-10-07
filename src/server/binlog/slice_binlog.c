@@ -58,6 +58,7 @@ typedef struct slice_binlog_migrate_redo_context {
 
 static int init_binlog_writer()
 {
+    const int write_interval_ms = 0;
     int result;
     int ring_size;
     int max_delay;
@@ -80,8 +81,8 @@ static int init_binlog_writer()
     }
     slice_binlog_writer_set_flags(SF_FILE_WRITER_FLAGS_WANT_DONE_VERSION);
     return sf_binlog_writer_init_thread(&SLICE_BINLOG_WRITER.thread,
-            "slice", &SLICE_BINLOG_WRITER.writer, max_delay,
-            FS_SLICE_BINLOG_MAX_RECORD_SIZE);
+            "slice", &SLICE_BINLOG_WRITER.writer, write_interval_ms,
+            max_delay, FS_SLICE_BINLOG_MAX_RECORD_SIZE);
 }
 
 int slice_binlog_set_binlog_start_index(const int start_index)

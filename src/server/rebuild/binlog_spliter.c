@@ -237,6 +237,7 @@ static int check_unlink_subdir(const char *subdir_name)
 static int init_binlog_writers(BinlogSpliterContext *ctx,
         const int split_count)
 {
+    const int write_interval_ms = 0;
     int result;
     int thread_index;
     int max_delay;
@@ -274,8 +275,8 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
         }
 
         if ((result=sf_binlog_writer_init_thread(&rctx->wctx.thread,
-                        subdir_name, &rctx->wctx.writer, max_delay,
-                        FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
+                        subdir_name, &rctx->wctx.writer, write_interval_ms,
+                        max_delay, FS_SLICE_BINLOG_MAX_RECORD_SIZE)) != 0)
         {
             return result;
         }
