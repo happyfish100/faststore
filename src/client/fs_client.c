@@ -227,6 +227,7 @@ static int do_slice_write(FSClientContext *client_ctx,
         const bool is_writev, const void *data, const int count,
         int *write_bytes, int *inc_alloc)
 {
+    const bool shared = true;
     const SFConnectionParameters *connection_params;
     IdempotencyClientChannel *old_channel;
     FSBlockSliceKeyInfo new_key;
@@ -331,7 +332,7 @@ static int do_slice_write(FSClientContext *client_ctx,
             if ((*conn=client_ctx->cm.ops.get_master_connection(
                             &client_ctx->cm, FS_CLIENT_DATA_GROUP_INDEX(
                                 client_ctx, bs_key->block.hash_code),
-                            &result)) == NULL)
+                            shared, &result)) == NULL)
             {
                 return SF_UNIX_ERRNO(result, EIO);
             }
@@ -403,12 +404,13 @@ int fs_client_slice_write(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const char *data,
         int *write_bytes, int *inc_alloc)
 {
+    const bool shared = true;
     ConnectionInfo *conn;
     int result;
 
     if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
-                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
-                        bs_key->block.hash_code), &result)) == NULL)
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
+                        hash_code), shared, &result)) == NULL)
     {
         return SF_UNIX_ERRNO(result, EIO);
     }
@@ -425,6 +427,7 @@ int fs_client_slice_writev(FSClientContext *client_ctx,
         const FSBlockSliceKeyInfo *bs_key, const struct iovec *iov,
         const int iovcnt, int *write_bytes, int *inc_alloc)
 {
+    const bool shared = true;
     ConnectionInfo *conn;
     const SFConnectionParameters *connection_params;
     FSBlockSliceKeyInfo new_key;
@@ -439,8 +442,8 @@ int fs_client_slice_writev(FSClientContext *client_ctx,
     int result;
 
     if ((conn=client_ctx->cm.ops.get_master_connection(&client_ctx->cm,
-                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx,
-                        bs_key->block.hash_code), &result)) == NULL)
+                    FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
+                        hash_code), shared, &result)) == NULL)
     {
         return SF_UNIX_ERRNO(result, EIO);
     }
@@ -509,6 +512,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
         const int slave_id, const int req_cmd, const int resp_cmd,
         const FSBlockSliceKeyInfo *bs_key, char *buff, int *read_bytes)
 {
+    const bool shared = true;
     ConnectionInfo *conn;
     FSBlockSliceKeyInfo new_key;
     int result;
@@ -519,7 +523,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
 
     if ((conn=client_ctx->cm.ops.get_readable_connection(&client_ctx->cm,
                     FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
-                        hash_code), &result)) == NULL)
+                        hash_code), shared, &result)) == NULL)
     {
         return SF_UNIX_ERRNO(result, EIO);
     }
@@ -553,7 +557,7 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
         SF_CLIENT_RELEASE_CONNECTION(&client_ctx->cm, conn, result);
         if ((conn=client_ctx->cm.ops.get_readable_connection(&client_ctx->cm,
                         FS_CLIENT_DATA_GROUP_INDEX(client_ctx, bs_key->block.
-                            hash_code), &result)) == NULL)
+                            hash_code), shared, &result)) == NULL)
         {
             break;
         }
@@ -576,13 +580,13 @@ int fs_client_slice_read_ex(FSClientContext *client_ctx,
 }
 
 #define GET_MASTER_CONNECTION(cm, arg1, result)        \
-    (cm)->ops.get_master_connection(cm, arg1, result)
+    (cm)->ops.get_master_connection(cm, arg1, true, result)
 
 #define GET_READALBE_CONNECTION(cm, arg1, result)        \
-    (cm)->ops.get_readable_connection(cm, arg1, result)
+    (cm)->ops.get_readable_connection(cm, arg1, true, result)
 
 #define GET_LEADER_CONNECTION(cm, arg1, result)        \
-    (cm)->ops.get_leader_connection(cm, arg1, result)
+    (cm)->ops.get_leader_connection(cm, arg1, true, result)
 
 int fs_client_slice_readv_ex(FSClientContext *client_ctx,
         const int slave_id, const int req_cmd, const int resp_cmd,

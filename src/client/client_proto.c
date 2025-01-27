@@ -444,6 +444,7 @@ int fs_client_proto_join_server(FSClientContext *client_ctx,
 int fs_client_proto_get_master(FSClientContext *client_ctx,
         const int data_group_index, FSClientServerEntry *master)
 {
+    const bool shared = true;
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
@@ -451,8 +452,8 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
     FSProtoGetServerResp server_resp;
     char out_buff[sizeof(FSProtoHeader) + 4];
 
-    conn = client_ctx->cm.ops.get_connection(
-            &client_ctx->cm, data_group_index, &result);
+    conn = client_ctx->cm.ops.get_connection(&client_ctx->cm,
+            data_group_index, shared, &result);
     if (conn == NULL) {
         return result;
     }
@@ -482,6 +483,7 @@ int fs_client_proto_get_master(FSClientContext *client_ctx,
 int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
         const int data_group_index, FSClientServerEntry *server)
 {
+    const bool shared = true;
     int result;
     ConnectionInfo *conn;
     FSProtoHeader *header;
@@ -491,8 +493,8 @@ int fs_client_proto_get_readable_server(FSClientContext *client_ctx,
     char out_buff[sizeof(FSProtoHeader) +
         sizeof(FSProtoGetReadableServerReq)];
 
-    conn = client_ctx->cm.ops.get_connection(
-            &client_ctx->cm, data_group_index, &result);
+    conn = client_ctx->cm.ops.get_connection(&client_ctx->cm,
+            data_group_index, shared, &result);
     if (conn == NULL) {
         return result;
     }
@@ -525,6 +527,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
         const ConnectionInfo *spec_conn, const FSClusterStatFilter *filter,
         FSIdArray *gid_array, FSClientClusterStatEntryArray *cs_array)
 {
+    const bool shared = false;
     FSProtoHeader *header;
     FSProtoClusterStatReq *req;
     FSProtoClusterStatRespBodyHeader *body_header;
@@ -547,7 +550,7 @@ int fs_client_proto_cluster_stat(FSClientContext *client_ctx,
     bool need_free;
 
     if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
-                    spec_conn, &result)) == NULL)
+                    spec_conn, shared, &result)) == NULL)
     {
         return result;
     }
@@ -761,6 +764,7 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
         const ConnectionInfo *spec_conn, const int data_group_id,
         const bool include_block_space, FSClientServiceStat *stat)
 {
+    const bool shared = false;
     FSProtoHeader *header;
     ConnectionInfo *conn;
     char out_buff[sizeof(FSProtoHeader) +
@@ -773,7 +777,7 @@ int fs_client_proto_service_stat(FSClientContext *client_ctx,
     int result;
 
     if ((conn=client_ctx->cm.ops.get_spec_connection(&client_ctx->cm,
-                    spec_conn, &result)) == NULL)
+                    spec_conn, shared, &result)) == NULL)
     {
         return result;
     }
