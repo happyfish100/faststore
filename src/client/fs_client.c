@@ -22,13 +22,14 @@
 #include "fs_client.h"
 
 int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
-        const int64_t file_size)
+        const int64_t file_size, int64_t *released_space)
 {
     FSBlockKey bkey;
     int64_t remain;
     int result;
     int dec_alloc;
 
+    *released_space = 0;
     if (file_size == 0) {
         return 0;
     }
@@ -42,10 +43,10 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
                 */
 
         result = fs_client_block_delete(client_ctx, &bkey, &dec_alloc);
-        if (result == ENOENT) {
-            result = 0;
-        } else if (result != 0) {
-            break;
+        if (result == 0) {
+            *released_space += dec_alloc;
+        } else if (result != ENOENT) {
+            return result;
         }
 
         remain -= FS_FILE_BLOCK_SIZE;
@@ -56,7 +57,7 @@ int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
         fs_next_block_key(&bkey);
     }
 
-    return result;
+    return 0;
 }
 
 static int stat_data_group_by_addresses(FSClientContext *client_ctx,

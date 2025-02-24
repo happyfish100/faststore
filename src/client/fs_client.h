@@ -85,7 +85,7 @@ static inline void fs_next_block_slice_key(FSBlockSliceKeyInfo *bs_key,
 }
 
 int fs_unlink_file(FSClientContext *client_ctx, const int64_t oid,
-        const int64_t file_size);
+        const int64_t file_size, int64_t *released_space);
 
 int fs_cluster_stat(FSClientContext *client_ctx, const ConnectionInfo
         *spec_conn, const FSClusterStatFilter *filter,
