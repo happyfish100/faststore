@@ -94,7 +94,7 @@ static int storage_init()
     }
     da_store_path_index_destroy(&DA_CTX);
 
-    if ((result=da_init_start_ex(&DA_CTX, fs_slice_load_done,
+    if ((result=da_init_ex(&DA_CTX, fs_slice_load_done,
                     slice_migrate_done_callback,
                     trunk_migrate_done_callback,
                     slice_binlog_cached_slice_write_done,
@@ -103,7 +103,7 @@ static int storage_init()
         return result;
     }
 
-    return 0;
+    return da_start(&DA_CTX);
 }
 
 static int slice_storage_engine_init()
