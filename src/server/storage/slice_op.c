@@ -824,7 +824,8 @@ int fs_slice_read(FSSliceOpContext *op_ctx)
                 pair->rb.aio_buffer = *aligned_buffer;
             } else {
                 pair->rb.type = da_buffer_type_direct;
-                pair->rb.buffer.buff = (*aligned_buffer)->buff;
+                pair->rb.buffer.ptr->buff = (*aligned_buffer)->buff;
+                pair->rb.buffer.ptr->alloc_size = (*aligned_buffer)->size;
             }
             pair->rb.arg = pair->slice;
             if ((result=da_trunk_read_thread_push(&DA_CTX, &pair->slice->
@@ -899,7 +900,8 @@ int fs_slice_normal_read(FSSliceOpContext *op_ctx)
 #ifdef OS_LINUX
             pair->rb.type = da_buffer_type_direct;
 #endif
-            pair->rb.buffer.buff = ps;
+            pair->rb.buffer.ptr->buff = ps;
+            pair->rb.buffer.ptr->alloc_size = pair->slice->space.size;
             pair->rb.arg = pair->slice;
             if ((result=da_trunk_read_thread_push(&DA_CTX, &pair->slice->
                             space, pair->slice->ssize.length, &pair->rb,

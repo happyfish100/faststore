@@ -74,6 +74,7 @@ static bool fs_slice_load_done()
 static int storage_init()
 {
     const bool have_extra_field = true;
+    const bool merge_continuous_slices = true;
     const bool destroy_store_path_index = false;
     const bool migrate_path_mark_filename = true;
     int result;
@@ -84,7 +85,8 @@ static int storage_init()
 
     if ((result=da_load_config_ex(&DA_CTX, "[fstore]", FILE_BLOCK_SIZE,
                     &DATA_CFG, STORAGE_FILENAME, have_extra_field,
-                    destroy_store_path_index, migrate_path_mark_filename)) != 0)
+                    merge_continuous_slices, destroy_store_path_index,
+                    migrate_path_mark_filename)) != 0)
     {
         return result;
     }

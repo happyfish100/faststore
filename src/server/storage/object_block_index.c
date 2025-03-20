@@ -1443,7 +1443,7 @@ static int update_slice(OBThreadLocal *tls, OBSegment *segment,
     expect_slice_type = call_by_reclaim ? slice->type : DA_SLICE_TYPE_CACHE;
     current = (OBSliceEntry *)node->data;
     if ((current->type == expect_slice_type) &&
-            (current->data_version == slice->data_version) &&
+            (current->data_version <= slice->data_version) &&
             (current->ssize.offset == slice->ssize.offset &&
              current->ssize.length == slice->ssize.length))
     {
@@ -1479,7 +1479,7 @@ static int update_slice(OBThreadLocal *tls, OBSegment *segment,
             break;
         }
 
-        if (current->data_version == slice->data_version) {
+        if (current->data_version <= slice->data_version) {
             if (current->type != expect_slice_type || (current->ssize.
                         offset + current->ssize.length) > slice_end)
             {
@@ -2023,11 +2023,13 @@ int ob_index_delete_block_ex(OBHashtable *htable, const FSBlockKey *bkey,
 static int add_to_slice_rbuffer_array(OBSliceReadBufferArray *array,
         OBSliceEntry *slice)
 {
-    if (array->alloc <= array->count) {
-        int alloc;
-        int bytes;
-        OBSliceReadBufferPair *pairs;
+    int alloc;
+    int bytes;
+    OBSliceReadBufferPair *pairs;
+    OBSliceReadBufferPair *pair;
+    OBSliceReadBufferPair *end;
 
+    if (array->alloc <= array->count) {
         if (array->alloc == 0) {
             alloc = 256;
         } else {
@@ -2037,6 +2039,10 @@ static int add_to_slice_rbuffer_array(OBSliceReadBufferArray *array,
         pairs = (OBSliceReadBufferPair *)fc_malloc(bytes);
         if (pairs == NULL) {
             return ENOMEM;
+        }
+        end = pairs + alloc;
+        for (pair=pairs; pair<end; pair++) {
+            pair->rb.buffer.ptr = &pair->rb.buffer.holder;
         }
 
         if (array->pairs != NULL) {
