@@ -2040,10 +2040,6 @@ static int add_to_slice_rbuffer_array(OBSliceReadBufferArray *array,
         if (pairs == NULL) {
             return ENOMEM;
         }
-        end = pairs + alloc;
-        for (pair=pairs; pair<end; pair++) {
-            pair->rb.buffer.ptr = &pair->rb.buffer.holder;
-        }
 
         if (array->pairs != NULL) {
             memcpy(pairs, array->pairs, array->count *
@@ -2051,6 +2047,10 @@ static int add_to_slice_rbuffer_array(OBSliceReadBufferArray *array,
             free(array->pairs);
         }
 
+        end = pairs + alloc;
+        for (pair=pairs; pair<end; pair++) {
+            pair->rb.buffer.ptr = &pair->rb.buffer.holder;
+        }
         array->alloc = alloc;
         array->pairs = pairs;
     }
