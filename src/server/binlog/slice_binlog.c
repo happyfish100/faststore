@@ -1457,13 +1457,12 @@ int slice_binlog_load_records(const int data_group_id,
 }
 
 int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
-        const DAPieceFieldInfo *field, struct fc_queue_info *space_chain,
+        const DAPieceFieldInfo *field,  DASliceMigrateArgument *arg,
         SFSynchronizeContext *sctx, int *flags)
 {
     const bool call_by_reclaim = true;
     int result;
     int update_count;
-    DASliceType slice_type;
     DATrunkSpaceInfo space;
     DASliceEntry se;
     FSSliceSpaceLogRecord *record;
@@ -1485,14 +1484,12 @@ int slice_migrate_done_callback(const DATrunkFileInfo *trunk,
     se.bs_key.slice.length = field->storage.length;
     se.sn = 0;
     CALC_BLOCK_HASHCODE(&se.bs_key.block);
-    slice_type = ((DATrunkSpaceLogRecord *)space_chain->tail)->slice_type;
     if ((result=ob_index_update_slice(&se, &space, &update_count,
-                    record, slice_type, call_by_reclaim)) != 0)
+                    record, arg->slice_type, call_by_reclaim)) != 0)
     {
         return result;
     }
 
-    da_trunk_space_log_free_chain(&DA_CTX, space_chain);
     if (record->slice_chain.head != NULL) {
         record->sctx = sctx;
         slice_space_log_push(record);
