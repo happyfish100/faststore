@@ -2654,10 +2654,10 @@ int cluster_relationship_init()
     }
 
     init_size = cluster_relationship_get_max_buffer_size();
-    if ((result=fast_buffer_init_ex(&NETWORK_SEND_BUFFER, init_size)) != 0) {
+    if ((result=fast_buffer_init1(&NETWORK_SEND_BUFFER, init_size)) != 0) {
         return result;
     }
-    if ((result=fast_buffer_init_ex(&NETWORK_RECV_BUFFER, init_size)) != 0) {
+    if ((result=fast_buffer_init1(&NETWORK_RECV_BUFFER, init_size)) != 0) {
         return result;
     }
 

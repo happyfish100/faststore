@@ -933,7 +933,7 @@ int server_group_info_init(const char *cluster_config_filename)
     time_t t;
     struct tm tm_current;
 
-    if ((result=fast_buffer_init_ex(&file_buffer, 2048)) != 0) {
+    if ((result=fast_buffer_init1(&file_buffer, 2048)) != 0) {
         return result;
     }
 

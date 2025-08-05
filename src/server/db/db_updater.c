@@ -493,7 +493,7 @@ int db_updater_init(FSDBUpdaterContext *ctx)
     }
     end = db_updater_ctx.buffers + FC_IOV_BATCH_SIZE;
     for (buffer=db_updater_ctx.buffers; buffer<end; buffer++) {
-        if ((result=fast_buffer_init_ex(buffer, 4 * 1024)) != 0) {
+        if ((result=fast_buffer_init1(buffer, 4 * 1024)) != 0) {
             return result;
         }
     }

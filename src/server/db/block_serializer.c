@@ -31,7 +31,7 @@ static int buffer_init_func(void *element, void *init_args)
 {
     FastBuffer *buffer;
     buffer = (FastBuffer *)element;
-    return fast_buffer_init_ex(buffer, DEFAULT_PACKED_BUFFER_SIZE);
+    return fast_buffer_init1(buffer, DEFAULT_PACKED_BUFFER_SIZE);
 }
 
 int block_serializer_init()

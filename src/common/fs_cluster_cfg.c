@@ -835,7 +835,7 @@ static int cluster_calc_config_signs(FSClusterConfig *cluster_cfg)
     FastBuffer buffer;
     int result;
 
-    if ((result=fast_buffer_init_ex(&buffer, 4096)) != 0) {
+    if ((result=fast_buffer_init1(&buffer, 4096)) != 0) {
         return result;
     }
     fc_server_to_config_string(&cluster_cfg->server_cfg, &buffer);

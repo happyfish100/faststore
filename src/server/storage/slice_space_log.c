@@ -349,7 +349,7 @@ static int init_file_buffer_pair(FSBinlogWriteFileBufferPair *pair,
         return result;
     }
 
-    return fast_buffer_init_ex(&pair->buffer, buffer_size);
+    return fast_buffer_init1(&pair->buffer, buffer_size);
 }
 
 static int slice_space_log_push_compare(const FSSliceSpaceLogRecord *record1,
