@@ -44,16 +44,38 @@
 #include "binlog_sync.h"
 #include "data_recovery.h"
 
-#define DATA_RECOVERY_SYS_DATA_FILENAME        "data_recovery.dat"
-#define DATA_RECOVERY_SYS_DATA_SECTION_FETCH   "fetch"
-#define DATA_RECOVERY_SYS_DATA_SECTION_RESTORE "restore"
-#define DATA_RECOVERY_SYS_DATA_ITEM_STAGE      "stage"
-#define DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE "next_stage"
-#define DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP  "full_dump"
-#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV    "last_data_version"
-#define DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY  "last_bkey"
-#define DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG     "flag"
-#define DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV "start_dv"
+#define DATA_RECOVERY_SYS_DATA_FILENAME_STR    "data_recovery.dat"
+#define DATA_RECOVERY_SYS_DATA_FILENAME_LEN    \
+    (sizeof(DATA_RECOVERY_SYS_DATA_FILENAME_STR) - 1)
+
+#define SYS_DATA_SECTION_FETCH_STR   "fetch"
+#define SYS_DATA_SECTION_FETCH_LEN   (sizeof(SYS_DATA_SECTION_FETCH_STR) - 1)
+
+#define SYS_DATA_SECTION_RESTORE_STR "restore"
+#define SYS_DATA_SECTION_RESTORE_LEN  (sizeof(SYS_DATA_SECTION_RESTORE_STR) - 1)
+
+#define SYS_DATA_ITEM_STAGE_STR      "stage"
+#define SYS_DATA_ITEM_STAGE_LEN      (sizeof(SYS_DATA_ITEM_STAGE_STR) - 1)
+
+#define SYS_DATA_ITEM_NEXT_STAGE_STR "next_stage"
+#define SYS_DATA_ITEM_NEXT_STAGE_LEN (sizeof(SYS_DATA_ITEM_NEXT_STAGE_STR) - 1)
+
+#define SYS_DATA_ITEM_FULL_DUMP_STR  "full_dump"
+#define SYS_DATA_ITEM_FULL_DUMP_LEN  (sizeof(SYS_DATA_ITEM_FULL_DUMP_STR) - 1)
+
+#define SYS_DATA_ITEM_LAST_DV_STR    "last_data_version"
+#define SYS_DATA_ITEM_LAST_DV_LEN    (sizeof(SYS_DATA_ITEM_LAST_DV_STR) - 1)
+
+#define SYS_DATA_ITEM_LAST_BKEY_STR  "last_bkey"
+#define SYS_DATA_ITEM_LAST_BKEY_LEN  (sizeof(SYS_DATA_ITEM_LAST_BKEY_STR) - 1)
+
+#define SYS_DATA_ITEM_RESTORE_FLAG_STR   "flag"
+#define SYS_DATA_ITEM_RESTORE_FLAG_LEN   \
+    (sizeof(SYS_DATA_ITEM_RESTORE_FLAG_STR) - 1)
+
+#define SYS_DATA_ITEM_RESTORE_START_DV_STR  "start_dv"
+#define SYS_DATA_ITEM_RESTORE_START_DV_LEN  \
+    (sizeof(SYS_DATA_ITEM_RESTORE_START_DV_STR) - 1)
 
 #define DATA_RECOVERY_STAGE_NONE    '-'
 #define DATA_RECOVERY_STAGE_FETCH   'F'
@@ -82,21 +104,23 @@ void data_recovery_destroy()
 static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
 {
     char filepath[PATH_MAX];
-    const char *subdir_names[3];
+    string_t subdir_names[3];
     char data_group_id[16];
+    char *p;
     int result;
     int gid_len;
     int path_len;
     int i;
     bool create;
 
-    gid_len = sprintf(data_group_id, "%d", ctx->ds->dg->id);
-    subdir_names[0] = FS_RECOVERY_BINLOG_SUBDIR_NAME;
-    subdir_names[1] = data_group_id;
-    subdir_names[2] = subdir;
+    gid_len = fc_ltostr(ctx->ds->dg->id, data_group_id);
+    FC_SET_STRING_EX(subdir_names[0], FS_RECOVERY_BINLOG_SUBDIR_NAME_STR,
+            FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN);
+    FC_SET_STRING_EX(subdir_names[1], data_group_id, gid_len);
+    FC_SET_STRING(subdir_names[2], (char *)subdir);
 
-    path_len = snprintf(filepath, sizeof(filepath), "%s", DATA_PATH_STR);
-    if (PATH_MAX - path_len < gid_len + strlen(FS_RECOVERY_BINLOG_SUBDIR_NAME)
+    path_len = fc_safe_strcpy(filepath, DATA_PATH_STR);
+    if (PATH_MAX - path_len < gid_len + FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN
             + strlen(subdir) + 3)
     {
         logError("file: "__FILE__", line: %d, "
@@ -105,8 +129,12 @@ static int init_recovery_sub_path(DataRecoveryContext *ctx, const char *subdir)
         return EOVERFLOW;
     }
 
+    p = filepath + path_len;
     for (i=0; i<3; i++) {
-        path_len += sprintf(filepath + path_len, "/%s", subdir_names[i]);
+        *p++ = '/';
+        memcpy(p, subdir_names[i].str, subdir_names[i].len);
+        p += subdir_names[i].len;
+        *p = '\0';
         if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
             return result;
         }
@@ -172,39 +200,98 @@ static FSClusterDataServerInfo *data_recovery_get_master(
 static void data_recovery_get_sys_data_filename(DataRecoveryContext *ctx,
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%d/%s", DATA_PATH_STR,
-            FS_RECOVERY_BINLOG_SUBDIR_NAME, ctx->ds->dg->id,
-            DATA_RECOVERY_SYS_DATA_FILENAME);
+    if (DATA_PATH_LEN + FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN +
+            DATA_RECOVERY_SYS_DATA_FILENAME_LEN + 16 > size)
+    {
+        snprintf(filename, size, "%s/%s/%d/%s", DATA_PATH_STR,
+                FS_RECOVERY_BINLOG_SUBDIR_NAME_STR, ctx->ds->dg->id,
+                DATA_RECOVERY_SYS_DATA_FILENAME_STR);
+    } else {
+        char *p;
+
+        p = filename;
+        memcpy(p, DATA_PATH_STR, DATA_PATH_LEN);
+        p += DATA_PATH_LEN;
+        *p++ = '/';
+        memcpy(p, FS_RECOVERY_BINLOG_SUBDIR_NAME_STR,
+                FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(ctx->ds->dg->id, p);
+        *p++ = '/';
+        memcpy(p, DATA_RECOVERY_SYS_DATA_FILENAME_STR,
+                DATA_RECOVERY_SYS_DATA_FILENAME_LEN);
+        p += DATA_RECOVERY_SYS_DATA_FILENAME_LEN;
+        *p = '\0';
+    }
 }
 
 static int data_recovery_save_sys_data(DataRecoveryContext *ctx)
 {
     char filename[PATH_MAX];
     char buff[256];
-    int len;
+    char *p;
+
+    p = buff;
+    memcpy(p, SYS_DATA_ITEM_STAGE_STR, SYS_DATA_ITEM_STAGE_LEN);
+    p += SYS_DATA_ITEM_STAGE_LEN;
+    *p++ = '=';
+    *p++ = ctx->stage;
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_NEXT_STAGE_STR, SYS_DATA_ITEM_NEXT_STAGE_LEN);
+    p += SYS_DATA_ITEM_NEXT_STAGE_LEN;
+    *p++ = '=';
+    *p++ = ctx->next_stage;
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_FULL_DUMP_STR, SYS_DATA_ITEM_FULL_DUMP_LEN);
+    p += SYS_DATA_ITEM_FULL_DUMP_LEN;
+    *p++ = '=';
+    *p++ = ctx->is_full_dump ? '1' : '0';
+    *p++ = '\n';
+
+    *p++ = '[';
+    memcpy(p, SYS_DATA_SECTION_FETCH_STR, SYS_DATA_SECTION_FETCH_LEN);
+    p += SYS_DATA_SECTION_FETCH_LEN;
+    *p++ = ']';
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_LAST_DV_STR, SYS_DATA_ITEM_LAST_DV_LEN);
+    p += SYS_DATA_ITEM_LAST_DV_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->fetch.last_data_version, p);
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_LAST_BKEY_STR, SYS_DATA_ITEM_LAST_BKEY_LEN);
+    p += SYS_DATA_ITEM_LAST_BKEY_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->fetch.last_bkey.oid, p);
+    *p++ = ',';
+    p += fc_itoa(ctx->fetch.last_bkey.offset, p);
+    *p++ = '\n';
+
+    *p++ = '[';
+    memcpy(p, SYS_DATA_SECTION_RESTORE_STR, SYS_DATA_SECTION_RESTORE_LEN);
+    p += SYS_DATA_SECTION_RESTORE_LEN;
+    *p++ = ']';
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_RESTORE_FLAG_STR, SYS_DATA_ITEM_RESTORE_FLAG_LEN);
+    p += SYS_DATA_ITEM_RESTORE_FLAG_LEN;
+    *p++ = '=';
+    *p++ = ctx->is_restore ? '1' : '0';
+    *p++ = '\n';
+
+    memcpy(p, SYS_DATA_ITEM_RESTORE_START_DV_STR,
+            SYS_DATA_ITEM_RESTORE_START_DV_LEN);
+    p += SYS_DATA_ITEM_RESTORE_START_DV_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->restore.start_dv, p);
+    *p++ = '\n';
 
     data_recovery_get_sys_data_filename(ctx, filename, sizeof(filename));
-    len = sprintf(buff, "%s=%c\n"
-            "%s=%c\n"
-            "%s=%d\n"
-            "[%s]\n"
-            "%s=%"PRId64"\n"
-            "%s=%"PRId64",%"PRId64"\n"
-            "[%s]\n"
-            "%s=%d\n"
-            "%s=%"PRId64"\n",
-            DATA_RECOVERY_SYS_DATA_ITEM_STAGE, ctx->stage,
-            DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE, ctx->next_stage,
-            DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP, ctx->is_full_dump ? 1 : 0,
-            DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
-            DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV, ctx->fetch.last_data_version,
-            DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, ctx->fetch.last_bkey.oid,
-            ctx->fetch.last_bkey.offset, DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
-            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG, ctx->is_restore ? 1 : 0,
-            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV, ctx->restore.start_dv
-            );
-
-    return safeWriteToFile(filename, buff, len);
+    return safeWriteToFile(filename, buff, p - buff);
 }
 
 int data_recovery_unlink_sys_data(DataRecoveryContext *ctx)
@@ -244,34 +331,34 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
         return result;
     }
 
-    ctx->stage = iniGetCharValue(NULL, DATA_RECOVERY_SYS_DATA_ITEM_STAGE,
+    ctx->stage = iniGetCharValue(NULL, SYS_DATA_ITEM_STAGE_STR,
             &ini_context, DATA_RECOVERY_STAGE_FETCH);
     ctx->next_stage = iniGetCharValue(NULL,
-            DATA_RECOVERY_SYS_DATA_ITEM_NEXT_STAGE,
+            SYS_DATA_ITEM_NEXT_STAGE_STR,
             &ini_context, DATA_RECOVERY_STAGE_NONE);
     ctx->is_full_dump = iniGetBoolValue(NULL,
-            DATA_RECOVERY_SYS_DATA_ITEM_FULL_DUMP,
+            SYS_DATA_ITEM_FULL_DUMP_STR,
             &ini_context, false);
 
-    ctx->is_restore = iniGetBoolValue(DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
-            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_FLAG, &ini_context, false);
+    ctx->is_restore = iniGetBoolValue(SYS_DATA_SECTION_RESTORE_STR,
+            SYS_DATA_ITEM_RESTORE_FLAG_STR, &ini_context, false);
     ctx->restore.start_dv = iniGetInt64Value(
-            DATA_RECOVERY_SYS_DATA_SECTION_RESTORE,
-            DATA_RECOVERY_SYS_DATA_ITEM_RESTORE_START_DV,
+            SYS_DATA_SECTION_RESTORE_STR,
+            SYS_DATA_ITEM_RESTORE_START_DV_STR,
             &ini_context, 0);
 
     ctx->fetch.last_data_version = iniGetInt64Value(
-            DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
-            DATA_RECOVERY_SYS_DATA_ITEM_LAST_DV,
+            SYS_DATA_SECTION_FETCH_STR,
+            SYS_DATA_ITEM_LAST_DV_STR,
             &ini_context, 0);
-    last_bkey = iniGetStrValue(DATA_RECOVERY_SYS_DATA_SECTION_FETCH,
-            DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY, &ini_context);
+    last_bkey = iniGetStrValue(SYS_DATA_SECTION_FETCH_STR,
+            SYS_DATA_ITEM_LAST_BKEY_STR, &ini_context);
     if (last_bkey != NULL && *last_bkey != '\0') {
         char value[64];
         char *cols[2];
         int count;
 
-        snprintf(value, sizeof(value), "%s", last_bkey);
+        fc_safe_strcpy(value, last_bkey);
         count = splitEx(value, ',', cols, 2);
         if (count == 2) {
             ctx->fetch.last_bkey.oid = strtoll(cols[0], NULL, 10);
@@ -279,7 +366,7 @@ static int data_recovery_load_sys_data(DataRecoveryContext *ctx)
         } else {
             logError("file: "__FILE__", line: %d, "
                     "load conf file \"%s\" fail, invalid %s: %s",
-                    __LINE__, filename, DATA_RECOVERY_SYS_DATA_ITEM_LAST_BKEY,
+                    __LINE__, filename, SYS_DATA_ITEM_LAST_BKEY_STR,
                     last_bkey);
             result = EINVAL;
         }

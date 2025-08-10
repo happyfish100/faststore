@@ -93,9 +93,22 @@ static inline void binlog_reader_get_filename_ex(const char *subdir_name,
         const char *fname_suffix, const int binlog_index,
         char *full_filename, const int size)
 {
-    snprintf(full_filename, size, "%s/%s/%s"SF_BINLOG_FILE_EXT_FMT"%s",
-            DATA_PATH_STR, subdir_name, SF_BINLOG_FILE_PREFIX,
-            binlog_index, fname_suffix);
+    int file_len;
+    int suffix_len;
+
+    sf_file_writer_get_filename(DATA_PATH_STR, subdir_name,
+            binlog_index, full_filename, size);
+    if (*fname_suffix != '\0') {
+        file_len = strlen(full_filename);
+        suffix_len = strlen(fname_suffix);
+        if (file_len + suffix_len >= size) {
+            suffix_len = size - file_len - 1;
+        }
+        if (suffix_len > 0) {
+            memcpy(full_filename + file_len, fname_suffix, suffix_len);
+            *(full_filename + (file_len + suffix_len)) = '\0';
+        }
+    }
 }
 
 int binlog_reader_read_to_buffer(ServerBinlogReader *reader,

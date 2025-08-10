@@ -290,13 +290,11 @@ static int do_reader_init(ServerBinlogReader *reader,
     }
 
     reader->fd = -1;
-    snprintf(reader->subdir_name, FS_BINLOG_SUBDIR_NAME_SIZE,
-            "%s", subdir_name);
+    fc_safe_strcpy(reader->subdir_name, subdir_name);
     if (fname_suffix == NULL) {
         *reader->fname_suffix = '\0';
     } else {
-        snprintf(reader->fname_suffix, FS_BINLOG_FILENAME_SUFFIX_SIZE,
-                "%s", fname_suffix);
+        fc_safe_strcpy(reader->fname_suffix, fname_suffix);
     }
     reader->binlog_info = *binlog_info;
     if (pos == NULL) {

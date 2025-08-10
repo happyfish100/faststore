@@ -368,7 +368,7 @@ int replica_binlog_init()
         REPLICA_BINLOG_WRITER_ARRAY.writers[data_group_id - min_id] = writer;
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
         if ((result=sf_binlog_writer_init_by_version_ex(writer, DATA_PATH_STR,
-                        subdir_name, SF_BINLOG_FILE_PREFIX,
+                        subdir_name, SF_BINLOG_FILE_PREFIX_STR,
                         FS_REPLICA_BINLOG_MAX_RECORD_SIZE, myself->data.
                         current_version + 1, BINLOG_BUFFER_SIZE, 1024,
                         SF_BINLOG_DEFAULT_ROTATE_SIZE,

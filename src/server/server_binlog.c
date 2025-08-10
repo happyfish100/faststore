@@ -79,6 +79,7 @@ static int do_binlog_check()
 static int dump_slice_index()
 {
     int result;
+    int path_len;
     int64_t total_block_count;
     int64_t total_slice_count;
     int64_t start_time_ms;
@@ -91,12 +92,13 @@ static int dump_slice_index()
             "dump slices to file for debug ...", __LINE__);
 
     start_time_ms = get_current_time_ms();
-    snprintf(filepath, sizeof(filepath), "%s/dump", DATA_PATH_STR);
+    path_len = fc_get_full_filepath(DATA_PATH_STR,
+            DATA_PATH_LEN, "dump", 4, filepath);
     if ((result=fc_check_mkdir(filepath, 0755)) != 0) {
         return result;
     }
 
-    snprintf(filename, sizeof(filename), "%s/slice.index", filepath);
+    fc_get_full_filename(filepath, path_len, "slice.index", 11, filename);
     if ((result=ob_index_dump_slice_index_to_file(filename,
                     &total_block_count, &total_slice_count)) == 0)
     {

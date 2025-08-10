@@ -3270,7 +3270,7 @@ static int do_write_slice_index(OBEntry *ob, const int slice_type,
 {
 #if FS_DUMP_SLICE_FOR_DEBUG == FS_DUMP_SLICE_CALC_CRC32
     int result;
-    int crc32;
+    uint32_t crc32;
 
     if ((result=calc_slice_crc32(ob, ssize, dump_ctx, &crc32)) != 0) {
         return result;
@@ -3383,7 +3383,7 @@ int ob_index_dump_slice_index_to_file(const char *filename,
     }
 #endif
 
-    snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", filename);
+    fc_combine_two_strings(filename, "tmp", '.', tmp_filename);
     if ((result=sf_buffered_writer_init(&dump_ctx.writer, tmp_filename)) != 0) {
         return result;
     }

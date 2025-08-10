@@ -194,6 +194,7 @@ static int id_array_to_string_ex(FSIdArray *id_array,
     char *p;
     char *end;
     char tmp[32];
+    int prefix_len;
     int len;
     int i;
     int last_index;
@@ -203,22 +204,41 @@ static int id_array_to_string_ex(FSIdArray *id_array,
         buff->len = 0;
         return 0;
     } else if (id_array->count == 1) {
-        buff->len = snprintf(buff->str, buff_size, "%d", id_array->ids[0]);
+        buff->len = fc_ltostr(id_array->ids[0], buff->str);
         return 0;
     } else if (id_array->count > 2) {
         last_index = id_array->count - 1;
         if (id_array->ids[last_index] == id_array->ids[0] + last_index) {
-            buff->len = snprintf(buff->str, buff_size, "[%d, %d]",
-                    id_array->ids[0], id_array->ids[last_index]);
+            if (buff_size < 24) {
+                buff->len = snprintf(buff->str, buff_size, "[%d, %d]",
+                        id_array->ids[0], id_array->ids[last_index]);
+                if (buff->len >= buff_size) {
+                    return ENOSPC;
+                }
+            } else {
+                p = buff->str;
+                *p++ = '[';
+                p += fc_itoa(id_array->ids[0], p);
+                *p++ = ',';
+                *p++ = ' ';
+                p += fc_itoa(id_array->ids[last_index], p);
+                *p++ = ']';
+                *p = '\0';
+                buff->len = p - buff->str;
+            }
             return 0;
         }
     }
 
+    tmp[0] = ',';
+    tmp[1] = ' ';
+    prefix_len = 2;
+
     end = buff->str + buff_size;
     p = buff->str;
-    p += sprintf(p, "%d", id_array->ids[0]);
+    p += fc_itoa(id_array->ids[0], p);
     for (i=1; i<id_array->count; i++) {
-        len = sprintf(tmp, ", %d", id_array->ids[i]);
+        len = prefix_len + fc_itoa(id_array->ids[i], tmp + prefix_len);
         if (end - p <= len) {
             return ENOSPC;
         }
@@ -417,7 +437,7 @@ static int parse_value(const char *cluster_filename, IniContext *ini_context,
     int id;
     int i;
 
-    snprintf(value, sizeof(value), "%s", item_value);
+    fc_safe_strcpy(value, item_value);
     count = splitEx(value, ',', parts, MAX_VALUE_PARTS);
     if ((result=check_realloc_id_array(id_array, count)) != 0) {
         return result;
@@ -678,10 +698,14 @@ static int load_one_server_group(FSClusterConfig *cluster_cfg,
         const char *cluster_filename, IniContext *ini_context,
         FSServerGroup *server_group, FSIdArray *server_ids)
 {
+#define SECTION_NAME_PREFIX_STR  "server-group-"
+#define SECTION_NAME_PREFIX_LEN  (sizeof(SECTION_NAME_PREFIX_STR) - 1)
     char section_name[32];
     int result;
 
-    sprintf(section_name, "server-group-%d", server_group->server_group_id);
+    memcpy(section_name, SECTION_NAME_PREFIX_STR, SECTION_NAME_PREFIX_LEN);
+    fc_ltostr(server_group->server_group_id,
+            section_name + SECTION_NAME_PREFIX_LEN);
     server_ids->count = 0;
     if ((result=get_ids(cluster_filename, ini_context,
                     section_name, "server_ids", server_ids)) != 0)

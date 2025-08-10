@@ -66,7 +66,7 @@ static int init_binlog_writer()
     ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
     if ((result=sf_binlog_writer_init_by_version_ex(&SLICE_BINLOG_WRITER.
                     writer, DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
-                    SF_BINLOG_FILE_PREFIX, FS_SLICE_BINLOG_MAX_RECORD_SIZE,
+                    SF_BINLOG_FILE_PREFIX_STR, FS_SLICE_BINLOG_MAX_RECORD_SIZE,
                     SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, ring_size,
                     SF_BINLOG_DEFAULT_ROTATE_SIZE,
                     BINLOG_CALL_FSYNC)) != 0)

@@ -38,7 +38,7 @@ int data_recovery_unlink_sys_data(DataRecoveryContext *ctx);
 static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
         const char *subdir, char *subdir_name)
 {
-    sprintf(subdir_name, "%s/%d/%s", FS_RECOVERY_BINLOG_SUBDIR_NAME,
+    sprintf(subdir_name, "%s/%d/%s", FS_RECOVERY_BINLOG_SUBDIR_NAME_STR,
             ctx->ds->dg->id, subdir);
 }
 

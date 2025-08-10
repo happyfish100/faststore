@@ -42,9 +42,13 @@ typedef struct {
     ServerPairBaseIndexEntry *entries;
 } ServerPairBaseIndexArray;
 
-#define DATA_GROUP_INFO_FILENAME           "data_group.info"
+#define DATA_GROUP_INFO_FILENAME_STR  "data_group.info"
+#define DATA_GROUP_INFO_FILENAME_LEN  (sizeof(DATA_GROUP_INFO_FILENAME_STR) - 1)
 
 #define DATA_GROUP_SECTION_PREFIX_STR      "data-group-"
+#define DATA_GROUP_SECTION_PREFIX_LEN      \
+    (sizeof(DATA_GROUP_SECTION_PREFIX_STR) - 1)
+
 #define SERVER_GROUP_INFO_ITEM_VERSION     "version"
 #define SERVER_GROUP_INFO_ITEM_IS_LEADER   "is_leader"
 #define SERVER_GROUP_INFO_ITEM_SERVER      "server"
@@ -737,8 +741,9 @@ FSClusterDataServerInfo *fs_get_data_server_ex(
 static inline void get_server_group_filename(
         char *full_filename, const int size)
 {
-    snprintf(full_filename, size, "%s/%s",
-            DATA_PATH_STR, DATA_GROUP_INFO_FILENAME);
+    fc_get_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            DATA_GROUP_INFO_FILENAME_STR, DATA_GROUP_INFO_FILENAME_LEN,
+            full_filename, size);
 }
 
 int fs_downgrade_data_server_status(const int old_status, int *new_status)
@@ -790,9 +795,13 @@ static int load_group_servers_from_ini(const char *group_filename,
     int status;
     int64_t data_version;
     char section_name[64];
+    char *p;
 
-    sprintf(section_name, "%s%d", DATA_GROUP_SECTION_PREFIX_STR,
-            group->id);
+    p = section_name;
+    memcpy(p, DATA_GROUP_SECTION_PREFIX_STR, DATA_GROUP_SECTION_PREFIX_LEN);
+    p += DATA_GROUP_SECTION_PREFIX_LEN;
+    p += fc_itoa(group->id, p);
+    *p = '\0';
     if ((items=iniGetValuesEx(section_name,
                     SERVER_GROUP_INFO_ITEM_SERVER,
                     ini_context, &item_count)) == NULL)

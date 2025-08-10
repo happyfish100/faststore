@@ -202,8 +202,8 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
         return result;
     }
 
-    snprintf(g_pid_filename, sizeof(g_pid_filename), 
-             "%s/serverd.pid", SF_G_BASE_PATH_STR);
+    fc_get_full_filename(SF_G_BASE_PATH_STR, SF_G_BASE_PATH_LEN,
+            "serverd.pid", sizeof("serverd.pid") - 1, g_pid_filename);
 
     stop = false;
     result = process_action(g_pid_filename, action, &stop);

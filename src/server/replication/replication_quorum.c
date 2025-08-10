@@ -364,13 +364,17 @@ static int write_to_confirmed_file(const int data_group_id,
     const int flags = O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC;
     FilenameFDPair pair;
     char buff[32];
+    char *p;
     int crc32;
     int len;
     int result;
 
-    len = sprintf(buff, "%"PRId64, confirmed_version);
+    len = fc_itoa(confirmed_version, buff);
     crc32 = CRC32(buff, len);
-    len += sprintf(buff + len, " %08x", crc32);
+    p = buff + len;
+    *p++ = ' ';
+    p += int2hex(crc32, p, 8);
+    len = p - buff;
 
     get_confirmed_filename(data_group_id, index,
             pair.filename, sizeof(pair.filename));

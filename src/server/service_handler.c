@@ -307,8 +307,7 @@ static int service_deal_get_master(struct fast_task_info *task)
                 master->cs->server), task->client_ip);
 
     int2buff(master->cs->server->id, resp->server_id);
-    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
-            addr->conn.ip_addr);
+    fc_safe_strcpy(resp->ip_addr, addr->conn.ip_addr);
     short2buff(addr->conn.port, resp->port);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
@@ -341,8 +340,7 @@ static int service_deal_get_leader(struct fast_task_info *task)
                 leader->server), task->client_ip);
 
     int2buff(leader->server->id, resp->server_id);
-    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
-            addr->conn.ip_addr);
+    fc_safe_strcpy(resp->ip_addr, addr->conn.ip_addr);
     short2buff(addr->conn.port, resp->port);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);
@@ -460,8 +458,7 @@ static int service_deal_cluster_stat(struct fast_task_info *task)
 
             int2buff(ds->dg->id, body_part->data_group_id);
             int2buff(ds->cs->server->id, body_part->server_id);
-            snprintf(body_part->ip_addr, sizeof(body_part->ip_addr),
-                    "%s", addr->conn.ip_addr);
+            fc_safe_strcpy(body_part->ip_addr, addr->conn.ip_addr);
             short2buff(addr->conn.port, body_part->port);
             body_part->is_preseted = ds->is_preseted;
             body_part->is_master = is_master;
