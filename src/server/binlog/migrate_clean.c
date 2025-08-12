@@ -137,7 +137,7 @@ static inline int check_make_subdirs()
     }
 
     if (STORAGE_ENABLED) {
-        fc_get_full_filepath(migrage_path, path_len, 
+        fc_get_full_filepath(migrage_path, path_len,
                 MIGRATE_BINLOG_SUBDIR_NAME_DUMP_STR,
                 MIGRATE_BINLOG_SUBDIR_NAME_DUMP_LEN,
                 subdir_path);
@@ -146,7 +146,7 @@ static inline int check_make_subdirs()
         }
     }
 
-    fc_get_full_filepath(migrage_path, path_len, 
+    fc_get_full_filepath(migrage_path, path_len,
             MIGRATE_BINLOG_SUBDIR_NAME_SPACE_STR,
             MIGRATE_BINLOG_SUBDIR_NAME_SPACE_LEN,
             subdir_path);

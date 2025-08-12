@@ -153,7 +153,7 @@ static int write_to_redo_file(SliceMigrateRedoContext *redo_ctx)
     int len;
 
     p = buff;
-    memcpy(p, MIGRATE_REDO_ITEM_CURRENT_STAGE_STR, 
+    memcpy(p, MIGRATE_REDO_ITEM_CURRENT_STAGE_STR,
             MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN);
     p += MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN;
     *p++ = '=';

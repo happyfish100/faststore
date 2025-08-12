@@ -105,7 +105,7 @@ static int write_to_mark_file(TrunkMigrateContext *ctx)
             BINLOG_REDO_ITEM_WHICH_SUBDIR_LEN);
     p += BINLOG_REDO_ITEM_WHICH_SUBDIR_LEN;
     *p++ = '=';
-    p += fc_itoa(ctx->slice_binlog.which_subdir, p);
+    *p++ = ctx->slice_binlog.which_subdir;
     *p++ = '\n';
 
     memcpy(p, BINLOG_REDO_ITEM_BINLOG_INDEX_STR,

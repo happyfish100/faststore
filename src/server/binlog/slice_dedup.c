@@ -62,7 +62,7 @@ static inline const char *get_slice_dedup_filename(
     fc_get_two_subdirs_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
             FS_SLICE_BINLOG_SUBDIR_NAME_STR, FS_SLICE_BINLOG_SUBDIR_NAME_LEN,
             DEDUP_SUBDIR_NAME_STR, DEDUP_SUBDIR_NAME_LEN,
-            "slice.dat", 8, filename, size);
+            "slice.dat", 9, filename, size);
     return filename;
 }
 
