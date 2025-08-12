@@ -38,10 +38,21 @@
 
 #define BINLOG_REPAIR_FILE_EXT_NAME  ".repair"
 
-#define BINLOG_REPAIR_SYS_DATA_FILENAME           ".binlog_repair.dat"
-#define BINLOG_REPAIR_SYS_DATA_ITEM_DG_ID         "data_group_id"
-#define BINLOG_REPAIR_SYS_DATA_ITEM_START_BINDEX  "start_binlog_index"
-#define BINLOG_REPAIR_SYS_DATA_ITEM_END_BINDEX    "end_binlog_index"
+#define REPAIR_SYS_DATA_FILENAME_STR   ".binlog_repair.dat"
+#define REPAIR_SYS_DATA_FILENAME_LEN   \
+    (sizeof(REPAIR_SYS_DATA_FILENAME_STR) - 1)
+
+#define REPAIR_SYS_DATA_ITEM_DG_ID_STR         "data_group_id"
+#define REPAIR_SYS_DATA_ITEM_DG_ID_LEN         \
+    (sizeof(REPAIR_SYS_DATA_ITEM_DG_ID_STR) - 1)
+
+#define REPAIR_SYS_DATA_ITEM_START_BINDEX_STR  "start_binlog_index"
+#define REPAIR_SYS_DATA_ITEM_START_BINDEX_LEN  \
+    (sizeof(REPAIR_SYS_DATA_ITEM_START_BINDEX_STR) - 1)
+
+#define REPAIR_SYS_DATA_ITEM_END_BINDEX_STR    "end_binlog_index"
+#define REPAIR_SYS_DATA_ITEM_END_BINDEX_LEN    \
+    (sizeof(REPAIR_SYS_DATA_ITEM_END_BINDEX_STR) - 1)
 
 typedef struct {
     int binlog_index;
@@ -68,27 +79,40 @@ typedef struct {
 
 static void binlog_repair_get_sys_data_filename(char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s", DATA_PATH_STR,
-            BINLOG_REPAIR_SYS_DATA_FILENAME);
+    fc_get_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            REPAIR_SYS_DATA_FILENAME_STR, REPAIR_SYS_DATA_FILENAME_LEN,
+            filename, size);
 }
 
 static int binlog_repair_save_sys_data(BinlogRepairContext *ctx)
 {
     char filename[PATH_MAX];
     char buff[256];
-    int len;
+    char *p;
+
+    p = buff;
+    memcpy(p, REPAIR_SYS_DATA_ITEM_DG_ID_STR, REPAIR_SYS_DATA_ITEM_DG_ID_LEN);
+    p += REPAIR_SYS_DATA_ITEM_DG_ID_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->input.data_group_id, p);
+    *p++ = '\n';
+
+    memcpy(p, REPAIR_SYS_DATA_ITEM_START_BINDEX_STR,
+            REPAIR_SYS_DATA_ITEM_START_BINDEX_LEN);
+    p += REPAIR_SYS_DATA_ITEM_START_BINDEX_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->input.pos->index, p);
+    *p++ = '\n';
+
+    memcpy(p, REPAIR_SYS_DATA_ITEM_END_BINDEX_STR,
+            REPAIR_SYS_DATA_ITEM_END_BINDEX_LEN);
+    p += REPAIR_SYS_DATA_ITEM_END_BINDEX_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->out_writer.binlog_index, p);
+    *p++ = '\n';
 
     binlog_repair_get_sys_data_filename(filename, sizeof(filename));
-    len = sprintf(buff, "%s=%d\n"
-            "%s=%d\n"
-            "%s=%d\n",
-            BINLOG_REPAIR_SYS_DATA_ITEM_DG_ID,
-            ctx->input.data_group_id,
-            BINLOG_REPAIR_SYS_DATA_ITEM_START_BINDEX,
-            ctx->input.pos->index,
-            BINLOG_REPAIR_SYS_DATA_ITEM_END_BINDEX,
-            ctx->out_writer.binlog_index);
-    return safeWriteToFile(filename, buff, len);
+    return safeWriteToFile(filename, buff, p - buff);
 }
 
 static int binlog_repair_unlink_sys_data()
@@ -124,12 +148,12 @@ static int binlog_repair_load_sys_data(int *data_group_id,
         return result;
     }
 
-    *data_group_id = iniGetIntValue(NULL, BINLOG_REPAIR_SYS_DATA_ITEM_DG_ID,
+    *data_group_id = iniGetIntValue(NULL, REPAIR_SYS_DATA_ITEM_DG_ID_STR,
             &ini_context, -1);
     *start_binlog_index = iniGetIntValue(NULL,
-            BINLOG_REPAIR_SYS_DATA_ITEM_START_BINDEX, &ini_context, -1);
+            REPAIR_SYS_DATA_ITEM_START_BINDEX_STR, &ini_context, -1);
     *end_binlog_index = iniGetIntValue(NULL,
-            BINLOG_REPAIR_SYS_DATA_ITEM_END_BINDEX, &ini_context, -1);
+            REPAIR_SYS_DATA_ITEM_END_BINDEX_STR, &ini_context, -1);
     iniFreeContext(&ini_context);
 
     if ((*data_group_id < 0) || (*start_binlog_index < 0) ||
@@ -470,7 +494,7 @@ static int binlog_repair_finish(const int data_group_id,
 
     if (data_group_id == 0) {
         writer = slice_binlog_get_writer();
-        strcpy(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME);
+        strcpy(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME_STR);
     } else {
         writer = replica_binlog_get_writer(data_group_id);
         replica_binlog_get_subdir_name(subdir_name, data_group_id);
@@ -610,6 +634,7 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     ReplicaBinlogFilePosition *replica;
     ReplicaBinlogFilePosition *end;
+    char *p;
 
     if ((result=repair_context_init(&repair_ctx,
                     &ctx->version_arrays.slice)) != 0)
@@ -622,8 +647,13 @@ int binlog_consistency_repair_replica(BinlogConsistencyContext *ctx)
     total_delete_count = 0;
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
-        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                replica->data_group_id);
+        p = subdir_name;
+        memcpy(p, FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_REPLICA_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(replica->data_group_id, p);
+        *p = '\0';
 
         repair_ctx.input.data_group_id = replica->data_group_id;
         repair_ctx.input.subdir_name = subdir_name;
@@ -671,7 +701,7 @@ int binlog_consistency_repair_slice(BinlogConsistencyContext *ctx)
     repair_ctx.ctx = ctx;
 
     repair_ctx.input.data_group_id = 0;
-    repair_ctx.input.subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
+    repair_ctx.input.subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME_STR;
     repair_ctx.input.writer = slice_binlog_get_writer();
     repair_ctx.input.pos = &ctx->positions.slice;
     repair_ctx.input.unpack_common_fields = binlog_unpack_slice_common_fields;

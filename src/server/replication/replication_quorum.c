@@ -26,7 +26,9 @@
 #include "replication_quorum.h"
 
 #define VERSION_CONFIRMED_FILE_COUNT     2  //double files for safty
-#define REPLICATION_QUORUM_DAT_FILENAME  ".repl_quorum.dat"
+#define REPLICATION_QUORUM_DAT_FILENAME_STR  ".repl_quorum.dat"
+#define REPLICATION_QUORUM_DAT_FILENAME_LEN  \
+    (sizeof(REPLICATION_QUORUM_DAT_FILENAME_STR) - 1)
 
 typedef struct fs_repl_quorum_thread_thread {
     struct fc_queue queue;
@@ -40,20 +42,38 @@ static FSReplicationQuorumThread fs_repl_quorum_thread;
 static inline const char *get_quorum_dat_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s", DATA_PATH_STR,
-            REPLICATION_QUORUM_DAT_FILENAME);
+    fc_get_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            REPLICATION_QUORUM_DAT_FILENAME_STR,
+            REPLICATION_QUORUM_DAT_FILENAME_LEN,
+            filename, size);
     return filename;
 }
 
 static inline const char *get_confirmed_filename(const int data_group_id,
-        const int index, char *filename, const int size)
+        const int index, char *full_filename, const int size)
 {
+#define VERSION_CONFIRMED_FILENAME_PREFIX_STR  "version-confirmed."
+#define VERSION_CONFIRMED_FILENAME_PREFIX_LEN  \
+    (sizeof(VERSION_CONFIRMED_FILENAME_PREFIX_STR) - 1)
+
     char subdir_name[64];
+    char filename[64];
+    char *p;
+    int name_len;
+
+    p = filename;
+    memcpy(p, VERSION_CONFIRMED_FILENAME_PREFIX_STR,
+            VERSION_CONFIRMED_FILENAME_PREFIX_LEN);
+    p += VERSION_CONFIRMED_FILENAME_PREFIX_LEN;
+    p += fc_itoa(index, p);
+    *p = '\0';
+    name_len = p - filename;
 
     replica_binlog_get_subdir_name(subdir_name, data_group_id);
-    snprintf(filename, size, "%s/%s/version-confirmed.%d",
-            DATA_PATH_STR, subdir_name, index);
-    return filename;
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            subdir_name, strlen(subdir_name), filename, name_len,
+            full_filename, size);
+    return full_filename;
 }
 
 static int get_confirmed_version_from_file(const int data_group_id,
@@ -695,8 +715,6 @@ static int delete_all_confirmed_files()
 int replication_quorum_init()
 {
     char quorum_filename[PATH_MAX];
-    char buff[64];
-    int len;
     int result;
 
     get_quorum_dat_filename(quorum_filename, sizeof(quorum_filename));
@@ -739,8 +757,10 @@ int replication_quorum_init()
     if (access(quorum_filename, F_OK) == 0) {
         return 0;
     } else {
-        len = sprintf(buff, "enabled=%d\n", 1);
-        return writeToFile(quorum_filename, buff, len);
+#define ENABLED_CONTENT_STR "enabled=1\n"
+#define ENABLED_CONTENT_LEN (sizeof(ENABLED_CONTENT_STR) - 1)
+        return writeToFile(quorum_filename, ENABLED_CONTENT_STR,
+                ENABLED_CONTENT_LEN);
     }
 }
 

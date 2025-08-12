@@ -21,13 +21,27 @@
 #include "slice_binlog.h"
 #include "slice_dedup.h"
 
-#define DEDUP_SUBDIR_NAME    "dedup"
+#define DEDUP_SUBDIR_NAME_STR    "dedup"
+#define DEDUP_SUBDIR_NAME_LEN    (sizeof(DEDUP_SUBDIR_NAME_STR) - 1)
 
-#define DEDUP_REDO_ITEM_CALLER             "caller"
-#define DEDUP_REDO_ITEM_SLICE_COUNT        "slice_count"
-#define DEDUP_REDO_ITEM_BINLOG_START       "binlog_start"
-#define DEDUP_REDO_ITEM_BINLOG_INDEX       "binlog_index"
-#define DEDUP_REDO_ITEM_CURRENT_STAGE      "current_stage"
+#define DEDUP_REDO_ITEM_CALLER_STR    "caller"
+#define DEDUP_REDO_ITEM_CALLER_LEN    (sizeof(DEDUP_REDO_ITEM_CALLER_STR) - 1)
+
+#define DEDUP_REDO_ITEM_SLICE_COUNT_STR    "slice_count"
+#define DEDUP_REDO_ITEM_SLICE_COUNT_LEN    \
+    (sizeof(DEDUP_REDO_ITEM_SLICE_COUNT_STR) - 1)
+
+#define DEDUP_REDO_ITEM_BINLOG_START_STR   "binlog_start"
+#define DEDUP_REDO_ITEM_BINLOG_START_LEN    \
+    (sizeof(DEDUP_REDO_ITEM_BINLOG_START_STR) - 1)
+
+#define DEDUP_REDO_ITEM_BINLOG_INDEX_STR   "binlog_index"
+#define DEDUP_REDO_ITEM_BINLOG_INDEX_LEN    \
+    (sizeof(DEDUP_REDO_ITEM_BINLOG_INDEX_STR) - 1)
+
+#define DEDUP_REDO_ITEM_CURRENT_STAGE_STR  "current_stage"
+#define DEDUP_REDO_ITEM_CURRENT_STAGE_LEN    \
+    (sizeof(DEDUP_REDO_ITEM_CURRENT_STAGE_STR) - 1)
 
 #define DEDUP_REDO_STAGE_RENAME_BINLOG    1
 #define DEDUP_REDO_STAGE_REMOVE_BINLOG    2
@@ -45,44 +59,77 @@ typedef struct slice_binlog_dedup_redo_context {
 static inline const char *get_slice_dedup_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s/slice.dat", DATA_PATH_STR,
-            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
+    fc_get_two_subdirs_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SLICE_BINLOG_SUBDIR_NAME_STR, FS_SLICE_BINLOG_SUBDIR_NAME_LEN,
+            DEDUP_SUBDIR_NAME_STR, DEDUP_SUBDIR_NAME_LEN,
+            "slice.dat", 8, filename, size);
     return filename;
 }
 
 static inline int check_make_subdir()
 {
     char path[PATH_MAX];
-    snprintf(path, sizeof(path), "%s/%s/%s", DATA_PATH_STR,
-            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
+
+    fc_get_two_subdirs_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SLICE_BINLOG_SUBDIR_NAME_STR, FS_SLICE_BINLOG_SUBDIR_NAME_LEN,
+            DEDUP_SUBDIR_NAME_STR, DEDUP_SUBDIR_NAME_LEN, path);
     return fc_check_mkdir(path, 0755);
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s/.dedup.flag", DATA_PATH_STR,
-            FS_SLICE_BINLOG_SUBDIR_NAME, DEDUP_SUBDIR_NAME);
+    fc_get_two_subdirs_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SLICE_BINLOG_SUBDIR_NAME_STR, FS_SLICE_BINLOG_SUBDIR_NAME_LEN,
+            DEDUP_SUBDIR_NAME_STR, DEDUP_SUBDIR_NAME_LEN,
+            ".dedup.flag", 11, filename, size);
     return filename;
 }
 
 static int write_to_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
 {
     char buff[256];
+    char *p;
     int result;
-    int len;
 
-    len = sprintf(buff, "%s=%c\n"
-            "%s=%d\n"
-            "%s=%d\n"
-            "%s=%d\n"
-            "%s=%"PRId64"\n",
-            DEDUP_REDO_ITEM_CALLER, redo_ctx->caller,
-            DEDUP_REDO_ITEM_BINLOG_START, redo_ctx->binlog_start,
-            DEDUP_REDO_ITEM_BINLOG_INDEX, redo_ctx->binlog_index,
-            DEDUP_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
-            DEDUP_REDO_ITEM_SLICE_COUNT, redo_ctx->slice_count);
-    if ((result=safeWriteToFile(redo_ctx->mark_filename, buff, len)) != 0) {
+    p = buff;
+    memcpy(p, DEDUP_REDO_ITEM_CALLER_STR, DEDUP_REDO_ITEM_CALLER_LEN);
+    p += DEDUP_REDO_ITEM_CALLER_LEN;
+    *p++ = '=';
+    *p++ = redo_ctx->caller;
+    *p++ = '\n';
+
+    memcpy(p, DEDUP_REDO_ITEM_BINLOG_START_STR,
+            DEDUP_REDO_ITEM_BINLOG_START_LEN);
+    p += DEDUP_REDO_ITEM_BINLOG_START_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->binlog_start, p);
+    *p++ = '\n';
+
+    memcpy(p, DEDUP_REDO_ITEM_BINLOG_INDEX_STR,
+            DEDUP_REDO_ITEM_BINLOG_INDEX_LEN);
+    p += DEDUP_REDO_ITEM_BINLOG_INDEX_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->binlog_index, p);
+    *p++ = '\n';
+
+    memcpy(p, DEDUP_REDO_ITEM_CURRENT_STAGE_STR,
+            DEDUP_REDO_ITEM_CURRENT_STAGE_LEN);
+    p += DEDUP_REDO_ITEM_CURRENT_STAGE_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->current_stage, p);
+    *p++ = '\n';
+
+    memcpy(p, DEDUP_REDO_ITEM_SLICE_COUNT_STR,
+            DEDUP_REDO_ITEM_SLICE_COUNT_LEN);
+    p += DEDUP_REDO_ITEM_SLICE_COUNT_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->slice_count, p);
+    *p++ = '\n';
+
+    if ((result=safeWriteToFile(redo_ctx->mark_filename,
+                    buff, p - buff)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
                 __LINE__, redo_ctx->mark_filename, result, STRERROR(result));
@@ -106,15 +153,15 @@ static int load_from_redo_file(SliceBinlogDedupRedoContext *redo_ctx)
     }
 
     redo_ctx->caller = iniGetCharValue(NULL,
-            DEDUP_REDO_ITEM_CALLER, &ini_context, '\0');
+            DEDUP_REDO_ITEM_CALLER_STR, &ini_context, '\0');
     redo_ctx->binlog_start = iniGetIntValue(NULL,
-            DEDUP_REDO_ITEM_BINLOG_START, &ini_context, 0);
+            DEDUP_REDO_ITEM_BINLOG_START_STR, &ini_context, 0);
     redo_ctx->binlog_index = iniGetIntValue(NULL,
-            DEDUP_REDO_ITEM_BINLOG_INDEX, &ini_context, 0);
+            DEDUP_REDO_ITEM_BINLOG_INDEX_STR, &ini_context, 0);
     redo_ctx->current_stage = iniGetIntValue(NULL,
-            DEDUP_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            DEDUP_REDO_ITEM_CURRENT_STAGE_STR, &ini_context, 0);
     redo_ctx->slice_count = iniGetInt64Value(NULL,
-            DEDUP_REDO_ITEM_SLICE_COUNT, &ini_context, 0);
+            DEDUP_REDO_ITEM_SLICE_COUNT_STR, &ini_context, 0);
 
     iniFreeContext(&ini_context);
     return 0;

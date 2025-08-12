@@ -40,7 +40,8 @@
 #define EVENT_DEALER_THREAD_MIN_COUNT      1
 #define EVENT_DEALER_THREAD_MAX_COUNT     64
 
-#define FS_SYSTEM_FLAG_FILENAME    ".fstore.dat"
+#define FS_SYSTEM_FLAG_FILENAME_STR  ".fstore.dat"
+#define FS_SYSTEM_FLAG_FILENAME_LEN  (sizeof(FS_SYSTEM_FLAG_FILENAME_STR) - 1)
 
 static int get_bytes_item_config(IniContext *ini_context,
         const char *filename, const char *item_name,
@@ -295,8 +296,12 @@ int fs_write_to_sys_file()
     char filename[PATH_MAX];
     char buff[256];
 
-    snprintf(filename, sizeof(filename), "%s/%s",
-            DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
+    fc_get_full_filename_ex(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SYSTEM_FLAG_FILENAME_STR,
+            FS_SYSTEM_FLAG_FILENAME_LEN,
+            filename, sizeof(filename));
+
     len = sprintf(buff, "data_group_count=%d\n"
             "file_block_size=%d\n"
             "slice_remove_files=%u\n"
@@ -318,8 +323,11 @@ static int load_from_sys_file()
     const char *old_caption;
     int result;
 
-    snprintf(filename, sizeof(filename), "%s/%s",
-            DATA_PATH_STR, FS_SYSTEM_FLAG_FILENAME);
+    fc_get_full_filename_ex(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SYSTEM_FLAG_FILENAME_STR,
+            FS_SYSTEM_FLAG_FILENAME_LEN,
+            filename, sizeof(filename));
     if (access(filename, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
@@ -755,9 +763,7 @@ static int server_init_client(const char *config_filename)
         REPLICA_SF_CTX.net_buffer_cfg.connect_timeout;
     g_fs_client_vars.client_ctx.common_cfg.network_timeout =
         REPLICA_SF_CTX.net_buffer_cfg.network_timeout;
-    snprintf(g_fs_client_vars.base_path,
-            sizeof(g_fs_client_vars.base_path),
-            "%s", SF_G_BASE_PATH_STR);
+    fc_safe_strcpy(g_fs_client_vars.base_path, SF_G_BASE_PATH_STR);
     g_fs_client_vars.client_ctx.cluster_cfg.ptr = &CLUSTER_CONFIG_CTX;
     g_fs_client_vars.client_ctx.cluster_cfg.group_index = g_fs_client_vars.
         client_ctx.cluster_cfg.ptr->replica_group_index;

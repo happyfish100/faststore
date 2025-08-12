@@ -130,15 +130,28 @@ static int pack_to_str_array(BlockSerializerPacker *packer,
         }
 
         s->str = p;
-        s->len = sprintf(p, "%c %"PRId64" %d %d %d %"PRId64" %u %u %u\n",
-                slice->type == DA_SLICE_TYPE_ALLOC ?
+        *p++ = slice->type == DA_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
-                BINLOG_OP_TYPE_WRITE_SLICE,
-                slice->data_version, slice->ssize.offset,
-                slice->ssize.length, slice->space.store->index,
-                slice->space.id_info.id, slice->space.id_info.subdir,
-                slice->space.offset, slice->space.size);
-        p += s->len;
+                BINLOG_OP_TYPE_WRITE_SLICE;
+        *p++ = ' ';
+        p += fc_itoa(slice->data_version, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->ssize.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->ssize.length, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->space.store->index, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->space.id_info.id, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->space.id_info.subdir, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->space.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(slice->space.size, p);
+        *p++ = '\n';
+
+        s->len = p - s->str;
         ++s;
     }
 

@@ -43,9 +43,11 @@
 #define DEL_BLOCK_EXPECT_FIELD_COUNT           7
 #define NO_OP_EXPECT_FIELD_COUNT               7
 
-#define FS_SLICE_MIGRATE_SUBDIR_NAME  FS_SLICE_BINLOG_SUBDIR_NAME"/migrate"
+#define FS_SLICE_MIGRATE_SUBDIR_NAME  FS_SLICE_BINLOG_SUBDIR_NAME_STR"/migrate"
 
-#define MIGRATE_REDO_ITEM_CURRENT_STAGE      "current_stage"
+#define MIGRATE_REDO_ITEM_CURRENT_STAGE_STR  "current_stage"
+#define MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN  \
+    (sizeof(MIGRATE_REDO_ITEM_CURRENT_STAGE_STR) - 1)
 
 #define MIGRATE_REDO_STAGE_RENAME       1
 #define MIGRATE_REDO_STAGE_MIGRATING    2
@@ -65,7 +67,7 @@ static int init_binlog_writer()
 
     ring_size = (WRITE_TO_CACHE ? 102400 : 10240);
     if ((result=sf_binlog_writer_init_by_version_ex(&SLICE_BINLOG_WRITER.
-                    writer, DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
+                    writer, DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME_STR,
                     SF_BINLOG_FILE_PREFIX_STR, FS_SLICE_BINLOG_MAX_RECORD_SIZE,
                     SLICE_BINLOG_SN + 1, BINLOG_BUFFER_SIZE, ring_size,
                     SF_BINLOG_DEFAULT_ROTATE_SIZE,
@@ -137,19 +139,27 @@ int slice_binlog_rotate_file()
 static inline const char *get_migrate_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.migrate.flag",
-            DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME);
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_SLICE_BINLOG_SUBDIR_NAME_STR, FS_SLICE_BINLOG_SUBDIR_NAME_LEN,
+            ".migrate.flag", sizeof(".migrate.flag") -1, filename, size);
     return filename;
 }
 
 static int write_to_redo_file(SliceMigrateRedoContext *redo_ctx)
 {
     char buff[256];
+    char *p;
     int result;
     int len;
 
-    len = sprintf(buff, "%s=%d\n", MIGRATE_REDO_ITEM_CURRENT_STAGE,
-            redo_ctx->current_stage);
+    p = buff;
+    memcpy(p, MIGRATE_REDO_ITEM_CURRENT_STAGE_STR, 
+            MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN);
+    p += MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->current_stage, p);
+    *p++ = '\n';
+    len = p - buff;
     if ((result=safeWriteToFile(redo_ctx->mark_filename, buff, len)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
@@ -174,7 +184,7 @@ static int load_from_redo_file(SliceMigrateRedoContext *redo_ctx)
     }
 
     redo_ctx->current_stage = iniGetIntValue(NULL,
-            MIGRATE_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            MIGRATE_REDO_ITEM_CURRENT_STAGE_STR, &ini_context, 0);
 
     iniFreeContext(&ini_context);
     return 0;
@@ -192,7 +202,7 @@ static int slice_migrate_rename()
     char migrate_filename[PATH_MAX];
 
     sf_binlog_writer_get_index_filename(DATA_PATH_STR,
-            FS_SLICE_BINLOG_SUBDIR_NAME, slice_index_filename,
+            FS_SLICE_BINLOG_SUBDIR_NAME_STR, slice_index_filename,
             sizeof(slice_index_filename));
     sf_binlog_writer_get_index_filename(DATA_PATH_STR,
             FS_SLICE_MIGRATE_SUBDIR_NAME, migrate_index_filename,
@@ -202,7 +212,7 @@ static int slice_migrate_rename()
     }
 
     if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
-                    FS_SLICE_BINLOG_SUBDIR_NAME,
+                    FS_SLICE_BINLOG_SUBDIR_NAME_STR,
                     &start_index, &last_index)) != 0)
     {
         return result;
@@ -210,7 +220,7 @@ static int slice_migrate_rename()
 
     for (binlog_index=start_index; binlog_index<=last_index; binlog_index++) {
         sf_binlog_writer_get_filename(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, binlog_index,
                 binlog_filename, sizeof(binlog_filename));
         sf_binlog_writer_get_filename(DATA_PATH_STR,
                 FS_SLICE_MIGRATE_SUBDIR_NAME, binlog_index,
@@ -369,7 +379,7 @@ static int slice_migrate_do()
     SFBinlogFilePosition position;
 
     start_time_ms = get_current_time_ms();
-    if ((result=remove_slice_binlogs(FS_SLICE_BINLOG_SUBDIR_NAME)) != 0) {
+    if ((result=remove_slice_binlogs(FS_SLICE_BINLOG_SUBDIR_NAME_STR)) != 0) {
         return result;
     }
     if ((result=slice_binlog_set_binlog_indexes(0, 0)) != 0) {
@@ -568,9 +578,12 @@ static int parse_sn(string_t *line, volatile uint64_t *sn, bool *need_migrate)
     {
         string_t *s;
         char tmp[32];
+        int len;
 
         s = cols + SLICE_BINLOG_FIELD_INDEX_SN;
-        snprintf(tmp, sizeof(tmp), "%.*s", s->len, s->str);
+        len = (s->len < sizeof(tmp) ? s->len : (sizeof(tmp) - 1));
+        memcpy(tmp, s->str, len);
+        *(tmp + len) = '\0';
         *sn = strtoll(tmp, NULL, 10);
         *need_migrate = false;
         return 0;
@@ -603,7 +616,7 @@ static int get_last_sn(bool *migrate_flag)
     int result;
 
     if ((result=sf_binlog_writer_get_binlog_indexes(DATA_PATH_STR,
-                    FS_SLICE_BINLOG_SUBDIR_NAME, &start_index,
+                    FS_SLICE_BINLOG_SUBDIR_NAME_STR, &start_index,
                     &last_index)) != 0)
     {
         return result;
@@ -611,7 +624,7 @@ static int get_last_sn(bool *migrate_flag)
 
     line_count = 1;
     if ((result=sf_binlog_writer_get_last_lines(DATA_PATH_STR,
-                    FS_SLICE_BINLOG_SUBDIR_NAME, last_index, buff,
+                    FS_SLICE_BINLOG_SUBDIR_NAME_STR, last_index, buff,
                     sizeof(buff), &line_count, &line.len)) != 0)
     {
         return result;
@@ -639,7 +652,7 @@ static int get_last_sn(bool *migrate_flag)
     }
 
     //check the first line also
-    sf_binlog_writer_get_filename(DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME,
+    sf_binlog_writer_get_filename(DATA_PATH_STR, FS_SLICE_BINLOG_SUBDIR_NAME_STR,
             start_index, filename, sizeof(filename));
     if ((result=fc_get_first_line(filename, buff, sizeof(buff), &line)) != 0) {
         return result;
@@ -1174,7 +1187,7 @@ int slice_binlog_get_position_by_dv(const int data_group_id,
     binlog_index = last_index;
     while (binlog_index >= start_index) {
         sf_binlog_writer_get_filename(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, binlog_index,
                 filename, sizeof(filename));
         pos->index = binlog_index;
         pos->offset = 0;
@@ -1313,7 +1326,7 @@ int slice_binlog_get_position_by_sn(const uint64_t last_sn,
     binlog_index = last_index;
     while (binlog_index >= start_index) {
         sf_binlog_writer_get_filename(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, binlog_index,
                 filename, sizeof(filename));
         pos->index = binlog_index;
         pos->offset = 0;
@@ -1434,7 +1447,7 @@ int slice_binlog_load_records(const int data_group_id,
         return (result == ENOENT ? 0 : result);
     }
 
-    if ((result=binlog_reader_init(&reader, FS_SLICE_BINLOG_SUBDIR_NAME,
+    if ((result=binlog_reader_init(&reader, FS_SLICE_BINLOG_SUBDIR_NAME_STR,
                     slice_binlog_get_writer(), &pos)) != 0)
     {
         return result;

@@ -56,6 +56,7 @@ static int get_replica_last_timestamp(time_t *last_timestamp)
     int result;
     time_t timestamp;
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
+    char *p;
 
     if ((id_array=fs_cluster_cfg_get_my_data_group_ids(&CLUSTER_CONFIG_CTX,
                     CLUSTER_MYSELF_PTR->server->id)) == NULL)
@@ -65,8 +66,13 @@ static int get_replica_last_timestamp(time_t *last_timestamp)
 
     for (i=0; i<id_array->count; i++) {
         data_group_id = id_array->ids[i];
-        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id);
+        p = subdir_name;
+        memcpy(p, FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_REPLICA_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(data_group_id, p);
+        *p = '\0';
         last_index = replica_binlog_get_current_write_index(data_group_id);
         if ((result=get_last_timestamp(subdir_name,
                         last_index, &timestamp)) != 0)
@@ -90,7 +96,7 @@ static int binlog_check_get_last_timestamp(time_t *last_timestamp)
 
     *last_timestamp = 0;
     last_index = slice_binlog_get_current_write_index();
-    if ((result=get_last_timestamp(FS_SLICE_BINLOG_SUBDIR_NAME,
+    if ((result=get_last_timestamp(FS_SLICE_BINLOG_SUBDIR_NAME_STR,
                     last_index, &timestamp)) != 0)
     {
         return result;
@@ -321,11 +327,17 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
     char subdir_name[FS_BINLOG_SUBDIR_NAME_SIZE];
     ReplicaBinlogFilePosition *replica;
     ReplicaBinlogFilePosition *end;
+    char *p;
 
     end = ctx->positions.replicas + ctx->positions.dg_count;
     for (replica=ctx->positions.replicas; replica<end; replica++) {
-        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                replica->data_group_id);
+        p = subdir_name;
+        memcpy(p, FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_REPLICA_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(replica->data_group_id, p);
+        *p = '\0';
         if ((result=do_load_data_versions(subdir_name,
                         replica_binlog_get_writer(replica->data_group_id),
                         ctx->from_timestamp, &replica->position,
@@ -336,7 +348,7 @@ static int binlog_load_data_versions(BinlogConsistencyContext *ctx)
         }
     }
 
-    if ((result=do_load_data_versions(FS_SLICE_BINLOG_SUBDIR_NAME,
+    if ((result=do_load_data_versions(FS_SLICE_BINLOG_SUBDIR_NAME_STR,
                     slice_binlog_get_writer(), ctx->from_timestamp,
                     &ctx->positions.slice,
                     binlog_unpack_slice_common_fields,

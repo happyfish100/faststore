@@ -263,7 +263,7 @@ static int init_thread(DataRebuildThreadInfo *thread)
     int result;
     char subdir_name[64];
 
-    rebuild_binlog_get_subdir_name(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+    rebuild_binlog_get_subdir_name(REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR,
             thread->thread_index, subdir_name, sizeof(subdir_name));
     if ((result=marked_reader_init(&thread->reader,
                     subdir_name)) != 0)

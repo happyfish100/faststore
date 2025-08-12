@@ -45,15 +45,32 @@
 #define DATA_REBUILD_REDO_STAGE_REBUILDING      8
 #define DATA_REBUILD_REDO_STAGE_CLEANUP         9
 
-#define DATA_REBUILD_REDO_ITEM_CURRENT_STAGE   "current_stage"
-#define DATA_REBUILD_REDO_ITEM_BINLOG_COUNT    "binlog_file_count" //dump output
-#define DATA_REBUILD_REDO_ITEM_REBUILD_THREADS "rebuild_threads"
-#define DATA_REBUILD_REDO_ITEM_LAST_SN         "last_sn"
-#define DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR   "backup_subdir"
+#define REBUILD_REDO_ITEM_CURRENT_STAGE_STR   "current_stage"
+#define REBUILD_REDO_ITEM_CURRENT_STAGE_LEN   \
+    (sizeof(REBUILD_REDO_ITEM_CURRENT_STAGE_STR) - 1)
+
+#define REBUILD_REDO_ITEM_BINLOG_COUNT_STR    "binlog_file_count" //dump output
+#define REBUILD_REDO_ITEM_BINLOG_COUNT_LEN    \
+    (sizeof(REBUILD_REDO_ITEM_BINLOG_COUNT_STR) - 1)
+
+#define REBUILD_REDO_ITEM_REBUILD_THREADS_STR "rebuild_threads"
+#define REBUILD_REDO_ITEM_REBUILD_THREADS_LEN  \
+    (sizeof(REBUILD_REDO_ITEM_REBUILD_THREADS_STR) - 1)
+
+#define REBUILD_REDO_ITEM_LAST_SN_STR         "last_sn"
+#define REBUILD_REDO_ITEM_LAST_SN_LEN         \
+    (sizeof(REBUILD_REDO_ITEM_LAST_SN_STR) - 1)
+
+#define REBUILD_REDO_ITEM_BACKUP_SUBDIR_STR   "backup_subdir"
+#define REBUILD_REDO_ITEM_BACKUP_SUBDIR_LEN   \
+    (sizeof(REBUILD_REDO_ITEM_BACKUP_SUBDIR_STR) - 1)
 
 typedef struct data_rebuild_redo_context {
     char redo_filename[PATH_MAX];
-    char backup_subdir[NAME_MAX];
+    struct {
+        char str[NAME_MAX];
+        int len;
+    } backup_subdir;
     int current_stage;
     int binlog_file_count;  //slice binlog file count
     int rebuild_threads;
@@ -63,9 +80,14 @@ typedef struct data_rebuild_redo_context {
 static inline const char *get_trunk_dump_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s/trunk.dmp",
-            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+    //format: "%s/%s/%s/trunk.dmp"
+    fc_get_two_subdirs_full_filename_ex(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+            "trunk.dmp", 9, filename, size);
     return filename;
 }
 
@@ -74,27 +96,64 @@ static const char *get_slice_remove_filename(const int binlog_index,
 {
     char subdir_name[64];
 
-    snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
-            FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+    fc_combine_two_strings_ex(FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+            '/', subdir_name, sizeof(subdir_name));
     return sf_binlog_writer_get_filename(DATA_PATH_STR,
             subdir_name, binlog_index, filename, size);
 }
 
 static const char *get_slice_dump_filename(const int binlog_index,
-        char *filename, const int size)
+        char *full_filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s/slice-%03d.dmp",
-            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_DUMP, binlog_index);
-    return filename;
+    const int padding_len = 3;
+    char filename[32];
+    char *p;
+    int name_len;
+
+    p = filename;
+    *p++ = 's';
+    *p++ = 'l';
+    *p++ = 'i';
+    *p++ = 'c';
+    *p++ = 'e';
+    *p++ = '-';
+    p += fc_ltostr_ex(binlog_index, p, padding_len);
+    *p++ = '.';
+    *p++ = 'd';
+    *p++ = 'm';
+    *p++ = 'p';
+    *p = '\0';
+    name_len = p - filename;
+
+    fc_get_two_subdirs_full_filename_ex(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+            filename, name_len, full_filename, size);
+
+    return full_filename;
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.data_rebuild.flag",
-            DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME);
+#define DATA_REBUILD_FLAG_FILENAME_STR  ".data_rebuild.flag"
+#define DATA_REBUILD_FLAG_FILENAME_LEN  \
+    (sizeof(DATA_REBUILD_FLAG_FILENAME_STR) - 1)
+
+    //format: "%s/%s/.data_rebuild.flag",
+    fc_get_one_subdir_full_filename_ex(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            DATA_REBUILD_FLAG_FILENAME_STR,
+            DATA_REBUILD_FLAG_FILENAME_LEN,
+            filename, size);
     return filename;
 }
 
@@ -102,8 +161,12 @@ static inline int check_make_subdir(const char *subname)
 {
     char path[PATH_MAX];
 
-    snprintf(path, sizeof(path), "%s/%s/%s", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME, subname);
+    //format: "%s/%s/%s"
+    fc_get_two_subdirs_full_filepath(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            subname, strlen(subname), path);
     return fc_check_mkdir(path, 0755);
 }
 
@@ -112,17 +175,19 @@ static inline int check_make_subdirs()
     int result;
     char path[PATH_MAX];
 
-    snprintf(path, sizeof(path), "%s/%s", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME);
+    fc_get_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            path);
     if ((result=fc_check_mkdir(path, 0755)) != 0) {
         return result;
     }
 
-    if ((result=check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_DUMP)) != 0) {
+    if ((result=check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR)) != 0) {
         return result;
     }
 
-    if ((result=check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_REPLAY)) != 0) {
+    if ((result=check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR)) != 0) {
         return result;
     }
 
@@ -132,20 +197,48 @@ static inline int check_make_subdirs()
 static int write_to_redo_file(DataRebuildRedoContext *redo_ctx)
 {
     char buff[256];
+    char *p;
     int result;
-    int len;
 
-    len = sprintf(buff, "%s=%d\n"
-            "%s=%d\n"
-            "%s=%d\n"
-            "%s=%"PRId64"\n"
-            "%s=%s\n",
-            DATA_REBUILD_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
-            DATA_REBUILD_REDO_ITEM_BINLOG_COUNT, redo_ctx->binlog_file_count,
-            DATA_REBUILD_REDO_ITEM_REBUILD_THREADS, redo_ctx->rebuild_threads,
-            DATA_REBUILD_REDO_ITEM_LAST_SN, redo_ctx->last_sn,
-            DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR, redo_ctx->backup_subdir);
-    if ((result=safeWriteToFile(redo_ctx->redo_filename, buff, len)) != 0) {
+    p = buff;
+    memcpy(p, REBUILD_REDO_ITEM_CURRENT_STAGE_STR,
+            REBUILD_REDO_ITEM_CURRENT_STAGE_LEN);
+    p += REBUILD_REDO_ITEM_CURRENT_STAGE_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->current_stage, p);
+    *p++ = '\n';
+
+    memcpy(p, REBUILD_REDO_ITEM_BINLOG_COUNT_STR,
+            REBUILD_REDO_ITEM_BINLOG_COUNT_LEN);
+    p += REBUILD_REDO_ITEM_BINLOG_COUNT_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->binlog_file_count, p);
+    *p++ = '\n';
+
+    memcpy(p, REBUILD_REDO_ITEM_REBUILD_THREADS_STR,
+            REBUILD_REDO_ITEM_REBUILD_THREADS_LEN);
+    p += REBUILD_REDO_ITEM_REBUILD_THREADS_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->rebuild_threads, p);
+    *p++ = '\n';
+
+    memcpy(p, REBUILD_REDO_ITEM_LAST_SN_STR,
+            REBUILD_REDO_ITEM_LAST_SN_LEN);
+    p += REBUILD_REDO_ITEM_LAST_SN_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->last_sn, p);
+    *p++ = '\n';
+
+    memcpy(p, REBUILD_REDO_ITEM_BACKUP_SUBDIR_STR,
+            REBUILD_REDO_ITEM_BACKUP_SUBDIR_LEN);
+    p += REBUILD_REDO_ITEM_BACKUP_SUBDIR_LEN;
+    *p++ = '=';
+    memcpy(p, redo_ctx->backup_subdir.str, redo_ctx->backup_subdir.len);
+    p += redo_ctx->backup_subdir.len;
+    *p++ = '\n';
+    if ((result=safeWriteToFile(redo_ctx->redo_filename,
+                    buff, p - buff)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
                 __LINE__, redo_ctx->redo_filename, result, STRERROR(result));
@@ -170,26 +263,31 @@ static int load_from_redo_file(DataRebuildRedoContext *redo_ctx)
     }
 
     redo_ctx->current_stage = iniGetIntValue(NULL,
-            DATA_REBUILD_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            REBUILD_REDO_ITEM_CURRENT_STAGE_STR, &ini_context, 0);
     redo_ctx->binlog_file_count = iniGetIntValue(NULL,
-            DATA_REBUILD_REDO_ITEM_BINLOG_COUNT, &ini_context, 0);
+            REBUILD_REDO_ITEM_BINLOG_COUNT_STR, &ini_context, 0);
     redo_ctx->rebuild_threads = iniGetIntValue(NULL,
-            DATA_REBUILD_REDO_ITEM_REBUILD_THREADS, &ini_context, 0);
+            REBUILD_REDO_ITEM_REBUILD_THREADS_STR, &ini_context, 0);
     redo_ctx->last_sn = iniGetInt64Value(NULL,
-            DATA_REBUILD_REDO_ITEM_LAST_SN, &ini_context, 0);
+            REBUILD_REDO_ITEM_LAST_SN_STR, &ini_context, 0);
     backup_subdir = iniGetStrValue(NULL,
-            DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR,
+            REBUILD_REDO_ITEM_BACKUP_SUBDIR_STR,
             &ini_context);
     if (backup_subdir == NULL || *backup_subdir == '\0') {
         logError("file: "__FILE__", line: %d, "
                 "redo file: %s, item: %s not exist",
                 __LINE__, redo_ctx->redo_filename,
-                DATA_REBUILD_REDO_ITEM_BACKUP_SUBDIR);
+                REBUILD_REDO_ITEM_BACKUP_SUBDIR_STR);
         return ENOENT;
     }
-    snprintf(redo_ctx->backup_subdir,
-            sizeof(redo_ctx->backup_subdir),
-            "%s", backup_subdir);
+
+    redo_ctx->backup_subdir.len = strlen(backup_subdir);
+    if (redo_ctx->backup_subdir.len >= sizeof(redo_ctx->backup_subdir.str)) {
+        redo_ctx->backup_subdir.len = sizeof(redo_ctx->backup_subdir.str) - 1;
+    }
+    memcpy(redo_ctx->backup_subdir.str, backup_subdir,
+            redo_ctx->backup_subdir.len);
+    *(redo_ctx->backup_subdir.str + redo_ctx->backup_subdir.len) = '\0';
 
     iniFreeContext(&ini_context);
     return 0;
@@ -200,11 +298,11 @@ static inline int backup_to_path(const char *src_filename,
 {
     const bool overwritten = false;
     char dest_filename[PATH_MAX];
+    char *filename;
 
-    snprintf(dest_filename, sizeof(dest_filename), "%s%s",
-            dest_filepath, strrchr(src_filename, '/'));
-    return fc_check_rename_ex(src_filename,
-            dest_filename, overwritten);
+    filename = strrchr(src_filename, '/');
+    fc_combine_full_filename(dest_filepath, filename, dest_filename);
+    return fc_check_rename_ex(src_filename, dest_filename, overwritten);
 }
 
 static int backup_binlogs(DataRebuildRedoContext *redo_ctx,
@@ -212,17 +310,19 @@ static int backup_binlogs(DataRebuildRedoContext *redo_ctx,
 {
     int result;
     int binlog_index;
-    int len;
+    int path_len;
+    int backup_len;
     char binlog_filepath[PATH_MAX];
     char binlog_filename[PATH_MAX];
     char index_filename[PATH_MAX];
     char backup_filepath[PATH_MAX];
+    char *p;
 
     sf_binlog_writer_get_filepath(DATA_PATH_STR, subdir_name,
             binlog_filepath, sizeof(binlog_filepath));
-    len = strlen(binlog_filepath);
-    if (len + 2 + + REBUILD_BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
-                backup_subdir) >= sizeof(binlog_filepath))
+    path_len = strlen(binlog_filepath);
+    if (path_len + 2 + + REBUILD_BACKUP_SUBDIR_NAME_LEN + redo_ctx->
+            backup_subdir.len >= sizeof(binlog_filepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "%s backup path is too long",
@@ -230,13 +330,16 @@ static int backup_binlogs(DataRebuildRedoContext *redo_ctx,
         return ENAMETOOLONG;
     }
 
-    len = sprintf(backup_filepath, "%s/%s", binlog_filepath,
-            REBUILD_BACKUP_SUBDIR_NAME_STR);
+    backup_len = fc_combine_two_strings_ex(binlog_filepath, path_len,
+            REBUILD_BACKUP_SUBDIR_NAME_STR, REBUILD_BACKUP_SUBDIR_NAME_LEN,
+            '/', backup_filepath, sizeof(backup_filepath));
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
 
-    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
+    p = backup_filepath + backup_len;
+    *p++ = '/';
+    memcpy(p, redo_ctx->backup_subdir.str, redo_ctx->backup_subdir.len + 1);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
@@ -265,14 +368,14 @@ static inline int backup_trunk_binlogs(DataRebuildRedoContext *redo_ctx)
 {
     int last_index;
     last_index = da_trunk_binlog_get_current_write_index(&DA_CTX);
-    return backup_binlogs(redo_ctx, FS_TRUNK_BINLOG_SUBDIR_NAME, last_index);
+    return backup_binlogs(redo_ctx, FS_TRUNK_BINLOG_SUBDIR_NAME_STR, last_index);
 }
 
 static inline int backup_slice_binlogs(DataRebuildRedoContext *redo_ctx)
 {
     int last_index;
     last_index = slice_binlog_get_current_write_index();
-    return backup_binlogs(redo_ctx, FS_SLICE_BINLOG_SUBDIR_NAME, last_index);
+    return backup_binlogs(redo_ctx, FS_SLICE_BINLOG_SUBDIR_NAME_STR, last_index);
 }
 
 static int rename_trunk_binlogs(DataRebuildRedoContext *redo_ctx)
@@ -361,9 +464,12 @@ static int split_binlog(DataRebuildRedoContext *redo_ctx)
         return ENOMEM;
     }
 
-    snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
-            FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+    fc_combine_two_strings_ex(
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+            '/', subdir_name, sizeof(subdir_name));
     position.offset = 0;
     end = rda.readers + redo_ctx->binlog_file_count;
     for (reader=rda.readers; reader<end; reader++) {
@@ -414,12 +520,23 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
     int result;
 
     start_time = get_current_time_ms();
-    snprintf(input_path, sizeof(input_path), "%s/%s/%s", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME, redo_ctx->backup_subdir);
+
+    //format: "%s/%s/%s"
+    fc_get_two_subdirs_full_filepath(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            redo_ctx->backup_subdir.str,
+            redo_ctx->backup_subdir.len,
+            input_path);
     if (access(input_path, F_OK) != 0) {
-        snprintf(replay_path, sizeof(replay_path), "%s/%s/%s",
-                DATA_PATH_STR, FS_REBUILD_BINLOG_SUBDIR_NAME,
-                REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
+        fc_get_two_subdirs_full_filepath(
+                DATA_PATH_STR, DATA_PATH_LEN,
+                FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+                FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR,
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY_LEN,
+                replay_path);
         if (rename(replay_path, input_path) < 0) {
             result = (errno != 0 ? errno : EPERM);
             logError("file: "__FILE__", line: %d, "
@@ -428,7 +545,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
             return result;
         }
 
-        result = check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
+        result = check_make_subdir(REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR);
         if (result != 0) {
             return result;
         }
@@ -445,7 +562,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
     end = rda.readers + old_rebuild_threads;
     for (reader=rda.readers; reader<end; reader++) {
         thread_index = reader - rda.readers;
-        rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
+        rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir.str,
                 thread_index, subdir_name, sizeof(subdir_name));
         if ((result=marked_reader_init(reader, subdir_name)) != 0) {
             return result;
@@ -463,7 +580,7 @@ static int resplit_binlog(DataRebuildRedoContext *redo_ctx)
         }
 
         for (thread_index=0; thread_index<old_rebuild_threads; thread_index++) {
-            rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir,
+            rebuild_binlog_get_subdir_name(redo_ctx->backup_subdir.str,
                     thread_index, subdir_name, sizeof(subdir_name));
             if ((result=marked_reader_unlink_subdir(subdir_name)) != 0) {
                 return result;
@@ -492,15 +609,19 @@ static int unlink_dump_subdir(DataRebuildRedoContext *redo_ctx)
 {
     int result;
     int binlog_index;
+    int subdir_len;
     char subdir_name[64];
     char filepath[PATH_MAX];
     char filename[PATH_MAX];
 
-    snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
-            FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_DUMP);
-    snprintf(filepath, sizeof(filepath), "%s/%s",
-            DATA_PATH_STR, subdir_name);
+    subdir_len = fc_combine_two_strings_ex(
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+            '/', subdir_name, sizeof(subdir_name));
+    fc_get_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            subdir_name, subdir_len, filepath);
     if (access(filepath, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
@@ -659,9 +780,13 @@ int store_path_rebuild_redo_step2()
                         "during data path rebuild!", __LINE__);
                 return EINVAL;
             }
-            snprintf(subdir_name, sizeof(subdir_name), "%s/%s",
-                    FS_REBUILD_BINLOG_SUBDIR_NAME,
-                    REBUILD_BINLOG_SUBDIR_NAME_DUMP);
+
+            fc_combine_two_strings_ex(
+                    FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+                    FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+                    REBUILD_BINLOG_SUBDIR_NAME_DUMP_STR,
+                    REBUILD_BINLOG_SUBDIR_NAME_DUMP_LEN,
+                    '/', subdir_name, sizeof(subdir_name));
             if ((result=db_remove_slices(subdir_name, redo_ctx.
                             binlog_file_count)) != 0)
             {
@@ -696,7 +821,7 @@ int store_path_rebuild_redo_step2()
             }
             //continue next stage
         case DATA_REBUILD_REDO_STAGE_CLEANUP:
-            if ((result=rebuild_cleanup(REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+            if ((result=rebuild_cleanup(REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR,
                             DATA_REBUILD_THREADS)) != 0)
             {
                 return result;
@@ -723,10 +848,14 @@ int store_path_rebuild_redo_step2()
         return result;
     }
 
-    snprintf(filepath, sizeof(filepath),
-            "%s/%s/%s", DATA_PATH_STR,
-            FS_REBUILD_BINLOG_SUBDIR_NAME,
-            REBUILD_BINLOG_SUBDIR_NAME_REPLAY);
+    //format: "%s/%s/%s"
+    fc_get_two_subdirs_full_filepath(
+            DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+            FS_REBUILD_BINLOG_SUBDIR_NAME_LEN,
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR,
+            REBUILD_BINLOG_SUBDIR_NAME_REPLAY_LEN,
+            filepath);
     return fs_rmdir(filepath);
 }
 
@@ -788,7 +917,9 @@ int store_path_rebuild_dump_data(const int64_t total_slice_count)
 
     current_time = g_current_time;
     localtime_r(&current_time, &tm_current);
-    strftime(redo_ctx.backup_subdir, sizeof(redo_ctx.backup_subdir),
+    redo_ctx.backup_subdir.len = strftime(
+            redo_ctx.backup_subdir.str,
+            sizeof(redo_ctx.backup_subdir.str),
             "%Y%m%d%H%M%S", &tm_current);
 
     if ((result=dump_trunk_binlog()) != 0) {

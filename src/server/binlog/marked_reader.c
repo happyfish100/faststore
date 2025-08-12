@@ -24,16 +24,23 @@
 #include "../server_global.h"
 #include "marked_reader.h"
 
-#define BINLOG_POSITION_FILENAME  "position.mark"
+#define BINLOG_POSITION_FILENAME_STR  "position.mark"
+#define BINLOG_POSITION_FILENAME_LEN  (sizeof(BINLOG_POSITION_FILENAME_STR) - 1)
 
-#define BINLOG_POSITION_ITEM_NAME_INDEX   "index"
-#define BINLOG_POSITION_ITEM_NAME_OFFSET  "offset"
+#define BINLOG_POSITION_ITEM_NAME_INDEX_STR   "index"
+#define BINLOG_POSITION_ITEM_NAME_INDEX_LEN   \
+    (sizeof(BINLOG_POSITION_ITEM_NAME_INDEX_STR) - 1)
+
+#define BINLOG_POSITION_ITEM_NAME_OFFSET_STR  "offset"
+#define BINLOG_POSITION_ITEM_NAME_OFFSET_LEN  \
+    (sizeof(BINLOG_POSITION_ITEM_NAME_OFFSET_STR) - 1)
 
 static const char *get_position_filename(const char *subdir_name,
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/%s", DATA_PATH_STR,
-            subdir_name, BINLOG_POSITION_FILENAME);
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            subdir_name, strlen(subdir_name), BINLOG_POSITION_FILENAME_STR,
+            BINLOG_POSITION_FILENAME_LEN, filename, size);
     return filename;
 }
 
@@ -41,16 +48,26 @@ int marked_reader_save_position(ServerBinlogReader *reader)
 {
     char filename[PATH_MAX];
     char buff[256];
+    char *p;
     int result;
-    int len;
 
-    get_position_filename(reader->subdir_name,
-            filename, sizeof(filename));
-    len = sprintf(buff, "%s=%d\n"
-            "%s=%"PRId64"\n",
-            BINLOG_POSITION_ITEM_NAME_INDEX, reader->position.index,
-            BINLOG_POSITION_ITEM_NAME_OFFSET, reader->position.offset);
-    if ((result=safeWriteToFile(filename, buff, len)) != 0) {
+    p = buff;
+    memcpy(p, BINLOG_POSITION_ITEM_NAME_INDEX_STR,
+            BINLOG_POSITION_ITEM_NAME_INDEX_LEN);
+    p += BINLOG_POSITION_ITEM_NAME_INDEX_LEN;
+    *p++ = '=';
+    p += fc_itoa(reader->position.index, p);
+    *p++ = '\n';
+
+    memcpy(p, BINLOG_POSITION_ITEM_NAME_OFFSET_STR,
+            BINLOG_POSITION_ITEM_NAME_OFFSET_LEN);
+    p += BINLOG_POSITION_ITEM_NAME_OFFSET_LEN;
+    *p++ = '=';
+    p += fc_itoa(reader->position.offset, p);
+    *p++ = '\n';
+
+    get_position_filename(reader->subdir_name, filename, sizeof(filename));
+    if ((result=safeWriteToFile(filename, buff, p - buff)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
                 __LINE__, filename, result, STRERROR(result));
@@ -89,10 +106,10 @@ static int get_position_from_file(const char *subdir_name,
     }
 
     position->index = iniGetIntValue(NULL,
-            BINLOG_POSITION_ITEM_NAME_INDEX,
+            BINLOG_POSITION_ITEM_NAME_INDEX_STR,
             &ini_context, 0);
     position->offset = iniGetInt64Value(NULL,
-            BINLOG_POSITION_ITEM_NAME_OFFSET,
+            BINLOG_POSITION_ITEM_NAME_OFFSET_STR,
             &ini_context, 0);
 
     iniFreeContext(&ini_context);

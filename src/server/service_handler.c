@@ -149,6 +149,7 @@ static int service_deal_service_stat(struct fast_task_info *task)
     FSClusterDataGroupInfo *group;
     FSProtoServiceStatReq *req;
     FSProtoServiceStatResp *stat_resp;
+    char *p;
 
     if ((result=server_expect_body_length(sizeof(
                         FSProtoServiceStatReq))) != 0)
@@ -208,9 +209,15 @@ static int service_deal_service_stat(struct fast_task_info *task)
 
     int2buff(SF_G_UP_TIME, stat_resp->up_time);
     int2buff(CLUSTER_MYSELF_PTR->server->id, stat_resp->server_id);
-    stat_resp->version.len = sprintf(stat_resp->version.str, "%d.%d.%d",
-            g_fs_global_vars.version.major, g_fs_global_vars.version.minor,
-            g_fs_global_vars.version.patch);
+
+    p = stat_resp->version.str;
+    p += fc_itoa(g_fs_global_vars.version.major, p);
+    *p++ = '.';
+    p += fc_itoa(g_fs_global_vars.version.minor, p);
+    *p++ = '.';
+    p += fc_itoa(g_fs_global_vars.version.patch, p);
+    *p = '\0';
+    stat_resp->version.len = p - stat_resp->version.str;
 
     int2buff(SF_G_CONN_CURRENT_COUNT, stat_resp->connection.current_count);
     int2buff(SF_G_CONN_MAX_COUNT, stat_resp->connection.max_count);

@@ -44,9 +44,26 @@ extern "C" {
     static inline char *rebuild_binlog_get_subdir_name(const char *name,
             const int tindex, char *subdir_name, const int size)
     {
-        snprintf(subdir_name, size, "%s/%s/%d",
-                FS_REBUILD_BINLOG_SUBDIR_NAME,
-                name, tindex + 1);
+        char *p;
+        int name_len;
+
+        name_len = strlen(name);
+        if (FS_REBUILD_BINLOG_SUBDIR_NAME_LEN + name_len + 12 > size) {
+            snprintf(subdir_name, size, "%s/%s/%d",
+                    FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+                    name, tindex + 1);
+        } else {
+            p = subdir_name;
+            memcpy(p, FS_REBUILD_BINLOG_SUBDIR_NAME_STR,
+                    FS_REBUILD_BINLOG_SUBDIR_NAME_LEN);
+            p += FS_REBUILD_BINLOG_SUBDIR_NAME_LEN;
+            *p++ = '/';
+            memcpy(p, name, name_len);
+            p += name_len;
+            *p++ = '/';
+            p += fc_itoa(tindex + 1, p);
+            *p = '\0';
+        }
         return subdir_name;
     }
 
@@ -54,9 +71,21 @@ extern "C" {
             const char op_type, const FSBlockKey *bkey,
             const FSSliceSize *ssize, char *buff)
     {
-        return sprintf(buff, "%c %"PRId64" %"PRId64" %d %d\n",
-                op_type, bkey->oid, bkey->offset,
-                ssize->offset, ssize->length);
+        char *p;
+
+        p = buff;
+        *p++ = op_type;
+        *p++ = ' ';
+        p += fc_itoa(bkey->oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bkey->offset, p);
+        *p++ = ' ';
+        p += fc_itoa(ssize->offset, p);
+        *p++ = ' ';
+        p += fc_itoa(ssize->length, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     int rebuild_binlog_record_unpack(const string_t *line,

@@ -19,10 +19,17 @@
 #include "../binlog/slice_binlog.h"
 #include "slice_space_log.h"
 
-#define FIELD_TMP_FILENAME  ".slice.tmp"
-#define FIELD_REDO_FILENAME  "slice.redo"
-#define SPACE_TMP_FILENAME  ".space.tmp"
-#define SPACE_REDO_FILENAME  "space.redo"
+#define SLICE_TMP_FILENAME_STR  ".slice.tmp"
+#define SLICE_TMP_FILENAME_LEN  (sizeof(SLICE_TMP_FILENAME_STR) - 1)
+
+#define SLICE_REDO_FILENAME_STR  "slice.redo"
+#define SLICE_REDO_FILENAME_LEN  (sizeof(SLICE_REDO_FILENAME_STR) - 1)
+
+#define SPACE_TMP_FILENAME_STR  ".space.tmp"
+#define SPACE_TMP_FILENAME_LEN  (sizeof(SPACE_TMP_FILENAME_STR) - 1)
+
+#define SPACE_REDO_FILENAME_STR  "space.redo"
+#define SPACE_REDO_FILENAME_LEN  (sizeof(SPACE_REDO_FILENAME_STR) - 1)
 
 typedef struct {
     SFBinlogWriterBuffer *head;
@@ -547,28 +554,36 @@ static int slice_space_log_redo()
 {
     int result;
     char space_tmp_filename[PATH_MAX];
-    char field_tmp_filename[PATH_MAX];
+    char slice_tmp_filename[PATH_MAX];
     char space_log_filename[PATH_MAX];
     char slice_log_filename[PATH_MAX];
 
-    snprintf(space_tmp_filename, sizeof(space_tmp_filename),
-            "%s/%s", DATA_PATH_STR, SPACE_TMP_FILENAME);
-    snprintf(field_tmp_filename, sizeof(field_tmp_filename),
-            "%s/%s", DATA_PATH_STR, FIELD_TMP_FILENAME);
-    snprintf(space_log_filename, sizeof(space_log_filename),
-            "%s/%s", DATA_PATH_STR, SPACE_REDO_FILENAME);
-    snprintf(slice_log_filename, sizeof(slice_log_filename),
-            "%s/%s", DATA_PATH_STR, FIELD_REDO_FILENAME);
+    fc_get_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            SPACE_TMP_FILENAME_STR, SPACE_TMP_FILENAME_LEN,
+            space_tmp_filename);
+
+    fc_get_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            SLICE_TMP_FILENAME_STR, SLICE_TMP_FILENAME_LEN,
+            slice_tmp_filename);
+
+    fc_get_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            SPACE_REDO_FILENAME_STR, SPACE_REDO_FILENAME_LEN,
+            space_log_filename);
+
+    fc_get_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            SLICE_REDO_FILENAME_STR, SLICE_REDO_FILENAME_LEN,
+            slice_log_filename);
+
     if (access(space_tmp_filename, F_OK) != 0 &&
-            access(field_tmp_filename, F_OK) == 0)
+            access(slice_tmp_filename, F_OK) == 0)
     {
         /* compensate for two phases renames */
-        if (rename(field_tmp_filename, slice_log_filename) != 0) {
+        if (rename(slice_tmp_filename, slice_log_filename) != 0) {
             result = errno != 0 ? errno : EIO;
             logError("file: "__FILE__", line: %d, "
                     "rename file \"%s\" to \"%s\" fail, "
                     "errno: %d, error info: %s", __LINE__,
-                    field_tmp_filename, slice_log_filename,
+                    slice_tmp_filename, slice_log_filename,
                     result, STRERROR(result));
             return result;
         }
@@ -602,15 +617,15 @@ int slice_space_log_init()
     pthread_t tid;
 
     if ((result=init_file_buffer_pair(&SLICE_SPACE_LOG_CTX.
-                    slice_redo, DATA_PATH_STR, FIELD_REDO_FILENAME,
-                    FIELD_TMP_FILENAME)) != 0)
+                    slice_redo, DATA_PATH_STR, SLICE_REDO_FILENAME_STR,
+                    SLICE_TMP_FILENAME_STR)) != 0)
     {
         return result;
     }
 
     if ((result=init_file_buffer_pair(&SLICE_SPACE_LOG_CTX.
-                    space_redo, DATA_PATH_STR, SPACE_REDO_FILENAME,
-                    SPACE_TMP_FILENAME)) != 0)
+                    space_redo, DATA_PATH_STR, SPACE_REDO_FILENAME_STR,
+                    SPACE_TMP_FILENAME_STR)) != 0)
     {
         return result;
     }

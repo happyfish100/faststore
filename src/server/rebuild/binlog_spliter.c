@@ -262,7 +262,7 @@ static int init_binlog_writers(BinlogSpliterContext *ctx,
         rctx->data_version = 0;
         thread_index = rctx - ctx->wctx_array.contexts;
         rebuild_binlog_get_subdir_name(
-                REBUILD_BINLOG_SUBDIR_NAME_REPLAY,
+                REBUILD_BINLOG_SUBDIR_NAME_REPLAY_STR,
                 thread_index, subdir_name, sizeof(subdir_name));
         if ((result=check_unlink_subdir(subdir_name)) != 0) {
             return result;

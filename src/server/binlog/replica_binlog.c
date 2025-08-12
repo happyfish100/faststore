@@ -261,17 +261,21 @@ int replica_binlog_writer_change_write_index(const int data_group_id,
 
 static inline const char *replica_binlog_get_mark_filename(
         const int data_group_id, const int slave_id,
-        char *filename, const int size)
+        char *full_filename, const int size)
 {
-    char subdir_name[64];
-    char filepath[PATH_MAX];
+#define REPLICA_DUMP_MARK_FILENAME_STR  ".dump.mark"
+#define REPLICA_DUMP_MARK_FILENAME_LEN  \
+    (sizeof(REPLICA_DUMP_MARK_FILENAME_STR) - 1)
 
-    replica_binlog_get_dump_subdir_name(subdir_name,
-            data_group_id, slave_id);
-    sf_binlog_writer_get_filepath(DATA_PATH_STR,
-            subdir_name, filepath, sizeof(filepath));
-    snprintf(filename, size, "%s/.dump.mark", filepath);
-    return filename;
+    char subdir_name[64];
+    int subdir_len;
+
+    subdir_len = replica_binlog_get_dump_subdir_name(
+            subdir_name, data_group_id, slave_id);
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            subdir_name, subdir_len, REPLICA_DUMP_MARK_FILENAME_STR,
+            REPLICA_DUMP_MARK_FILENAME_LEN, full_filename, size);
+    return full_filename;
 }
 
 static int replica_binlog_delete_mark_filenames(const int data_group_id)
@@ -312,8 +316,10 @@ int replica_binlog_init()
     int i;
     bool create;
 
-    snprintf(filepath, sizeof(filepath), "%s/%s",
-            DATA_PATH_STR, FS_REPLICA_BINLOG_SUBDIR_NAME);
+    fc_get_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+            FS_REPLICA_BINLOG_SUBDIR_NAME_LEN,
+            filepath);
     if ((result=fc_check_mkdir_ex(filepath, 0775, &create)) != 0) {
         return result;
     }
@@ -1117,7 +1123,7 @@ static int replica_binlog_dump(const int data_group_id,
 
     replica_binlog_get_dump_filename(data_group_id, slave_id,
             dump_filename, sizeof(dump_filename));
-    snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", dump_filename);
+    fc_combine_two_strings(dump_filename, "tmp", '.', tmp_filename);
     if ((result=ob_index_dump_replica_binlog_to_file(data_group_id,
                     current_data_version, tmp_filename, &total_slice_count,
                     &total_replica_count)) != 0)

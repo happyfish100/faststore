@@ -350,12 +350,19 @@ static int unpack_one_block(SFSerializerIterator *it,
         FSDBUpdaterContext *ctx, BufferInfo *buffer,
         const int rowno)
 {
+#define  CAPTION_PREFIX_STR  "block #"
+#define  CAPTION_PREFIX_LEN  (sizeof(CAPTION_PREFIX_STR) - 1)
     int result;
     char caption[32];
+    char *p;
     FSDBUpdateBlockInfo *entry;
     const SFSerializerFieldValue *fv;
 
-    sprintf(caption, "block #%d", rowno);
+    p = caption;
+    memcpy(p, CAPTION_PREFIX_STR, CAPTION_PREFIX_LEN);
+    p += CAPTION_PREFIX_LEN;
+    p += fc_itoa(rowno, p);
+    *p = '\0';
     if ((result=unpack_from_file(it, caption, buffer)) != 0) {
         return result;
     }

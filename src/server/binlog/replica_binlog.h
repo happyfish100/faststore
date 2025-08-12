@@ -49,8 +49,15 @@ extern "C" {
     static inline void replica_binlog_get_subdir_name(
             char *subdir_name, const int data_group_id)
     {
-        sprintf(subdir_name, "%s/%d", FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id);
+        char *p;
+
+        p = subdir_name;
+        memcpy(p, FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_REPLICA_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(data_group_id, p);
+        *p = '\0';
     }
 
     static inline SFBinlogWriterInfo *replica_binlog_get_writer(
@@ -85,7 +92,7 @@ extern "C" {
             char *filepath, const int size)
     {
         return sf_binlog_writer_get_filepath(DATA_PATH_STR,
-                FS_REPLICA_BINLOG_SUBDIR_NAME, filepath, size);
+                FS_REPLICA_BINLOG_SUBDIR_NAME_STR, filepath, size);
     }
 
     static inline int replica_binlog_get_file_size(const int data_group_id,
@@ -228,10 +235,27 @@ extern "C" {
             const FSBlockSliceKeyInfo *bs_key, const int source,
             const int op_type, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64" %d %d\n", (int64_t)current_time, data_version,
-                source, op_type, bs_key->block.oid, bs_key->block.offset,
-                bs_key->slice.offset, bs_key->slice.length);
+        char *p;
+
+        p = buff;
+        p += fc_itoa((int64_t)current_time, p);
+        *p++ = ' ';
+        p += fc_itoa(data_version, p);
+        *p++ = ' ';
+        *p++ = source;
+        *p++ = ' ';
+        *p++ = op_type;
+        *p++ = ' ';
+        p += fc_itoa(bs_key->block.oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->block.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->slice.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->slice.length, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     static inline int replica_binlog_log_block_to_buff(const time_t
@@ -239,9 +263,23 @@ extern "C" {
             const FSBlockKey *bkey, const int source,
             const int op_type, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64"\n", (int64_t)current_time, data_version,
-                source, op_type, bkey->oid, bkey->offset);
+        char *p;
+
+        p = buff;
+        p += fc_itoa((int64_t)current_time, p);
+        *p++ = ' ';
+        p += fc_itoa(data_version, p);
+        *p++ = ' ';
+        *p++ = source;
+        *p++ = ' ';
+        *p++ = op_type;
+        *p++ = ' ';
+        p += fc_itoa(bkey->oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bkey->offset, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     int replica_binlog_log_slice(const time_t current_time,
@@ -326,12 +364,25 @@ extern "C" {
     void replica_binlog_writer_stat(const int data_group_id,
             FSBinlogWriterStat *stat);
 
-    static inline void replica_binlog_get_dump_subdir_name(char *subdir_name,
+    static inline int replica_binlog_get_dump_subdir_name(char *subdir_name,
             const int data_group_id, const int slave_id)
     {
-        sprintf(subdir_name, "%s/%d/dump%d",
-                FS_REPLICA_BINLOG_SUBDIR_NAME,
-                data_group_id, slave_id);
+        char *p;
+
+        p = subdir_name;
+        memcpy(p, FS_REPLICA_BINLOG_SUBDIR_NAME_STR,
+                FS_REPLICA_BINLOG_SUBDIR_NAME_LEN);
+        p += FS_REPLICA_BINLOG_SUBDIR_NAME_LEN;
+        *p++ = '/';
+        p += fc_itoa(data_group_id, p);
+        *p++ = '/';
+        *p++ = 'd';
+        *p++ = 'u';
+        *p++ = 'm';
+        *p++ = 'p';
+        p += fc_itoa(slave_id, p);
+        *p = '\0';
+        return p - subdir_name;
     }
 
     static inline const char *replica_binlog_get_dump_filename(

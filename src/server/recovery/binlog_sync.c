@@ -187,7 +187,7 @@ static int proto_sync_binlog(ConnectionInfo *conn, DataRecoveryContext *ctx,
     sync_ctx = (BinlogSyncContext *)ctx->arg;
     replica_binlog_get_filename(ctx->ds->dg->id, binlog_index,
             full_filename, sizeof(full_filename));
-    snprintf(tmp_filename, sizeof(tmp_filename), "%s.tmp", full_filename);
+    fc_combine_two_strings(full_filename, "tmp", '.', tmp_filename);
     if ((sync_ctx->fd=open(tmp_filename, O_WRONLY |
                     O_CREAT | O_TRUNC, 0644)) < 0)
     {

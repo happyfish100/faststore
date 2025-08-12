@@ -105,7 +105,7 @@ typedef struct slice_loader_context {
 
 #define SLICE_GET_FILENAME_LINE_COUNT(r, binlog_filename, \
         line_str, line_count) \
-        BINLOG_GET_FILENAME_LINE_COUNT(r, FS_SLICE_BINLOG_SUBDIR_NAME, \
+        BINLOG_GET_FILENAME_LINE_COUNT(r, FS_SLICE_BINLOG_SUBDIR_NAME_STR, \
         binlog_filename, line_str, line_count)
 
 #define SLICE_ADD_TO_CHAIN(thread_ctx, record) \
@@ -263,7 +263,7 @@ static int slice_parse_buffer(BinlogLoaderContext *ctx)
 #define SLICE_LOADER_GET_FILENAME_LINE_COUNT(position, \
         binlog_filename, line_count) \
     do { \
-        binlog_reader_get_filename(FS_SLICE_BINLOG_SUBDIR_NAME, \
+        binlog_reader_get_filename(FS_SLICE_BINLOG_SUBDIR_NAME_STR, \
                 position.index, binlog_filename, sizeof(binlog_filename)); \
         fc_get_file_line_count_ex(binlog_filename, \
                 position.offset, &line_count); \
@@ -900,7 +900,7 @@ int slice_loader_load(struct sf_binlog_writer_info *slice_writer)
         position.index = sf_binlog_get_start_index(slice_writer);
         position.offset = 0;
     }
-    result = binlog_loader_load1(FS_SLICE_BINLOG_SUBDIR_NAME, slice_writer,
+    result = binlog_loader_load1(FS_SLICE_BINLOG_SUBDIR_NAME_STR, slice_writer,
             &position, &callbacks, (ctx.parse_thread_array.count +
                 ctx.data_thread_array.count) * 2);
     SLICE_LOAD_LAST_SN = SLICE_BINLOG_SN;

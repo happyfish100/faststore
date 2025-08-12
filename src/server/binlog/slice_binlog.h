@@ -135,14 +135,14 @@ extern "C" {
             char *filepath, const int size)
     {
         return sf_binlog_writer_get_filepath(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, filepath, size);
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, filepath, size);
     }
 
     static inline const char *slice_binlog_get_filename(const
             int binlog_index, char *filename, const int size)
     {
         return sf_binlog_writer_get_filename(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, binlog_index,
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, binlog_index,
                 filename, size);
     }
 
@@ -150,7 +150,7 @@ extern "C" {
             char *filename, const int size)
     {
         return sf_binlog_writer_get_index_filename(DATA_PATH_STR,
-                FS_SLICE_BINLOG_SUBDIR_NAME, filename, size);
+                FS_SLICE_BINLOG_SUBDIR_NAME_STR, filename, size);
     }
 
     static inline int slice_binlog_log_add_slice_to_buff1(
@@ -159,17 +159,41 @@ extern "C" {
             const time_t current_time, const uint64_t sn,
             const uint64_t data_version, const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64" %d %d %d %"PRId64" %u %u %u\n",
-                (int64_t)current_time, sn, data_version, source,
-                slice_type == DA_SLICE_TYPE_ALLOC ?
+        char *p;
+
+        p = buff;
+        p += fc_itoa((int64_t)current_time, p);
+        *p++ = ' ';
+        p += fc_itoa(sn, p);
+        *p++ = ' ';
+        p += fc_itoa(data_version, p);
+        *p++ = ' ';
+        *p++ = source;
+        *p++ = ' ';
+        *p++ = slice_type == DA_SLICE_TYPE_ALLOC ?
                 BINLOG_OP_TYPE_ALLOC_SLICE :
-                BINLOG_OP_TYPE_WRITE_SLICE,
-                bkey->oid, bkey->offset,
-                ssize->offset, ssize->length,
-                space->store->index, space->id_info.id,
-                space->id_info.subdir, space->offset,
-                space->size);
+                BINLOG_OP_TYPE_WRITE_SLICE;
+        *p++ = ' ';
+        p += fc_itoa(bkey->oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bkey->offset, p);
+        *p++ = ' ';
+        p += fc_itoa(ssize->offset, p);
+        *p++ = ' ';
+        p += fc_itoa(ssize->length, p);
+        *p++ = ' ';
+        p += fc_itoa(space->store->index, p);
+        *p++ = ' ';
+        p += fc_itoa(space->id_info.id, p);
+        *p++ = ' ';
+        p += fc_itoa(space->id_info.subdir, p);
+        *p++ = ' ';
+        p += fc_itoa(space->offset, p);
+        *p++ = ' ';
+        p += fc_itoa(space->size, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     static inline int slice_binlog_log_add_slice_to_buff_ex(
@@ -187,9 +211,25 @@ extern "C" {
             const char op_type, const int64_t sn, const uint64_t
             data_version, const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c %"PRId64" "
-                "%"PRId64"\n", (int64_t)current_time, sn, data_version,
-                source, op_type, bkey->oid, bkey->offset);
+        char *p;
+
+        p = buff;
+        p += fc_itoa((int64_t)current_time, p);
+        *p++ = ' ';
+        p += fc_itoa(sn, p);
+        *p++ = ' ';
+        p += fc_itoa(data_version, p);
+        *p++ = ' ';
+        *p++ = source;
+        *p++ = ' ';
+        *p++ = op_type;
+        *p++ = ' ';
+        p += fc_itoa(bkey->oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bkey->offset, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     static inline int slice_binlog_log_del_block_to_buff(
@@ -215,11 +255,29 @@ extern "C" {
             const uint64_t sn, const uint64_t data_version,
             const int source, char *buff)
     {
-        return sprintf(buff, "%"PRId64" %"PRId64" %"PRId64" %c %c "
-                "%"PRId64" %"PRId64" %d %d\n", (int64_t)current_time, sn,
-                data_version, source, BINLOG_OP_TYPE_DEL_SLICE,
-                bs_key->block.oid, bs_key->block.offset,
-                bs_key->slice.offset, bs_key->slice.length);
+        char *p;
+
+        p = buff;
+        p += fc_itoa((int64_t)current_time, p);
+        *p++ = ' ';
+        p += fc_itoa(sn, p);
+        *p++ = ' ';
+        p += fc_itoa(data_version, p);
+        *p++ = ' ';
+        *p++ = source;
+        *p++ = ' ';
+        *p++ = BINLOG_OP_TYPE_DEL_SLICE;
+        *p++ = ' ';
+        p += fc_itoa(bs_key->block.oid, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->block.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->slice.offset, p);
+        *p++ = ' ';
+        p += fc_itoa(bs_key->slice.length, p);
+        *p++ = '\n';
+        *p = '\0';
+        return p - buff;
     }
 
     int slice_binlog_padding_ex(const int row_count,

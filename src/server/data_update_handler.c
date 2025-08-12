@@ -996,8 +996,7 @@ int du_handler_deal_get_readable_server(struct fast_task_info *task,
                 group_addrs[group_index].address_array), task->client_ip);
 
     int2buff(ds->cs->server->id, resp->server_id);
-    snprintf(resp->ip_addr, sizeof(resp->ip_addr), "%s",
-            addr->conn.ip_addr);
+    fc_safe_strcpy(resp->ip_addr, addr->conn.ip_addr);
     short2buff(addr->conn.port, resp->port);
 
     RESPONSE.header.body_len = sizeof(FSProtoGetServerResp);

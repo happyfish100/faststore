@@ -50,37 +50,78 @@ typedef struct slice_space_migrate_context {
 #define BINLOG_REDO_STAGE_SPACE_LOG      2
 #define BINLOG_REDO_STAGE_CLEANUP        3
 
-#define BINLOG_REDO_ITEM_LAST_SN        "last_sn"
-#define BINLOG_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define BINLOG_REDO_ITEM_WHICH_SUBDIR   "which_subdir"
-#define BINLOG_REDO_ITEM_BINLOG_INDEX   "binlog_index"
-#define BINLOG_REDO_ITEM_OP_TYPE        "op_type"
+#define BINLOG_REDO_ITEM_LAST_SN_STR  "last_sn"
+#define BINLOG_REDO_ITEM_LAST_SN_LEN  (sizeof(BINLOG_REDO_ITEM_LAST_SN_STR) - 1)
+
+#define BINLOG_REDO_ITEM_CURRENT_STAGE_STR  "current_stage"
+#define BINLOG_REDO_ITEM_CURRENT_STAGE_LEN  \
+    (sizeof(BINLOG_REDO_ITEM_CURRENT_STAGE_STR) - 1)
+
+#define BINLOG_REDO_ITEM_WHICH_SUBDIR_STR   "which_subdir"
+#define BINLOG_REDO_ITEM_WHICH_SUBDIR_LEN   \
+    (sizeof(BINLOG_REDO_ITEM_WHICH_SUBDIR_STR) - 1)
+
+#define BINLOG_REDO_ITEM_BINLOG_INDEX_STR   "binlog_index"
+#define BINLOG_REDO_ITEM_BINLOG_INDEX_LEN   \
+    (sizeof(BINLOG_REDO_ITEM_BINLOG_INDEX_STR) - 1)
+
+#define BINLOG_REDO_ITEM_OP_TYPE_STR "op_type"
+#define BINLOG_REDO_ITEM_OP_TYPE_LEN (sizeof(BINLOG_REDO_ITEM_OP_TYPE_STR) - 1)
 
 static inline const char *get_slice_space_migrate_mark_filename(
         TrunkMigrateContext *ctx)
 {
-    snprintf(ctx->mark_filename, sizeof(ctx->mark_filename),
-            "%s/%s/.migrate.flag", DATA_PATH_STR, ctx->subdir_name);
+#define MIGRATE_FLAG_FILENAME_STR  ".migrate.flag"
+#define MIGRATE_FLAG_FILENAME_LEN (sizeof(MIGRATE_FLAG_FILENAME_STR) - 1)
+
+    fc_get_one_subdir_full_filename(DATA_PATH_STR, DATA_PATH_LEN,
+            ctx->subdir_name, strlen(ctx->subdir_name),
+            MIGRATE_FLAG_FILENAME_STR, MIGRATE_FLAG_FILENAME_LEN,
+            ctx->mark_filename);
     return ctx->mark_filename;
 }
 
 static int write_to_mark_file(TrunkMigrateContext *ctx)
 {
     char buff[256];
+    char *p;
     int result;
-    int len;
 
-    len = sprintf(buff, "%s=%"PRId64"\n"
-            "%s=%d\n"
-            "%s=%c\n"
-            "%s=%d\n"
-            "%s=%c\n",
-            BINLOG_REDO_ITEM_LAST_SN, ctx->last_sn,
-            BINLOG_REDO_ITEM_CURRENT_STAGE, ctx->current_stage,
-            BINLOG_REDO_ITEM_WHICH_SUBDIR, ctx->slice_binlog.which_subdir,
-            BINLOG_REDO_ITEM_BINLOG_INDEX, ctx->slice_binlog.index,
-            BINLOG_REDO_ITEM_OP_TYPE, ctx->op_type);
-    if ((result=safeWriteToFile(ctx->mark_filename, buff, len)) != 0) {
+    p = buff;
+    memcpy(p, BINLOG_REDO_ITEM_LAST_SN_STR, BINLOG_REDO_ITEM_LAST_SN_LEN);
+    p += BINLOG_REDO_ITEM_LAST_SN_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->last_sn, p);
+    *p++ = '\n';
+
+    memcpy(p, BINLOG_REDO_ITEM_CURRENT_STAGE_STR,
+            BINLOG_REDO_ITEM_CURRENT_STAGE_LEN);
+    p += BINLOG_REDO_ITEM_CURRENT_STAGE_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->current_stage, p);
+    *p++ = '\n';
+
+    memcpy(p, BINLOG_REDO_ITEM_WHICH_SUBDIR_STR,
+            BINLOG_REDO_ITEM_WHICH_SUBDIR_LEN);
+    p += BINLOG_REDO_ITEM_WHICH_SUBDIR_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->slice_binlog.which_subdir, p);
+    *p++ = '\n';
+
+    memcpy(p, BINLOG_REDO_ITEM_BINLOG_INDEX_STR,
+            BINLOG_REDO_ITEM_BINLOG_INDEX_LEN);
+    p += BINLOG_REDO_ITEM_BINLOG_INDEX_LEN;
+    *p++ = '=';
+    p += fc_itoa(ctx->slice_binlog.index, p);
+    *p++ = '\n';
+
+    memcpy(p, BINLOG_REDO_ITEM_OP_TYPE_STR, BINLOG_REDO_ITEM_OP_TYPE_LEN);
+    p += BINLOG_REDO_ITEM_OP_TYPE_LEN;
+    *p++ = '=';
+    *p++ = ctx->op_type;
+    *p++ = '\n';
+
+    if ((result=safeWriteToFile(ctx->mark_filename, buff, p - buff)) != 0) {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
                 __LINE__, ctx->mark_filename, result, STRERROR(result));
@@ -104,14 +145,14 @@ static int load_from_redo_file(TrunkMigrateContext *ctx)
     }
 
     ctx->last_sn = iniGetInt64Value(NULL,
-            BINLOG_REDO_ITEM_LAST_SN, &ini_context, 0);
+            BINLOG_REDO_ITEM_LAST_SN_STR, &ini_context, 0);
     ctx->current_stage = iniGetIntValue(NULL,
-            BINLOG_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            BINLOG_REDO_ITEM_CURRENT_STAGE_STR, &ini_context, 0);
     ctx->slice_binlog.which_subdir = iniGetCharValue(NULL,
-            BINLOG_REDO_ITEM_WHICH_SUBDIR, &ini_context, '\0');
+            BINLOG_REDO_ITEM_WHICH_SUBDIR_STR, &ini_context, '\0');
     ctx->slice_binlog.index = iniGetIntValue(NULL,
-            BINLOG_REDO_ITEM_BINLOG_INDEX, &ini_context, 0);
-    ctx->op_type = iniGetCharValue(NULL, BINLOG_REDO_ITEM_OP_TYPE,
+            BINLOG_REDO_ITEM_BINLOG_INDEX_STR, &ini_context, 0);
+    ctx->op_type = iniGetCharValue(NULL, BINLOG_REDO_ITEM_OP_TYPE_STR,
             &ini_context, '\0');
 
     iniFreeContext(&ini_context);
@@ -295,7 +336,7 @@ static int open_slice_binlog(TrunkMigrateContext *ctx)
     char *subdir_name;
 
     if (ctx->slice_binlog.which_subdir == FS_SLICE_BINLOG_IN_SYSTEM_SUBDIR) {
-        subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME;
+        subdir_name = FS_SLICE_BINLOG_SUBDIR_NAME_STR;
     } else {
         subdir_name = ctx->subdir_name;
     }
@@ -439,7 +480,7 @@ int slice_space_migrate_redo(const char *subdir_name, bool *need_restart)
     TrunkMigrateContext ctx;
 
     *need_restart = false;
-    snprintf(ctx.subdir_name, sizeof(ctx.subdir_name), "%s", subdir_name);
+    fc_safe_strcpy(ctx.subdir_name, subdir_name);
     get_slice_space_migrate_mark_filename(&ctx);
     if (access(ctx.mark_filename, F_OK) != 0) {
         if (errno == ENOENT) {
@@ -478,7 +519,7 @@ int slice_space_migrate_create(const char *subdir_name,
     ctx.slice_binlog.index = binlog_index;
     ctx.op_type = op_type;
     ctx.last_sn = 0;
-    snprintf(ctx.subdir_name, sizeof(ctx.subdir_name), "%s", subdir_name);
+    fc_safe_strcpy(ctx.subdir_name, subdir_name);
     get_slice_space_migrate_mark_filename(&ctx);
     if ((result=write_to_mark_file(&ctx)) != 0) {
         return result;

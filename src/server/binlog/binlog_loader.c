@@ -80,7 +80,7 @@ int binlog_loader_load1(const char *subdir_name,
         return result;
     }
 
-    if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME) == 0) {
+    if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME_STR) == 0) {
         len = sprintf(other_prompt, ", slice binlog sn: %"PRId64,
                 SLICE_BINLOG_SN);
         if (STORAGE_ENABLED) {
@@ -139,7 +139,7 @@ int binlog_loader_load1(const char *subdir_name,
         end_time = get_current_time_ms();
         long_to_comma_str(end_time - start_time, time_buff);
 
-        if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME) == 0) {
+        if (strcmp(subdir_name, FS_SLICE_BINLOG_SUBDIR_NAME_STR) == 0) {
             ob_index_get_ob_and_slice_counts(&ob_count, &slice_count);
             sprintf(extra_buff, ", output object count: %"PRId64", "
                     "slice count: %"PRId64, ob_count, slice_count);

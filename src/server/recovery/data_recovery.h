@@ -38,8 +38,22 @@ int data_recovery_unlink_sys_data(DataRecoveryContext *ctx);
 static inline void data_recovery_get_subdir_name(DataRecoveryContext *ctx,
         const char *subdir, char *subdir_name)
 {
-    sprintf(subdir_name, "%s/%d/%s", FS_RECOVERY_BINLOG_SUBDIR_NAME_STR,
-            ctx->ds->dg->id, subdir);
+    char *p;
+    int sub_len;
+
+    sub_len = strlen(subdir);
+    p = subdir_name;
+
+    //format: "%s/%d/%s"
+    memcpy(p, FS_RECOVERY_BINLOG_SUBDIR_NAME_STR,
+            FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN);
+    p += FS_RECOVERY_BINLOG_SUBDIR_NAME_LEN;
+    *p++ = '/';
+    p += fc_itoa(ctx->ds->dg->id, p);
+    *p++ = '/';
+    memcpy(p, subdir, sub_len);
+    p += sub_len;
+    *p = '\0';
 }
 
 #ifdef __cplusplus

@@ -33,19 +33,30 @@
 
 typedef struct binlog_clean_redo_context {
     char redo_filename[PATH_MAX];
-    char backup_subdir[NAME_MAX];
+    struct {
+        char str[NAME_MAX];
+        int len;
+    } backup_subdir;
     int binlog_file_count;
     int current_stage;
     int64_t last_sn;
 } BinlogCleanRedoContext;
 
-#define MIGRATE_SUBDIR_NAME              "migrate"
-#define MIGRATE_BINLOG_SUBDIR_NAME_DUMP  "dbremove"
-#define MIGRATE_BINLOG_SUBDIR_NAME_SPACE "space"
-#define MIGRATE_DUMP_SUBDIR_FULLNAME     MIGRATE_SUBDIR_NAME"/" \
-    MIGRATE_BINLOG_SUBDIR_NAME_DUMP
-#define MIGRATE_SPACE_SUBDIR_FULLNAME    MIGRATE_SUBDIR_NAME"/" \
-    MIGRATE_BINLOG_SUBDIR_NAME_SPACE
+#define MIGRATE_SUBDIR_NAME_STR  "migrate"
+#define MIGRATE_SUBDIR_NAME_LEN  (sizeof(MIGRATE_SUBDIR_NAME_STR) - 1)
+
+#define MIGRATE_BINLOG_SUBDIR_NAME_DUMP_STR  "dbremove"
+#define MIGRATE_BINLOG_SUBDIR_NAME_DUMP_LEN  \
+    (sizeof(MIGRATE_BINLOG_SUBDIR_NAME_DUMP_STR) - 1)
+
+#define MIGRATE_BINLOG_SUBDIR_NAME_SPACE_STR "space"
+#define MIGRATE_BINLOG_SUBDIR_NAME_SPACE_LEN  \
+    (sizeof(MIGRATE_BINLOG_SUBDIR_NAME_SPACE_STR) - 1)
+
+#define MIGRATE_DUMP_SUBDIR_FULLNAME     MIGRATE_SUBDIR_NAME_STR"/" \
+    MIGRATE_BINLOG_SUBDIR_NAME_DUMP_STR
+#define MIGRATE_SPACE_SUBDIR_FULLNAME    MIGRATE_SUBDIR_NAME_STR"/" \
+    MIGRATE_BINLOG_SUBDIR_NAME_SPACE_STR
 #define BACKUP_SUBDIR_NAME_STR          "bak"
 #define BACKUP_SUBDIR_NAME_LEN  (sizeof(BACKUP_SUBDIR_NAME_STR) - 1)
 
@@ -58,10 +69,21 @@ typedef struct binlog_clean_redo_context {
 #define MIGRATE_REDO_STAGE_REMOVE_REPLICA          7
 #define MIGRATE_REDO_STAGE_CLEANUP                 8
 
-#define MIGRATE_REDO_ITEM_BINLOG_COUNT   "binlog_file_count"
-#define MIGRATE_REDO_ITEM_CURRENT_STAGE  "current_stage"
-#define MIGRATE_REDO_ITEM_BACKUP_SUBDIR  "backup_subdir"
-#define MIGRATE_REDO_ITEM_LAST_SN        "last_sn"
+#define MIGRATE_REDO_ITEM_CURRENT_STAGE_STR   "current_stage"
+#define MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN   \
+    (sizeof(MIGRATE_REDO_ITEM_CURRENT_STAGE_STR) - 1)
+
+#define MIGRATE_REDO_ITEM_BINLOG_COUNT_STR    "binlog_file_count" //dump output
+#define MIGRATE_REDO_ITEM_BINLOG_COUNT_LEN    \
+    (sizeof(MIGRATE_REDO_ITEM_BINLOG_COUNT_STR) - 1)
+
+#define MIGRATE_REDO_ITEM_LAST_SN_STR         "last_sn"
+#define MIGRATE_REDO_ITEM_LAST_SN_LEN         \
+    (sizeof(MIGRATE_REDO_ITEM_LAST_SN_STR) - 1)
+
+#define MIGRATE_REDO_ITEM_BACKUP_SUBDIR_STR   "backup_subdir"
+#define MIGRATE_REDO_ITEM_BACKUP_SUBDIR_LEN   \
+    (sizeof(MIGRATE_REDO_ITEM_BACKUP_SUBDIR_STR) - 1)
 
 static const char *get_slice_remove_filename(const int binlog_index,
         char *filename, const int size)
@@ -72,61 +94,118 @@ static const char *get_slice_remove_filename(const int binlog_index,
 }
 
 static const char *get_slice_dump_filename(const
-        int binlog_index, char *filename, const int size)
+        int binlog_index, char *full_filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/slice-%03d.dmp", DATA_PATH_STR,
-            MIGRATE_SUBDIR_NAME, binlog_index);
-    return filename;
+    const int padding_len = 3;
+    char filename[32];
+    char *p;
+    int name_len;
+
+    p = filename;
+    *p++ = 's';
+    *p++ = 'l';
+    *p++ = 'i';
+    *p++ = 'c';
+    *p++ = 'e';
+    *p++ = '-';
+    p += fc_ltostr_ex(binlog_index, p, padding_len);
+    *p++ = '.';
+    *p++ = 'd';
+    *p++ = 'm';
+    *p++ = 'p';
+    *p = '\0';
+    name_len = p - filename;
+
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            MIGRATE_SUBDIR_NAME_STR, MIGRATE_SUBDIR_NAME_LEN,
+            filename, name_len, full_filename, size);
+    return full_filename;
 }
 
 static inline int check_make_subdirs()
 {
     int result;
+    int path_len;
     char migrage_path[PATH_MAX];
     char subdir_path[PATH_MAX];
 
-    snprintf(migrage_path, sizeof(migrage_path), "%s/%s",
-            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+    path_len = fc_get_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            MIGRATE_SUBDIR_NAME_STR, MIGRATE_SUBDIR_NAME_LEN,
+            migrage_path);
     if ((result=fc_check_mkdir(migrage_path, 0755)) != 0) {
         return result;
     }
 
     if (STORAGE_ENABLED) {
-        snprintf(subdir_path, sizeof(subdir_path), "%s/%s", migrage_path,
-                MIGRATE_BINLOG_SUBDIR_NAME_DUMP);
+        fc_get_full_filepath(migrage_path, path_len, 
+                MIGRATE_BINLOG_SUBDIR_NAME_DUMP_STR,
+                MIGRATE_BINLOG_SUBDIR_NAME_DUMP_LEN,
+                subdir_path);
         if ((result=fc_check_mkdir(subdir_path, 0755)) != 0) {
             return result;
         }
     }
 
-    snprintf(subdir_path, sizeof(subdir_path), "%s/%s", migrage_path,
-            MIGRATE_BINLOG_SUBDIR_NAME_SPACE);
+    fc_get_full_filepath(migrage_path, path_len, 
+            MIGRATE_BINLOG_SUBDIR_NAME_SPACE_STR,
+            MIGRATE_BINLOG_SUBDIR_NAME_SPACE_LEN,
+            subdir_path);
     return fc_check_mkdir(subdir_path, 0755);
 }
 
 static inline const char *get_slice_mark_filename(
         char *filename, const int size)
 {
-    snprintf(filename, size, "%s/%s/.migrate_clean.flag",
-            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+#define MIGRATE_CLEAN_FLAG_FILENAME_STR  ".migrate_clean.flag"
+#define MIGRATE_CLEAN_FLAG_FILENAME_LEN  \
+    (sizeof(MIGRATE_CLEAN_FLAG_FILENAME_STR) - 1)
+
+    fc_get_one_subdir_full_filename_ex(DATA_PATH_STR, DATA_PATH_LEN,
+            MIGRATE_SUBDIR_NAME_STR, MIGRATE_SUBDIR_NAME_LEN,
+            MIGRATE_CLEAN_FLAG_FILENAME_STR, MIGRATE_CLEAN_FLAG_FILENAME_LEN,
+            filename, size);
     return filename;
 }
 
 static int write_to_redo_file(BinlogCleanRedoContext *redo_ctx)
 {
     char buff[256];
+    char *p;
     int result;
-    int len;
 
-    len = sprintf(buff, "%s=%d\n"
-            "%s=%d\n"
-            "%s=%"PRId64"\n"
-            "%s=%s\n",
-            MIGRATE_REDO_ITEM_BINLOG_COUNT, redo_ctx->binlog_file_count,
-            MIGRATE_REDO_ITEM_CURRENT_STAGE, redo_ctx->current_stage,
-            MIGRATE_REDO_ITEM_LAST_SN, redo_ctx->last_sn,
-            MIGRATE_REDO_ITEM_BACKUP_SUBDIR, redo_ctx->backup_subdir);
-    if ((result=safeWriteToFile(redo_ctx->redo_filename, buff, len)) != 0) {
+    p = buff;
+
+    memcpy(p, MIGRATE_REDO_ITEM_CURRENT_STAGE_STR,
+            MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN);
+    p += MIGRATE_REDO_ITEM_CURRENT_STAGE_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->current_stage, p);
+    *p++ = '\n';
+
+    memcpy(p, MIGRATE_REDO_ITEM_BINLOG_COUNT_STR,
+            MIGRATE_REDO_ITEM_BINLOG_COUNT_LEN);
+    p += MIGRATE_REDO_ITEM_BINLOG_COUNT_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->binlog_file_count, p);
+    *p++ = '\n';
+
+    memcpy(p, MIGRATE_REDO_ITEM_LAST_SN_STR,
+            MIGRATE_REDO_ITEM_LAST_SN_LEN);
+    p += MIGRATE_REDO_ITEM_LAST_SN_LEN;
+    *p++ = '=';
+    p += fc_itoa(redo_ctx->last_sn, p);
+    *p++ = '\n';
+
+    memcpy(p, MIGRATE_REDO_ITEM_BACKUP_SUBDIR_STR,
+            MIGRATE_REDO_ITEM_BACKUP_SUBDIR_LEN);
+    p += MIGRATE_REDO_ITEM_BACKUP_SUBDIR_LEN;
+    *p++ = '=';
+    memcpy(p, redo_ctx->backup_subdir.str, redo_ctx->backup_subdir.len);
+    p += redo_ctx->backup_subdir.len;
+    *p++ = '\n';
+    if ((result=safeWriteToFile(redo_ctx->redo_filename,
+                    buff, p - buff)) != 0)
+    {
         logError("file: "__FILE__", line: %d, "
                 "write to file \"%s\" fail, errno: %d, error info: %s",
                 __LINE__, redo_ctx->redo_filename, result, STRERROR(result));
@@ -150,25 +229,30 @@ static int load_from_redo_file(BinlogCleanRedoContext *redo_ctx)
         return result;
     }
 
-    redo_ctx->binlog_file_count = iniGetIntValue(NULL,
-            MIGRATE_REDO_ITEM_BINLOG_COUNT, &ini_context, 0);
     redo_ctx->current_stage = iniGetIntValue(NULL,
-            MIGRATE_REDO_ITEM_CURRENT_STAGE, &ini_context, 0);
+            MIGRATE_REDO_ITEM_CURRENT_STAGE_STR, &ini_context, 0);
+    redo_ctx->binlog_file_count = iniGetIntValue(NULL,
+            MIGRATE_REDO_ITEM_BINLOG_COUNT_STR, &ini_context, 0);
     redo_ctx->last_sn = iniGetInt64Value(NULL,
-            MIGRATE_REDO_ITEM_LAST_SN, &ini_context, 0);
+            MIGRATE_REDO_ITEM_LAST_SN_STR, &ini_context, 0);
     backup_subdir = iniGetStrValue(NULL,
-            MIGRATE_REDO_ITEM_BACKUP_SUBDIR,
+            MIGRATE_REDO_ITEM_BACKUP_SUBDIR_STR,
             &ini_context);
     if (backup_subdir == NULL || *backup_subdir == '\0') {
         logError("file: "__FILE__", line: %d, "
                 "redo file: %s, item: %s not exist",
                 __LINE__, redo_ctx->redo_filename,
-                MIGRATE_REDO_ITEM_BACKUP_SUBDIR);
+                MIGRATE_REDO_ITEM_BACKUP_SUBDIR_STR);
         return ENOENT;
     }
-    snprintf(redo_ctx->backup_subdir,
-            sizeof(redo_ctx->backup_subdir),
-            "%s", backup_subdir);
+
+    redo_ctx->backup_subdir.len = strlen(backup_subdir);
+    if (redo_ctx->backup_subdir.len >= sizeof(redo_ctx->backup_subdir.str)) {
+        redo_ctx->backup_subdir.len = sizeof(redo_ctx->backup_subdir.str) - 1;
+    }
+    memcpy(redo_ctx->backup_subdir.str, backup_subdir,
+            redo_ctx->backup_subdir.len);
+    *(redo_ctx->backup_subdir.str + redo_ctx->backup_subdir.len) = '\0';
 
     iniFreeContext(&ini_context);
     return 0;
@@ -179,11 +263,11 @@ static inline int backup_to_path(const char *src_filename,
 {
     const bool overwritten = false;
     char dest_filename[PATH_MAX];
+    char *filename;
 
-    snprintf(dest_filename, sizeof(dest_filename), "%s%s",
-            dest_filepath, strrchr(src_filename, '/'));
-    return fc_check_rename_ex(src_filename,
-            dest_filename, overwritten);
+    filename = strrchr(src_filename, '/');
+    fc_combine_full_filename(dest_filepath, filename, dest_filename);
+    return fc_check_rename_ex(src_filename, dest_filename, overwritten);
 }
 
 static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
@@ -191,29 +275,34 @@ static int backup_slice_binlogs(BinlogCleanRedoContext *redo_ctx)
     int result;
     int last_index;
     int binlog_index;
-    int len;
+    int path_len;
+    int backup_len;
     char binlog_filepath[PATH_MAX];
     char binlog_filename[PATH_MAX];
     char index_filename[PATH_MAX];
     char backup_filepath[PATH_MAX];
+    char *p;
 
     slice_binlog_get_filepath(binlog_filepath, sizeof(binlog_filepath));
-    len = strlen(binlog_filepath);
-    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
-                backup_subdir) >= sizeof(binlog_filepath))
+    path_len = strlen(binlog_filepath);
+    if (path_len + 2 + BACKUP_SUBDIR_NAME_LEN + redo_ctx->
+            backup_subdir.len >= sizeof(binlog_filepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "slice backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    len = sprintf(backup_filepath, "%s/%s", binlog_filepath,
-            BACKUP_SUBDIR_NAME_STR);
+    backup_len = fc_get_full_filepath(binlog_filepath, path_len,
+            BACKUP_SUBDIR_NAME_STR, BACKUP_SUBDIR_NAME_LEN,
+            backup_filepath);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
 
-    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
+    p = backup_filepath + backup_len;
+    *p++ = '/';
+    memcpy(p, redo_ctx->backup_subdir.str, redo_ctx->backup_subdir.len + 1);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
@@ -272,28 +361,34 @@ static int backup_replica_binlogs(BinlogCleanRedoContext *redo_ctx)
     int result;
     int data_group_count;
     int data_group_id;
-    int len;
+    int path_len;
+    int backup_len;
     int backup_count;
     char binlog_basepath[PATH_MAX];
     char binlog_filepath[PATH_MAX];
     char backup_filepath[PATH_MAX];
+    char *p;
 
     replica_binlog_get_base_path(binlog_basepath, sizeof(binlog_basepath));
-    len = strlen(binlog_basepath);
-    if (len + 2 + BACKUP_SUBDIR_NAME_LEN + strlen(redo_ctx->
-                backup_subdir) >= sizeof(binlog_basepath))
+    path_len = strlen(binlog_basepath);
+    if (path_len + 2 + BACKUP_SUBDIR_NAME_LEN + redo_ctx->
+                backup_subdir.len >= sizeof(binlog_basepath))
     {
         logError("file: "__FILE__", line: %d, "
                 "replica backup path is too long", __LINE__);
         return ENAMETOOLONG;
     }
 
-    len = sprintf(backup_filepath, "%s/%s", binlog_basepath,
-            BACKUP_SUBDIR_NAME_STR);
+    backup_len = fc_get_full_filepath(binlog_basepath, path_len,
+            BACKUP_SUBDIR_NAME_STR, BACKUP_SUBDIR_NAME_LEN,
+            backup_filepath);
     if ((result=fc_check_mkdir(backup_filepath, 0775)) != 0) {
         return result;
     }
-    sprintf(backup_filepath + len, "/%s", redo_ctx->backup_subdir);
+
+    p = backup_filepath + backup_len;
+    *p++ = '/';
+    memcpy(p, redo_ctx->backup_subdir.str, redo_ctx->backup_subdir.len + 1);
 
     backup_count = 0;
     data_group_count = FS_DATA_GROUP_COUNT(CLUSTER_CONFIG_CTX);
@@ -349,8 +444,8 @@ static int unlink_migrate_subdir(BinlogCleanRedoContext *redo_ctx,
     char filepath[PATH_MAX];
     char filename[PATH_MAX];
 
-    snprintf(filepath, sizeof(filepath), "%s/%s",
-            DATA_PATH_STR, subdir_name);
+    fc_get_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            subdir_name, strlen(subdir_name), filepath);
     if (access(filepath, F_OK) != 0) {
         result = errno != 0 ? errno : EPERM;
         if (result == ENOENT) {
@@ -399,8 +494,9 @@ static int cleanup(BinlogCleanRedoContext *redo_ctx)
         return result;
     }
 
-    snprintf(migrate_path, sizeof(migrate_path), "%s/%s",
-            DATA_PATH_STR, MIGRATE_SUBDIR_NAME);
+    fc_get_full_filepath(DATA_PATH_STR, DATA_PATH_LEN,
+            MIGRATE_SUBDIR_NAME_STR, MIGRATE_SUBDIR_NAME_LEN,
+            migrate_path);
     return fs_rmdir(migrate_path);
 }
 
@@ -612,7 +708,9 @@ int migrate_clean_binlog(const int64_t total_slice_count,
 
     current_time = g_current_time;
     localtime_r(&current_time, &tm_current);
-    strftime(redo_ctx.backup_subdir, sizeof(redo_ctx.backup_subdir),
+    redo_ctx.backup_subdir.len = strftime(
+            redo_ctx.backup_subdir.str,
+            sizeof(redo_ctx.backup_subdir.str),
             "%Y%m%d%H%M%S", &tm_current);
 
     redo_ctx.last_sn = FC_ATOMIC_GET(SLICE_BINLOG_SN);

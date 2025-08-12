@@ -236,8 +236,7 @@ static void check_and_make_replica_connection(FSReplication *replication)
 
     replication->connection_info.start_time = g_current_time;
     calc_next_connect_time(replication);
-    snprintf(task->server_ip, sizeof(task->server_ip),
-            "%s", addr->conn.ip_addr);
+    fc_safe_strcpy(task->server_ip, addr->conn.ip_addr);
     task->port = addr->conn.port;
     if (sf_nio_notify(task, SF_NIO_STAGE_CONNECT) == 0) {
         set_replication_stage(replication, FS_REPLICATION_STAGE_CONNECTING);

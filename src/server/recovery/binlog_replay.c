@@ -50,7 +50,9 @@
 #define FS_THREAD_STAGE_CLEANUP    2
 #define FS_THREAD_STAGE_FINISHED   3
 
-#define BINLOG_REPLAY_POSITION_FILENAME  "position.mark"
+#define BINLOG_REPLAY_POSITION_FILENAME_STR  "position.mark"
+#define BINLOG_REPLAY_POSITION_FILENAME_LEN  \
+    (sizeof(BINLOG_REPLAY_POSITION_FILENAME_STR) - 1)
 
 struct binlog_replay_context;
 struct replay_thread_context;
@@ -235,6 +237,7 @@ static inline void binlog_replay_fail(BinlogReplayContext *replay_ctx)
 static int write_replay_position(BinlogReplayContext *replay_ctx,
         const int64_t data_version)
 {
+#define DATA_VERSION_PADDING_LEN  20
     char buff[32];
     int result;
     int len;
@@ -248,7 +251,9 @@ static int write_replay_position(BinlogReplayContext *replay_ctx,
         return result;
     }
 
-    len = sprintf(buff, "%-20"PRId64, data_version);
+    len = fc_itoa(data_version, buff);
+    memset(buff + len, ' ', DATA_VERSION_PADDING_LEN - len);
+    len = DATA_VERSION_PADDING_LEN;
     if (fc_safe_write(replay_ctx->position.fd, buff, len) != len) {
         result = (errno != 0 ? errno : EIO);
         logError("file: "__FILE__", line: %d, "
@@ -910,8 +915,10 @@ static inline const char *get_replay_position_filename(
             subdir_name);
     sf_binlog_writer_get_filepath(DATA_PATH_STR, subdir_name,
             filepath, sizeof(filepath));
-    snprintf(filename, size, "%s/%s", filepath,
-            BINLOG_REPLAY_POSITION_FILENAME);
+    fc_get_full_filename_ex(filepath, strlen(filepath),
+            BINLOG_REPLAY_POSITION_FILENAME_STR,
+            BINLOG_REPLAY_POSITION_FILENAME_LEN,
+            filename, size);
     return filename;
 }
 
