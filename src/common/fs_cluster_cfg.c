@@ -1008,17 +1008,21 @@ void fs_cluster_cfg_to_log(FSClusterConfig *cluster_cfg)
         cluster_cfg->server_groups.count;
     for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
         p = server_id_buff;
-        p += sprintf(p, "%d", sgroup->server_array.servers[0]->id);
+        p += fc_itoa(sgroup->server_array.servers[0]->id, p);
         for (i=1; i<sgroup->server_array.count; i++) {
-            p += snprintf(p, buff_end - p, ", %d",
-                    sgroup->server_array.servers[i]->id);
+            if (buff_end - p < 16) {
+                break;
+            }
+            *p++ = ',';
+            *p++ = ' ';
+            p += fc_itoa(sgroup->server_array.servers[i]->id, p);
         }
 
         id_array_to_string(&sgroup->data_group, group_id_buff,
                 sizeof(group_id_buff));
 
         logInfo("[server-group-%d]", sgroup->server_group_id);
-        logInfo("server_ids = %s", server_id_buff);
+        logInfo("server_ids = %.*s", (int)(p - server_id_buff), server_id_buff);
         logInfo("data_group_ids = %s", group_id_buff);
     }
 }
@@ -1057,6 +1061,8 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
         return result;
     }
 
+    *tmp = ',';
+    *(tmp + 1) = ' ';
     sid_buff.str = server_id_buff;
     gid_buff.str = group_id_buff;
     buff_end = server_id_buff + sizeof(server_id_buff);
@@ -1064,9 +1070,9 @@ int fs_cluster_cfg_to_string(FSClusterConfig *cluster_cfg, FastBuffer *buffer)
         cluster_cfg->server_groups.count;
     for (sgroup=cluster_cfg->server_groups.groups; sgroup<send; sgroup++) {
         p = sid_buff.str;
-        p += sprintf(p, "%d", sgroup->server_array.servers[0]->id);
+        p += fc_itoa(sgroup->server_array.servers[0]->id, p);
         for (i=1; i<sgroup->server_array.count; i++) {
-            len = sprintf(tmp, ", %d", sgroup->server_array.servers[i]->id);
+            len = 2 + fc_itoa(sgroup->server_array.servers[i]->id, tmp + 2);
             if (buff_end - p <= len) {
                 return ENOSPC;
             }

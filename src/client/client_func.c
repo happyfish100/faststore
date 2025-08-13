@@ -35,9 +35,7 @@ static int fs_client_do_init_ex(FSClientContext *client_ctx,
     if (pBasePath == NULL) {
         strcpy(g_fs_client_vars.base_path, "/tmp");
     } else {
-        snprintf(g_fs_client_vars.base_path,
-                sizeof(g_fs_client_vars.base_path),
-                "%s", pBasePath);
+        fc_safe_strcpy(g_fs_client_vars.base_path, pBasePath);
         chopPath(g_fs_client_vars.base_path);
     }
 
