@@ -481,6 +481,9 @@ static int resume_from_redo_log(FSDBUpdaterContext *ctx)
 
 int db_updater_init(FSDBUpdaterContext *ctx)
 {
+    const int init_capacity = 4 * 1024;
+    const bool binary_mode = true;
+    const bool check_capacity = true;
     int result;
     int bytes;
     FastBuffer *buffer;
@@ -500,7 +503,9 @@ int db_updater_init(FSDBUpdaterContext *ctx)
     }
     end = db_updater_ctx.buffers + FC_IOV_BATCH_SIZE;
     for (buffer=db_updater_ctx.buffers; buffer<end; buffer++) {
-        if ((result=fast_buffer_init1(buffer, 4 * 1024)) != 0) {
+        if ((result=fast_buffer_init_ex(buffer, init_capacity,
+                        binary_mode, check_capacity)) != 0)
+        {
             return result;
         }
     }

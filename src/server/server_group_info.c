@@ -49,9 +49,17 @@ typedef struct {
 #define DATA_GROUP_SECTION_PREFIX_LEN      \
     (sizeof(DATA_GROUP_SECTION_PREFIX_STR) - 1)
 
-#define SERVER_GROUP_INFO_ITEM_VERSION     "version"
-#define SERVER_GROUP_INFO_ITEM_IS_LEADER   "is_leader"
-#define SERVER_GROUP_INFO_ITEM_SERVER      "server"
+#define SERVER_GROUP_INFO_ITEM_VERSION_STR     "version"
+#define SERVER_GROUP_INFO_ITEM_VERSION_LEN     \
+    (sizeof(SERVER_GROUP_INFO_ITEM_VERSION_STR) - 1)
+
+#define SERVER_GROUP_INFO_ITEM_IS_LEADER_STR   "is_leader"
+#define SERVER_GROUP_INFO_ITEM_IS_LEADER_LEN   \
+    (sizeof(SERVER_GROUP_INFO_ITEM_IS_LEADER_STR) - 1)
+
+#define SERVER_GROUP_INFO_ITEM_SERVER_STR      "server"
+#define SERVER_GROUP_INFO_ITEM_SERVER_LEN      \
+    (sizeof(SERVER_GROUP_INFO_ITEM_SERVER_STR) - 1)
 
 static ServerPairBaseIndexArray server_pair_index_array = {0, NULL};
 static uint64_t last_synced_version = 0;
@@ -803,7 +811,7 @@ static int load_group_servers_from_ini(const char *group_filename,
     p += fc_itoa(group->id, p);
     *p = '\0';
     if ((items=iniGetValuesEx(section_name,
-                    SERVER_GROUP_INFO_ITEM_SERVER,
+                    SERVER_GROUP_INFO_ITEM_SERVER_STR,
                     ini_context, &item_count)) == NULL)
     {
         return 0;
@@ -821,7 +829,7 @@ static int load_group_servers_from_ini(const char *group_filename,
                     "group filename: %s, section: %s, item: %s, "
                     "invalid value: %s, field count: %d != 3",
                     __LINE__, group_filename, section_name,
-                    SERVER_GROUP_INFO_ITEM_SERVER,
+                    SERVER_GROUP_INFO_ITEM_SERVER_STR,
                     it->value, field_count);
             return EINVAL;
         }
@@ -917,9 +925,9 @@ static int load_server_groups()
     }
 
     CLUSTER_MYSELF_PTR->is_leader = iniGetBoolValue(NULL,
-            SERVER_GROUP_INFO_ITEM_IS_LEADER, &ini_context, false);
+            SERVER_GROUP_INFO_ITEM_IS_LEADER_STR, &ini_context, false);
     CLUSTER_CURRENT_VERSION = iniGetInt64Value(NULL,
-            SERVER_GROUP_INFO_ITEM_VERSION, &ini_context, 0);
+            SERVER_GROUP_INFO_ITEM_VERSION_STR, &ini_context, 0);
 
     end = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
     for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<end; group++) {
@@ -938,11 +946,16 @@ static FastBuffer file_buffer;
 
 int server_group_info_init(const char *cluster_config_filename)
 {
+    const int init_capacity = 2048;
+    const bool binary_mode = true;
+    const bool check_capacity = true;
     int result;
     time_t t;
     struct tm tm_current;
 
-    if ((result=fast_buffer_init1(&file_buffer, 2048)) != 0) {
+    if ((result=fast_buffer_init_ex(&file_buffer, init_capacity,
+                    binary_mode, check_capacity)) != 0)
+    {
         return result;
     }
 
@@ -973,20 +986,59 @@ static int server_group_info_to_file_buffer(FSClusterDataGroupInfo *group)
     FSClusterDataServerInfo *end;
     int result;
 
-    if ((result=fast_buffer_append(&file_buffer, "[%s%d]\n",
+    if ((result=fast_buffer_append_char(&file_buffer, '[')) != 0) {
+        return result;
+    }
+
+    if ((result=fast_buffer_append_buff(&file_buffer,
                     DATA_GROUP_SECTION_PREFIX_STR,
-                    group->id)) != 0)
+                    DATA_GROUP_SECTION_PREFIX_LEN)) != 0)
     {
+        return result;
+    }
+    if ((result=fast_buffer_append_int32(&file_buffer, group->id)) != 0) {
+        return result;
+    }
+    if ((result=fast_buffer_append_char(&file_buffer, ']')) != 0) {
+        return result;
+    }
+    if ((result=fast_buffer_append_char(&file_buffer, '\n')) != 0) {
         return result;
     }
 
     end = group->data_server_array.servers + group->data_server_array.count;
     for (ds=group->data_server_array.servers; ds<end; ds++) {
-        if ((result=fast_buffer_append(&file_buffer, "%s=%d,%d,%"PRId64"\n",
-                        SERVER_GROUP_INFO_ITEM_SERVER, ds->cs->server->id,
-                        __sync_fetch_and_add(&ds->status, 0),
+        if ((result=fast_buffer_append_buff(&file_buffer,
+                        SERVER_GROUP_INFO_ITEM_SERVER_STR,
+                        SERVER_GROUP_INFO_ITEM_SERVER_LEN)) != 0)
+        {
+            return result;
+        }
+        if ((result=fast_buffer_append_char(&file_buffer, '=')) != 0) {
+            return result;
+        }
+        if ((result=fast_buffer_append_int32(&file_buffer,
+                        ds->cs->server->id)) != 0)
+        {
+            return result;
+        }
+        if ((result=fast_buffer_append_char(&file_buffer, ',')) != 0) {
+            return result;
+        }
+        if ((result=fast_buffer_append_int32(&file_buffer,
+                        FC_ATOMIC_GET(ds->status))) != 0)
+        {
+            return result;
+        }
+        if ((result=fast_buffer_append_char(&file_buffer, ',')) != 0) {
+            return result;
+        }
+        if ((result=fast_buffer_append_int64(&file_buffer,
                         ds->data.current_version)) != 0)
         {
+            return result;
+        }
+        if ((result=fast_buffer_append_char(&file_buffer, '\n')) != 0) {
             return result;
         }
     }
@@ -1002,12 +1054,19 @@ static int server_group_info_write_to_file(const uint64_t current_version)
     int result;
 
     fast_buffer_reset(&file_buffer);
-    fast_buffer_append(&file_buffer,
-            "%s=%d\n"
-            "%s=%"PRId64"\n",
-            SERVER_GROUP_INFO_ITEM_IS_LEADER,
-            CLUSTER_MYSELF_PTR->is_leader,
-            SERVER_GROUP_INFO_ITEM_VERSION, current_version);
+    fast_buffer_append_buff(&file_buffer,
+            SERVER_GROUP_INFO_ITEM_IS_LEADER_STR,
+            SERVER_GROUP_INFO_ITEM_IS_LEADER_LEN);
+    fast_buffer_append_char(&file_buffer, '=');
+    fast_buffer_append_int32(&file_buffer, CLUSTER_MYSELF_PTR->is_leader);
+    fast_buffer_append_char(&file_buffer, '\n');
+
+    fast_buffer_append_buff(&file_buffer,
+            SERVER_GROUP_INFO_ITEM_VERSION_STR,
+            SERVER_GROUP_INFO_ITEM_VERSION_LEN);
+    fast_buffer_append_char(&file_buffer, '=');
+    fast_buffer_append_int64(&file_buffer, current_version);
+    fast_buffer_append_char(&file_buffer, '\n');
 
     end = CLUSTER_DATA_GROUP_ARRAY.groups + CLUSTER_DATA_GROUP_ARRAY.count;
     for (group=CLUSTER_DATA_GROUP_ARRAY.groups; group<end; group++) {

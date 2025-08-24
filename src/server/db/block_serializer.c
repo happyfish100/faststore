@@ -29,9 +29,13 @@ BlockSerializerContext g_serializer_ctx;
 
 static int buffer_init_func(void *element, void *init_args)
 {
+    const int init_capacity = DEFAULT_PACKED_BUFFER_SIZE;
+    const bool binary_mode = true;
+    const bool check_capacity = true;
     FastBuffer *buffer;
     buffer = (FastBuffer *)element;
-    return fast_buffer_init1(buffer, DEFAULT_PACKED_BUFFER_SIZE);
+    return fast_buffer_init_ex(buffer, init_capacity,
+            binary_mode, check_capacity);
 }
 
 int block_serializer_init()
