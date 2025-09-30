@@ -336,7 +336,6 @@ int main(int argc, char *argv[])
             break;
         }
         sf_enable_thread_notify_ex(&CLUSTER_SF_CTX, true);
-        sf_set_remove_from_ready_list_ex(&CLUSTER_SF_CTX, false);
         sf_accept_loop_ex(&CLUSTER_SF_CTX, false);
 
         if ((result=server_storage_init()) != 0) {
@@ -394,7 +393,6 @@ int main(int argc, char *argv[])
                 replication_processor_connect_done);
         sf_service_set_connect_need_log_ex(&REPLICA_SF_CTX, false);
         sf_enable_thread_notify_ex(&REPLICA_SF_CTX, true);
-        sf_set_remove_from_ready_list_ex(&REPLICA_SF_CTX, false);
         sf_accept_loop_ex(&REPLICA_SF_CTX, false);
 
         result = sf_service_init_ex2(&SERVICE_SF_CTX, "service",
@@ -408,7 +406,6 @@ int main(int argc, char *argv[])
             break;
         }
         sf_enable_thread_notify_ex(&SERVICE_SF_CTX, true);
-        sf_set_remove_from_ready_list_ex(&SERVICE_SF_CTX, false);
 
         if ((result=cluster_relationship_start()) != 0) {
             break;
