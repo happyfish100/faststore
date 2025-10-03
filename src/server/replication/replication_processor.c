@@ -221,7 +221,7 @@ static void check_and_make_replica_connection(FSReplication *replication)
         return;
     }
 
-    if ((task=sf_alloc_init_task(REPLICA_NET_HANDLER, -1)) == NULL) {
+    if ((task=sf_alloc_init_client_task(REPLICA_NET_HANDLER)) == NULL) {
         return;
     }
     task->thread_data = REPLICA_SF_CTX.thread_data + replication->

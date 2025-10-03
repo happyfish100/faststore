@@ -324,7 +324,7 @@ int main(int argc, char *argv[])
             break;
         }
 
-        double_buffers = CLUSTER_SERVER_GROUP->comm_type != fc_comm_type_sock;
+        double_buffers = sf_get_double_buffers_flag(CLUSTER_SERVER_GROUP);
         result = sf_service_init_ex2(&CLUSTER_SF_CTX, "cluster",
                 cluster_alloc_thread_extra_data, NULL, NULL,
                 sf_proto_set_body_length, NULL, NULL,
@@ -374,7 +374,7 @@ int main(int argc, char *argv[])
                 cluster_thread_loop_callback);
         sf_set_deal_task_callback_ex(&CLUSTER_SF_CTX, cluster_deal_task_fully);
 
-        double_buffers = REPLICA_SERVER_GROUP->comm_type != fc_comm_type_sock;
+        double_buffers = sf_get_double_buffers_flag(REPLICA_SERVER_GROUP);
         result = sf_service_init_ex2(&REPLICA_SF_CTX, "replica",
                 replica_alloc_thread_extra_data,
                 replica_thread_loop_callback, NULL,

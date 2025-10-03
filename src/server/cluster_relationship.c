@@ -2096,12 +2096,21 @@ static int proto_ping_leader_ex(FSClusterServerInfo *leader,
         sizeof(FSProtoHeader));
 
     response.error.length = 0;
-    if (req_cmd == FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ &&
-            conn->comm_type == fc_comm_type_rdma)
-    {
+    if (req_cmd == FS_CLUSTER_PROTO_ACTIVATE_SERVER_REQ) {
         /* do NOT need response */
-        result = G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(
-                conn, buffer->data, buffer->length);
+        if (conn->comm_type == fc_comm_type_rdma) {
+            result = G_RDMA_CONNECTION_CALLBACKS.send_by_buf1(
+                    conn, buffer->data, buffer->length);
+        } else {
+            result = tcpsenddata_nb(conn->sock, buffer->data,
+                    buffer->length, network_timeout);
+        }
+        if (result != 0) {
+            response.error.length = snprintf(response.error.message,
+                    sizeof(response.error.message),
+                    "send data fail, errno: %d, error info: %s",
+                    result, STRERROR(result));
+        }
     } else {
         result = sf_send_and_recv_none_body_response(conn,
                 buffer->data, buffer->length, &response,
