@@ -331,7 +331,7 @@ int main(int argc, char *argv[])
                 cluster_deal_task_partly, cluster_task_finish_cleanup,
                 cluster_recv_timeout_callback, 1000, sizeof(FSProtoHeader),
                 TASK_PADDING_SIZE, sizeof(FSServerTaskArg), double_buffers,
-                true, init_nio_task, CLUSTER_RDMA_PD, NULL);
+                false, true, init_nio_task, CLUSTER_RDMA_PD, NULL);
         if (result != 0) {
             break;
         }
@@ -382,8 +382,8 @@ int main(int argc, char *argv[])
                 replica_deal_task, replica_task_finish_cleanup,
                 replica_recv_timeout_callback, 1000,
                 sizeof(FSProtoHeader), TASK_PADDING_SIZE,
-                sizeof(FSServerTaskArg), double_buffers, true,
-                init_nio_task, REPLICA_RDMA_PD,
+                sizeof(FSServerTaskArg), double_buffers,
+                false, true, init_nio_task, REPLICA_RDMA_PD,
                 fs_release_task_send_buffer);
         if (result != 0) {
             break;
@@ -400,7 +400,7 @@ int main(int argc, char *argv[])
                 sf_proto_set_body_length, alloc_recv_buffer, NULL,
                 service_deal_task, service_task_finish_cleanup,
                 NULL, 1000, sizeof(FSProtoHeader), TASK_PADDING_SIZE,
-                sizeof(FSServerTaskArg), false, false, init_nio_task,
+                sizeof(FSServerTaskArg), false, true, false, init_nio_task,
                 SERVICE_RDMA_PD, fs_release_task_send_buffer);
         if (result != 0) {
             break;
