@@ -2455,7 +2455,9 @@ static void server_push_handler_run(void *arg, void *thread_data)
     }
 
     last_net_comm_time = g_current_time;
-    while (leader_generation == LEADER_GENERATION && SF_G_CONTINUE_FLAG) {
+    while (SF_G_CONTINUE_FLAG && leader_generation ==
+            FC_ATOMIC_GET(LEADER_GENERATION))
+    {
         if (!G_COMMON_CONNECTION_CALLBACKS[mconn->comm_type].
                 is_connected(mconn))
         {
@@ -2499,6 +2501,7 @@ static void *cluster_thread_entrance(void *arg)
     int fail_count;
     int sleep_seconds;
     int ping_remain_time;
+    int leader_generation;
     bool is_ping;
     time_t ping_start_time;
     ConnectionInfo *mconn;
@@ -2535,11 +2538,11 @@ static void *cluster_thread_entrance(void *arg)
             }
         } else {
             if (leader != last_leader) {
-                ++LEADER_GENERATION;
+                leader_generation = FC_ATOMIC_INC(LEADER_GENERATION);
                 fc_server_close_connection(mconn);
                 if (CLUSTER_MYSELF_PTR != CLUSTER_LEADER_ATOM_PTR) {
                     shared_thread_pool_run(server_push_handler_run,
-                            (void *)((long)LEADER_GENERATION));
+                            (void *)((long)leader_generation));
                 }
                 ping_start_time = g_current_time;
                 last_leader = leader;

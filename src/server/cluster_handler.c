@@ -75,6 +75,7 @@ int cluster_recv_timeout_callback(struct fast_task_info *task)
 void cluster_task_finish_cleanup(struct fast_task_info *task)
 {
     FSServerContext *server_ctx;
+    struct fast_task_info *notify_task;
 
     server_ctx = (FSServerContext *)task->thread_data->arg;
     switch (SERVER_TASK_TYPE) {
@@ -82,8 +83,9 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
             if (CLUSTER_PEER != NULL) {
                 cluster_topology_remove_notify_ctx(&server_ctx->cluster.
                         notify_ctx_ptr_array, &CLUSTER_PEER->notify_ctx);
-
-                if (FC_ATOMIC_GET(CLUSTER_PEER->notify_ctx.task) == task) {
+                notify_task = (struct fast_task_info *)FC_ATOMIC_GET(
+                        CLUSTER_PEER->notify_ctx.task);
+                if (notify_task == task) {
                     if (cluster_topology_deactivate_server(CLUSTER_PEER)) {
                         logWarning("file: "__FILE__", line: %d, "
                                 "deactivate peer server id: %d!",
@@ -92,6 +94,14 @@ void cluster_task_finish_cleanup(struct fast_task_info *task)
 
                     __sync_bool_compare_and_swap(&CLUSTER_PEER->
                             notify_ctx.task, task, NULL);
+                } else if (notify_task != NULL) {
+                    logWarning("file: "__FILE__", line: %d, "
+                            "some mistake happen? current task: %p, "
+                            "peer server {id: %d, ptr: %p}, notify_ctx "
+                            "task: %p with peer: %p", __LINE__, task,
+                            CLUSTER_PEER->server->id, CLUSTER_PEER,
+                            notify_task, ((FSServerTaskArg *)notify_task->
+                                arg)->context.shared.cluster.peer);
                 }
             } else {
                 logError("file: "__FILE__", line: %d, "
