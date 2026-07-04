@@ -187,7 +187,7 @@ int fs_client_init_ex1(FSClientContext *client_ctx,
         client_ctx->is_simple_conn_mananger = false;
     }
 
-    srand(time(NULL));
+    set_rand_seed();
     return 0;
 }
 

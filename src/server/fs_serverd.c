@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
     }
 
     sf_enable_exit_on_oom();
-    srand(time(NULL));
+    set_rand_seed();
 
 #ifdef FS_MBLOCK_CHECK
     fast_mblock_manager_init();
