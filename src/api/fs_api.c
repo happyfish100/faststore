@@ -263,6 +263,9 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
 
     len = snprintf(output, size, "write_combine { enabled: %d",
             api_ctx->write_combine.enabled);
+    if (len >= size) {
+        return;
+    }
     if (api_ctx->write_combine.enabled) {
         len += snprintf(output + len, size - len, ", "
                 "buffer_size: %d KB, "
@@ -291,15 +294,21 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 api_ctx->write_combine.thread_pool_max_threads,
                 api_ctx->write_combine.thread_pool_min_idle_count,
                 api_ctx->write_combine.thread_pool_max_idle_time);
-        if (len > size) {
-            len = size;
+        if (len >= size) {
+            return;
         }
     }
     len += snprintf(output + len, size - len, " }");
+    if (len >= size) {
+        return;
+    }
 
     len += snprintf(output + len, size - len,
             ", read_ahead { enabled: %d",
             api_ctx->read_ahead.enabled);
+    if (len >= size) {
+        return;
+    }
     if (api_ctx->read_ahead.enabled) {
         len += snprintf(output + len, size - len, ", "
                 "cache_ttl_ms: %d ms, "
@@ -312,11 +321,11 @@ void fs_api_config_to_string_ex(FSAPIContext *api_ctx,
                 api_ctx->read_ahead.max_buffer_size / 1024,
                 api_ctx->read_ahead.skip_preread_on_slice_size / 1024,
                 api_ctx->read_ahead.shared_lock_count);
-        if (len > size) {
-            len = size;
+        if (len >= size) {
+            return;
         }
     }
-    len += snprintf(output + len, size - len, " }");
+    snprintf(output + len, size - len, " }");
 }
 
 static int write_combine_init(FSAPIContext *api_ctx)

@@ -518,6 +518,9 @@ static void master_election_config_to_string(char *buff, const int size)
             "failover=%s", RESUME_MASTER_ROLE, (MASTER_ELECTION_FAILOVER ?
                 "true" : "false"));
     if (MASTER_ELECTION_FAILOVER) {
+        if (len >= size) {
+            return;
+        }
         if (MASTER_ELECTION_POLICY == FS_MASTER_ELECTION_POLICY_STRICT_INT) {
             len += snprintf(buff + len, size - len, ", policy=%s",
                     FS_MASTER_ELECTION_POLICY_STRICT_STR);
@@ -526,6 +529,10 @@ static void master_election_config_to_string(char *buff, const int size)
                     FS_MASTER_ELECTION_POLICY_TIMEOUT_STR,
                     MASTER_ELECTION_TIMEOUTS);
         }
+    }
+
+    if (len >= size) {
+        return;
     }
     len += snprintf(buff + len, size - len, "}");
 }
@@ -558,6 +565,9 @@ static void replica_binlog_config_to_string(char *buff, const int size)
 
     len = snprintf(buff, size, "replica-binlog {"
             "keep_days: %d", REPLICA_KEEP_DAYS);
+    if (len >= size) {
+        return;
+    }
     if (REPLICA_KEEP_DAYS > 0) {
         len += snprintf(buff + len, size - len, ", delete_time=%02d:%02d}",
                 REPLICA_DELETE_TIME.hour, REPLICA_DELETE_TIME.minute);
@@ -657,9 +667,12 @@ static void server_log_configs()
             LEADER_ELECTION_MAX_WAIT_TIME,
             LEADER_ELECTION_MAX_SHUTDOWN_DURATION,
             STORAGE_ENABLED);
+    if (len > sizeof(sz_server_config)) {
+        len = sizeof(sz_server_config);
+    }
 
     if (STORAGE_ENABLED) {
-        len += snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
+        snprintf(sz_server_config + len, sizeof(sz_server_config) - len,
                 ", library: %s, data_path: %s, block_binlog_subdirs: %d"
                 ", block_segment_hashtable_capacity: %d"
                 ", block_segment_shared_lock_count: %d"
