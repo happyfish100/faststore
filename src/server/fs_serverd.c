@@ -192,6 +192,7 @@ static int process_cmdline(int argc, char *argv[], bool *continue_flag)
     if (CMDLINE_CONFIG_FILENAME == NULL) {
         return 0;
     }
+    SF_G_CONFIG_FILENAME = CMDLINE_CONFIG_FILENAME;
 
     log_init2();
     //log_set_time_precision(&g_log_context, LOG_TIME_PRECISION_USECOND);
