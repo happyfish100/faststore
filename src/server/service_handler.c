@@ -567,10 +567,12 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         }
 
         IDEMPOTENCY_REQUEST = request;
-        /* patch2: the request holds its own channel reference so that
+
+        /* the request holds its own channel reference so that
          * finish can remove it even after the connection is closed */
-        __sync_add_and_fetch(&IDEMPOTENCY_CHANNEL->ref_count, 1);
+        idempotency_channel_hold(IDEMPOTENCY_CHANNEL);
         TASK_CTX.service.idempotency_req_channel = IDEMPOTENCY_CHANNEL;
+
         REQUEST.body += sizeof(SFProtoIdempotencyAdditionalHeader);
         REQUEST.header.body_len -= sizeof(SFProtoIdempotencyAdditionalHeader);
     }
@@ -621,8 +623,6 @@ static int service_check_priv(struct fast_task_info *task)
             case SF_SERVICE_PROTO_REBIND_CHANNEL_REQ:
             case SF_SERVICE_PROTO_GET_LEADER_REQ:
             case SF_SERVICE_PROTO_GET_GROUP_SERVERS_REQ:
-            case SF_SERVER_TASK_TYPE_CHANNEL_HOLDER:
-            case SF_SERVER_TASK_TYPE_CHANNEL_USER:
                 return 0;
 
             case FS_SERVICE_PROTO_SLICE_WRITE_REQ:
