@@ -567,6 +567,10 @@ static int service_update_prepare_and_check(struct fast_task_info *task,
         }
 
         IDEMPOTENCY_REQUEST = request;
+        /* patch2: the request holds its own channel reference so that
+         * finish can remove it even after the connection is closed */
+        __sync_add_and_fetch(&IDEMPOTENCY_CHANNEL->ref_count, 1);
+        TASK_CTX.service.idempotency_req_channel = IDEMPOTENCY_CHANNEL;
         REQUEST.body += sizeof(SFProtoIdempotencyAdditionalHeader);
         REQUEST.header.body_len -= sizeof(SFProtoIdempotencyAdditionalHeader);
     }

@@ -85,9 +85,15 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
         const int result)
 {
     if (IDEMPOTENCY_REQUEST != NULL) {
+        struct idempotency_channel *channel;
+
+        /* patch2: use the channel held by the request, NOT the task's
+         * channel which is released and set to NULL on connection close */
+        channel = TASK_CTX.service.idempotency_req_channel;
+        TASK_CTX.service.idempotency_req_channel = NULL;
         if (SF_IS_SERVER_RETRIABLE_ERROR(result)) {
-            if (IDEMPOTENCY_CHANNEL != NULL) {
-                idempotency_channel_remove_request(IDEMPOTENCY_CHANNEL,
+            if (channel != NULL) {
+                idempotency_channel_remove_request(channel,
                         IDEMPOTENCY_REQUEST->req_id);
             }
         } else {
@@ -99,6 +105,9 @@ void du_handler_idempotency_request_finish(struct fast_task_info *task,
             }
         }
         idempotency_request_release(IDEMPOTENCY_REQUEST);
+        if (channel != NULL) {
+            idempotency_channel_release(channel, false);
+        }
 
         /* server task type for channel ONLY, do NOT set task type to NONE!!! */
         IDEMPOTENCY_REQUEST = NULL;

@@ -478,6 +478,8 @@ typedef struct {
 
     struct {
         struct idempotency_request *idempotency_request;
+        /* channel held by the in-flight update request (patch2) */
+        struct idempotency_channel *idempotency_req_channel;
         struct {
             volatile int waiting_count;
             volatile int success_count;
