@@ -8,6 +8,7 @@ PIDFile=/opt/fastcfs/fstore/serverd.pid
 ExecStart=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf start
 ExecStartPost=/bin/sleep 0.1
 ExecStop=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf stop
+ExecReload=/usr/bin/fs_serverd /etc/fastcfs/fstore/server.conf reload
 
 # No artificial start/stop timeout
 TimeoutSec=0
