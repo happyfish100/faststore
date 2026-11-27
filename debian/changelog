@@ -1,20 +1,14 @@
+faststore (5.5.5-1) unstable; urgency=medium
+
+  * upgrade to 5.5.5-1
+
+ -- YuQing <384681@qq.com>  Mon Nov 23 14:52:46 2026 +0800
+
 faststore (5.5.0-1) unstable; urgency=medium
 
   * upgrade to 5.5.0-1
 
  -- YuQing <384681@qq.com>  Sun, 23 Nov 2025 10:52:30 +0000
-
-faststore (5.5.0-1) unstable; urgency=medium
-
-  * upgrade to 5.5.0-1
-
- -- YuQing <384681@qq.com>  Sun, 23 Nov 2025 10:05:45 +0000
-
-faststore (5.5.0-1) unstable; urgency=medium
-
-  * upgrade to 5.5.0-1
-
- -- YuQing <384681@qq.com>  Sun, 23 Nov 2025 09:10:59 +0000
 
 faststore (5.4.1-1) unstable; urgency=medium
 
